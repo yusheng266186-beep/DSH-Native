@@ -42,9 +42,29 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "DSHNative";
 
-    /** 运行包地址（与 APK 版本配套）。 */
-    private static final String BASE_URL =
+    /**
+     * 运行包来源，按顺序尝试。
+     *
+     * <p>实测：GitHub 发布资产 CDN 在部分网络下**完全不可达**（连接超时），
+     * 而镜像可稳定达到 1.2 MB/s。因此镜像优先，直连作为最后兜底。
+     *
+     * <p>各源速度实测（下载 8MB 样本）：
+     * <pre>
+     *   gh-proxy.com   1.21 MB/s
+     *   ghfast.top     0.49 MB/s
+     *   ghproxy.net    0.26 MB/s
+     *   直连 github    超时失败
+     * </pre>
+     */
+    private static final String ASSET_PATH =
             "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v1/";
+
+    private static final String[] SOURCES = {
+            "https://gh-proxy.com/" + ASSET_PATH,
+            "https://ghfast.top/" + ASSET_PATH,
+            "https://ghproxy.net/" + ASSET_PATH,
+            ASSET_PATH,                       // 直连兜底
+    };
 
     /**
      * 运行包与期望的 SHA-256 —— 移动网络容易中断，下载后必须校验，
@@ -140,7 +160,7 @@ public class MainActivity extends Activity {
                         log("已有归档校验不通过，重新下载: " + name);
                         archive.delete();
                     }
-                    download(BASE_URL + name, archive);
+                    download(name, archive);
                     String actual = sha256(archive);
                     if (!expectedSha.equalsIgnoreCase(actual)) {
                         archive.delete();
@@ -340,17 +360,15 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 分块下载 + 块级重试 + 手动跟随重定向。
+     * 分块下载 + 块级重试 + 多源降级 + 手动跟随重定向。
      *
-     * <p>这台设备实测网络极不稳定（大文件常中途断开、CDN 偶发超时），
-     * 单次流式下载 34MB 基本会失败。因此改为 2MB 分块：
-     * 每块独立重试，单块失败不会丢弃已下载的进度。
-     *
-     * <p>每个请求都重新获取一次重定向，避免签名 URL 过期。
+     * <p>这台设备实测网络极不稳定，且 GitHub 直连常不可达，
+     * 因此每个分块都会依次尝试多个来源（镜像优先），
+     * 任一块失败只影响该块，已下载进度保留。
      */
-    private void download(String url, File out) throws IOException {
+    private void download(String assetName, File out) throws IOException {
         final int CHUNK = 2 * 1024 * 1024;
-        final int MAX_RETRY = 6;
+        final int MAX_RETRY_PER_SOURCE = 4;
 
         long total = -1;
         java.io.RandomAccessFile raf = new java.io.RandomAccessFile(out, "rw");
@@ -361,30 +379,39 @@ public class MainActivity extends Activity {
             int retries = 0;
             long t0 = System.currentTimeMillis();
             int lastLoggedPct = -1;
+            String lastErr = null;
 
             while (total < 0 || done < total) {
                 long end = total < 0 ? (done + CHUNK - 1) : Math.min(done + CHUNK - 1, total - 1);
 
                 byte[] buf = null;
-                String lastErr = null;
-                for (int attempt = 0; attempt < MAX_RETRY; attempt++) {
-                    try {
-                        Object[] r = fetchRange(url, done, end);
-                        buf = (byte[]) r[0];
-                        if (total < 0 && r[1] != null) total = (Long) r[1];
-                        break;
-                    } catch (Exception e) {
-                        lastErr = e.getClass().getSimpleName() + ": " + e.getMessage();
-                        retries++;
-                        try { Thread.sleep(600L * (attempt + 1)); } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            throw new IOException("下载被中断");
+                for (int s = 0; s < SOURCES.length && buf == null; s++) {
+                    String url = SOURCES[s] + assetName;
+                    for (int attempt = 0; attempt < MAX_RETRY_PER_SOURCE; attempt++) {
+                        try {
+                            Object[] r = fetchRange(url, done, end);
+                            buf = (byte[]) r[0];
+                            if (total < 0 && r[1] != null) total = (Long) r[1];
+                            if (s > 0) log("  已切换到镜像源 #" + s);
+                            break;
+                        } catch (Exception e) {
+                            lastErr = shorten(e);
+                            retries++;
+                            try {
+                                Thread.sleep(500L * (attempt + 1));
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new IOException("下载被中断");
+                            }
                         }
                     }
+                    if (buf == null) log("  源 #" + s + " 失败（" + lastErr + "），尝试下一个");
                 }
+
                 if (buf == null) {
-                    throw new IOException("下载失败（块 " + chunkIdx + "，offset " + done
-                            + "）：" + lastErr + "\n网络不稳定，请稍后重试");
+                    throw new IOException("下载失败（块 " + chunkIdx + "，已下载 "
+                            + (done / 1048576) + "MB）：所有来源均不可用\n最后错误：" + lastErr
+                            + "\n请检查网络后重新打开 App —— 已下载部分会保留。");
                 }
                 long want = end - done + 1;
                 if (buf.length < want && total > 0 && done + buf.length < total) {
@@ -404,12 +431,20 @@ public class MainActivity extends Activity {
                                 + " MB, " + (done / 1048576 / secs) + " MB/s, 重试 " + retries + " 次)");
                     }
                 }
-                if (total < 0 && buf.length < CHUNK) break;   // 无 content-length 时的终止条件
+                if (total < 0 && buf.length < CHUNK) break;
             }
             log("  下载完成 " + (done / 1048576) + " MB，重试 " + retries + " 次");
         } finally {
             raf.close();
         }
+    }
+
+    /** 压缩异常信息，避免日志刷屏。 */
+    private String shorten(Exception e) {
+        String m = e.getMessage();
+        if (m == null) m = e.getClass().getSimpleName();
+        if (m.length() > 60) m = m.substring(0, 60) + "…";
+        return m;
     }
 
     /** 取指定字节范围。返回 {byte[] data, Long totalSizeOrNull}。 */
