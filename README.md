@@ -1,5 +1,15 @@
 # DSH Native
 
+> ## ⬇️ 直接下载
+>
+> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.2.2-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
+>
+> 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
+> 然后分块下载约 48MB 运行包。完成后在 Models 页面填 API Key 即可使用。
+>
+> SHA-256：`0c9497dc83159bac1c51cceed018653d85468d1bbf65538d87c4d3931661dcbe`
+
+
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
 
 ---
