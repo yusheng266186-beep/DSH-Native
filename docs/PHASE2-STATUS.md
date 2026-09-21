@@ -268,3 +268,15 @@ GET /         → 200, 31252B, text/html
 - 关键约束：`targetSdkVersion = 28`（否则 SELinux 禁止 exec 私有目录文件）
 - 镜像源：`deb.debian.org` 仅 100KB/s，改用 `mirrors.aliyun.com`（17.5MB/s）；
   Termux 仓库 1.6MB/s
+
+### ⚠️ 测试环境的重要局限（必须知道）
+
+本文件中所有 Android 侧测试（Node 启动、node-pty、工具链、`dsh web`）
+**都是在 PRoot 环境内通过 `/system/bin/sh` 执行的**，而非真实 App 沙箱。
+
+PRoot 以 uid 0 运行且不套用 `untrusted_app_25` 的 SELinux 域，
+因此这些测试**无法证明** `targetSdk 28` 下 App 私有目录的 `execve` 会被放行。
+真正需要 App UI 实测的那一项（Phase 1 的核心待验证点）**仍然悬而未决**。
+
+可以确定的是：**Phase 2 的软件层阻断已全部排除**（工具链、node-pty、koffi、原生插件）。
+剩余的唯一未知量是 SELinux exec 策略，只能由用户装包后实测。
