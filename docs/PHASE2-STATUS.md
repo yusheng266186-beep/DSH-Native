@@ -321,7 +321,7 @@ NODE_PATH=$PAYLOAD/node_modules:/usr/lib/node_modules
 
 ---
 
-## 五、体积预估
+### （历史记录）初步体积预估
 
 | 组件 | 压缩前 | 说明 |
 |---|---|---|
@@ -333,6 +333,71 @@ NODE_PATH=$PAYLOAD/node_modules:/usr/lib/node_modules
 
 > 体积优化方向：Node 的 ICU 可用 `--with-intl=small-icu` 大幅缩减（32MB → ~2MB），
 > 但需自行编译 Node，成本较高，暂列为可选优化。
+
+---
+
+## 五、体积分析与裁剪结果
+
+### 实测裁剪（已验证）
+
+| 阶段 | 体积 | 说明 |
+|---|---|---|
+| DSH 原始 | **498 MB** | |
+| 移除 `libreoffice-kit-wasm` 后 | **312 MB** | 省 186MB（见下） |
+
+**`libreoffice-kit-wasm`（186MB）可安全移除**，依据：
+
+1. 它是 `@deepseek-ai/libreoffice-kit` 的 **OOXML→PDF 引擎资源**，只在转换 Office 文档时用
+2. `libreoffice-kit` 通过 `resolvePackage(\`${ENGINE_PREFIX}-wasm\`)` **惰性解析**，
+   真正读取发生在 Worker 内（`engineAsset(...)`），**不在启动路径上**
+3. 实测运行的 DSH 进程 `/proc/<pid>/maps` 中 libreoffice 条目为 **0**
+4. **裁剪后回归测试通过**：agent 正常回复，工具链输出正确
+
+### 进一步裁剪空间（未执行，仅供参考）
+
+| 包 | 体积 | 移除风险 |
+|---|---|---|
+| `@opentelemetry` | 36 MB | 低（仅 `dsh-session-telemetry-otel` 用） |
+| `@img`（sharp） | 27 MB | 低（仅图片附件；且本无 android 预编译） |
+| `openai` / `@google` / `@anthropic-ai` | 45 MB | 中（其他 provider SDK，改用需确认） |
+| `node-pty` 原包 | 26 MB | 无（**已换成 60KB 的 Android 版**） |
+| `@mixmark-io` / `@octokit` / `@aws-sdk` | 26 MB | 中（HTML→MD、Webhook、S3 附件） |
+
+**预计可再降到约 190 MB。**
+
+### APK 体积预估
+
+| 组件 | 未压缩 |
+|---|---|
+| Node 26.4.0 | 47 MB |
+| Node 依赖库（ICU/OpenSSL/…） | 41 MB |
+| DSH（已裁剪） | 312 MB |
+| 工具链（rg/git/bash/fd/jq + 依赖） | 25 MB |
+| **合计** | **~425 MB** |
+
+APK 压缩后预计 **约 130–160 MB**。
+
+### ⚠️ 单 APK 直塞的可行性建议
+
+把 400MB+ 运行时装进一个 APK 已接近可行但**不推荐**：
+
+1. **构建耗时长**：每次改代码都要重新打包 400MB
+2. **安装与更新笨重**：装一次要写 400MB+ 到私有目录，且解压耗时
+3. **GitHub 限制**：单文件上限 100MB（Release 资产），直接放仓库会很勉强
+
+**推荐改为「引导式 APK」架构**（这也是大型运行时的通行做法）：
+
+```
+APK（~35MB，内置 Node）
+   └─ 首次启动 → 从 GitHub Release 下载 payload 分卷
+        ├─ dsh.tar.zst（~100MB）→ 解压到私有目录
+        └─ tools.tar.zst（~10MB）
+```
+
+好处：APK 保持轻量、可快速迭代；payload 独立版本化；
+后续升级 agent 无需重装 App。**代价**是首启需联网下载一次。
+
+**这一步的决策需要你确认**（见下节待办）。
 
 ---
 
