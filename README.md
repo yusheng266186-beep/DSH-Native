@@ -8,15 +8,21 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.2.0 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.2.0-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启下载运行包 | APK 34MB + 首启 48MB |
+| **[v0.2.1 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.2.1-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 48MB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
-### v0.2.0 使用步骤
+### v0.2.1 使用步骤
 
 1. 安装 APK（34MB）
-2. 打开 App，**保持联网** —— 首启会下载约 48MB 运行包（面板显示进度）
+2. 打开 App，**保持联网** —— 首启分块下载约 48MB 运行包
+   （面板显示百分比 / 速率 / 重试次数；网络抖动会自动重试）
 3. 等待解压与启动（约 1–2 分钟）
 4. 界面加载后，在 **Models 页面填入 API Key** 即可开始使用
+
+> **v0.2.1 修复了 v0.2.0 的一个真实缺陷**：原下载实现是单次流式下载，没有分块与重试。
+> 实测发现本机网络下 34MB 文件连续多次失败（`ETIMEDOUT` / `timeout`），
+> 且不校验完整性——移动网络中断会产生静默损坏的归档。
+> 现改为 2MB 分块 + 块级重试 + SHA-256 校验，策略已通过故障注入测试验证。
 
 > 引导式架构的原因：完整运行包 330MB，压缩后 48MB，但直接塞进 APK 会超过
 > GitHub 的 100MB 单文件上限，且构建迭代极慢。拆成「轻量 APK + 独立运行包」后，
