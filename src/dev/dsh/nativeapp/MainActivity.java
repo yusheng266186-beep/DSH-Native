@@ -109,6 +109,13 @@ public class MainActivity extends Activity {
         extractAssets(root);
         File node = new File(root, "node");
         chmod(node, "755");
+
+        // 前置自检：先确认能否执行自带的 Node。
+        // 这一步是整个架构成立的前提（Android 10+ 对 targetSdk>=29 的 App
+        // 禁止 exec 私有目录文件）。放在下载之前，可以快速失败并给出明确原因。
+        if (!probeNodeExec(node)) {
+            return;
+        }
         log("Node 就绪: " + runCapture(node, new String[]{"--version"}));
 
         // 2. 下载并解压运行包（首次启动）
@@ -247,6 +254,66 @@ public class MainActivity extends Activity {
         if (!creds.exists()) {
             // 留空，用户可在 Web 界面的 Models 页面里填写 API Key
             Log.i(TAG, "credentials file not present; user configures via web UI");
+        }
+    }
+
+    /**
+     * 前置自检：能否执行私有目录里的 Node。
+     *
+     * <p>这是整个架构的成立前提。Android 10 起，{@code targetSdk >= 29} 的 App
+     * 被 SELinux 禁止对私有目录文件调用 {@code execve()}；本 App 用 {@code targetSdk 28}
+     * 规避，但能否生效只能在真实沙箱里验证，因此这里显式探测并给出明确结论。
+     *
+     * @return 可执行返回 true；否则打印诊断信息并返回 false
+     */
+    private boolean probeNodeExec(File node) {
+        log("自检: 检查 Node 可执行性 …");
+        if (!node.exists()) {
+            log("✗ 自检失败: node 文件不存在 → " + node.getAbsolutePath());
+            return false;
+        }
+        // 记录权限位，便于判断 chmod 是否真的生效
+        log("  node 权限: " + (node.canExecute() ? "可执行" : "⚠ 无执行位")
+                + ", 大小 " + (node.length() / 1048576) + "MB");
+
+        ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(), "--version");
+        pb.redirectErrorStream(true);
+        pb.environment().put("LD_LIBRARY_PATH",
+                new File(node.getParentFile(), "lib").getAbsolutePath());
+        Process p = null;
+        try {
+            p = pb.start();
+        } catch (IOException e) {
+            log("");
+            log("✗✗ 自检失败：无法执行自带的 Node");
+            log("    原因: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            log("");
+            log("  这通常意味着 SELinux 拦截了对私有目录的 execve。");
+            log("  本 App 已设 targetSdk=28 以规避该限制，若仍被拦截，");
+            log("  说明此 ROM 的策略更严格，需要改用 nativeLibraryDir 方案。");
+            log("");
+            log("  👉 请把以上内容完整反馈，这是判断架构是否成立的关键依据。");
+            return false;
+        }
+        try {
+            BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), "UTF-8"));
+            String line;
+            StringBuilder sb = new StringBuilder();
+            while ((line = r.readLine()) != null) {
+                if (sb.length() > 0) sb.append(" | ");
+                sb.append(line.trim());
+            }
+            int code = p.waitFor();
+            if (code != 0) {
+                log("✗ 自检失败: node --version 退出码 " + code + "，输出: " + sb);
+                return false;
+            }
+            log("  ✓ 自检通过，node 版本: " + sb);
+            return true;
+        } catch (Exception e) {
+            log("✗ 自检异常: " + e);
+            return false;
         }
     }
 

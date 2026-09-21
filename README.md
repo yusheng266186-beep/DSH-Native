@@ -8,14 +8,17 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.2.1 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.2.1-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 48MB |
+| **[v0.2.2 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.2.2-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 48MB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
-### v0.2.1 使用步骤
+### v0.2.2 使用步骤
 
 1. 安装 APK（34MB）
 2. 打开 App，**保持联网** —— 首启分块下载约 48MB 运行包
    （面板显示百分比 / 速率 / 重试次数；网络抖动会自动重试）
+
+   启动前会先做一次**自检**（执行 `node --version`），
+   3 秒内即可确认架构是否成立，无需等下载完才知道。
 3. 等待解压与启动（约 1–2 分钟）
 4. 界面加载后，在 **Models 页面填入 API Key** 即可开始使用
 
