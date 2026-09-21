@@ -305,6 +305,55 @@ NODE_PATH=$PAYLOAD/node_modules:/usr/lib/node_modules
 
 ---
 
+## 三之四、交付链路完整验证 ✅
+
+针对「引导式 APK」的运行时链路，逐环节验证如下。
+
+### 验证矩阵
+
+| # | 环节 | 方法 | 结果 |
+|---|---|---|---|
+| 1 | GitHub Release 下载（含跨域 302 → CDN 签名 URL） | Node https + 手动跟随重定向 | ✅ 302 → 200，14.7MB / 3.9s |
+| 2 | SHA-256 校验 | 与 release 的 `SHA256SUMS.txt` 比对 | ✅ `c088ca79…` 一致 |
+| 3 | 分块下载策略（2MB/块 + 块级重试） | 本地服务器**注入 6 次连接中断** | ✅ 全部自愈，SHA-256 匹配 |
+| 4 | 解压 `tools.tar.zst`（15MB） | Android bionic Node | ✅ 342 文件 + 167 链接 |
+| 5 | 解压 `dsh.tar.zst`（34MB） | 容器 Node | ✅ 24466 文件 + 3107 目录 |
+| 6 | **解压 `dsh.tar.zst`** | **Android bionic Node** | ✅ **24466 文件，24.9 秒** |
+| 7 | 补丁是否随归档保留 | 检查解出内容 | ✅ 3 个补丁全部在位 |
+| 8 | 用**解压出的 payload** 跑 agent | 容器 | ✅ `EXTRACTED_PAYLOAD_OK` |
+| 9 | **Android 解压的 DSH + 工具链跑 agent** | Android | ✅ `rg 15.2.0` / `git 2.55.0` / `BASH_OK` |
+
+第 9 项就是 App 首启完成后的真实状态，即**除 App 沙箱本身外，全部链路已实测跑通**。
+
+### 补丁保留验证（第 7 项细节）
+
+```
+✅ lib/bin.js
+✅ node_modules/@deepseek-ai/dsh-app-boot/package.json
+✅ node_modules/node-addon-require-builtin/lib/index.js   （垫片标记 2 处）
+✅ node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
+     （"Android patch" 标记 2 处，rename 出现 8 次）
+✅ node_modules/@deepseek-ai/node-addon-system/lib/flock.js（android 标记 3 处）
+✅ node_modules/node-pty/  → 12K 代理包（原为 26MB）
+✅ node_modules/@mmmbuto/node-pty-android-arm64/prebuilds/android-arm64/pty.node
+```
+
+### 下载链路的真实网络表现（重要）
+
+本机网络对 GitHub **发布资产 CDN**（`objects.githubusercontent.com`）极不稳定：
+
+```
+api.github.com            → HTTP 200，connect 0.15s（正常）
+objects.githubusercontent → HTTP 000 / connect 26.5s（异常）
+分块探测                  → 多次 3 块仅 1 块成功（ETIMEDOUT / timeout）
+```
+
+这是**网络路径问题，与 App 实现无关**，但正因如此催生了 v0.2.1 的下载加固
+（分块 + 重试 + SHA 校验）。按当前单块成功率估算，
+6 次重试下每块成功率约 87%，整体仍可完成，只是耗时较长。
+
+---
+
 ## 四、待办清单（按依赖顺序）
 
 - [x] ~~**P0** 实现 `node-addon-require-builtin` 的纯 JS 垫片~~ → **已完成并验证**
