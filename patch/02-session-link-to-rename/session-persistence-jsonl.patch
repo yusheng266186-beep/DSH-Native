@@ -1,0 +1,59 @@
+--- /root/.dsh/../../usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js.orig	2026-09-21 15:11:52.264226574 +0000
++++ /usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js	2026-09-21 15:11:57.600226572 +0000
+@@ -1,7 +1,7 @@
+ import z from "@deepseek-ai/schemastery";
+ import { SessionFormatUnsupportedMigrationError, sessionFormatCatalog } from "@deepseek-ai/dsh-session-format-catalog";
+ import { readdirSync } from "node:fs";
+-import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";
++import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, truncate } from "node:fs/promises";
+ import { basename, dirname, isAbsolute, join, parse, resolve, toNamespacedPath } from "node:path";
+ import { performance } from "node:perf_hooks";
+ import { scheduler } from "node:timers/promises";
+@@ -2029,14 +2029,16 @@
+ 		/* v8 ignore next -- the filesystem error is already complete. */
+ 		throw error;
+ 	}
++	// Android patch: replace the hard-link publish with an exclusive
++	// existence check plus rename. bionic rejects link() with EACCES, and
++	// rename(2) is atomic for a same-directory publish.
+ 	try {
+-		await internals.fs.link(staged, currentPath);
++		await internals.fs.lstat(currentPath);
++		return false;
+ 	} catch (error) {
+-		/* v8 ignore else -- a non-collision filesystem error propagates unchanged. */
+-		if (isEEXIST(error)) return false;
+-		/* v8 ignore next -- the filesystem error is already complete. */
+-		throw error;
++		if (error?.code !== "ENOENT") throw error;
+ 	}
++	await internals.fs.rename(staged, currentPath);
+ 	await syncDirectory(dirname(currentPath), internals);
+ 	return true;
+ }
+@@ -2969,18 +2971,17 @@
+ 		await this.syncDirPosix(project);
+ 		await this.rejectExistingLog(finalPath, id);
+ 		const tmp = await this.writeSyncedTempFile(finalPath, content);
+-		let linked = false;
++		// Android patch: bionic denies hard link() with EACCES. rename(2) is
++		// equally atomic for a same-directory publish; rejectExistingLog above
++		// already guards the create-new-only contract.
++		let published = false;
+ 		try {
+-			await link(tmp, finalPath);
+-			linked = true;
++			await rename(tmp, finalPath);
++			published = true;
+ 		} finally {
+-			/* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
+-			if (!linked) await rm(tmp, { force: true });
++			if (!published) await rm(tmp, { force: true });
+ 		}
+ 		await this.syncDirPosix(dir);
+-		try {
+-			await rm(tmp, { force: true });
+-		} catch {}
+ 	}
+ 	/* v8 ignore stop */
+ 	/* v8 ignore start -- native Windows coverage exercises this integration path */

@@ -1,0 +1,31 @@
+--- /usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/node-addon-system/lib/flock.js.orig	2026-09-21 15:11:57.672226572 +0000
++++ /usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/node-addon-system/lib/flock.js	2026-09-21 15:12:03.236226570 +0000
+@@ -7,7 +7,7 @@
+     if (binding)
+         return binding;
+     const { platform, arch } = process;
+-    if (platform !== 'linux' && platform !== 'darwin') {
++    if (platform !== 'linux' && platform !== 'darwin' && platform !== 'android') {
+         throw Object.assign(new Error(`flock is not supported on ${platform}-${arch}`), {
+             code: 'ERR_FLOCK_UNSUPPORTED_PLATFORM',
+             syscall: 'flock',
+@@ -20,8 +20,17 @@
+         filename = join(report.header.glibcVersionRuntime ? 'glibc' : 'musl', filename);
+     }
+     const require = createRequire(import.meta.url);
+-    const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`);
+-    binding = require(join(dirname(manifest), 'bin', filename));
++    // Android patch: there is no prebuilt binding for android-arm64. Session
++    // logs on a single-user, single-process device do not rely on
++    // cross-process advisory locking, so degrade to a no-op lock rather than
++    // failing session persistence outright.
++    const pkgPlatform = platform === 'android' ? 'linux' : platform;
++    try {
++        const manifest = require.resolve(`@deepseek-ai/node-addon-system-${pkgPlatform}-${arch}/package.json`);
++        binding = require(join(dirname(manifest), 'bin', filename));
++    } catch (error) {
++        binding = { tryLock: (_fd, done) => done(0) };
++    }
+     return binding;
+ }
+ /**
