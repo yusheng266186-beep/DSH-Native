@@ -27,11 +27,14 @@ function diag(msg) {
   try {
     process.stderr.write('[sharp-shim] ' + msg + '\n');
   } catch (e) { /* ignore */ }
-  try {
-    const fs = require('fs');
-    const dir = process.env.HOME || process.env.TMPDIR || '/tmp';
-    fs.appendFileSync(path.join(dir, 'sharp-shim.log'), line + '\n');
-  } catch (e) { /* ignore */ }
+  // 同时写私有目录与共享目录：共享目录才能在设备外排查
+  const fs = require('fs');
+  const targets = [];
+  if (process.env.HOME) targets.push(path.join(process.env.HOME, 'sharp-shim.log'));
+  targets.push('/sdcard/DSHNative/sharp-shim.log');
+  for (const p of targets) {
+    try { fs.appendFileSync(p, line + '\n'); } catch (e) { /* ignore */ }
+  }
 }
 // python3 由运行包提供，PATH 已指向 tools/bin
 const PYTHON = process.env.DSH_PYTHON || 'python3';

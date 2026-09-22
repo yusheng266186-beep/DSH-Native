@@ -1,7 +1,7 @@
 {
-  "version": "0.15.1",
-  "tag": "v0.15.1-bootstrap",
+  "version": "0.15.2",
+  "tag": "v0.15.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "修复发图片被拒（模型缺 input 声明）+ 内置脚本更新"
+  "notes": "模型配置整块同步 + 图片问题诊断"
 }

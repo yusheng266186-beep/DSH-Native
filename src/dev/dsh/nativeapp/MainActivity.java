@@ -575,10 +575,10 @@ public class MainActivity extends Activity {
             } else {
                 log("  模型配置已存在，无需注入");
             }
-            // 顶层块存在 ≠ 内容正确：早期生成的 settings.yaml 缺少模型的
+            // 顶层块存在 ≠ 内容正确：早期生成的 settings.yaml 可能缺少模型的
             // input 声明，而 DSH 对未声明者一律按「仅文字」处理 ——
-            // 表现为发图片被拒。这里以预设为准做幂等补齐。
-            ensureImageModalities(root, settings);
+            // 表现为发图片被拒。这里以预设为准整块同步（幂等）。
+            syncProviderConfig(root, settings);
         }
 
         // 2) 凭据 —— 同理，DSH 会自建 .credentials.yaml 存放浏览器会话授权，
@@ -607,73 +607,126 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 确保「支持图片输入的模型」在 settings.yaml 里也声明了 {@code input}。
+     * 用预设里的 {@code llm-pi-ai} 块整体覆盖 settings.yaml 中的同名块。
      *
-     * <p><b>为什么需要</b>：DSH 的模型 schema 里
+     * <p><b>为什么不能用「逐模型补一行」的正则方案</b>：
+     * 正则很难可靠地界定「一个模型条目到哪里结束」，一旦界定错就会
+     * 把某个模型的 input 归给相邻模型（实测把 v4-flash 误判为支持图片）；
+     * 而且匹配失败时无法与「本来就正确」区分，日志会误报「已齐全」。
+     *
+     * <p>这里改为按行解析顶层块并整体替换 —— 结构清晰、幂等、结果确定。
+     * {@code llm-pi-ai} 只描述 provider 与模型清单，用户的模型选择存在
+     * {@code agent-default-model} 块里，因此覆盖它不会动到用户的选择。
+     *
+     * <p><b>为什么必须同步</b>：DSH 的模型 schema 是
      * {@code input: entry.input ?? base?.input ?? [...request.defaultInput]}，
-     * 而 {@code DEFAULT_INPUT} 是 {@code ["text"]}。即**未声明 input 的模型
-     * 一律被视为不支持图片**，发图片会在准入阶段被拒
-     * （界面显示 "prompt rejected (session/agent-busy)"，
-     * 真实原因是那个兜底 catch 把非预期错误一并包装了）。
-     *
-     * <p>预设里 deepseek-v4.1-flash 等模型一直有 {@code input: [ text, image ]}，
-     * 但 {@code mergeTopLevelBlocks} 只判断顶层块是否存在 ——
-     * 块已存在就整体跳过，这两行补不进去。
-     *
-     * <p>这里以预设为唯一事实来源做幂等补齐：只给缺失的模型补一行，不动其它内容。
+     * 而 {@code DEFAULT_INPUT = ["text"]} ——
+     * **未声明 input 的模型一律被视为不支持图片**，发图片会在准入阶段被拒。
      */
-    private void ensureImageModalities(File root, File settings) {
+    private void syncProviderConfig(File root, File settings) {
         try {
             File preset = new File(root, "settings-preset.yaml");
             if (!preset.exists() || !settings.exists()) return;
 
-            // 1) 从预设里收集声明了图片能力的模型 id
-            java.util.List<String> vision = new java.util.ArrayList<String>();
-            // 注意：中间不允许再出现 "- id:"，否则会把后面模型的 input
-            // 错误地归给当前模型（实测踩过：v4-flash 被误判为支持图片）。
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                    "(?m)^\\s*-\\s*id:\\s*[\"']?([^\"'\\n]+?)[\"']?\\s*$"
-                  + "((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)"
-                  + "^\\s*input:\\s*\\[\\s*text\\s*,\\s*image\\s*\\]")
-                    .matcher(readText(preset));
-            while (m.find()) vision.add(m.group(1).trim());
-            if (vision.isEmpty()) {
-                log("  预设未声明任何图片模型，跳过补齐");
+            String want = topLevelBlock(readText(preset), "llm-pi-ai");
+            if (want == null || want.length() == 0) {
+                log("  ⚠️ 预设里没有 llm-pi-ai 块，跳过同步");
+                return;
+            }
+            String cur = readText(settings);
+            String have = topLevelBlock(cur, "llm-pi-ai");
+            if (want.equals(have)) {
+                log("  模型配置与预设一致（含图片能力声明）");
                 return;
             }
 
-            String txt = readText(settings);
-            int added = 0;
-            StringBuilder names = new StringBuilder();
-            for (String id : vision) {
-                java.util.regex.Matcher e = java.util.regex.Pattern.compile(
-                        "(?m)^(\\s*)-\\s*id:\\s*[\"']?"
-                      + java.util.regex.Pattern.quote(id) + "[\"']?\\s*$"
-                      + "([\\s\\S]{0,300}?)(?=^\\s*-\\s*id:|\\Z)").matcher(txt);
-                if (!e.find()) continue;
-                if (e.group(2).contains("input:")) continue;      // 已声明
-                java.util.regex.Matcher cw = java.util.regex.Pattern
-                        .compile("(?m)^(\\s*)contextWindow\\s*:.*$").matcher(e.group(0));
-                if (!cw.find()) continue;
-                String indent = cw.group(1);
-                // 注意：cw 是在 e.group(0) 上匹配的，其 end() 是**子串内偏移**，
-                // 必须加上 e.start() 才能用作 txt 的下标（否则插到错误位置）。
-                int at = e.start() + cw.end();
-                txt = txt.substring(0, at)
-                        + "\n" + indent + "input: [ text, image ]"
-                        + txt.substring(at);
-                added++;
-                names.append(id).append(' ');
-            }
-            if (added > 0) {
-                writeText(settings, txt);
-                log("  已为 " + added + " 个模型补齐图片输入声明: " + names.toString().trim());
+            String out;
+            if (have == null) {
+                out = cur.endsWith("\n") ? cur + want : cur + "\n" + want;
             } else {
-                log("  图片输入声明已齐全");
+                out = cur.replace(have, want);
+            }
+            writeText(settings, out);
+
+            // 记录同步后的模型与图片能力，便于核对
+            java.util.List<String> withImage = new java.util.ArrayList<String>();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "(?m)^\\s*-\\s*id:\\s*[\"']?([^\"'\\n]+?)[\"']?\\s*$\n"
+                  + "((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)"
+                  + "^\\s*input:\\s*\\[[^\\]]*image[^\\]]*\\]").matcher(want);
+            while (m.find()) withImage.add(m.group(1).trim());
+            log("  已同步模型配置；支持图片输入的模型: "
+                    + (withImage.isEmpty() ? "（无）" : withImage.toString()));
+        } catch (Throwable t) {
+            log("  ⚠️ 同步模型配置失败: " + shorten(t));
+        }
+        reportModelDiagnostics(settings);
+    }
+
+    /**
+     * 核对默认模型是否真的存在于 provider 的模型清单中。
+     *
+     * <p>DSH 在「发送图片」时会额外调用 {@code llm.resolveModelInfo(provider, model)}
+     * 来检查模型是否支持图片输入 —— 这是**只有图片才走**的分支。
+     * 若该模型在配置里查不到，这里会抛错并被 DSH 包装成
+     * "prompt rejected (session/agent-busy)"。因此把核对结果写进日志。
+     */
+    private void reportModelDiagnostics(File settings) {
+        try {
+            String txt = readText(settings);
+            String provider = readScalar(settings, "provider");
+            String model = readScalar(settings, "model");
+            log("默认模型: " + (provider.length() == 0 ? "?" : provider)
+                    + " / " + (model.length() == 0 ? "?" : model));
+            if (model.length() == 0) return;
+
+            if (txt.indexOf("- id: \"" + model + "\"") < 0
+                    && txt.indexOf("- id: " + model) < 0
+                    && txt.indexOf("'" + model + "'") < 0) {
+                log("  ⚠️ 该模型不在配置的模型清单中 —— "
+                        + "发图片时 resolveModelInfo 会失败，请改用清单内的模型");
+                return;
+            }
+            // 该模型是否声明了图片输入
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "(?m)^\\s*-\\s*id:\\s*[\"']?" + java.util.regex.Pattern.quote(model)
+                  + "[\"']?\\s*$((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)").matcher(txt);
+            if (m.find()) {
+                boolean img = m.group(1).contains("image");
+                log("  该模型" + (img ? "已声明支持图片输入 ✅" : "未声明图片输入 ⚠️（发图会被拒）"));
             }
         } catch (Throwable t) {
-            log("  ⚠️ 补齐图片输入声明失败: " + shorten(t));
+            log("  （模型核对失败: " + shorten(t) + "）");
         }
+    }
+
+    /**
+     * 取 YAML 里某个顶层键的完整块（到下一个顶层键或文件尾）。
+     * 用逐行解析而非正则，避免块边界判断出错。
+     */
+    private static String topLevelBlock(String yaml, String key) {
+        String[] lines = yaml.split("\n", -1);
+        int start = -1, end = lines.length;
+        for (int i = 0; i < lines.length; i++) {
+            String l = lines[i];
+            if (l.length() == 0 || l.charAt(0) == ' ' || l.charAt(0) == '\t'
+                    || l.charAt(0) == '#') {
+                continue;
+            }
+            int c = l.indexOf(':');
+            if (c <= 0) continue;
+            String k = l.substring(0, c).trim();
+            if (start < 0) {
+                if (k.equals(key)) start = i;
+            } else {
+                end = i;
+                break;
+            }
+        }
+        if (start < 0) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i < end; i++) sb.append(lines[i]).append('\n');
+        return sb.toString();
     }
 
     /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
@@ -2468,7 +2521,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.1\n");
+            w.write("APK 版本: 0.15.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

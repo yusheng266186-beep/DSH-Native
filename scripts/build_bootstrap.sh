@@ -66,7 +66,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js openssl.cnf preflight.js sharpstub.js settings-preset.yaml ca-certificates.crt; do
+for f in unpack.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -141,11 +141,21 @@ echo "  ✓ 无系统 AlertDialog；DshUi 使用文件数: $DSUI_USE"
 # ---------------------------------------------------------------- 4. Java
 say "4. 编译 Java"
 find "$BOOT/src" -name '*.java' > "$OUT/sources.txt"
-javac --release 8 -nowarn -proc:none \
+# 注意：必须检查 javac 的退出码。此前只在最后检查"有没有 class"，
+# 导致编译报错时仍可能产出残缺 APK（实测踩过：class 文件只剩 1 个却照常打包）。
+set +e
+JAVAC_OUT=$(javac --release 8 -nowarn -proc:none \
       -classpath "$ANDROID_JAR_COMPILE" \
-      -d "$OUT/classes" @"$OUT/sources.txt" 2>&1 | grep -v 'deprecat' | head -10 || true
+      -d "$OUT/classes" @"$OUT/sources.txt" 2>&1)
+JAVAC_RC=$?
+set -e
+echo "$JAVAC_OUT" | grep -v 'deprecat' | head -10 || true
+[ "$JAVAC_RC" -eq 0 ] || die "javac 编译失败（退出码 $JAVAC_RC）"
+if echo "$JAVAC_OUT" | grep -q '^.*error:'; then
+  die "javac 报告了编译错误（见上方输出）"
+fi
 CLASS_N=$(find "$OUT/classes" -name '*.class' | wc -l)
-[ "$CLASS_N" -gt 0 ] || die "编译未产出 class"
+[ "$CLASS_N" -ge 8 ] || die "编译产物异常：只有 $CLASS_N 个 class（预期至少 8 个）"
 echo "  class: $CLASS_N 个"
 
 # ---------------------------------------------------------------- 5. dex
