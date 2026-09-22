@@ -27,6 +27,11 @@ public class PluginSpecsTest {
             "dsh-foo", "dsh-foo-bar", "my.plugin", "my_plugin", "plugin1",
             "@scope/plugin", "@a/b", "dsh-foo@1.2.3", "@scope/pkg@^2.0.0",
             "/data/user/0/dev.dsh.native/files/dsh/plugins/local-one",
+            // GitHub 规格：DSH 插件的主要分发形式（实测可安装）
+            "github:1010n111/dsh-about", "1010n111/dsh-about",
+            "bycall/dsh-answer-reviewer", "user/repo#main",
+            "https://github.com/user/repo", "git+https://github.com/u/r.git",
+            "gitlab:owner/proj",
         };
         for (String g : good) {
             String err = PluginSpecs.validateSpec(g);
@@ -40,6 +45,8 @@ public class PluginSpecsTest {
             "foo\nrm -rf /", "foo\\bar", "foo\"bar", "foo'bar",
             "foo(1)", "foo{a}", "foo[x]", "foo!x", "foo*x", "foo?x",
             "foo~x", "foo\tbar", "foo bar",
+            // 保留了 git 规格所需的 : / # @，但这些仍必须被拒
+            "a/b/c", "github:", "github:/", "owner/", "https://github.com",
         };
         for (String b : bad) {
             String err = PluginSpecs.validateSpec(b);
@@ -54,9 +61,12 @@ public class PluginSpecsTest {
         check("uppercase start rejected", PluginSpecs.validateSpec("Foo") != null, "wrong");
         check("dot start rejected", PluginSpecs.validateSpec(".hidden") != null, "wrong");
         check("dash start rejected", PluginSpecs.validateSpec("-foo") != null, "wrong");
-        check("too long rejected", PluginSpecs.validateSpec(rep("a", 300)) != null, "wrong");
+        check("too long rejected", PluginSpecs.validateSpec(rep("a", 400)) != null, "wrong");
         check("relative path with .. rejected",
                 PluginSpecs.validateSpec("/tmp/../../etc/passwd") != null, "wrong");
+        // 绝对路径本身合法（存在性由后续检查负责，不在校验阶段判断）
+        check("short absolute path accepted",
+                PluginSpecs.validateSpec("/x") == null, "should accept");
 
         System.out.println("=== 4. baseName ===");
         check("plain", "dsh-foo".equals(PluginSpecs.baseName("dsh-foo")),
@@ -121,7 +131,65 @@ public class PluginSpecsTest {
         fo.write(yaml.getBytes("UTF-8")); fo.close();
         System.out.println("     (YAML 已写入 /tmp/patch-generated.yml，由外部解析器验证)");
 
-        System.out.println("=== 8. builtin plugin policy ===");
+        System.out.println("=== 8. plugin kind detection ===");
+        // bundle 插件（有 dsh.bundle）与普通插件的启用方式不同，判错就不生效
+        File bundleDir = new File(nm, "dsh-bundle-type"); bundleDir.mkdirs();
+        write(new File(bundleDir, "package.json"),
+                "{\n  \"name\": \"dsh-about\",\n  \"version\": \"0.0.4\",\n"
+              + "  \"dsh\": {\n    \"bundle\": { \"patch\": \"./cordis.patch.yml\" },\n"
+              + "    \"client\": { \"platform\": \"web\" }\n  }\n}");
+        check("bundle plugin detected",
+                PluginSpecs.pluginKind(bundleDir) == PluginSpecs.KIND_BUNDLE,
+                String.valueOf(PluginSpecs.pluginKind(bundleDir)));
+
+        File plainDir = new File(nm, "dsh-plain-type"); plainDir.mkdirs();
+        write(new File(plainDir, "package.json"),
+                "{\"name\":\"dsh-plain\",\"version\":\"1.0.0\",\"main\":\"index.js\"}");
+        check("plain plugin detected",
+                PluginSpecs.pluginKind(plainDir) == PluginSpecs.KIND_PLAIN,
+                String.valueOf(PluginSpecs.pluginKind(plainDir)));
+        check("missing package.json -> plain",
+                PluginSpecs.pluginKind(new File(nm, "no-pkg")) == PluginSpecs.KIND_PLAIN, "wrong");
+        check("null -> plain", PluginSpecs.pluginKind(null) == PluginSpecs.KIND_PLAIN, "wrong");
+        // 有 dsh 字段但没有 bundle 子字段的，应按普通处理
+        File dshOnly = new File(nm, "dsh-client-only"); dshOnly.mkdirs();
+        write(new File(dshOnly, "package.json"),
+                "{\"name\":\"x\",\"dsh\":{\"client\":{\"platform\":\"web\"}}}");
+        check("dsh without bundle -> plain",
+                PluginSpecs.pluginKind(dshOnly) == PluginSpecs.KIND_PLAIN, "wrong");
+
+        System.out.println("=== 9. bundles json editing ===");
+        // 用真实的 profile package.json 结构
+        String pkg = "{\n  \"name\": \"dsh-profile-web\",\n  \"private\": true,\n"
+                   + "  \"dependencies\": {},\n  \"dsh\": {\n    \"profile\": {\n"
+                   + "      \"bundles\": [\n        \"@deepseek-ai/dsh-base\",\n"
+                   + "        \"@deepseek-ai/dsh-web-app\"\n      ]\n    }\n  }\n}";
+        String edited = PluginSpecs.addToBundlesJson(pkg, "dsh-about");
+        check("bundle appended", edited.contains("\"dsh-about\""), "missing");
+        check("existing bundles kept",
+                edited.contains("@deepseek-ai/dsh-base")
+                && edited.contains("@deepseek-ai/dsh-web-app"), "lost entries");
+        check("other fields preserved",
+                edited.contains("\"private\": true") && edited.contains("\"dependencies\""), "lost fields");
+        check("idempotent (no duplicate)",
+                PluginSpecs.addToBundlesJson(edited, "dsh-about").equals(edited), "duplicated");
+        check("readBundles sees all three",
+                PluginSpecs.readBundles(edited).size() == 3, PluginSpecs.readBundles(edited).toString());
+        check("readBundles on original sees two",
+                PluginSpecs.readBundles(pkg).size() == 2, PluginSpecs.readBundles(pkg).toString());
+        check("empty bundles handled",
+                PluginSpecs.addToBundlesJson("{\"dsh\":{\"profile\":{\"bundles\":[]}}}", "x")
+                        .contains("\"x\""), "wrong");
+        check("missing bundles key returns unchanged",
+                "{}".equals(PluginSpecs.addToBundlesJson("{}", "x")), "wrong");
+        check("null json safe", PluginSpecs.addToBundlesJson(null, "x") == null, "wrong");
+        check("null name safe", PluginSpecs.addToBundlesJson(pkg, null).equals(pkg), "wrong");
+        // 生成的 JSON 必须还能被解析（这是硬要求：拼坏了 profile 起不来）
+        java.io.FileOutputStream fo2 = new java.io.FileOutputStream("/tmp/bundles-edited.json");
+        fo2.write(edited.getBytes("UTF-8")); fo2.close();
+        System.out.println("     (编辑后的 JSON 已写入 /tmp/bundles-edited.json，由外部解析器验证)");
+
+        System.out.println("=== 10. builtin plugin policy ===");
         check("schedule enableable", PluginSpecs.isEnableableBuiltin("@deepseek-ai/dsh-schedule"), "wrong");
         check("webhook enableable", PluginSpecs.isEnableableBuiltin("@deepseek-ai/dsh-webhook"), "wrong");
         check("mcp-client NOT enableable (breaks startup)",

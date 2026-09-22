@@ -1282,19 +1282,60 @@ public class MainActivity extends Activity {
             return;
         }
 
-        java.util.List<String> enabled = enabledPluginNames(dshDir, root);
-        if (enabled.isEmpty()) {
-            log("没有启用任何插件，跳过 --patch");
+        // 插件有两种类型，启用方式不同 —— 判错插件不会生效：
+        //   普通插件  → 写进 --patch 的 insert 列表
+        //   bundle 插件 → 必须追加到 profile 的 dsh.profile.bundles
+        //（实测 dsh-about 属于后者：它的 cordis.patch.yml 是「bundle 声明的
+        //  组合层」，只有把包名加进 bundles，那份 patch 才会被合并。）
+        File profileModules = new File(new File(root, ".dsh"),
+                "profiles/web/node_modules");
+        java.util.List<String> plain = new java.util.ArrayList<String>();
+        java.util.List<String> bundle = new java.util.ArrayList<String>();
+        for (String name : enabledPluginNames(dshDir, root)) {
+            File dir = resolvePlugin(dshDir, profileModules, name);
+            if (PluginSpecs.pluginKind(dir) == PluginSpecs.KIND_BUNDLE) bundle.add(name);
+            else plain.add(name);
+        }
+
+        // bundle 插件：改 profile 的 package.json
+        if (!bundle.isEmpty()) {
+            try {
+                File pkg = new File(new File(root, ".dsh"), "profiles/web/package.json");
+                if (pkg.isFile()) {
+                    String before = readText(pkg);
+                    String after = before;
+                    for (String name : bundle) {
+                        after = PluginSpecs.addToBundlesJson(after, name);
+                    }
+                    if (!after.equals(before)) {
+                        writeText(pkg, after);
+                        log("已把 bundle 插件写入 profile: " + bundle);
+                    } else {
+                        log("bundle 插件已在 profile 中: " + bundle);
+                    }
+                } else {
+                    log("未找到 profile 的 package.json，跳过 bundle 插件: " + bundle);
+                }
+            } catch (Throwable t) {
+                log("写入 bundle 插件失败: " + t);
+            }
+        }
+
+        if (plain.isEmpty()) {
+            if (!bundle.isEmpty()) recordPatch("可选插件", true, "bundle: " + bundle);
+            if (bundle.isEmpty()) log("没有启用任何插件，跳过 --patch");
             return;
         }
         try {
             File patch = new File(root, "cordis.plugins.yml");
-            writeText(patch, PluginSpecs.buildPatchYaml(enabled));
+            writeText(patch, PluginSpecs.buildPatchYaml(plain));
             cmd.add("--patch");
             cmd.add(patch.getAbsolutePath());
             usedPluginPatch = true;
-            log("已启用插件: " + enabled);
-            recordPatch("可选插件", true, enabled.toString());
+            log("已启用普通插件: " + plain
+                    + (bundle.isEmpty() ? "" : "；bundle 插件: " + bundle));
+            recordPatch("可选插件", true, plain.toString()
+                    + (bundle.isEmpty() ? "" : " + bundle " + bundle));
         } catch (Throwable t) {
             log("插件覆盖层写入失败，跳过启用: " + t);
         }
@@ -3241,7 +3282,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.3\n");
+            w.write("APK 版本: 0.20.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

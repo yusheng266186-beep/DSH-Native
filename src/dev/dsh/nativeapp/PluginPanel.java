@@ -73,7 +73,8 @@ public final class PluginPanel {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, "插件"));
 
-        final TextView hint = DshUi.hint(act, "启用后需重启 App 生效。");
+        final TextView hint = DshUi.hint(act,
+                "支持 npm 包名、GitHub 简写（owner/repo）与绝对路径。启用后需重启 App 生效。");
         body.addView(hint, DshUi.fullWidth(act, 6));
 
         // ── 安装 ──
@@ -133,7 +134,12 @@ public final class PluginPanel {
                 // 用户安装的
                 List<String> installed = PluginSpecs.installedPlugins(profileDir);
                 for (String name : installed) {
-                    listBox.addView(buildRow(act, name, "已安装", true,
+                    // 把类型告诉用户：两种类型的启用方式不同，
+                    // 出问题时这是第一个要看的线索
+                    File dir = new File(profileModules, name);
+                    String kind = PluginSpecs.pluginKind(dir) == PluginSpecs.KIND_BUNDLE
+                            ? "已安装 · bundle" : "已安装";
+                    listBox.addView(buildRow(act, name, kind, true,
                                     sel.contains(name), host, refresh[0]),
                             new LinearLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
