@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v3/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v4/";
 
     private static final String[] SOURCES = {
             "https://gh-proxy.com/" + ASSET_PATH,
@@ -71,10 +71,6 @@ public class MainActivity extends Activity {
      * 否则会静默产生损坏归档，导致解压失败且难以排查。
      * 数值与 release 中的 SHA256SUMS.txt 一致。
      */
-    private static final String[][] ARCHIVES = {
-            {"dsh.tar.zst", "565ed47e26b2410b593d826c7604b6e8ae4940ab75b791a5e6e52e1a5d045bf0"},
-            {"tools.tar.zst", "f98c33b0e5efbfd72c12f45aeaca7e7ec1843e536cd430c0b3b4bf8f2b45e8aa"},
-    };
 
     /** 首选端口。实际使用 chosenPort —— 3080 常被设备上其他 DSH 实例占用。 */
     private static final int PORT = 3080;
@@ -84,7 +80,6 @@ public class MainActivity extends Activity {
      * 标记文件里记的是版本号而非"存在与否"，
      * 否则旧版运行包会被永远跳过（此前 payload-v2 加入 Python 时就踩过这个坑）。
      */
-    private static final String PAYLOAD_VERSION = "3";
     private int chosenPort = PORT;
 
     private WebView webView;
@@ -288,58 +283,12 @@ public class MainActivity extends Activity {
         // 2. 下载并解压运行包（首次启动）
         File dshDir = new File(root, "dsh");
         File toolsDir = new File(root, "tools");
-        File marker = new File(root, ".payload-ok");
 
-        String haveVer = marker.exists() ? readText(marker).trim() : "";
-        boolean needPayload = !PAYLOAD_VERSION.equals(haveVer)
-                || !new File(dshDir, "lib/bin.js").exists()
-                // 关键工具缺失也重下：能自动修复半途而废的解压
-                || !new File(toolsDir, "bin/python3").exists();
-        if (needPayload) {
-            if (!haveVer.isEmpty() && !PAYLOAD_VERSION.equals(haveVer)) {
-                log("运行包版本 " + haveVer + " → " + PAYLOAD_VERSION + "，需要更新");
-                setSplashStatus("正在更新运行环境…");
-            }
-            for (String[] entry : ARCHIVES) {
-                String name = entry[0];
-                String expectedSha = entry[1];
-                File archive = new File(root, name);
-
-                File dest = name.startsWith("dsh") ? dshDir : toolsDir;
-
-                // 已有可用归档则跳过下载（支持中断后重来）
-                if (archive.exists() && archive.length() > 1024
-                        && expectedSha.equalsIgnoreCase(sha256(archive))) {
-                    log("已下载且校验通过: " + name);
-                } else {
-                    if (archive.exists()) {
-                        log("已有归档校验不通过，重新下载: " + name);
-                        archive.delete();
-                    }
-                    setSplashStatus("正在下载运行包…");
-                    download(name, archive);
-                    String actual = sha256(archive);
-                    if (!expectedSha.equalsIgnoreCase(actual)) {
-                        archive.delete();
-                        throw new IOException("SHA-256 校验失败: " + name
-                                + "\n  期望 " + expectedSha
-                                + "\n  实际 " + actual
-                                + "\n请检查网络后重试");
-                    }
-                    log("  ✓ SHA-256 校验通过");
-                }
-
-                setSplashStatus("正在解压运行包…");
-                log("解压 " + name + " …");
-                run(node, root, new String[]{
-                        new File(root, "unpack.js").getAbsolutePath(),
-                        archive.getAbsolutePath(),
-                        dest.getAbsolutePath()}, null);
-                archive.delete();
-            }
-            writeText(marker, PAYLOAD_VERSION);
-        } else {
-            log("运行包已就绪（版本 " + PAYLOAD_VERSION + "），跳过下载");
+        // 增量更新：清单 + 哨兵校验，只下载缺失或变化的分片。
+        // 不再用"整体版本号"判断 —— 那会导致改一个小工具也要重下整个包。
+        boolean upToDate = ensurePayload(node, root, dshDir, toolsDir);
+        if (upToDate) {
+            log("运行包已是最新，本次无需下载");
             setSplashStatus("正在准备运行环境…");
         }
 
@@ -572,6 +521,91 @@ public class MainActivity extends Activity {
             }
         }
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    // ---------------------------------------------------------------- 运行包
+    /**
+     * 确保运行包就绪，**只下载缺失或变化的分片**。
+     *
+     * <p>流程：取 manifest.json → 用每个分片的"哨兵文件"（路径+大小+sha256）
+     * 判断本地内容是否已一致 → 只对不一致的分片执行下载、校验、解压。
+     *
+     * <p>哨兵方案的两个好处：
+     * <ul>
+     *   <li>免状态文件：每次启动都按内容校验，文件被破坏会自动修复</li>
+     *   <li>免重复下载：从旧结构迁移过来时，内容没变就直接判定为已就绪</li>
+     * </ul>
+     *
+     * @return true 表示全部已就绪（本次没有任何下载）
+     */
+    private boolean ensurePayload(File node, File root, File dshDir, File toolsDir)
+            throws Exception {
+        File mf = new File(root, "manifest.json");
+        try {
+            download("manifest.json", mf);
+        } catch (Throwable t) {
+            // 离线也要能启动：用上次缓存的清单
+            if (!mf.exists()) {
+                throw new IOException("无法获取运行包清单，且本地无缓存：" + t.getMessage());
+            }
+            log("清单更新失败，改用本地缓存（离线启动）: " + t.getMessage());
+        }
+
+        org.json.JSONObject man = new org.json.JSONObject(readText(mf));
+        org.json.JSONArray parts = man.getJSONArray("parts");
+        log("运行包清单: " + parts.length() + " 个分片（结构版本 "
+                + man.optInt("version", 0) + "）");
+
+        // 第一遍：哨兵校验，找出缺失/变化的分片
+        java.util.List<String> missing = new java.util.ArrayList<String>();
+        for (int i = 0; i < parts.length(); i++) {
+            org.json.JSONObject part = parts.getJSONObject(i);
+            File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
+            org.json.JSONObject sent = part.getJSONObject("sentinel");
+            File sf = new File(dir, sent.getString("path"));
+            boolean ok = sf.exists()
+                    && sf.length() == sent.getLong("size")
+                    && sent.getString("sha256").equalsIgnoreCase(sha256(sf));
+            if (!ok) missing.add(part.getString("name"));
+        }
+        if (missing.isEmpty()) return true;
+
+        log("需更新的分片（" + missing.size() + "/" + parts.length() + "）: " + missing);
+        setSplashStatus(missing.size() == parts.length()
+                ? "正在下载运行包…" : "正在增量更新（" + missing.size() + " 项）…");
+
+        // 第二遍：只下载这些分片
+        long bytes = 0;
+        for (int i = 0; i < parts.length(); i++) {
+            org.json.JSONObject part = parts.getJSONObject(i);
+            String name = part.getString("name");
+            if (!missing.contains(name)) continue;
+
+            String expected = part.getString("sha256");
+            File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
+            File archive = new File(root, name);
+
+            if (archive.exists()) archive.delete();
+            download(name, archive);
+            String actual = sha256(archive);
+            if (!expected.equalsIgnoreCase(actual)) {
+                archive.delete();
+                throw new IOException("SHA-256 校验失败: " + name
+                        + "\n  期望 " + expected + "\n  实际 " + actual);
+            }
+            bytes += archive.length();
+            log("  ✓ " + name + " 校验通过");
+
+            setSplashStatus("正在解压运行包…");
+            log("解压 " + name + " …");
+            run(node, root, new String[]{
+                    new File(root, "unpack.js").getAbsolutePath(),
+                    archive.getAbsolutePath(),
+                    dir.getAbsolutePath()}, null);
+            archive.delete();
+        }
+        log("增量更新完成，本次下载 " + (bytes / 1048576) + " MB");
+        return false;
     }
 
     // ---------------------------------------------------------------- 工作区
@@ -1848,7 +1882,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.10.0\n");
+            w.write("APK 版本: 0.11.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
