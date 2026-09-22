@@ -1,2 +1,7 @@
 out/
 *.log
+
+# 不要把 APK 提交进仓库 —— 由 GitHub Releases 提供，App 也从 Releases 下载。
+# 历史上提交过 88 个副本，.git 已经 2.5GB。
+DSHNative-*.apk
+*.apk.sha256

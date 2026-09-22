@@ -2,6 +2,6 @@
   "version": "0.20.8",
   "tag": "v0.20.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
-  "payload": "payload-v6",
+  "payload": "payload-v7",
   "notes": "清除全部 emoji；文件图标改为 Canvas 自绘矢量"
 }

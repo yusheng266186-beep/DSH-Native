@@ -94,11 +94,11 @@ await ensureDurableDirectory(parent, await ensureDurableHome(dirname(dirname(res
 
 | 层级 | Android 上是否可访问 |
 |---|---|
-| `/data/user/0/dev.dsh.native/files/dsh/.dsh` | ✅ 应用家目录 |
-| `/data/user/0/dev.dsh.native/files` | ✅ |
-| `/data/user/0/dev.dsh.native` | ✅ |
-| **`/data/user/0`** | ❌ **EACCES** |
-| `/data/user`、`/data`、`/` | ❌ EACCES |
+| `/data/user/0/dev.dsh.native/files/dsh/.dsh` | 应用家目录 |
+| `/data/user/0/dev.dsh.native/files` | |
+| `/data/user/0/dev.dsh.native` | |
+| **`/data/user/0`** | **EACCES** |
+| `/data/user`、`/data`、`/` | EACCES |
 
 Android 应用只能访问自己的 `/data/user/0/<包名>` 子树，因此打开其上任何祖先
 目录都会抛 `EACCES`。

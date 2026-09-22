@@ -11,14 +11,14 @@
 
 | 组件 | 状态 | 说明 |
 |---|---|---|
-| Node 运行时 | ✅ 可用 | Termux nodejs 26.4.0，bionic，解释器 `/system/bin/linker64` |
-| shell 工具链 | ✅ **可用** | ripgrep / git / bash / fd / jq 全部实测跑通 |
-| `node-pty` | ✅ **可用** | npm 上有现成 bionic 构建，PTY 实测可 fork |
-| `koffi` | ✅ 非必需 | 仅 Windows 路径 + 可选强管控路径；缺失时降级并告警 |
-| DSH 核心启动 | ✅ 可用 | `dsh --version` / `--dump-config` 正常 |
-| **`dsh web` 完整启动** | ✅ **已解决** | 纯 JS 垫片替代原生插件，UI 与客户端资源全部实测可加载 |
-| **agent 真实运行** | ✅ **已验证** | headless 任务跑通，LLM 推理 + 工具调用全部成功（见第三之三节） |
-| 配套工具（gh 等） | ✅ 可用 | `gh` 为 glibc 静态包，Android 上无法直接运行，改用 API 或 Termux 版 |
+| Node 运行时 | 可用 | Termux nodejs 26.4.0，bionic，解释器 `/system/bin/linker64` |
+| shell 工具链 | **可用** | ripgrep / git / bash / fd / jq 全部实测跑通 |
+| `node-pty` | **可用** | npm 上有现成 bionic 构建，PTY 实测可 fork |
+| `koffi` | 非必需 | 仅 Windows 路径 + 可选强管控路径；缺失时降级并告警 |
+| DSH 核心启动 | 可用 | `dsh --version` / `--dump-config` 正常 |
+| **`dsh web` 完整启动** | **已解决** | 纯 JS 垫片替代原生插件，UI 与客户端资源全部实测可加载 |
+| **agent 真实运行** | **已验证** | headless 任务跑通，LLM 推理 + 工具调用全部成功（见第三之三节） |
+| 配套工具（gh 等） | 可用 | `gh` 为 glibc 静态包，Android 上无法直接运行，改用 API 或 Termux 版 |
 
 **结论：DSH agent 的软件层已在 Android 原生环境完整跑通。**
 剩余工作是把这套已验证的运行链路打包进 APK（工程化），**不再是可行性问题**。
@@ -33,19 +33,19 @@ Termux 仓库的包全部是 **NDK r28 + bionic** 构建，ELF 解释器为 `/sy
 因此可脱离 Termux 独立运行。只需自带 `.so` 并设 `LD_LIBRARY_PATH`。
 
 ```
-✅ rg     ripgrep 15.2.0
-✅ fd     fd 10.5.0
-✅ jq     jq-1.8.2
-✅ bash   GNU bash, version 5.3.15(1)-release (aarch64-unknown-linux-android)
-✅ git    git version 2.55.0
+rg     ripgrep 15.2.0
+fd     fd 10.5.0
+jq     jq-1.8.2
+bash   GNU bash, version 5.3.15(1)-release (aarch64-unknown-linux-android)
+git    git version 2.55.0
 ```
 
 功能级验证（不只是 `--version`）：
 
 ```
-git:  init → add → commit → log   →  83145c4 test        ✅
-bash: 循环 / 算术 / 管道 / 变量   →  1 4 9 / PIPESTATUS=3  ✅
-rg:   实际搜索命中                →  search               ✅
+git:  init → add → commit → log   →  83145c4 test
+bash: 循环 / 算术 / 管道 / 变量   →  1 4 9 / PIPESTATUS=3
+rg:   实际搜索命中                →  search
 ```
 
 依赖闭包：`ripgrep`=2 包，`fd`=1 包，`jq`=2 包，`git`=14 包，`bash`=48 包。
@@ -60,15 +60,15 @@ rg:   实际搜索命中                →  search               ✅
 实测完整 JS API：
 
 ```
-✅ 模块加载成功
-✅ spawn 成功, pid=25007
-✅ 子进程退出 code=0
-✅ PTY 输出: "PTY_API_WORKS\nTERM=xterm-color\n/data/data/..."
+模块加载成功
+spawn 成功, pid=25007
+子进程退出 code=0
+PTY 输出: "PTY_API_WORKS\nTERM=xterm-color\n/data/data/..."
 ```
 
 底层能力确认：`native.open(80, 24)` → `{"master":18,"slave":19,"pty":"/dev/pts/1"}`
 
-> ⚠️ 注意：`native.fork(...)` 的裸调用会报 `Usage:` 错误，这是原生层的兜底错误信息，
+> 注意：`native.fork(...)` 的裸调用会报 `Usage:` 错误，这是原生层的兜底错误信息，
 > **并非参数问题**。正常用法是走 `lib/index.js` 的 `spawn()` JS API。
 
 ### 2.3 koffi（非阻断）
@@ -170,7 +170,7 @@ DSH 官方仓库 Discussion **#1588**「[dsh runs on Termux (Android) — with 5
 
 ---
 
-## 三之二、垫片实现与验证结果 ✅
+## 三之二、垫片实现与验证结果
 
 ### 实现
 
@@ -181,11 +181,11 @@ DSH 官方仓库 Discussion **#1588**「[dsh runs on Termux (Android) — with 5
 
 ```
 $ node --expose-internals -e 'require("internal/modules/esm/loader")'
-✅ internal/modules/cjs/loader  → kModuleSource, …, Module
-✅ internal/modules/helpers     → getCjsConditions, …
-✅ internal/modules/esm/loader  → getOrInitializeCascadedLoader, …
-✅ internal/modules/esm/utils   → getDefaultConditions, …
-✅ internal/modules/esm/resolve → defaultResolve, …
+internal/modules/cjs/loader  → kModuleSource, …, Module
+internal/modules/helpers     → getCjsConditions, …
+internal/modules/esm/loader  → getOrInitializeCascadedLoader, …
+internal/modules/esm/utils   → getDefaultConditions, …
+internal/modules/esm/resolve → defaultResolve, …
 ```
 
 垫片导出与原生包逐一对齐：
@@ -196,11 +196,11 @@ $ node --expose-internals -e 'require("internal/modules/esm/loader")'
 ```
 # 1. 垫片在 Android 下取内部模块
 internalsExposed: true
-✅ internal/modules/esm/loader → 4 个导出
-✅ internal/modules/cjs/loader → 16 个导出
-✅ internal/modules/helpers    → 22 个导出
-✅ internal/modules/esm/utils  → 9 个导出
-✅ internal/modules/esm/resolve→ 8 个导出
+internal/modules/esm/loader → 4 个导出
+internal/modules/cjs/loader → 16 个导出
+internal/modules/helpers    → 22 个导出
+internal/modules/esm/utils  → 9 个导出
+internal/modules/esm/resolve→ 8 个导出
 
 # 2. dsh web 启动成功
 $ node --expose-internals dsh/lib/bin.js --profile web --no-open --port 3099
@@ -231,7 +231,7 @@ GET /         → 200, 31252B, text/html
 
 ---
 
-## 三之三、端到端验证：agent 真实运行 ✅
+## 三之三、端到端验证：agent 真实运行
 
 在 Xiaomi 25128PNA1C / Android 17 / arm64 上，用 **Android 原生 Node 26.4.0**
 （无 Termux、无 proot）完整跑通 agent 任务。
@@ -305,7 +305,7 @@ NODE_PATH=$PAYLOAD/node_modules:/usr/lib/node_modules
 
 ---
 
-## 三之四、交付链路完整验证 ✅
+## 三之四、交付链路完整验证
 
 针对「引导式 APK」的运行时链路，逐环节验证如下。
 
@@ -313,29 +313,29 @@ NODE_PATH=$PAYLOAD/node_modules:/usr/lib/node_modules
 
 | # | 环节 | 方法 | 结果 |
 |---|---|---|---|
-| 1 | GitHub Release 下载（含跨域 302 → CDN 签名 URL） | Node https + 手动跟随重定向 | ✅ 302 → 200，14.7MB / 3.9s |
-| 2 | SHA-256 校验 | 与 release 的 `SHA256SUMS.txt` 比对 | ✅ `c088ca79…` 一致 |
-| 3 | 分块下载策略（2MB/块 + 块级重试） | 本地服务器**注入 6 次连接中断** | ✅ 全部自愈，SHA-256 匹配 |
-| 4 | 解压 `tools.tar.zst`（15MB） | Android bionic Node | ✅ 342 文件 + 167 链接 |
-| 5 | 解压 `dsh.tar.zst`（34MB） | 容器 Node | ✅ 24466 文件 + 3107 目录 |
-| 6 | **解压 `dsh.tar.zst`** | **Android bionic Node** | ✅ **24466 文件，24.9 秒** |
-| 7 | 补丁是否随归档保留 | 检查解出内容 | ✅ 3 个补丁全部在位 |
-| 8 | 用**解压出的 payload** 跑 agent | 容器 | ✅ `EXTRACTED_PAYLOAD_OK` |
-| 9 | **Android 解压的 DSH + 工具链跑 agent** | Android | ✅ `rg 15.2.0` / `git 2.55.0` / `BASH_OK` |
+| 1 | GitHub Release 下载（含跨域 302 → CDN 签名 URL） | Node https + 手动跟随重定向 | 302 → 200，14.7MB / 3.9s |
+| 2 | SHA-256 校验 | 与 release 的 `SHA256SUMS.txt` 比对 | `c088ca79…` 一致 |
+| 3 | 分块下载策略（2MB/块 + 块级重试） | 本地服务器**注入 6 次连接中断** | 全部自愈，SHA-256 匹配 |
+| 4 | 解压 `tools.tar.zst`（15MB） | Android bionic Node | 342 文件 + 167 链接 |
+| 5 | 解压 `dsh.tar.zst`（34MB） | 容器 Node | 24466 文件 + 3107 目录 |
+| 6 | **解压 `dsh.tar.zst`** | **Android bionic Node** | **24466 文件，24.9 秒** |
+| 7 | 补丁是否随归档保留 | 检查解出内容 | 3 个补丁全部在位 |
+| 8 | 用**解压出的 payload** 跑 agent | 容器 | `EXTRACTED_PAYLOAD_OK` |
+| 9 | **Android 解压的 DSH + 工具链跑 agent** | Android | `rg 15.2.0` / `git 2.55.0` / `BASH_OK` |
 
 第 9 项就是 App 首启完成后的真实状态，即**除 App 沙箱本身外，全部链路已实测跑通**。
 
 ### 补丁保留验证（第 7 项细节）
 
 ```
-✅ lib/bin.js
-✅ node_modules/@deepseek-ai/dsh-app-boot/package.json
-✅ node_modules/node-addon-require-builtin/lib/index.js   （垫片标记 2 处）
-✅ node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
+lib/bin.js
+node_modules/@deepseek-ai/dsh-app-boot/package.json
+node_modules/node-addon-require-builtin/lib/index.js   （垫片标记 2 处）
+node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js
      （"Android patch" 标记 2 处，rename 出现 8 次）
-✅ node_modules/@deepseek-ai/node-addon-system/lib/flock.js（android 标记 3 处）
-✅ node_modules/node-pty/  → 12K 代理包（原为 26MB）
-✅ node_modules/@mmmbuto/node-pty-android-arm64/prebuilds/android-arm64/pty.node
+node_modules/@deepseek-ai/node-addon-system/lib/flock.js（android 标记 3 处）
+node_modules/node-pty/  → 12K 代理包（原为 26MB）
+node_modules/@mmmbuto/node-pty-android-arm64/prebuilds/android-arm64/pty.node
 ```
 
 ### 下载链路的真实网络表现（重要）
@@ -383,15 +383,15 @@ Java 源码包名是 `dev.dsh.nativeapp`（目录 `src/dev/dsh/nativeapp/`），
 
 ### 验证方式的改进（重要教训）
 修复前的验证做了两件独立的事：
-1. 用解析器确认清单结构合法 ✅
-2. 确认 dex 里有 `MainActivity` ✅
+1. 用解析器确认清单结构合法
+2. 确认 dex 里有 `MainActivity`
 
 **但没有交叉比对「清单声明的类名」与「dex 中真实类名」是否一致。**
 两项各自通过，合起来却是错的。现增加为交叉验证：
 
 ```
 清单:  <activity android:name='dev.dsh.nativeapp.MainActivity' ...>
-dex:   dev/dsh/nativeapp/MainActivity  ✅ 一致
+dex:   dev/dsh/nativeapp/MainActivity  一致
 ```
 
 ### 附带改进：崩溃日志落盘
@@ -401,7 +401,7 @@ dex:   dev/dsh/nativeapp/MainActivity  ✅ 一致
 
 ---
 
-## 三之六、计划外发现：设备上可直接运行 adb ✅
+## 三之六、计划外发现：设备上可直接运行 adb
 
 调查「能否局域网 ADB 调试」时发现：**Termux 仓库提供 `android-tools`**，
 内含 `adb`，且为 bionic 构建（解释器 `/system/bin/linker64`），可脱离 Termux 运行。
@@ -432,7 +432,7 @@ $ adb start-server
 
 ---
 
-## 三之七、🎉 真机验证结果（决定性）
+## 三之七、真机验证结果（决定性）
 
 用户在 Xiaomi 25128PNA1C / Android 17 上安装 v0.2.4 后回传了首启日志。
 
@@ -471,7 +471,7 @@ Permission denied  →  子进程退出码 13
 已验证覆盖生效（把 `OPENSSL_CONF` 指向故意写坏的配置，OpenSSL 报的是**该文件**的错误，
 证明它不再读取硬编码路径）。
 
-### ⚠️ 本轮最重要的教训：测试环境掩盖了缺陷
+### 本轮最重要的教训：测试环境掩盖了缺陷
 
 **为什么前几轮"全链路验证通过"却仍有此 bug？**
 
@@ -504,7 +504,7 @@ Permission denied  →  子进程退出码 13
 
 ---
 
-## 三之八、🎉🎉 最终成功（端到端全部打通）
+## 三之八、最终成功（端到端全部打通）
 
 用户在 Xiaomi 25128PNA1C / Android 17 上安装 v0.3.0 后确认：**App 正常工作**。
 
@@ -522,18 +522,18 @@ APK 版本: 0.3.0
 运行包已就绪，跳过下载
 
 运行环境自检 …
-  ✅ crypto 模块 → 2d711642b726b044
-  ✅ zlib/zstd → 往返正常
-  ✅ 文件读写 → 正常
-  ✅ 子进程 + 自带 bash → BASH_OK
-  ✅ node-pty → spawn 可用
-  ⚠️ 可选:koffi          （仅 Windows 路径，预期缺失）
-  ✅ 可选:sharp → 可加载
-  ⚠️ 可选:node-addon-system（已打降级补丁，预期）
-  ✅ 可选:node-addon-require-builtin → 可加载
-  ✅ worker_threads → 正常
-  ✅ DNS 解析 → 198.18.0.18
-  ✅ 自检全部通过
+  crypto 模块 → 2d711642b726b044
+  zlib/zstd → 往返正常
+  文件读写 → 正常
+  子进程 + 自带 bash → BASH_OK
+  node-pty → spawn 可用
+  可选:koffi          （仅 Windows 路径，预期缺失）
+  可选:sharp → 可加载
+  可选:node-addon-system（已打降级补丁，预期）
+  可选:node-addon-require-builtin → 可加载
+  worker_threads → 正常
+  DNS 解析 → 198.18.0.18
+  自检全部通过
 
 使用端口 3081（3080 已被占用）
 启动 dsh web …
@@ -546,14 +546,14 @@ APK 版本: 0.3.0
 
 | 目标项 | 状态 |
 |---|---|
-| 单个 APK 内置 Node 运行时 | ✅ |
-| 内置完整 DSH agent | ✅ |
-| 内置 shell 工具链（rg/git/bash/fd/jq） | ✅ |
-| 不使用 Termux / proot 桥接 | ✅ |
-| `targetSdk 28` 保留 exec 权限 | ✅ 真机验证 |
-| 首启下载运行包（镜像 + 分块 + 重试 + SHA 校验） | ✅ 33MB @ 6MB/s 零重试 |
-| 上传至用户 GitHub 仓库 | ✅ |
-| **用户下载安装并验证可用** | ✅ **已确认** |
+| 单个 APK 内置 Node 运行时 | |
+| 内置完整 DSH agent | |
+| 内置 shell 工具链（rg/git/bash/fd/jq） | |
+| 不使用 Termux / proot 桥接 | |
+| `targetSdk 28` 保留 exec 权限 | 真机验证 |
+| 首启下载运行包（镜像 + 分块 + 重试 + SHA 校验） | 33MB @ 6MB/s 零重试 |
+| 上传至用户 GitHub 仓库 | |
+| **用户下载安装并验证可用** | **已确认** |
 
 **「在单 APK 内原生运行 DSH agent」这一目标已完全实现。**
 
@@ -656,7 +656,7 @@ APK 版本: 0.3.0
 
 APK 压缩后预计 **约 130–160 MB**。
 
-### ⚠️ 单 APK 直塞的可行性建议
+### 单 APK 直塞的可行性建议
 
 把 400MB+ 运行时装进一个 APK 已接近可行但**不推荐**：
 
@@ -688,7 +688,7 @@ APK（~35MB，内置 Node）
 - 镜像源：`deb.debian.org` 仅 100KB/s，改用 `mirrors.aliyun.com`（17.5MB/s）；
   Termux 仓库 1.6MB/s
 
-### ⚠️ 测试环境的重要局限（必须知道）
+### 测试环境的重要局限（必须知道）
 
 本文件中所有 Android 侧测试（Node 启动、node-pty、工具链、`dsh web`）
 **都是在 PRoot 环境内通过 `/system/bin/sh` 执行的**，而非真实 App 沙箱。

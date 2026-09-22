@@ -58,6 +58,6 @@ const step = async (label, mut) => {
           && starts[0].includes('sess-a') && starts[1].includes('sess-b')
           && dones[0].includes('sess-a') && dones[1].includes('sess-b');
   console.log(`  start 上报 ${starts.length} 次，done 上报 ${dones.length} 次`);
-  console.log(`  ${ok ? '✅ 只在状态变化时上报，且会话 id 正确' : '❌ 上报行为不符预期'}`);
-  console.log(`  ${logs.some(l => l.startsWith('THREW')) ? '❌ 网络失败时抛异常' : '✅ 网络失败被静默吞掉'}`);
+  console.log(`  ${ok ? '只在状态变化时上报，且会话 id 正确' : '上报行为不符预期'}`);
+  console.log(`  ${logs.some(l => l.startsWith('THREW')) ? '网络失败时抛异常' : '网络失败被静默吞掉'}`);
 })();

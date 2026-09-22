@@ -19,11 +19,11 @@ Error: dsh: host preparation failed:
 
 | 内部模块 | 需要的导出 | 状态 |
 |---|---|---|
-| `internal/modules/cjs/loader` | `Module` | ✅ |
-| `internal/modules/esm/loader` | `getOrInitializeCascadedLoader` | ✅ |
-| `internal/modules/helpers` | `getCjsConditions` | ✅ |
-| `internal/modules/esm/utils` | `getDefaultConditions` | ✅ |
-| `internal/modules/esm/resolve` | `defaultResolve` | ✅ |
+| `internal/modules/cjs/loader` | `Module` | |
+| `internal/modules/esm/loader` | `getOrInitializeCascadedLoader` | |
+| `internal/modules/helpers` | `getCjsConditions` | |
+| `internal/modules/esm/utils` | `getDefaultConditions` | |
+| `internal/modules/esm/resolve` | `defaultResolve` | |
 
 ## 应用方式
 ```bash
@@ -38,7 +38,7 @@ node --expose-internals <dsh>/lib/bin.js ...
 ## 验证
 ```
 $ node --expose-internals -e 'require("internal/modules/esm/loader")'
-✅ 5 个内部模块全部可取
+5 个内部模块全部可取
 
 $ node --expose-internals dsh/lib/bin.js --profile web --no-open --port 3099
 dsh web: http://127.0.0.1:3099/?token=…

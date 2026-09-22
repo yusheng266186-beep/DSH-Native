@@ -21,7 +21,7 @@ App 内自更新依赖仓库根目录的 `latest.json`，**每次发版必须同
    gh release create vX.Y.Z-bootstrap --repo yusheng266186-beep/DSH-Native \
      --title "..." --notes "..." ./DSHNative-bootstrap.apk
    ```
-   ⚠️ tag 必须遵循 `vX.Y.Z-bootstrap` 格式
+   tag 必须遵循 `vX.Y.Z-bootstrap` 格式
 
 4. **更新 `latest.json`**（关键，容易漏）
    ```json

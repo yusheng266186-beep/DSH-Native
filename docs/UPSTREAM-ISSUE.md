@@ -98,11 +98,11 @@ and the walk then ascends **to the filesystem root**:
 
 | level | Android reachability |
 |---|---|
-| `/data/user/0/dev.dsh.native/files/dsh/.dsh` | ✅ app home |
-| `/data/user/0/dev.dsh.native/files` | ✅ |
-| `/data/user/0/dev.dsh.native` | ✅ |
-| **`/data/user/0`** | ❌ **EACCES** |
-| `/data/user`, `/data`, `/` | ❌ EACCES |
+| `/data/user/0/dev.dsh.native/files/dsh/.dsh` | app home |
+| `/data/user/0/dev.dsh.native/files` | |
+| `/data/user/0/dev.dsh.native` | |
+| **`/data/user/0`** | **EACCES** |
+| `/data/user`, `/data`, `/` | EACCES |
 
 An Android app may only access its own `/data/user/0/<package>` subtree, so
 opening any ancestor above it raises `EACCES`.
