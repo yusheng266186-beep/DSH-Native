@@ -73,6 +73,24 @@ for (const [mod, why] of optional) {
   }
 }
 
+// ---- 工具链探测（这些是运行包里应带的，缺失则功能受限）----
+const tools = [
+  ['git', ['--version'], '版本管理'],
+  ['python3', ['-c', 'import ssl,sqlite3,json;print("ok")'], 'Python 脚本'],
+  ['rg', ['--version'], '代码搜索'],
+  ['bash', ['-c', 'echo ok'], 'shell'],
+  ['jq', ['--version'], 'JSON 处理'],
+];
+for (const [exe, argv, why] of tools) {
+  try {
+    const out = require('child_process')
+      .execFileSync(exe, argv, { encoding: 'utf8', timeout: 15000 }).trim();
+    results.push([`工具:${exe}`, true, out.split('\n')[0].slice(0, 32)]);
+  } catch (e) {
+    results.push([`工具:${exe}`, false, `${why} —— ${(e.message || '').split('\n')[0].slice(0, 60)}`]);
+  }
+}
+
 // ---- 异步检查 ----
 (async () => {
   const async_ = [];

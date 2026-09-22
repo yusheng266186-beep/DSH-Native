@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v1/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v2/";
 
     private static final String[] SOURCES = {
             "https://gh-proxy.com/" + ASSET_PATH,
@@ -73,11 +73,18 @@ public class MainActivity extends Activity {
      */
     private static final String[][] ARCHIVES = {
             {"dsh.tar.zst", "565ed47e26b2410b593d826c7604b6e8ae4940ab75b791a5e6e52e1a5d045bf0"},
-            {"tools.tar.zst", "c088ca79dbd49a07e647a85e11bdec1e64200bbd45a4f08fc43d91097d7208e7"},
+            {"tools.tar.zst", "9b5639415af79e1dc80a1373a4bf96785f4005729a52efb3b92e91e87acc5f35"},
     };
 
     /** 首选端口。实际使用 chosenPort —— 3080 常被设备上其他 DSH 实例占用。 */
     private static final int PORT = 3080;
+
+    /**
+     * 运行包版本。改动工具链或 DSH 内容时递增 ——
+     * 标记文件里记的是版本号而非"存在与否"，
+     * 否则旧版运行包会被永远跳过（此前 payload-v2 加入 Python 时就踩过这个坑）。
+     */
+    private static final String PAYLOAD_VERSION = "2";
     private int chosenPort = PORT;
 
     private WebView webView;
@@ -184,8 +191,17 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // 稍等片刻再淡出：DSH 是单页应用，页面 onload 后还需要一点时间渲染，
-                // 立刻收起开屏会先闪一下空白。
+                // 注意：loadDataWithBaseURL() 显示状态页时**同样会触发本回调**。
+                // 之前没做区分，导致开屏被提前撤掉（露出状态页），
+                // 且开屏淡到 alpha=0 后仍占满全屏、吃掉所有触摸事件 —— 表现为"整个应用点不动"。
+                // 因此只认真正的 DSH 服务地址。
+                if (url == null || url.indexOf("127.0.0.1") < 0) {
+                    return;
+                }
+                if (dshPageLoaded) return;
+                dshPageLoaded = true;
+                log("DSH 界面已加载，收起开屏");
+                // 稍等片刻再淡出：单页应用 onload 后还需一点时间渲染
                 new android.os.Handler(android.os.Looper.getMainLooper())
                         .postDelayed(new Runnable() {
                     @Override public void run() { hideSplash(); }
@@ -228,6 +244,12 @@ public class MainActivity extends Activity {
                     log("✗ 启动失败: " + t);
                     Log.e(TAG, "boot failed", t);
                     setSplashStatus("启动未完成 —— 点按此处可查看详细日志");
+                    if (splashView != null) {
+                        // 失败时给出退路：点一下收起开屏，露出下方详细错误页
+                        splashView.setOnClickListener(new android.view.View.OnClickListener() {
+                            @Override public void onClick(android.view.View v) { hideSplash(); }
+                        });
+                    }
                 }
             }
         }).start();
@@ -256,7 +278,16 @@ public class MainActivity extends Activity {
         File toolsDir = new File(root, "tools");
         File marker = new File(root, ".payload-ok");
 
-        if (!marker.exists() || !new File(dshDir, "lib/bin.js").exists()) {
+        String haveVer = marker.exists() ? readText(marker).trim() : "";
+        boolean needPayload = !PAYLOAD_VERSION.equals(haveVer)
+                || !new File(dshDir, "lib/bin.js").exists()
+                // 关键工具缺失也重下：能自动修复半途而废的解压
+                || !new File(toolsDir, "bin/python3").exists();
+        if (needPayload) {
+            if (!haveVer.isEmpty() && !PAYLOAD_VERSION.equals(haveVer)) {
+                log("运行包版本 " + haveVer + " → " + PAYLOAD_VERSION + "，需要更新");
+                setSplashStatus("正在更新运行环境…");
+            }
             for (String[] entry : ARCHIVES) {
                 String name = entry[0];
                 String expectedSha = entry[1];
@@ -294,9 +325,9 @@ public class MainActivity extends Activity {
                         dest.getAbsolutePath()}, null);
                 archive.delete();
             }
-            marker.createNewFile();
+            writeText(marker, PAYLOAD_VERSION);
         } else {
-            log("运行包已就绪，跳过下载");
+            log("运行包已就绪（版本 " + PAYLOAD_VERSION + "），跳过下载");
             setSplashStatus("正在准备运行环境…");
         }
 
@@ -349,10 +380,20 @@ public class MainActivity extends Activity {
         // git 把系统配置硬编码为 /data/data/com.termux/files/usr/etc/gitconfig，
         // 我们读不到该路径，禁用系统级配置以免产生警告；同时指定自带的 helper 目录。
         pb.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+        // git 的辅助程序（git-remote-https 等）在 libexec/git-core，
+        // 二进制里硬编码的是 Termux 路径，必须显式指定，否则 clone/push 失败。
         File gitCore = new File(toolsDir, "libexec/git-core");
         if (gitCore.isDirectory()) {
             pb.environment().put("GIT_EXEC_PATH", gitCore.getAbsolutePath());
         }
+        File gitTpl = new File(toolsDir, "share/git-core/templates");
+        if (gitTpl.isDirectory()) {
+            pb.environment().put("GIT_TEMPLATE_DIR", gitTpl.getAbsolutePath());
+        }
+        // Python 的安装前缀同样被硬编码为 Termux 路径；
+        // 指到我们自己的目录，sys.prefix 才正确、pip 才会装到这里。
+        pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
+        pb.environment().put("PYTHONNOUSERSITE", "1");
 
         nodeProcess = pb.start();
         log("dsh web 已启动 (pid " + pidOf(nodeProcess) + ")");
@@ -360,6 +401,11 @@ public class MainActivity extends Activity {
 
         // 5. 等待服务就绪后加载界面
         String url = waitForServer();
+        // 兜底：45 秒后无论如何都收起开屏，避免任何情况下界面被永久挡住
+        new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(new Runnable() {
+            @Override public void run() { hideSplash(); }
+        }, 45000);
         if (url == null) {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
             if (probeHttp(PORT) > 0) {
@@ -411,6 +457,8 @@ public class MainActivity extends Activity {
     private android.view.View splashView;
     private android.widget.TextView splashStatus;
     private volatile boolean splashHidden;
+    /** 真正的 DSH 页面是否已加载（用于区分状态页触发的 onPageFinished）。 */
+    private volatile boolean dshPageLoaded;
 
     /** DSH 触发的文件选择回调（必须保留引用，否则会被回收导致无响应）。 */
     private android.webkit.ValueCallback<android.net.Uri[]> pendingFileCallback;
@@ -586,10 +634,9 @@ public class MainActivity extends Activity {
         clp.gravity = android.view.Gravity.CENTER;
         box.addView(col, clp);
 
-        // 失败时点一下可收起开屏，查看详细错误
-        box.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { hideSplash(); }
-        });
+        // 默认不接收点击：正常启动时应由 onPageFinished 自动收起。
+        // 只有启动失败时才挂上"点击查看日志"（见 boot 的 catch）。
+        box.setClickable(false);
         return box;
     }
 
@@ -609,28 +656,27 @@ public class MainActivity extends Activity {
         splashHidden = true;
         runOnUiThread(new Runnable() {
             @Override public void run() {
+                final android.view.View sv = splashView;
+                if (sv == null) return;
+                // 立即停止接收触摸：即使动画因故未结束，也不会再挡住界面
+                sv.setClickable(false);
+                sv.setFocusable(false);
                 try {
                     android.view.animation.AlphaAnimation fade =
                             new android.view.animation.AlphaAnimation(1f, 0f);
                     fade.setDuration(400);
                     fade.setFillAfter(true);
-                    fade.setAnimationListener(
-                            new android.view.animation.Animation.AnimationListener() {
-                        @Override public void onAnimationEnd(
-                                android.view.animation.Animation a) {
-                            if (splashView != null) {
-                                splashView.setVisibility(android.view.View.GONE);
-                            }
-                        }
-                        @Override public void onAnimationStart(
-                                android.view.animation.Animation a) { }
-                        @Override public void onAnimationRepeat(
-                                android.view.animation.Animation a) { }
-                    });
-                    splashView.startAnimation(fade);
-                } catch (Throwable t) {
-                    splashView.setVisibility(android.view.View.GONE);
-                }
+                    sv.startAnimation(fade);
+                } catch (Throwable ignored) { }
+                // 兜底：无论动画是否回调，都在 500ms 后强制移除。
+                // （此前只依赖 onAnimationEnd，一旦未触发就留下一个透明但吃触摸的全屏视图）
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(new Runnable() {
+                    @Override public void run() {
+                        try { sv.clearAnimation(); sv.setVisibility(android.view.View.GONE); }
+                        catch (Throwable ignored) { }
+                    }
+                }, 500);
             }
         });
     }
@@ -1388,7 +1434,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.7.0\n");
+            w.write("APK 版本: 0.8.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
