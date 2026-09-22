@@ -41,6 +41,23 @@ public final class FileBrowser {
 
     private FileBrowser() { }
 
+    /**
+     * 纵向间距节奏（dp）。
+     *
+     * <p>原则：**同一组信息挨紧，组与组之间留松**。
+     * 标题 / 路径 / 统计属于同一组（都在说明「这是哪里」），所以间距很小；
+     * 常用位置、面包屑、列表是三个不同的操作区，之间要留出呼吸感。
+     *
+     * <p>集中成常量而不是散落在各处写数字：调整观感时改一处即可，
+     * 也不会出现「列表上边距是 0 而其它都是 8~10」这种不一致
+     * —— 实测那个 0 让面包屑与列表挤在了一起。
+     */
+    private static final int GAP_TITLE = 4;    // 标题 → 路径
+    private static final int GAP_META  = 2;    // 路径 → 统计
+    private static final int GAP_ROOTS = 14;   // 统计 → 常用位置
+    private static final int GAP_CRUMB = 12;   // 常用位置 → 面包屑
+    private static final int GAP_LIST  = 16;   // 面包屑 → 列表
+
     /** 常用位置。 */
     private static final class Root {
         final String label;
@@ -224,6 +241,16 @@ public final class FileBrowser {
                                 break;
                             }
                         }
+
+                        // 各区块的实际间距：直接验证「挤不挤」，
+                        // 不必靠截图目测（目测很容易把 3dp 与 16dp 看混）
+                        int crumbBottom = probeCrumb.getTop() + probeCrumb.getHeight();
+                        int listTop = listScroll.getTop();
+                        sb.append("，面包屑→列表 ").append(listTop - crumbBottom)
+                          .append("px");
+                        int rootBottom = probeRootRow.getTop() + probeRootRow.getHeight();
+                        sb.append("，常用位置→面包屑 ")
+                          .append(probeCrumb.getTop() - rootBottom).append("px");
 
                         // 行内两列是否都被压到过窄（各占约一半为正常）
                         if (rows > 0 && rowH > 0) {
@@ -436,13 +463,13 @@ public final class FileBrowser {
         b.pathView.setTextColor(DshUi.TEXT_2);
         b.pathView.setSingleLine(true);
         b.pathView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        body.addView(b.pathView, DshUi.fullWidth(act, 4));
-        body.addView(b.meta, DshUi.fullWidth(act, 2));
+        body.addView(b.pathView, DshUi.fullWidth(act, GAP_TITLE));
+        body.addView(b.meta, DshUi.fullWidth(act, GAP_META));
 
         // 常用位置
         LinearLayout rootRow = new LinearLayout(act);
         rootRow.setOrientation(LinearLayout.HORIZONTAL);
-        body.addView(rootRow, DshUi.fullWidth(act, 10));
+        body.addView(rootRow, DshUi.fullWidth(act, GAP_ROOTS));
         for (final Root r : b.roots) {
             Button btn = DshUi.toggleButton(act, r.label, false);
             btn.setOnClickListener(new View.OnClickListener() {
@@ -460,7 +487,7 @@ public final class FileBrowser {
         b.crumbScroll.setHorizontalScrollBarEnabled(false);
         b.crumbScroll.addView(b.crumbRow, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        body.addView(b.crumbScroll, DshUi.fullWidth(act, 8));
+        body.addView(b.crumbScroll, DshUi.fullWidth(act, GAP_CRUMB));
 
         // 列表
         b.listBox.setOrientation(LinearLayout.VERTICAL);
@@ -474,8 +501,10 @@ public final class FileBrowser {
         ScrollView scroll = new ScrollView(act);
         scroll.addView(b.listBox, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 列表与面包屑之间必须留白：原先这里是 0，两者挤在一起（实测仅 3dp）
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        slp.topMargin = DshUi.dp(act, GAP_LIST);
         body.addView(scroll, slp);
 
         // 底部：隐藏文件开关 + 刷新 + 关闭
