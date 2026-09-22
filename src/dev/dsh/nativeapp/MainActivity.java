@@ -409,13 +409,18 @@ public class MainActivity extends Activity {
         String libPath = new File(root, "lib").getAbsolutePath()
                 + ":" + new File(toolsDir, "lib").getAbsolutePath();
         String binPath = new File(toolsDir, "bin").getAbsolutePath() + ":/system/bin:/system/xbin";
-        String nodePath = new File(dshDir, "node_modules").getAbsolutePath()
-                + ":" + new File(root, "node_modules").getAbsolutePath();
+        // 注意：这里**故意不设 NODE_PATH**。
+        // DSH 从 <dshDir>/lib/bin.js 启动，Node 会沿目录向上自然找到
+        // <dshDir>/node_modules，无需 NODE_PATH。
+        // 而 NODE_PATH 是 Node 的遗留回退机制，会让同一个包经由不同路径
+        // 被加载成**多个模块实例** —— DSH 的错误分类依赖 `instanceof`，
+        // 实例不一致会导致「本是图片相关的错误」被兜底包装成
+        // "prompt rejected (session/agent-busy)"，真实原因就此丢失。
+        // （preflight 脚本位于 <root>/，那是另一个进程，仍需要 NODE_PATH。）
 
         pb.environment().put("LD_LIBRARY_PATH", libPath);
         pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
         pb.environment().put("PATH", binPath);
-        pb.environment().put("NODE_PATH", nodePath);
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
         pb.environment().put("TMPDIR", root.getAbsolutePath());
@@ -2609,7 +2614,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.5\n");
+            w.write("APK 版本: 0.15.6\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
