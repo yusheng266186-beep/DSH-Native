@@ -1,7 +1,7 @@
 {
-  "version": "0.19.0",
-  "tag": "v0.19.0-bootstrap",
+  "version": "0.19.1",
+  "tag": "v0.19.1-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "补上编辑后刷新；新增架构约束检查（纯逻辑层禁 Android 依赖）"
+  "notes": "列表改白卡片+分割线；自检升级为逐按钮检测标签截断"
 }

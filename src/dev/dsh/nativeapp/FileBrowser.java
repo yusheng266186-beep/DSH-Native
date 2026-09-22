@@ -78,6 +78,13 @@ public final class FileBrowser {
             }
         };
 
+        /** 布局自检用的探针视图（列表滚动容器）。 */
+        android.view.View layoutProbe;
+        /** 自检所需的其他视图。 */
+        LinearLayout probeRootRow;
+        android.widget.HorizontalScrollView probeCrumb;
+        Runnable runLayoutCheck;
+
         File cwd;
         boolean showHidden = false;
         int sortMode = FileListing.SORT_NAME;
@@ -136,7 +143,10 @@ public final class FileBrowser {
             final android.view.View decor = dlg.getWindow() == null
                     ? null : dlg.getWindow().getDecorView();
             if (decor == null) return;
-            decor.post(new Runnable() {
+            layoutProbe = listScroll;
+            probeRootRow = rootRow;
+            probeCrumb = crumb;
+            runLayoutCheck = new Runnable() {
                 @Override public void run() {
                     try {
                         int dw = decor.getWidth(), dh = decor.getHeight();
@@ -152,22 +162,59 @@ public final class FileBrowser {
                         sb.append("，行高 ").append(rowH).append("px");
                         sb.append("，可见 ").append(visible).append(" 行");
                         // 面包屑内容宽 vs 可视宽：超出说明需要横向滚动（正常，不是缺陷）
-                        int crumbContent = crumb.getChildCount() > 0
-                                ? crumb.getChildAt(0).getWidth() : 0;
+                        int crumbContent = probeCrumb.getChildCount() > 0
+                                ? probeCrumb.getChildAt(0).getWidth() : 0;
                         sb.append("，面包屑 ").append(crumbContent)
-                          .append("/").append(crumb.getWidth());
-                        // 常用位置一行是否放得下
-                        int rootNeeded = 0;
-                        for (int i = 0; i < rootRow.getChildCount(); i++) {
-                            android.view.View c = rootRow.getChildAt(i);
-                            rootNeeded += c.getWidth();
-                            android.view.ViewGroup.MarginLayoutParams lp =
-                                    (android.view.ViewGroup.MarginLayoutParams) c.getLayoutParams();
-                            rootNeeded += lp.leftMargin + lp.rightMargin;
+                          .append("/").append(probeCrumb.getWidth());
+                        // 常用位置：逐个按钮比较「文字宽 + 内边距」与「实际宽度」。
+                        // 只看总和没有意义（六个按钮等权重，总和必然等于行宽）——
+                        // 真正要发现的是某个标签被省略号截断。
+                        StringBuilder tight = new StringBuilder();
+                        for (int i = 0; i < probeRootRow.getChildCount(); i++) {
+                            android.widget.TextView c =
+                                    (android.widget.TextView) probeRootRow.getChildAt(i);
+                            int need = (int) c.getPaint().measureText(String.valueOf(c.getText()))
+                                     + c.getPaddingLeft() + c.getPaddingRight();
+                            if (need > c.getWidth()) {
+                                if (tight.length() > 0) tight.append("/");
+                                tight.append(c.getText());
+                            }
                         }
-                        sb.append("，常用位置 ").append(rootNeeded)
-                          .append("/").append(rootRow.getWidth());
-                        sb.append(rootNeeded > rootRow.getWidth() ? " ⚠️ 放不下" : " ✓");
+                        sb.append("，常用位置 ");
+                        if (tight.length() == 0) {
+                            sb.append("标签均完整 ✓");
+                        } else {
+                            sb.append("⚠️ 这些标签被省略: ").append(tight);
+                        }
+
+                        // 底部按钮总宽 vs 可用宽：四个按钮用 wrap_content，
+                        // 窄屏或横屏下可能挤出卡片
+                        android.view.View parent = (android.view.View) probeRootRow.getParent();
+                        if (parent instanceof LinearLayout) {
+                            LinearLayout col = (LinearLayout) parent;
+                            int cardW = col.getWidth();
+                            for (int i = 0; i < col.getChildCount(); i++) {
+                                android.view.View child = col.getChildAt(i);
+                                if (!(child instanceof LinearLayout)) continue;
+                                LinearLayout rowCandidate = (LinearLayout) child;
+                                if (rowCandidate.getChildCount() == 0) continue;
+                                if (!(rowCandidate.getChildAt(0) instanceof android.widget.Button)) continue;
+                                int total = 0;
+                                for (int k = 0; k < rowCandidate.getChildCount(); k++) {
+                                    android.view.View b2 = rowCandidate.getChildAt(k);
+                                    total += b2.getWidth();
+                                    android.view.ViewGroup.MarginLayoutParams mlp =
+                                            (android.view.ViewGroup.MarginLayoutParams)
+                                                    b2.getLayoutParams();
+                                    total += mlp.leftMargin + mlp.rightMargin;
+                                }
+                                int avail = cardW - rowCandidate.getPaddingLeft()
+                                        - rowCandidate.getPaddingRight();
+                                sb.append("，底部按钮 ").append(total).append("/").append(avail);
+                                sb.append(total > avail ? " ⚠️ 放不下" : " ✓");
+                                break;
+                            }
+                        }
 
                         // 行内两列是否都被压到过窄（各占约一半为正常）
                         if (rows > 0 && rowH > 0) {
@@ -183,7 +230,8 @@ public final class FileBrowser {
                         DshUi.log("布局自检失败: " + t);
                     }
                 }
-            });
+            };
+            decor.post(runLayoutCheck);
         }
 
         void shutdown() {
@@ -234,25 +282,43 @@ public final class FileBrowser {
             DshUi.setButtonActive(sortToggle, sortMode != FileListing.SORT_NAME);
         }
 
+        /** 居中的状态提示（空目录 / 无权限 / 出错）。 */
+        private View centeredHint(String text) {
+            TextView tv = DshUi.hint(act, text);
+            tv.setGravity(Gravity.CENTER);
+            int v = DshUi.dp(act, 28);
+            tv.setPadding(v, v, v, v);
+            return tv;
+        }
+
         /** 列表区。 */
-        void renderList(FileListing.Listing listing) {
+        void renderList(final FileListing.Listing listing) {
             listBox.removeAllViews();
             if (listing.error != null) {
                 meta.setText("无法读取");
-                listBox.addView(DshUi.hint(act, listing.error));
+                listBox.addView(centeredHint(listing.error));
                 return;
             }
             if (listing.entries.isEmpty()) {
                 meta.setText(listing.dirCount + " 个目录 · " + listing.fileCount + " 个文件");
-                listBox.addView(DshUi.hint(act,
-                        listing.total == 0 ? "（空目录）"
-                                : "（" + listing.total + " 项被隐藏，点「隐藏文件」可显示）"));
+                listBox.addView(centeredHint(listing.total == 0
+                        ? "（空目录）"
+                        : "（" + listing.total + " 项被隐藏，点「隐藏文件」可显示）"));
                 return;
             }
             for (FileListing.Entry e : listing.entries) {
-                listBox.addView(buildRow(e), DshUi.fullWidth(act, 2));
+                // 不再用外边距分隔（改由分割线承担），否则线两侧会多出一条缝
+                listBox.addView(buildRow(e), new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
             }
             meta.setText(FileListing.summaryOf(listing));
+            // 每次导航后都自检一次：尺寸只在布局完成后才有效
+            if (layoutProbe != null) {
+                layoutProbe.post(new Runnable() {
+                    @Override public void run() { runLayoutCheck.run(); }
+                });
+            }
         }
 
         /**
@@ -382,9 +448,13 @@ public final class FileBrowser {
 
         // 列表
         b.listBox.setOrientation(LinearLayout.VERTICAL);
-        b.listBox.setBackground(DshUi.surfaceBg(act));
+        // 白卡片 + 行间细分割线（与 DSH 的卡片语言一致）。
+        // 原先是灰底 + 2dp 外边距，行与行糊在一起、没有节奏感。
+        b.listBox.setBackground(DshUi.cardBg(act));
+        b.listBox.setPadding(0, DshUi.dp(act, 4), 0, DshUi.dp(act, 4));
+        b.listBox.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        b.listBox.setDividerDrawable(DshUi.divider(act));
         int pad = DshUi.dp(act, 6);
-        b.listBox.setPadding(pad, pad, pad, pad);
         ScrollView scroll = new ScrollView(act);
         scroll.addView(b.listBox, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

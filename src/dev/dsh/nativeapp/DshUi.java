@@ -230,6 +230,24 @@ public final class DshUi {
     }
 
     /**
+     * 列表行之间的细分割线。
+     *
+     * <p>两端用 {@link android.graphics.drawable.InsetDrawable} 留白，
+     * 不顶到卡片圆角 —— 分割线触碰圆角会显得毛糙。
+     * 配合 {@code LinearLayout.setShowDividers(SHOW_DIVIDER_MIDDLE)} 使用，
+     * **不产生额外 View**（八百个条目加八百条线会明显拖慢布局）。
+     */
+    public static android.graphics.drawable.Drawable divider(Context c) {
+        android.graphics.drawable.ShapeDrawable line =
+                new android.graphics.drawable.ShapeDrawable(
+                        new android.graphics.drawable.shapes.RectShape());
+        line.getPaint().setColor(BORDER);
+        line.setIntrinsicHeight(Math.max(1, dp(c, 1)));
+        int inset = dp(c, 14);
+        return new android.graphics.drawable.InsetDrawable(line, inset, 0, inset, 0);
+    }
+
+    /**
      * 列表行的背景：默认透明，按下/聚焦时淡淡一层。
      *
      * <p>文件列表这类行式条目用它，保持与卡片一致的圆角与配色。
