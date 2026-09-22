@@ -1851,6 +1851,19 @@ public class MainActivity extends Activity {
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
 
+            // ── 配置备份 ──
+            body.addView(DshUi.sectionLabel(this, "配置备份"), DshUi.fullWidth(this, 22));
+            body.addView(DshUi.hint(this, "把账户密钥与模型配置导出到共享存储；重装或换机后可恢复"),
+                    DshUi.fullWidth(this, 6));
+            android.widget.Button btnBackup = DshUi.button(this, "备份与恢复", false);
+            final File backupHome = dshHome;
+            btnBackup.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    ConfigBackupPanel.show(MainActivity.this, appRoot, backupHome);
+                }
+            });
+            body.addView(btnBackup, DshUi.fullWidth(this, 8));
+
             // ── 订阅 ──
             body.addView(DshUi.sectionLabel(this, "订阅"), DshUi.fullWidth(this, 22));
             body.addView(DshUi.hint(this, "查看 Command Code 账户余额、滚动窗口与本期用量"),
@@ -3144,7 +3157,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.0\n");
+            w.write("APK 版本: 0.20.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
