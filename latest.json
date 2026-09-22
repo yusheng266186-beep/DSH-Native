@@ -1,7 +1,7 @@
 {
-  "version": "0.13.4",
-  "tag": "v0.13.4-bootstrap",
+  "version": "0.13.5",
+  "tag": "v0.13.5-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v4",
-  "notes": "移除悬浮按钮；设置入口仅保留通知栏"
+  "notes": "直连优先；复用已下载的安装包"
 }

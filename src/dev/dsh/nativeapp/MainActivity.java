@@ -93,10 +93,10 @@ public class MainActivity extends Activity {
      * 空串表示直连 GitHub 兜底。
      */
     private static final String[] SOURCES = {
+            "",                               // 直连优先（实测这台设备上最快）
             "https://gh-proxy.com/",
             "https://ghfast.top/",
             "https://ghproxy.net/",
-            "",                               // 直连兜底
     };
 
     /**
@@ -283,6 +283,7 @@ public class MainActivity extends Activity {
             pendingOpenSettings = true;
         }
 
+        cleanupStaleUpdateApk();
         installCrashHandler();
         showPreviousCrash();
 
@@ -816,7 +817,27 @@ public class MainActivity extends Activity {
                     setStatus(status, "发现新版本 " + rel[0] + "，正在下载…");
                     if (interactive) toast("发现新版本 " + rel[0] + "，开始下载");
                     File apk = UpdateProvider.apkFile(MainActivity.this);
-                    if (apk.exists()) apk.delete();
+
+                    // 先看本地有没有已下载但尚未安装的安装包。
+                    // 用户下载后取消安装、再点检查更新时，不该重复下载 34MB。
+                    // 仅当本地包已经是「远端最新版」（或更新）时才直接安装；
+                    // 若本地包比远端旧，说明期间又发了新版，应当重新下载，
+                    // 否则会装上一个过时的版本。
+                    String cachedVer = apkVersionOf(apk);
+                    if (cachedVer != null && !isNewer(rel[0], cachedVer)) {
+                        log("本地已有最新安装包 " + cachedVer
+                                + "（此前下载后未安装），直接调起安装，跳过下载");
+                        setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
+                        if (interactive) toast("使用已下载的 " + cachedVer + " 安装包");
+                        installApk(apk);
+                        return;
+                    }
+                    if (apk.exists()) {
+                        log("本地安装包 " + cachedVer + " 旧于远端 " + rel[0]
+                                + "，重新下载");
+                        apk.delete();
+                    }
+
                     downloadPath("https://github.com/" + REPO
                                     + "/releases/download/" + tag + "/",
                             apkName, apk);
@@ -875,6 +896,43 @@ public class MainActivity extends Activity {
             log("✗ 调起安装器失败: " + t);
             toast("无法调起安装器: " + shorten(t));
         }
+    }
+
+    /**
+     * 读取一个 APK 文件自身的 versionName（不安装即可读）。
+     * 用于判断本地缓存的安装包是否还有效。
+     */
+    private String apkVersionOf(File apk) {
+        try {
+            if (apk == null || !apk.exists() || apk.length() < 100000) return null;
+            android.content.pm.PackageInfo pi = getPackageManager()
+                    .getPackageArchiveInfo(apk.getAbsolutePath(), 0);
+            if (pi == null) return null;
+            return pi.versionName;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 清理本地更新包。
+     *
+     * <p>三种情况删除：已安装（版本不再更新）、损坏无法解析、空文件。
+     * 保留「比当前新但还没装」的那一份 —— 用户取消安装后可以再次直接安装。
+     */
+    private void cleanupStaleUpdateApk() {
+        try {
+            File apk = UpdateProvider.apkFile(this);
+            if (!apk.exists()) return;
+            String v = apkVersionOf(apk);
+            if (v != null && isNewer(v, appVersion())) {
+                log("本地缓存有未安装的更新包: " + v + "（" + (apk.length() / 1048576) + " MB）");
+                return;
+            }
+            apk.delete();
+            log("已清理过期更新包（" + (v == null ? "无法解析" : v)
+                    + "，当前 " + appVersion() + "）");
+        } catch (Throwable ignored) { }
     }
 
     /** 启动后的静默检查：只记日志；有新版本时提示一次，不打断使用。 */
@@ -2371,7 +2429,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.4\n");
+            w.write("APK 版本: 0.13.5\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
