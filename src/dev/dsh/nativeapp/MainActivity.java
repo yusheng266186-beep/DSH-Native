@@ -925,73 +925,125 @@ public class MainActivity extends Activity {
                 log("  （未找到附件模块，跳过持久化补丁）");
                 return;
             }
-            String src = readText(f);
-            if (src.contains("__androidSyncDirectory")) {
-                log("  附件持久化补丁已应用");
+            final String PATCH_TAG = "/* DSH-ANDROID-ATTACH-PATCH-v3 */";
+            File orig = new File(f.getParentFile(), "index.js.dshorig");
+
+            // 补丁会写回文件，而运行包不变时不会重新解压 ——
+            // 因此不能靠「文件里是否已有补丁」判断幂等：那样补丁升级永远进不去
+            // （实测：v0.16.2 的新补丁因 v0.16.0 已改过文件而被整体跳过）。
+            // 方案：保留一份**剥离过补丁的原文件**，之后每次都从它重新生成。
+            if (!orig.exists()) {
+                String raw = readText(f);
+                String base = stripAndroidPatch(raw);
+                if (base.indexOf("await syncDirectory(") < 0) {
+                    log("  ⚠️ 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
+                    return;
+                }
+                writeText(orig, base);
+                log("  已保存附件模块原文件（供补丁重新生成）");
+            }
+
+            String cur = readText(f);
+            if (cur.contains(PATCH_TAG)) {
+                log("  附件补丁已是最新（v3）");
                 return;
             }
-            if (src.indexOf("await syncDirectory(") < 0) {
-                log("  ⚠️ 未匹配到 syncDirectory 调用，跳过（可能 DSH 版本变化）");
-                return;
-            }
-            String out = src.replace("await syncDirectory(",
-                                     "await __androidSyncDirectory(");
-            // 把底层 cause 暴露出来：原本 persist 失败时只抛
-            // "Unable to persist attachment."，真正的 error.code/message 被塞进
-            // cause 字段、界面看不到 —— 又被掩盖一次。
-            // 这里把 cause 拼进 message，界面上就能直接读到根因。
-            int replaced = 0;
-            String marker = "throw new AttachmentError(\"Unable to persist attachment.\", \"ATTACHMENT_WRITE_FAILED\", { cause: error });";
-            if (out.contains(marker)) {
-                String diag = "console.error('[dsh-attach] persist failed: ' + String(error && error.code) "
-                        + "+ ' ' + String(error && error.message) "
-                        + "+ (error && error.cause ? (' <= ' + String(error.cause.code) + ' ' + String(error.cause.message)) : ''));\n\t\t\t"
-                        + "throw new AttachmentError(\"Unable to persist attachment. [\" + String(error && error.code) "
-                        + "+ '] ' + String(error && error.message) "
-                        + "+ (error && error.cause ? (' <= ' + String(error.cause.code) + ' ' + String(error.cause.message)) : ''), "
-                        + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
-                out = out.replace(marker, diag);
-                replaced = 1;
-            }
-            // 两处加固：
-            // ① syncDirectory 越界 fsync：App 无法访问自家 data 目录之上的路径。
-            //    目录 fsync 属「尽力而为」的持久化措施，失败不应中断附件写入，
-            //    因此这里吞掉**所有**错误（并记日志），而不只是 EACCES。
-            // ② link 硬链接发布：部分 Android 文件系统（FUSE/sdcardfs 等）
-            //    不支持硬链接，会返回 EPERM/EXDEV/ENOSYS 等。此时退化为复制。
-            String helper =
-                  "/* Android patch: the upward durability walk cannot traverse above\n"
-                + "   the app's own data dir; dir fsync is best-effort. */\n"
-                + "async function __androidSyncDirectory(p){try{return await syncDirectory(p);}"
-                + "catch(e){console.error('[dsh-attach] syncDirectory skipped ' + p + ': ' + String(e && e.code));}}\n"
-                + "/* Android patch: hard links are unsupported on some Android filesystems. */\n"
-                + "async function __androidLink(from,to){try{return await link(from,to);}"
-                + "catch(e){var c=e&&e.code;"
-                + "if(c==='EPERM'||c==='EXDEV'||c==='ENOSYS'||c==='EACCES'||c==='EMLINK'||c==='EOPNOTSUPP'){"
-                + "console.error('[dsh-attach] link unsupported (' + c + '), falling back to copy');"
-                + "const b=await readFile(from);await writeFile(to,b,{mode:384});return;}"
-                + "throw e;}}\n";
-            // ⚠️ 顺序很重要：必须**先替换调用点，再前置包装函数**。
-            // 反过来会把包装函数自身的 syncDirectory/link 调用也替换掉，
-            // 造成自我递归（实测造成 RangeError: Maximum call stack size exceeded）。
-            out = out.replace("await link(staged.path, target);",
-                              "await __androidLink(staged.path, target);");
-            out = out.replace("await link(source, target);",
-                              "await __androidLink(source, target);");
-            out = helper + out;
-            // 自检：包装函数体内必须仍是原始调用，否则会自我递归
-            // （此坑实测踩过：RangeError: Maximum call stack size exceeded）。
-            if (out.indexOf("__androidSyncDirectory(p){try{return await syncDirectory(p);}") < 0
-                    || out.indexOf("__androidLink(from,to){try{return await link(from,to);}") < 0) {
-                log("  ⚠️ 附件补丁自检未通过（包装函数可能自我递归），已放弃应用");
+            String out = buildPatchedAttachment(readText(orig), PATCH_TAG);
+            if (out == null) {
+                log("  ⚠️ 附件补丁自检未通过，放弃应用");
                 return;
             }
             writeText(f, out);
-            log("  已为附件落盘应用 Android 补丁（越界 fsync 跳过 + 硬链接退化复制"
-                    + (replaced > 0 ? " + 失败原因可见" : "") + "）");
+            log("  已应用附件补丁 v3（越界 fsync 跳过 + 硬链接退化复制 + 失败原因可见）");
         } catch (Throwable t) {
             log("  ⚠️ 附件持久化补丁失败: " + t);
         }
+    }
+
+    /**
+     * 剥离此前版本打过的附件补丁，还原出干净的模块源码。
+     *
+     * <p>设备上可能残留旧版补丁（补丁是写回文件的），必须先还原，
+     * 否则在新补丁上再包一层会造成重复包装甚至自我递归。
+     */
+    private static String stripAndroidPatch(String src) {
+        // 按**位置**裁剪，不按注释内容匹配 ——
+        // 旧版补丁的注释是两行、措辞还各不相同，按内容过滤会漏掉续行，
+        // 残留半截注释直接造成语法错误（实测踩过）。
+        // 补丁的包装函数总是前置在文件最前面，因此丢掉「最后一个包装函数
+        // 定义所在行之前」的全部内容即可。
+        String[] lines = src.split("\n", -1);
+        int cut = 0;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("async function __android")) cut = i + 1;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = cut; i < lines.length; i++) sb.append(lines[i]).append('\n');
+        String out = sb.toString();
+        out = out.replace("await __androidSyncDirectory(", "await syncDirectory(");
+        out = out.replace("await __androidLink(", "await link(");
+        return out;
+    }
+
+    /**
+     * 生成打过补丁的附件模块；自检不通过时返回 null。
+     *
+     * <p>三处加固：
+     * <ol>
+     *   <li><b>越界 fsync 吞错</b> —— DSH 的 {@code ensureDurableHome()} 以
+     *       {@code parse(home).root}（即 {@code "/"}）为遍历边界，会逐级打开父目录
+     *       做 fsync。Android 上 App 只能访问 {@code /data/user/0/<包名>} 子树，
+     *       走到 {@code /data/user/0} 即 EACCES。目录 fsync 属尽力而为，
+     *       失败不应中断附件写入，故吞掉所有错误并记日志。</li>
+     *   <li><b>硬链接退化为复制</b> —— 部分 Android 文件系统（FUSE/sdcardfs）不支持
+     *       {@code link()}，返回 EPERM/EXDEV/ENOSYS 等；此时改用读写复制。</li>
+     *   <li><b>失败原因可见</b> —— 原本 persist 失败只抛一句笼统消息，
+     *       真实 error.code 藏在 cause 字段里、界面看不到。</li>
+     * </ol>
+     */
+    private static String buildPatchedAttachment(String src, String tag) {
+        if (src == null || src.indexOf("await syncDirectory(") < 0) return null;
+        // ⚠️ 必须先替换调用点、再前置包装函数 —— 反过来会把包装函数自身的调用
+        // 也替换掉，造成自我递归（实测 RangeError: Maximum call stack size exceeded）。
+        String out = src.replace("await syncDirectory(", "await __androidSyncDirectory(");
+        out = out.replace("await link(staged.path, target);", "await __androidLink(staged.path, target);");
+        out = out.replace("await link(source, target);", "await __androidLink(source, target);");
+
+        int replaced = 0;
+        String marker = "throw new AttachmentError(\"Unable to persist attachment.\", "
+                + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
+        if (out.contains(marker)) {
+            out = out.replace(marker,
+                "console.error('[dsh-attach] persist failed: ' + String(error && error.code)"
+              + " + ' ' + String(error && error.message)"
+              + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
+              + " + String(error.cause.message)) : ''));\n\t\t\t"
+              + "throw new AttachmentError(\"Unable to persist attachment. [\""
+              + " + String(error && error.code) + '] ' + String(error && error.message)"
+              + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
+              + " + String(error.cause.message)) : ''), \"ATTACHMENT_WRITE_FAILED\", { cause: error });");
+            replaced = 1;
+        }
+
+        String helper = tag + "\n"
+              + "async function __androidSyncDirectory(p){try{return await syncDirectory(p);}"
+              + "catch(e){console.error('[dsh-attach] syncDirectory skipped ' + p + ': '"
+              + " + String(e && e.code));}}\n"
+              + "async function __androidLink(from,to){try{return await link(from,to);}"
+              + "catch(e){var c=e&&e.code;"
+              + "if(c==='EPERM'||c==='EXDEV'||c==='ENOSYS'||c==='EACCES'||c==='EMLINK'"
+              + "||c==='EOPNOTSUPP'){"
+              + "console.error('[dsh-attach] link unsupported (' + c + '), copy instead');"
+              + "const b=await readFile(from);await writeFile(to,b,{mode:384});return;}"
+              + "throw e;}}\n";
+        out = helper + out;
+
+        // 自检：包装函数体内必须仍是原始调用，否则会自我递归
+        if (out.indexOf("__androidSyncDirectory(p){try{return await syncDirectory(p);}") < 0
+                || out.indexOf("__androidLink(from,to){try{return await link(from,to);}") < 0) {
+            return null;
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- 可选插件
@@ -2733,7 +2785,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.16.2\n");
+            w.write("APK 版本: 0.16.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

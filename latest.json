@@ -1,7 +1,7 @@
 {
-  "version": "0.16.2",
-  "tag": "v0.16.2-bootstrap",
+  "version": "0.16.3",
+  "tag": "v0.16.3-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "附件落盘双加固：越界 fsync 跳过 + 硬链接退化复制"
+  "notes": "修复补丁无法升级；附件落盘三处加固"
 }
