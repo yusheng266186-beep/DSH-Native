@@ -16,7 +16,7 @@
 > 首次启动会请求**存储权限**，请点「允许」——
 > 日志会写入 `/sdcard/DSHNative/launch.log`，便于排查问题（可随时删除）。
 >
-> SHA-256：`e221079b1b21cc1d756648876bff0f3a47085eeab9c6b96d6278c1cd571961ba`e37d55f1abc02c768cde32dcc98b11a7672c72cdc8abb51d497f7738e1ed0e31`
+> SHA-256：`633643b57120f8a4f527120e2ff191c4a310979e093e7b8caf47441afd7f3df0`e37d55f1abc02c768cde32dcc98b11a7672c72cdc8abb51d497f7738e1ed0e31`
 
 
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**

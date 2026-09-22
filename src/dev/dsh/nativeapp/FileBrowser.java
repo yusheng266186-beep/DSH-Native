@@ -164,9 +164,14 @@ public final class FileBrowser {
             layoutProbe = listScroll;
             probeRootRow = rootRow;
             probeCrumb = crumb;
+            DshUi.log("布局自检已排入队列（等待布局完成）");
             runLayoutCheck = new Runnable() {
                 @Override public void run() {
                     try {
+                        if (decor.getWidth() == 0 || decor.getHeight() == 0) {
+                            DshUi.log("布局自检跳过：视图尚未完成布局");
+                            return;
+                        }
                         int dw = decor.getWidth(), dh = decor.getHeight();
                         int lw = listScroll.getWidth(), lh = listScroll.getHeight();
                         int rows = listBox.getChildCount();
@@ -453,6 +458,8 @@ public final class FileBrowser {
         }
         b.roots.add(new Root("根", new File("/")));
         b.cwd = appDir != null && appDir.isDirectory() ? appDir : b.roots.get(0).dir;
+        DshUi.log("打开文件浏览: " + b.cwd.getAbsolutePath()
+                + "（可用位置 " + b.roots.size() + " 个）");
 
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, "文件浏览"));
