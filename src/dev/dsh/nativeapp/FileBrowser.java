@@ -348,17 +348,29 @@ public final class FileBrowser {
             box.addView(DshUi.hint(act, e.file.getAbsolutePath()
                     + (writable ? "" : "\n该位置只读，不能修改")), DshUi.fullWidth(act, 6));
 
+            // 分享要求文件存在且在白名单内 —— 与可写范围一致
+            final boolean shareable = ShareTargets.isShareable(e.file, writeRoots);
             Button copy = DshUi.button(act, "复制路径", false);
+            Button share = DshUi.button(act, "分享", false);
             Button rename = DshUi.button(act, "重命名", false);
             Button del = DshUi.button(act, "删除", false);
+            share.setEnabled(shareable);
             rename.setEnabled(writable);
             del.setEnabled(writable);
+            if (!shareable) share.setTextColor(DshUi.TEXT_3);
             if (!writable) {
                 rename.setTextColor(DshUi.TEXT_3);
                 del.setTextColor(DshUi.TEXT_3);
             }
 
-            final Dialog menu = DshUi.dialog(act, box, DshUi.footer(act, copy, rename, del), 340);
+            final Dialog menu = DshUi.dialog(act, box,
+                    DshUi.footer(act, copy, share, rename, del), 360);
+            share.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    menu.dismiss();
+                    shareFile(e.file);
+                }
+            });
             copy.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     menu.dismiss();
@@ -395,6 +407,36 @@ public final class FileBrowser {
                 }
             });
             menu.show();
+        }
+
+        /**
+         * 用系统分享面板把文件发出去。
+         *
+         * <p>走 {@code content://} 而不是文件路径 —— API 24 起把
+         * {@code file://} 交给别的应用会抛 {@code FileUriExposedException}。
+         * 接收方拿到的是一次性读授权，看不到真实路径。
+         */
+        private void shareFile(File f) {
+            try {
+                android.net.Uri uri = android.net.Uri.parse("content://"
+                        + UpdateProvider.AUTHORITY + "/"
+                        + ShareTargets.PREFIX + ShareTargets.encode(f));
+                android.content.Intent send = new android.content.Intent(
+                        android.content.Intent.ACTION_SEND);
+                send.setType(ShareTargets.mimeOf(f.getName()));
+                send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+                send.putExtra(android.content.Intent.EXTRA_TITLE,
+                        ShareTargets.displayName(f));
+                send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                android.content.Intent chooser =
+                        android.content.Intent.createChooser(send, "分享 " + f.getName());
+                chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                act.startActivity(chooser);
+                DshUi.log("分享文件: " + f.getAbsolutePath());
+            } catch (Throwable t) {
+                DshUi.toast(act, "分享失败：" + t.getClass().getSimpleName());
+                DshUi.log("分享失败: " + t);
+            }
         }
 
         /** 输入名称的回调。 */
