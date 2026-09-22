@@ -890,6 +890,17 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
+    /**
+     * 当前版本的 APK 下载地址（直连形式）。
+     *
+     * <p>网络诊断用它做测速 —— 必须与更新功能真正会下载的地址一致，
+     * 否则测出来的速度没有参考意义。
+     */
+    private String apkDownloadUrl() {
+        return "https://github.com/yusheng266186-beep/DSH-Native/releases/download/v"
+                + appVersion() + "-bootstrap/DSHNative-bootstrap.apk";
+    }
+
     /** 运行包摘要（供设置页显示）。 */
     private String payloadSummary() {
         try {
@@ -1764,6 +1775,18 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            // ── 网络 ──
+            body.addView(DshUi.sectionLabel(this, "网络"), DshUi.fullWidth(this, 22));
+            body.addView(DshUi.hint(this, "检测更新功能依赖的各个源是否可用（直连与镜像分开报告）"),
+                    DshUi.fullWidth(this, 6));
+            android.widget.Button btnNet = DshUi.button(this, "网络诊断", false);
+            btnNet.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    NetworkDiag.show(MainActivity.this, apkDownloadUrl());
+                }
+            });
+            body.addView(btnNet, DshUi.fullWidth(this, 8));
 
             // ── 文件 ──
             body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
@@ -3033,7 +3056,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.19.2\n");
+            w.write("APK 版本: 0.19.6\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
