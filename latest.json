@@ -1,7 +1,7 @@
 {
-  "version": "0.17.1",
-  "tag": "v0.17.1-bootstrap",
+  "version": "0.18.0",
+  "tag": "v0.18.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
-  "payload": "payload-v5",
-  "notes": "显示缩放（textZoom 100/115/130/150%）"
+  "payload": "payload-v6",
+  "notes": "修复维护状态累积与对勾不互斥；预装 pypdf/openpyxl/chardet"
 }

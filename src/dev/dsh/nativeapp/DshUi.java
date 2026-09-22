@@ -179,6 +179,18 @@ public final class DshUi {
     }
 
     /** 撑满宽度的按钮布局参数。 */
+    /**
+     * 切换按钮的「主按钮 / 次按钮」外观。
+     *
+     * <p>用于互斥选择（例如显示缩放的档位）：切换时必须把所有兄弟按钮
+     * 一并重置，只让选中项保持高亮 —— 否则会出现多个同时高亮。
+     */
+    public static void setButtonActive(Button b, boolean primary) {
+        if (b == null) return;
+        b.setBackground(buttonBg(b.getContext(), primary));
+        b.setTextColor(primary ? ON_ACCENT : TEXT);
+    }
+
     public static LinearLayout.LayoutParams fullWidth(Context c, int topMarginDp) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,

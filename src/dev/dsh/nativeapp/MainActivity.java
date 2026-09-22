@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v5/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v6/";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -558,8 +558,14 @@ public class MainActivity extends Activity {
     private volatile boolean pendingOpenSettings;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
     private volatile String pendingAction = "";
-    /** 补丁执行状态，用于在设置页展示（DSH 更新后补丁可能失效）。 */
-    private final java.util.List<String> patchReport = new java.util.ArrayList<String>();
+    /**
+     * 补丁执行状态，用于在设置页展示（DSH 更新后补丁可能失效）。
+     *
+     * <p>用 Map 而不是 List：同名只保留最新一条。早先用 List 追加，
+     * 导致每次切换显示缩放都会在「维护状态」里多堆一行，重复累积。
+     */
+    private final java.util.Map<String, String> patchReport =
+            new java.util.LinkedHashMap<String, String>();
 
     /** 读取显示缩放（默认 100%）。 */
     private int currentZoom() {
@@ -576,7 +582,7 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putInt("textZoom", pct).apply();
             if (webView != null) webView.getSettings().setTextZoom(pct);
-            recordPatch("显示缩放", true, pct + "%");
+            // 不写入「维护状态」——那是补丁清单；当前档位由按钮对勾体现
             log("显示缩放已设为 " + pct + "%");
         } catch (Throwable t) {
             log("⚠️ 设置显示缩放失败: " + t);
@@ -585,7 +591,8 @@ public class MainActivity extends Activity {
 
     /** 记录一条补丁状态。 */
     private void recordPatch(String name, boolean ok, String detail) {
-        patchReport.add((ok ? "✅ " : "⚠️ ") + name + (detail == null || detail.length() == 0 ? "" : " — " + detail));
+        patchReport.put(name, (ok ? "✅ " : "⚠️ ") + name
+                + (detail == null || detail.length() == 0 ? "" : " — " + detail));
     }
     /** 本次启动是否使用了插件 --patch 覆盖层（用于失败时自动停用）。 */
     private volatile boolean usedPluginPatch;
@@ -1129,23 +1136,43 @@ public class MainActivity extends Activity {
             log("插件已被自动停用（上次启动失败），跳过 --patch");
             return;
         }
+        // 逐个确认运行包里确实存在该插件 —— 引用不存在的插件会让 DSH 整个启动失败
         File sched = new File(dshDir, "node_modules/@deepseek-ai/dsh-schedule");
-        if (!sched.isDirectory()) {
-            log("运行包不含 dsh-schedule，跳过该插件");
+        File mcp = new File(dshDir, "node_modules/@deepseek-ai/dsh-mcp-client");
+        if (!sched.isDirectory() && !mcp.isDirectory()) {
+            log("运行包不含可选插件，跳过");
             return;
         }
         try {
-            File patch = new File(root, "cordis.schedule.yml");
-            writeText(patch,
-                    "# 启用 Schedule 插件：让模型能在会话里创建 / 查看 / 取消定时提醒。\n"
-                  + "# 由 App 自动生成。--patch 是启动器覆盖层（最后应用），无需改动 profile。\n"
-                  + "- insert:\n"
-                  + "    - id: schedule\n"
-                  + "      name: '@deepseek-ai/dsh-schedule'\n");
+            StringBuilder yml = new StringBuilder();
+            java.util.List<String> enabled = new java.util.ArrayList<String>();
+            yml.append("# 由 App 自动生成的插件覆盖层。\n")
+               .append("# --patch 是启动器级覆盖层（最后应用、优先级最高），\n")
+               .append("# 因此启用插件无需改动用户的 profile 文件。\n")
+               .append("- insert:\n");
+            if (sched.isDirectory()) {
+                yml.append("    - id: schedule\n")
+                   .append("      name: '@deepseek-ai/dsh-schedule'\n");
+                enabled.add("Schedule（会话内定时提醒）");
+            }
+            // ⚠️ dsh-mcp-client 在**没有配置任何 server** 时会让 DSH 整个启动失败：
+            //     failed to apply loader entry mcp-client: Cannot read properties of
+            //     undefined (reading 'reconnect')
+            // 已用真实命令验证过，故不启用；待其能在空配置下安全加载再开。
+            if (mcp.isDirectory()) {
+                log("  跳过 MCP 客户端（空配置会导致启动失败，已验证）");
+            }
+            if (enabled.isEmpty()) {
+                log("没有可启用的插件，跳过 --patch");
+                return;
+            }
+            File patch = new File(root, "cordis.plugins.yml");
+            writeText(patch, yml.toString());
             cmd.add("--patch");
             cmd.add(patch.getAbsolutePath());
             usedPluginPatch = true;
-            log("已启用插件: Schedule（会话内定时提醒）");
+            log("已启用插件: " + enabled);
+            recordPatch("可选插件", true, enabled.toString());
         } catch (Throwable t) {
             log("⚠️ Schedule 补丁写入失败，跳过启用: " + t);
         }
@@ -1561,18 +1588,51 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    /** 在工作区放一份说明，用户知道该把文件放哪。 */
+    /** 工作区说明的标题行（用于判断文件是否由本应用生成）。 */
+    private static final String WORKSPACE_README_HEAD =
+            "这是 DeepSeek Harness 的工作目录。";
+
+    /**
+     * 在工作区放一份说明：既告诉用户该把文件放哪，也告诉 agent 手上有哪些工具。
+     *
+     * <p>内容变化时会覆盖更新 —— 但仅当文件仍是本应用生成的那份
+     * （以标题行为标志）；用户自己改写过的文件不动。
+     */
     private void seedWorkspaceReadme(File dir) {
         File readme = new File(dir, "把文件放到这里.txt");
-        if (readme.exists()) return;
+        String body =
+                  WORKSPACE_README_HEAD + "\n"
+                + "=====================================\n\n"
+                + "• 把项目、文档放到这个文件夹，agent 就能直接读写它们\n"
+                + "• agent 生成的产物也会出现在这里\n"
+                + "• 该目录位于手机共享存储，任何文件管理器都能访问\n\n"
+                + "命令行工具\n"
+                + "-----------\n"
+                + "node / npm / npx      Node.js\n"
+                + "python3 / pip3        Python（可自行 pip install 装包）\n"
+                + "git                   版本控制\n"
+                + "rg / fd / jq / curl   搜索与网络\n\n"
+                + "已预装的 Python 库\n"
+                + "------------------\n"
+                + "pypdf        读取 PDF\n"
+                + "openpyxl     读写 Excel（.xlsx）\n"
+                + "chardet      文本编码探测\n"
+                + "Pillow       图片处理（PNG / JPEG / WebP / TIFF）\n\n"
+                + "提示\n"
+                + "----\n"
+                + "• .docx / .xlsx / .pptx 本质是 zip + XML，用 Python 标准库\n"
+                + "  （zipfile + xml.etree）即可直接读取，不一定要装库\n"
+                + "• 中文文本乱码时，先用 chardet 探测编码\n"
+                + "• 图片直接在对话里发即可\n\n"
+                + "路径：" + dir.getAbsolutePath() + "\n";
         try {
-            writeText(readme,
-                    "这是 DeepSeek Harness 的工作目录。\n"
-                  + "=====================================\n\n"
-                  + "• 把项目、文档放到这个文件夹，agent 就能直接读写它们\n"
-                  + "• agent 生成的产物也会出现在这里\n"
-                  + "• 该目录位于手机共享存储，任何文件管理器都能访问\n\n"
-                  + "路径：" + dir.getAbsolutePath() + "\n");
+            if (readme.exists()) {
+                String cur = readText(readme);
+                if (!cur.startsWith(WORKSPACE_README_HEAD)) return;   // 用户改过，不动
+                if (cur.equals(body)) return;                          // 已是最新
+            }
+            writeText(readme, body);
+            log("工作区说明已更新");
         } catch (Throwable ignored) { }
     }
 
@@ -1684,15 +1744,23 @@ public class MainActivity extends Activity {
                     DshUi.fullWidth(this, 6));
             android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
             zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            for (final int pct : ZOOM_STEPS) {
+            final android.widget.Button[] zoomBtns =
+                    new android.widget.Button[ZOOM_STEPS.length];
+            for (int zi = 0; zi < ZOOM_STEPS.length; zi++) {
+                final int pct = ZOOM_STEPS[zi];
+                final int idx = zi;
                 boolean cur = pct == currentZoom();
-                android.widget.Button zb = DshUi.button(this,
-                        pct + "%" + (cur ? " ✓" : ""), cur);
-                zb.setOnClickListener(new android.view.View.OnClickListener() {
+                zoomBtns[idx] = DshUi.button(this, pct + "%" + (cur ? " ✓" : ""), cur);
+                zoomBtns[idx].setOnClickListener(new android.view.View.OnClickListener() {
                     @Override public void onClick(android.view.View v) {
                         applyZoom(pct);
-                        if (v instanceof android.widget.Button) {
-                            ((android.widget.Button) v).setText(pct + "% ✓");
+                        // 对勾必须互斥：早先只给点中的按钮打勾、不清旧的，
+                        // 导致多个档位同时显示 ✓。
+                        for (int k = 0; k < ZOOM_STEPS.length; k++) {
+                            if (zoomBtns[k] == null) continue;
+                            boolean on = k == idx;
+                            zoomBtns[k].setText(ZOOM_STEPS[k] + "%" + (on ? " ✓" : ""));
+                            DshUi.setButtonActive(zoomBtns[k], on);
                         }
                         toast("显示缩放已设为 " + pct + "%");
                     }
@@ -1701,7 +1769,7 @@ public class MainActivity extends Activity {
                         new android.widget.LinearLayout.LayoutParams(
                                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
                 zlp.rightMargin = DshUi.dp(this, 6);
-                zoomRow.addView(zb, zlp);
+                zoomRow.addView(zoomBtns[idx], zlp);
             }
             body.addView(zoomRow, DshUi.fullWidth(this, 8));
 
@@ -1711,7 +1779,7 @@ public class MainActivity extends Activity {
             if (patchReport.isEmpty()) {
                 pr.append("（暂无补丁记录）");
             } else {
-                for (String line : patchReport) pr.append(line).append('\n');
+                for (String line : patchReport.values()) pr.append(line).append('\n');
             }
             pr.append("App ").append(appVersion())
               .append("　运行包 ").append(payloadSummary());
@@ -2890,7 +2958,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.17.1\n");
+            w.write("APK 版本: 0.18.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
