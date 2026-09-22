@@ -188,6 +188,12 @@ public class MainActivity extends Activity {
             log("运行包已就绪，跳过下载");
         }
 
+        // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
+        applyAndroidPatches(root, dshDir);
+
+        // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
+        runPreflight(node, root, toolsDir);
+
         // 3. 准备 DSH 配置（若不存在）
         prepareConfig(root);
 
@@ -209,12 +215,20 @@ public class MainActivity extends Activity {
                 + ":" + new File(root, "node_modules").getAbsolutePath();
 
         pb.environment().put("LD_LIBRARY_PATH", libPath);
+        pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
         pb.environment().put("PATH", binPath);
         pb.environment().put("NODE_PATH", nodePath);
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
         pb.environment().put("TMPDIR", root.getAbsolutePath());
         pb.environment().put("TERM", "xterm-256color");
+        // git 把系统配置硬编码为 /data/data/com.termux/files/usr/etc/gitconfig，
+        // 我们读不到该路径，禁用系统级配置以免产生警告；同时指定自带的 helper 目录。
+        pb.environment().put("GIT_CONFIG_NOSYSTEM", "1");
+        File gitCore = new File(toolsDir, "libexec/git-core");
+        if (gitCore.isDirectory()) {
+            pb.environment().put("GIT_EXEC_PATH", gitCore.getAbsolutePath());
+        }
 
         nodeProcess = pb.start();
         log("dsh web 已启动 (pid " + pidOf(nodeProcess) + ")");
@@ -304,6 +318,10 @@ public class MainActivity extends Activity {
         pb.redirectErrorStream(true);
         pb.environment().put("LD_LIBRARY_PATH",
                 new File(node.getParentFile(), "lib").getAbsolutePath());
+        // Termux 的 libcrypto 把 OPENSSLDIR 硬编码为 /data/data/com.termux/files/usr/etc/tls，
+        // 我们的 App 读不到，必须用自带配置覆盖，否则 OpenSSL 初始化失败、node 退出码 13。
+        pb.environment().put("OPENSSL_CONF",
+                new File(node.getParentFile(), "openssl.cnf").getAbsolutePath());
         Process p = null;
         try {
             p = pb.start();
@@ -386,6 +404,98 @@ public class MainActivity extends Activity {
             log("――― 崩溃日志结束 ―――");
             crashFile.delete();   // 只显示一次，避免刷屏
         } catch (Throwable ignored) { }
+    }
+
+    /**
+     * 应用 Android 专项补丁。
+     *
+     * <p>目前只处理 sharp：它的预编译产物是 glibc 链接的，Android(bionic) 无法
+     * dlopen。它由 {@code dsh-attachment-local} 惰性加载（仅处理图片时用到），
+     * 这里替换为优雅降级的桩，避免用户上传图片时看到晦涩的加载器报错。
+     */
+    private void applyAndroidPatches(File root, File dshDir) {
+        try {
+            File stubSrc = new File(root, "sharpstub.js");
+            File sharpDir = new File(dshDir, "node_modules/sharp");
+            if (!stubSrc.exists() || !sharpDir.isDirectory()) {
+                return;
+            }
+            copyFile(stubSrc, new File(sharpDir, "index.js"));
+            writeText(new File(sharpDir, "package.json"),
+                    "{\"name\":\"sharp\",\"version\":\"0.0.0-android-stub\","
+                    + "\"main\":\"index.js\",\"description\":\"Android graceful-degradation stub\"}");
+            log("  已为 sharp 应用优雅降级桩（图片附件不可用，其余功能不受影响）");
+        } catch (Throwable t) {
+            log("  ⚠️ Android 补丁应用失败: " + t);
+        }
+    }
+
+    private void copyFile(File src, File dst) throws IOException {
+        InputStream in = new java.io.FileInputStream(src);
+        OutputStream os = new FileOutputStream(dst);
+        byte[] buf = new byte[65536];
+        int n;
+        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+        os.close();
+        in.close();
+    }
+
+    private void writeText(File f, String text) throws IOException {
+        OutputStream os = new FileOutputStream(f);
+        os.write(text.getBytes("UTF-8"));
+        os.close();
+    }
+
+    /**
+     * 运行环境自检：在启动 dsh web 之前一次性验证所有已知风险点
+     * （OpenSSL 配置、zstd、子进程、worker_threads、node-pty、DNS）。
+     *
+     * <p>失败不阻断启动，只告警 —— 这样即使有问题也能拿到最多的现场信息。
+     */
+    private boolean runPreflight(File node, File root, File toolsDir) {
+        log("运行环境自检 …");
+        File script = new File(root, "preflight.js");
+        if (!script.exists()) { log("  ⚠️ 缺少 preflight.js，跳过"); return true; }
+
+        ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
+                script.getAbsolutePath(), root.getAbsolutePath());
+        pb.redirectErrorStream(true);
+        pb.directory(root);
+        pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath()
+                + ":" + new File(toolsDir, "lib").getAbsolutePath());
+        pb.environment().put("PATH", new File(toolsDir, "bin").getAbsolutePath()
+                + ":/system/bin:/system/xbin");
+        pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
+        pb.environment().put("NODE_PATH", new File(root, "dsh/node_modules").getAbsolutePath());
+        pb.environment().put("TMPDIR", root.getAbsolutePath());
+        pb.environment().put("HOME", root.getAbsolutePath());
+
+        try {
+            Process p = pb.start();
+            BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), "UTF-8"));
+            String line;
+            int failed = -1;
+            while ((line = r.readLine()) != null) {
+                if (line.startsWith("PREFLIGHT|")) {
+                    String[] f = line.split("\\|", 4);
+                    boolean good = f.length > 1 && "PASS".equals(f[1]);
+                    String detail = (f.length > 3 && f[3].length() > 0) ? " → " + f[3] : "";
+                    log("  " + (good ? "✅" : "❌") + " " + (f.length > 2 ? f[2] : "?") + detail);
+                } else if (line.startsWith("PREFLIGHT_END|")) {
+                    try { failed = Integer.parseInt(line.substring(14).trim()); }
+                    catch (NumberFormatException ignored) { }
+                }
+            }
+            p.waitFor();
+            if (failed == 0) { log("  ✅ 自检全部通过"); return true; }
+            log("  ⚠️ 有 " + (failed < 0 ? "若干" : String.valueOf(failed))
+                    + " 项未通过，仍继续启动以便收集信息");
+            return false;
+        } catch (Exception e) {
+            log("  ⚠️ 自检执行失败: " + e);
+            return true;
+        }
     }
 
     /** 计算文件 SHA-256，返回小写十六进制；失败返回空串。 */
@@ -561,6 +671,8 @@ public class MainActivity extends Activity {
             pb.command(cmd);
             pb.redirectErrorStream(true);
             pb.environment().put("LD_LIBRARY_PATH", new File(node.getParentFile(), "lib").getAbsolutePath());
+            pb.environment().put("OPENSSL_CONF",
+                    new File(node.getParentFile(), "openssl.cnf").getAbsolutePath());
             Process p = pb.start();
             BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
             String line = r.readLine();
@@ -580,6 +692,7 @@ public class MainActivity extends Activity {
         pb.redirectErrorStream(true);
         pb.directory(root);
         pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath());
+        pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
         pb.environment().put("TMPDIR", root.getAbsolutePath());
         Process p = pb.start();
         BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));

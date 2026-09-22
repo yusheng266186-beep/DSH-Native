@@ -432,6 +432,78 @@ $ adb start-server
 
 ---
 
+## 三之七、🎉 真机验证结果（决定性）
+
+用户在 Xiaomi 25128PNA1C / Android 17 上安装 v0.2.4 后回传了首启日志。
+
+### 三个此前无法验证的关键事实，全部得到确认
+
+```
+私有目录: /data/user/0/dev.dsh.native/files/dsh
+自检: 检查 Node 可执行性 …
+  node 权限: 可执行, 大小 47MB
+  ✓ 自检通过，node 版本: v26.4.0        ← ① exec 权限成立！
+11% → 100% (33/33 MB, 6 MB/s, 重试 0 次)  ← ② 镜像下载有效
+✓ SHA-256 校验通过                        ← ③ 完整性校验通过
+```
+
+| # | 事实 | 意义 |
+|---|---|---|
+| ① | **`targetSdk 28` 下可执行私有目录中的 Node** | **整个方案成立的前提**。Android 10+ 对 targetSdk≥29 禁止 `execve`，本方案靠降到 28 规避 —— 此前只能靠 AOSP 策略推断，现在有真机证据 |
+| ② | 镜像下载 33MB @ 6MB/s、**零重试** | 直连 GitHub CDN 曾 8 次重试全失败；镜像方案彻底解决 |
+| ③ | SHA-256 校验通过 | 分块下载 + 校验逻辑正确 |
+
+**至此「单 APK 内置 Node 运行 DSH agent」的可行性已完全证实。**
+
+### 但暴露了第二个缺陷：OpenSSL 硬编码路径
+
+```
+node: OpenSSL configuration error:
+calling fopen(/data/data/com.termux/files/usr/etc/tls/openssl.cnf, rb)
+Permission denied  →  子进程退出码 13
+```
+
+**根因**：Termux 编译的 `libcrypto` 把 `OPENSSLDIR` 硬编码为
+`/data/data/com.termux/files/usr/etc/tls`。Termux 内可读，我们的 App（不同 UID）不可读
+→ OpenSSL 初始化失败 → node 直接退出（码 13）。
+
+**修复**：内置最小 `openssl.cnf`，通过 `OPENSSL_CONF` 环境变量覆盖。
+已验证覆盖生效（把 `OPENSSL_CONF` 指向故意写坏的配置，OpenSSL 报的是**该文件**的错误，
+证明它不再读取硬编码路径）。
+
+### ⚠️ 本轮最重要的教训：测试环境掩盖了缺陷
+
+**为什么前几轮"全链路验证通过"却仍有此 bug？**
+
+我的测试环境是设备上的 **proot 容器（root）**，它**恰好能访问 Termux 的路径**，
+因此硬编码路径解析正常，缺陷不显现。而真实 App 是独立 UID，无法访问。
+
+同类掩盖还有：
+- `sharp` 的 glibc 预编译在容器里**能**加载（容器是 glibc），Android 上不能
+- 容器里 `libcrypto` 能读到 Termux 配置，Android 上不能
+
+**结论：凡涉及「跨 UID 可访问性」与「libc ABI」的问题，容器测试一律不可信。**
+今后此类验证必须在真实 App 沙箱内进行 —— 这也促成了下面 adb 方案的价值。
+
+### 全量硬编码路径扫描结果
+
+| 库 | 硬编码路径 | 影响 | 处理 |
+|---|---|---|---|
+| `libcrypto.so.3` | `/etc/tls`、`cert.pem`、`certs`、`openssl.cnf`（12 处） | **已导致启动失败** | 本版用 `OPENSSL_CONF` 修复 |
+| `libcares.so` | `/etc/resolv.conf`、`/etc/hosts` | Node 的 `dns.lookup` 走系统解析器，实测 DNS 正常 | 暂不处理 |
+| `node` | `/bin/bash`、`/bin/sh`、`/tmp` | 我们显式设置 PATH/TMPDIR | 已规避 |
+| `git` | `/etc/gitconfig`、`/etc/gitattributes` | 可能产生警告 | 设置 `GIT_CONFIG_NOSYSTEM=1` + `GIT_EXEC_PATH` |
+
+### 惰性加载模块排查（不会阻断启动）
+
+| 模块 | 加载方式 | 结论 |
+|---|---|---|
+| `koffi` | `createLazyRequire`（源码注释："Koffi loads lazily"） | 仅 Windows 路径使用，不影响 Android |
+| `sharp` | `createLazyRequire`，仅图片处理时 | 不阻断启动；本版加优雅降级桩 |
+| `node-pty` | `createLazyRequire` | 已换 Android 构建，**实测 PTY 可 fork**（`PTY_OK`） |
+
+---
+
 ## 四、待办清单（按依赖顺序）
 
 - [x] ~~**P0** 实现 `node-addon-require-builtin` 的纯 JS 垫片~~ → **已完成并验证**

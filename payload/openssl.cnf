@@ -1,0 +1,20 @@
+# DSH Native —— OpenSSL 最小配置
+#
+# 为什么需要：Termux 编译的 libcrypto 把 OPENSSLDIR 硬编码为
+#   /data/data/com.termux/files/usr/etc/tls
+# 我们的 App 是不同 UID，读不到该路径，导致：
+#   OpenSSL configuration error: fopen(...openssl.cnf) Permission denied
+# 通过 OPENSSL_CONF 环境变量指向本文件即可绕过。
+#
+# 该配置显式激活 OpenSSL 3.x 的默认 provider。
+
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = provider_sect
+
+[provider_sect]
+default = default_sect
+
+[default_sect]
+activate = 1
