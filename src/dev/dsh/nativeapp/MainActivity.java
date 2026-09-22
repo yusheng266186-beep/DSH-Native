@@ -95,13 +95,10 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
+        // 日志面板不加入视图树：整个屏幕留给 DSH 界面。
+        // 日志仍会写入 logcat 与 /sdcard/DSHNative/launch.log，便于后台排查。
         logView = new TextView(this);
         logView.setTextSize(10);
-        logView.setPadding(20, 20, 20, 20);
-        ScrollView logScroll = new ScrollView(this);
-        logScroll.addView(logView);
-        root.addView(logScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.42f));
 
         webView = new WebView(this);
         WebSettings ws = webView.getSettings();
@@ -119,7 +116,8 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(webView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.58f));
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
 
         setContentView(root);
 
@@ -342,10 +340,37 @@ public class MainActivity extends Activity {
     private void prepareConfig(File root) throws IOException {
         File dshHome = new File(root, ".dsh");
         if (!dshHome.exists()) dshHome.mkdirs();
-        File creds = new File(dshHome, ".credentials.yaml");
-        if (!creds.exists()) {
-            // 留空，用户可在 Web 界面的 Models 页面里填写 API Key
-            Log.i(TAG, "credentials file not present; user configures via web UI");
+
+        // 1) 预置 settings.yaml（provider/model 配置，不含任何密钥）
+        File settingsSrc = new File(root, "settings.yaml");
+        File settingsDst = new File(dshHome, "settings.yaml");
+        if (settingsSrc.exists() && !settingsDst.exists()) {
+            copyFile(settingsSrc, settingsDst);
+            log("  已写入预置模型配置 settings.yaml");
+        }
+
+        // 2) 凭据：从共享目录读取（避免把 API Key 打进公开仓库的 APK）
+        File credsDst = new File(dshHome, ".credentials.yaml");
+        if (!credsDst.exists()) {
+            String[] candidates = {
+                    "/sdcard/DSHNative/credentials.yaml",
+                    "/sdcard/DSHNative/.credentials.yaml",
+                    "/sdcard/Download/DSHNative/credentials.yaml",
+                    "/storage/emulated/0/DSHNative/credentials.yaml",
+            };
+            for (String path : candidates) {
+                File src = new File(path);
+                if (src.exists() && src.length() > 16) {
+                    copyFile(src, credsDst);
+                    // 凭据位于 App 私有目录，已由 Android 沙箱保护，
+                    // 无需额外设权限（java.nio.file 需要 API 26+，这里也不用）。
+                    log("  已从 " + path + " 导入凭据");
+                    return;
+                }
+            }
+            log("  未找到共享凭据，请在 Web 界面的 Models 页面填写 API Key");
+        } else {
+            log("  凭据已存在，跳过导入");
         }
     }
 
@@ -892,9 +917,11 @@ public class MainActivity extends Activity {
     private void log(final String msg) {
         Log.i(TAG, msg);
         appendSharedLog(msg);
-        runOnUiThread(new Runnable() {
-            @Override public void run() { logView.append(msg + "\n"); }
-        });
+        // 界面已改为全屏 WebView，日志不再上屏；如需在屏幕上查看，
+        // 取消下面注释即可（会占用屏幕空间）。
+        // runOnUiThread(new Runnable() {
+        //     @Override public void run() { logView.append(msg + "\n"); }
+        // });
     }
 
     /**
@@ -932,7 +959,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.3.0\n");
+            w.write("APK 版本: 0.4.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
