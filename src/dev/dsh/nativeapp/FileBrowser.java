@@ -96,9 +96,16 @@ public final class FileBrowser {
         body.addView(rootRow, DshUi.fullWidth(act, 10));
 
         // ── 面包屑 ──
+        // 放进横向滚动容器：路径段数不定（/data/user/0/… 就有 7 段），
+        // 一行放不下时必须能滑，否则后面的段会被直接裁掉（实测把文字压没）。
         final LinearLayout crumbRow = new LinearLayout(act);
         crumbRow.setOrientation(LinearLayout.HORIZONTAL);
-        body.addView(crumbRow, DshUi.fullWidth(act, 8));
+        final android.widget.HorizontalScrollView crumbScroll =
+                new android.widget.HorizontalScrollView(act);
+        crumbScroll.setHorizontalScrollBarEnabled(false);
+        crumbScroll.addView(crumbRow, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        body.addView(crumbScroll, DshUi.fullWidth(act, 8));
 
         // ── 列表 ──
         final LinearLayout listBox = new LinearLayout(act);
@@ -114,7 +121,9 @@ public final class FileBrowser {
         body.addView(scroll, slp);
 
         final Runnable refresh = new Runnable() {
-            @Override public void run() { render(act, cwd[0], pathView, meta, crumbRow, listBox, this); }
+            @Override public void run() {
+                render(act, cwd[0], pathView, meta, crumbRow, crumbScroll, listBox, this);
+            }
         };
 
         // ── 常用位置按钮（整组重建，状态只有「当前目录」一个来源）──
@@ -151,7 +160,9 @@ public final class FileBrowser {
     /** 渲染当前目录：路径、面包屑、条目列表。 */
     private static void render(final Activity act, final File dir,
                                TextView pathView, TextView meta,
-                               LinearLayout crumbRow, LinearLayout listBox,
+                               LinearLayout crumbRow,
+                               final android.widget.HorizontalScrollView crumbScroll,
+                               LinearLayout listBox,
                                final Runnable refresh) {
         pathView.setText(dir.getAbsolutePath());
 
@@ -170,7 +181,7 @@ public final class FileBrowser {
             seg.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     final File[] cwd = { target };
-                    render(act, cwd[0], pathView, meta, crumbRow, listBox, refresh);
+                    render(act, cwd[0], pathView, meta, crumbRow, crumbScroll, listBox, refresh);
                 }
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -178,6 +189,10 @@ public final class FileBrowser {
             lp.rightMargin = DshUi.dp(act, 4);
             crumbRow.addView(seg, lp);
         }
+        // 当前目录在最右，渲染后滚到末尾，保证它始终可见
+        crumbRow.post(new Runnable() {
+            @Override public void run() { crumbScroll.fullScroll(View.FOCUS_RIGHT); }
+        });
 
         // ── 列表 ──
         listBox.removeAllViews();
@@ -241,7 +256,7 @@ public final class FileBrowser {
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     if (isDir) {
-                        render(act, f, pathView, meta, crumbRow, listBox, refresh);
+                        render(act, f, pathView, meta, crumbRow, crumbScroll, listBox, refresh);
                     } else {
                         TextEditor.open(act, f);
                     }

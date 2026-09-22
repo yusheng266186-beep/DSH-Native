@@ -1,7 +1,7 @@
 {
-  "version": "0.18.2",
-  "tag": "v0.18.2-bootstrap",
+  "version": "0.18.3",
+  "tag": "v0.18.3-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "分档按钮单行修溢出；新增文件浏览/编辑与日志查看器"
+  "notes": "修复对话框测量导致列表被压扁；面包屑改为横向滚动"
 }

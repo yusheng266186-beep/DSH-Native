@@ -273,8 +273,12 @@ public final class DshUi {
 
         LinearLayout card = column(c);
         card.setBackground(cardBg(c));
+        // ⚠️ body 必须用 WRAP_CONTENT，**不能**用 0dp + weight=1：
+        // 权重子视图在「未指定高度」下测量结果是 0，
+        // 会把 body 内部的权重区域（文件列表、日志列表）整块压扁。
         card.addView(body, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         if (footer != null) card.addView(footer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -292,19 +296,20 @@ public final class DshUi {
             int width = Math.min(screenW - dp(c, 32), dp(c, 520));
             int maxH = Math.min(dp(c, maxHeightDp), (int) (screenH * 0.86f));
 
-            // 高度贴合内容，而不是永远等于上限。
-            // 早先写死 maxH：内容少时下方留一大片空白、内容多时也不会更高，
-            // 看起来就像「溢出 / 没对齐」。这里先按最终宽度测量内容高度，
-            // 再取 min(内容高, 上限) —— 短对话框就短，长对话框封顶后内部滚动。
-            int contentH = ViewGroup.LayoutParams.WRAP_CONTENT;
+            // 高度：既贴合内容、又不超过上限。
+            //
+            // 用 AT_MOST(上限) 测量（**不能用 UNSPECIFIED** —— 那会让内部的
+            // 权重区域测成 0 高度，把文件列表/日志列表整块压扁，实测踩过）：
+            //   • 内容本身不高 → 测得自然高度，对话框就短
+            //   • 内容里有 0dp+weight 的填充区 → 测得上限高度，该区域拿到剩余空间
+            int height = maxH;
             try {
                 card.measure(
                         View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-                contentH = card.getMeasuredHeight();
+                        View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+                int measured = card.getMeasuredHeight();
+                if (measured > 0) height = Math.min(measured, maxH);
             } catch (Throwable ignored) { }
-            int height = contentH == ViewGroup.LayoutParams.WRAP_CONTENT
-                    ? maxH : Math.min(contentH, maxH);
             w.setLayout(width, height);
         }
         return d;
