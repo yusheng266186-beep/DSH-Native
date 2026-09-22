@@ -82,6 +82,9 @@ public class MainActivity extends Activity {
     private TextView logView;
     private Process nodeProcess;
     private File crashFile;
+    /** 共享日志：写到 /sdcard/DSHNative/launch.log，便于在设备内直接查看排查。 */
+    private File sharedLog;
+    private final Object logLock = new Object();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -109,6 +112,8 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
+        initSharedLog();
+        requestStoragePermission();
         installCrashHandler();
         showPreviousCrash();
 
@@ -748,9 +753,89 @@ public class MainActivity extends Activity {
 
     private void log(final String msg) {
         Log.i(TAG, msg);
+        appendSharedLog(msg);
         runOnUiThread(new Runnable() {
             @Override public void run() { logView.append(msg + "\n"); }
         });
+    }
+
+    /**
+     * 初始化共享日志文件。
+     *
+     * <p>为什么要写这里：本项目多次因无法获取真实运行日志而反复来回。
+     * \`/sdcard\` 是设备内各 App 与调试环境都能访问的位置，
+     * 把启动日志写在这里，就无需 adb、无需截图即可排查。
+     */
+    private void initSharedLog() {
+        try {
+            File dir = new File("/sdcard/DSHNative");
+            if (!dir.exists()) dir.mkdirs();
+            sharedLog = new File(dir, "launch.log");
+            java.io.FileWriter w = new java.io.FileWriter(sharedLog, false);
+            w.write("=== DSH Native 启动日志 ===\n");
+            w.write("时间: " + new java.util.Date() + "\n");
+            w.write("设备: " + android.os.Build.MODEL + " / Android "
+                    + android.os.Build.VERSION.RELEASE + " (SDK "
+                    + android.os.Build.VERSION.SDK_INT + ")\n");
+            w.write("APK 版本: 0.2.7\n");
+            w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
+            w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
+            w.close();
+        } catch (Throwable t) {
+            Log.w(TAG, "initSharedLog failed", t);
+            sharedLog = null;
+        }
+    }
+
+    /** 追加一行到共享日志；token 等敏感串做脱敏。 */
+    private void appendSharedLog(String msg) {
+        if (sharedLog == null) return;
+        synchronized (logLock) {
+            java.io.FileWriter w = null;
+            try {
+                String line = msg.replaceAll("token=[A-Za-z0-9_\\-]+", "token=***");
+                w = new java.io.FileWriter(sharedLog, true);
+                w.write(line);
+                w.write('\n');
+            } catch (Throwable ignored) {
+                // 权限未授予或存储不可用时静默跳过
+            } finally {
+                if (w != null) try { w.close(); } catch (Exception ignored) { }
+            }
+        }
+    }
+
+    /**
+     * 请求存储权限。
+     *
+     * <p>编译所用的 android.jar 是 API 16，没有 requestPermissions 方法，
+     * 因此用反射调用；运行期 API 23+ 均可用。
+     */
+    private void requestStoragePermission() {
+        try {
+            java.lang.reflect.Method m = android.app.Activity.class.getMethod(
+                    "requestPermissions", String[].class, int.class);
+            m.invoke(this, new String[]{
+                    "android.permission.WRITE_EXTERNAL_STORAGE",
+                    "android.permission.READ_EXTERNAL_STORAGE"}, 1001);
+            log("已请求存储权限（用于把日志写到 /sdcard/DSHNative/）");
+        } catch (Throwable t) {
+            log("存储权限请求失败（不影响运行）: " + t.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 权限回调。
+     *
+     * <p>刻意不写 @Override：编译用的 android.jar(API 16) 未声明该方法，
+     * 但运行期 API 23+ 会正常回调。
+     */
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        boolean granted = grantResults != null && grantResults.length > 0
+                && grantResults[0] == 0;   // PackageManager.PERMISSION_GRANTED
+        log("存储权限结果: " + (granted ? "已授予，日志将写入 /sdcard/DSHNative/launch.log"
+                : "被拒绝 —— 无法写共享日志，不影响 App 运行"));
     }
 
     @Override
