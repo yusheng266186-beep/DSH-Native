@@ -354,6 +354,84 @@ objects.githubusercontent → HTTP 000 / connect 26.5s（异常）
 
 ---
 
+## 三之五、闪退根因与修复（v0.2.4）
+
+### 现象
+引导式 APK 安装后**点开即闪退**。
+
+### 根因
+清单里的启动类名与 dex 中的真实类**不一致**：
+
+| 项目 | 值 |
+|---|---|
+| 清单 `package` | `dev.dsh.native` |
+| 清单 `activity android:name` | `.MainActivity` |
+| 展开结果 | **`dev.dsh.native.MainActivity`** |
+| dex 中真实存在 | **`dev/dsh/nativeapp/MainActivity`** |
+| 后果 | `ClassNotFoundException` → 启动瞬间闪退 |
+
+Java 源码包名是 `dev.dsh.nativeapp`（目录 `src/dev/dsh/nativeapp/`），
+而清单 `package` 属性是 `dev.dsh.native`。`.MainActivity` 会展开为
+`<package>.MainActivity`，于是指向了不存在的类。
+
+### 修复
+清单改用**全限定类名**（保留 `package` 不变，以便同包名覆盖安装）：
+
+```xml
+<activity android:name='dev.dsh.nativeapp.MainActivity' ...>
+```
+
+### 验证方式的改进（重要教训）
+修复前的验证做了两件独立的事：
+1. 用解析器确认清单结构合法 ✅
+2. 确认 dex 里有 `MainActivity` ✅
+
+**但没有交叉比对「清单声明的类名」与「dex 中真实类名」是否一致。**
+两项各自通过，合起来却是错的。现增加为交叉验证：
+
+```
+清单:  <activity android:name='dev.dsh.nativeapp.MainActivity' ...>
+dex:   dev/dsh/nativeapp/MainActivity  ✅ 一致
+```
+
+### 附带改进：崩溃日志落盘
+`Thread.setDefaultUncaughtExceptionHandler` 把未捕获异常写入
+`<filesDir>/crash.log`，并在**下次启动时直接显示在面板上**，
+不必抓 logcat 也能看到堆栈。
+
+---
+
+## 三之六、计划外发现：设备上可直接运行 adb ✅
+
+调查「能否局域网 ADB 调试」时发现：**Termux 仓库提供 `android-tools`**，
+内含 `adb`，且为 bionic 构建（解释器 `/system/bin/linker64`），可脱离 Termux 运行。
+
+```
+$ adb version
+Android Debug Bridge version 1.0.41
+Version 37.0.0-android-tools
+
+$ adb start-server
+* daemon not running; starting now at tcp:5037
+* daemon started successfully
+```
+
+**意义**：本项目一直受限于「无法在真实 App 沙箱里验证」。
+若开启手机的**无线调试**，即可从设备内部（`127.0.0.1`）配对连接 adbd，
+获得 `shell` 权限的调试通道：
+
+- `adb install` / `am start` —— 直接安装与启动
+- `adb logcat` —— 直接读日志，无需用户截图
+- **可在真实 `untrusted_app_25` 域下验证 exec 行为**（本项目最关键的未知项）
+
+已备好脚本：`adb_tools/adb.sh`（封装库路径）、`adb_tools/pair.sh`（配对+连接）、
+`adb_tools/install_and_log.sh`（安装+启动+抓日志）。
+
+> 注：`/proc/net/tcp` 在设备上不可读（权限限制），无法自行探测 adbd 是否监听，
+> 需用户开启无线调试后提供端口。
+
+---
+
 ## 四、待办清单（按依赖顺序）
 
 - [x] ~~**P0** 实现 `node-addon-require-builtin` 的纯 JS 垫片~~ → **已完成并验证**

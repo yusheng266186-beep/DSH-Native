@@ -81,6 +81,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private TextView logView;
     private Process nodeProcess;
+    private File crashFile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,6 +108,9 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.58f));
 
         setContentView(root);
+
+        installCrashHandler();
+        showPreviousCrash();
 
         new Thread(new Runnable() {
             @Override
@@ -335,6 +339,53 @@ public class MainActivity extends Activity {
             log("✗ 自检异常: " + e);
             return false;
         }
+    }
+
+    /**
+     * 把未捕获异常写到私有目录的 crash.log。
+     *
+     * <p>这台设备上取 logcat 不方便，闪退时用户只看到"已停止运行"。
+     * 落盘后下次启动会直接把堆栈显示在面板上，便于定位。
+     */
+    private void installCrashHandler() {
+        try {
+            crashFile = new File(getFilesDir(), "crash.log");
+            final Thread.UncaughtExceptionHandler def =
+                    Thread.getDefaultUncaughtExceptionHandler();
+            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread t, Throwable e) {
+                    try {
+                        java.io.PrintWriter pw = new java.io.PrintWriter(
+                                new java.io.FileWriter(crashFile, true));
+                        pw.println("=== " + new java.util.Date() + " / thread " + t.getName() + " ===");
+                        e.printStackTrace(pw);
+                        pw.flush();
+                        pw.close();
+                    } catch (Throwable ignored) { }
+                    if (def != null) def.uncaughtException(t, e);
+                }
+            });
+        } catch (Throwable ignored) { }
+    }
+
+    /** 若上次运行崩溃过，把堆栈显示在面板顶部。 */
+    private void showPreviousCrash() {
+        try {
+            if (crashFile == null || !crashFile.exists()) return;
+            byte[] raw = new byte[(int) Math.min(crashFile.length(), 8192)];
+            java.io.FileInputStream in = new java.io.FileInputStream(crashFile);
+            int n = in.read(raw);
+            in.close();
+            if (n <= 0) return;
+            log("⚠️ 检测到上次运行崩溃，堆栈如下（同时保存在 " + crashFile + "）：");
+            String txt = new String(raw, 0, n, "UTF-8");
+            for (String line : txt.split("\n")) {
+                if (line.trim().length() > 0) log("  " + line);
+            }
+            log("――― 崩溃日志结束 ―――");
+            crashFile.delete();   // 只显示一次，避免刷屏
+        } catch (Throwable ignored) { }
     }
 
     /** 计算文件 SHA-256，返回小写十六进制；失败返回空串。 */
