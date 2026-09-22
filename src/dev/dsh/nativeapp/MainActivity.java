@@ -401,6 +401,17 @@ public class MainActivity extends Activity {
         }
         // Python 的安装前缀同样被硬编码为 Termux 路径；
         // 指到我们自己的目录，sys.prefix 才正确、pip 才会装到这里。
+        // 证书包路径同样被硬编码成 Termux 路径（如 curl 的 cert.pem），
+        // App 里读不到会导致 HTTPS 全部失败。改为指向 APK 内置的根证书包。
+        // git 也走同一份（此前 curl/git clone 会报 error adding trust anchors）。
+        File caBundle = new File(root, "ca-certificates.crt");
+        if (caBundle.exists()) {
+            String ca = caBundle.getAbsolutePath();
+            pb.environment().put("CURL_CA_BUNDLE", ca);
+            pb.environment().put("SSL_CERT_FILE", ca);
+            pb.environment().put("GIT_SSL_CAINFO", ca);
+            pb.environment().put("REQUESTS_CA_BUNDLE", ca);   // 供 python-requests 类工具
+        }
         pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
         pb.environment().put("PYTHONNOUSERSITE", "1");
 
@@ -622,6 +633,19 @@ public class MainActivity extends Activity {
                 startService(svc);
             }
             log("前台服务已启动（后台保活）");
+            // 把"通知是否可见"变成可观测的状态，避免只能靠猜
+            try {
+                android.app.NotificationManager nm =
+                        (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                boolean on = nm != null && nm.areNotificationsEnabled();
+                log(on ? "通知权限: 已开启（常驻通知可见）"
+                       : "通知权限: 已关闭（常驻通知不显示；保活仍然有效）");
+                if (!on) {
+                    log("  提示: 可在 设置 → 应用 → DeepSeek Harness → 通知 中开启");
+                }
+            } catch (Throwable t) {
+                log("通知权限: 无法查询 (" + t.getClass().getSimpleName() + ")");
+            }
         } catch (Throwable t) {
             log("⚠️ 前台服务启动失败（不影响运行）: " + t);
         }
@@ -1300,6 +1324,12 @@ public class MainActivity extends Activity {
         pb.environment().put("PATH", new File(toolsDir, "bin").getAbsolutePath()
                 + ":/system/bin:/system/xbin");
         pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
+        File caB = new File(root, "ca-certificates.crt");
+        if (caB.exists()) {
+            pb.environment().put("CURL_CA_BUNDLE", caB.getAbsolutePath());
+            pb.environment().put("SSL_CERT_FILE", caB.getAbsolutePath());
+            pb.environment().put("GIT_SSL_CAINFO", caB.getAbsolutePath());
+        }
         pb.environment().put("NODE_PATH", new File(root, "dsh/node_modules").getAbsolutePath());
         pb.environment().put("TMPDIR", root.getAbsolutePath());
         pb.environment().put("HOME", root.getAbsolutePath());
@@ -1532,6 +1562,12 @@ public class MainActivity extends Activity {
         pb.directory(root);
         pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath());
         pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
+        File ca = new File(root, "ca-certificates.crt");
+        if (ca.exists()) {
+            pb.environment().put("CURL_CA_BUNDLE", ca.getAbsolutePath());
+            pb.environment().put("SSL_CERT_FILE", ca.getAbsolutePath());
+            pb.environment().put("GIT_SSL_CAINFO", ca.getAbsolutePath());
+        }
         pb.environment().put("TMPDIR", root.getAbsolutePath());
         Process p = pb.start();
         BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
@@ -1716,7 +1752,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.9.0\n");
+            w.write("APK 版本: 0.9.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
