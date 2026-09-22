@@ -605,6 +605,52 @@ public class MainActivity extends Activity {
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
     }
 
+    /** 在应用内直接查看运行日志（省得依赖外部工具）。 */
+    private void showLog() {
+        try {
+            if (sharedLog == null || !sharedLog.exists()) {
+                toast("暂无日志文件");
+                return;
+            }
+            String text = readText(sharedLog);
+            // 只显示最后若干行，避免超大文件撑爆对话框
+            String[] lines = text.split("\n", -1);
+            int keep = 400;
+            StringBuilder sb = new StringBuilder();
+            if (lines.length > keep) {
+                sb.append("…（共 ").append(lines.length)
+                  .append(" 行，仅显示最后 ").append(keep).append(" 行）\n\n");
+                for (int i = lines.length - keep; i < lines.length; i++) {
+                    sb.append(lines[i]).append('\n');
+                }
+            } else {
+                sb.append(text);
+            }
+
+            android.widget.TextView tv = new android.widget.TextView(this);
+            tv.setText(sb.toString());
+            tv.setTextSize(10.5f);
+            tv.setTextIsSelectable(true);          // 便于复制
+            tv.setTypeface(android.graphics.Typeface.MONOSPACE);
+            float d = getResources().getDisplayMetrics().density;
+            int pad = (int) (14 * d);
+            tv.setPadding(pad, pad, pad, pad);
+
+            android.widget.ScrollView sc = new android.widget.ScrollView(this);
+            sc.addView(tv);
+            sc.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, (int) (420 * d)));
+
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("运行日志（" + sharedLog.getName() + "）")
+                .setView(sc)
+                .setPositiveButton("关闭", null)
+                .show();
+        } catch (Throwable t) {
+            toast("读取日志失败: " + shorten(t));
+        }
+    }
+
     // ---------------------------------------------------------------- 设置入口
     /** 右上角悬浮设置按钮（半透明，尽量不遮挡 DSH 界面）。 */
     private android.view.View buildSettingsButton() {
@@ -1203,6 +1249,19 @@ public class MainActivity extends Activity {
                             ViewGroup.LayoutParams.WRAP_CONTENT);
             blp2.topMargin = (int) (6 * d);
             box.addView(btnApp, blp2);
+
+            android.widget.Button btnLog = new android.widget.Button(this);
+            btnLog.setText("查看运行日志");
+            btnLog.setTextSize(12.5f);
+            btnLog.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) { showLog(); }
+            });
+            android.widget.LinearLayout.LayoutParams blp3 =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp3.topMargin = (int) (6 * d);
+            box.addView(btnLog, blp3);
 
             android.widget.TextView hint = new android.widget.TextView(this);
             hint.setText("保存后会重启 agent 服务。密钥仅保存在 App 私有目录，不会外传。");
@@ -2334,14 +2393,23 @@ public class MainActivity extends Activity {
         }
         try {
             if (sharedLog == null) throw new IOException("所有候选路径均不可写");
+            // 追加而非覆盖：否则每次启动都会抹掉上一个会话的记录，
+            // 跨会话的问题（例如"应用内更新到底下载成功没有"）就无从追查。
+            // 超过上限时轮转一次，保留上一份，避免无限增长。
+            final long MAX_BYTES = 512 * 1024;
+            if (sharedLog.exists() && sharedLog.length() > MAX_BYTES) {
+                File prev = new File(sharedLog.getAbsolutePath() + ".1");
+                if (prev.exists()) prev.delete();
+                sharedLog.renameTo(prev);
+            }
             File dir = sharedLog.getParentFile();
-            java.io.FileWriter w = new java.io.FileWriter(sharedLog, false);
-            w.write("=== DSH Native 启动日志 ===\n");
+            java.io.FileWriter w = new java.io.FileWriter(sharedLog, true);
+            w.write("\n\n=== DSH Native 启动日志 ===\n");
             w.write("时间: " + new java.util.Date() + "\n");
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.2\n");
+            w.write("APK 版本: 0.13.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
