@@ -40,6 +40,7 @@ aapt2-produced APKs on this device (34/35 sort the map ids ascending; the
 35th uses first-appearance order -- both parse identically).
 """
 
+import os
 import struct
 import sys
 
@@ -67,6 +68,11 @@ RES_VALUE_SIZE = 8                 # Res_value
 
 NO_ENTRY = 0xFFFFFFFF
 
+# 资源 id 由 aapt2 分配。构建脚本导出后经环境变量传入，
+# 因此这里只作兜底默认值 —— 两侧永远一致，不会再出现对不上的情况。
+ICON_RES_ID = int(os.environ.get("DSH_ICON_RES_ID", "0x7F030000"), 16)
+THEME_RES_ID = int(os.environ.get("DSH_THEME_RES_ID", "0x7F040000"), 16)
+
 # Res_value::dataType
 TYPE_REFERENCE = 0x01
 TYPE_STRING = 0x03
@@ -86,7 +92,9 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 #      APKs -- unanimous across every APK that used the attribute.
 # --------------------------------------------------------------------------
 ATTR_IDS = {
+    "theme": 0x01010000,
     "label": 0x01010001,
+    "icon": 0x01010002,
     "name": 0x01010003,
     "hasCode": 0x0101000c,
     "exported": 0x01010010,
@@ -111,6 +119,15 @@ CONFIG_SCREEN_SIZE = 0x0400
 def s(text):
     """String attribute value -> Res_value TYPE_STRING (rawValue is kept)."""
     return (TYPE_STRING, text)
+
+
+def ref(resource_id):
+    """资源引用 -> TYPE_REFERENCE。
+
+    用于 android:icon 这类必须指向资源表条目的属性：
+    值不是字符串而是打包进 resources.arsc 的资源 id。
+    """
+    return (TYPE_REFERENCE, resource_id)
 
 
 def dec(value):
@@ -141,21 +158,37 @@ def manifest_tree():
     return E("manifest",
              [(None, "package", s("dev.dsh.native")),
               (A, "versionCode", dec(1)),
-              (A, "versionName", s("0.1.0-poc"))],
+              (A, "versionName", s("0.9.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
                     (A, "targetSdkVersion", dec(28))]),
                  E("uses-permission",
                    [(A, "name", s("android.permission.INTERNET"))]),
+                 # 把启动日志写到 /sdcard/DSHNative/，便于在设备内直接排查
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.WRITE_EXTERNAL_STORAGE"))]),
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.READ_EXTERNAL_STORAGE"))]),
+                   # 前台服务：让 agent 在后台/锁屏时继续运行，不被系统冻结
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.FOREGROUND_SERVICE"))]),
+                   # Android 13+ 显示常驻通知需要它
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.POST_NOTIFICATIONS"))]),
                  E("application",
-                   [(A, "label", s("DSH Native")),
+                   [(A, "label", s("DeepSeek Harness")),
+                    # 主题：去标题栏 + 状态栏/导航栏同色（见 res/values/styles.xml）
+                    (A, "theme", ref(THEME_RES_ID)),
+                    # 图标资源 id 由 aapt2 link 产出（见 build 脚本），
+                    # 这里是资源引用而非字符串：type=TYPE_REFERENCE。
+                    (A, "icon", ref(ICON_RES_ID)),
                     (A, "hasCode", boolean(True)),
                     (A, "extractNativeLibs", boolean(True)),
                     (A, "usesCleartextTraffic", boolean(True))],
                    [
                        E("activity",
-                         [(A, "name", s(".MainActivity")),
+                         [(A, "name", s("dev.dsh.nativeapp.MainActivity")),
                           (A, "exported", boolean(True)),
                           (A, "configChanges",
                            hx(CONFIG_ORIENTATION | CONFIG_SCREEN_SIZE
@@ -169,6 +202,11 @@ def manifest_tree():
                                       s("android.intent.category.LAUNCHER"))]),
                              ]),
                          ]),
+                   # 前台服务：保活 + 通知栏提供「设置 / 停止」
+                   E("service",
+                     [(A, "name", s("dev.dsh.nativeapp.HarnessService")),
+                      (A, "exported", boolean(False))],
+                     []),
                    ]),
              ])
 

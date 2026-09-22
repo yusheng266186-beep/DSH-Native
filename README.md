@@ -2,7 +2,7 @@
 
 > ## ⬇️ 直接下载
 >
-> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.8.0-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
+> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.9.0-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
 >
 > 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
 > 然后经 **GitHub 镜像**分块下载约 48MB 运行包（约 50 秒）。
@@ -13,7 +13,7 @@
 > 首次启动会请求**存储权限**，请点「允许」——
 > 日志会写入 `/sdcard/DSHNative/launch.log`，便于排查问题（可随时删除）。
 >
-> SHA-256：`4f7a5acc12e3703aadecdcf9a56ec7c1bc19776095c88e6a6675083db1f51b26`
+> SHA-256：`2b6ef2dfc7d43e14487870f7e64caee7436addeaf0f429e2a64a174d16c6490d`
 
 
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
@@ -24,10 +24,10 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.8.0 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.8.0-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 48MB |
+| **[v0.9.0 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.9.0-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 48MB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
-### v0.8.0 使用步骤
+### v0.9.0 使用步骤
 
 1. 安装 APK（34MB）
 2. 打开 App，**保持联网** —— 首启分块下载约 48MB 运行包
@@ -48,6 +48,12 @@
 > APK 可快速迭代，且以后升级 agent 无需重装 App。
 
 ---
+
+## 🗂️ 工作区（重要）
+
+agent 的工作目录是 **`/sdcard/DSHNative/workspace`** —— 位于手机共享存储，
+任何文件管理器都能访问。**把项目或文档放进去，agent 就能直接读写，
+它生成的产物也会出现在这里。**
 
 ## 它要解决什么问题
 

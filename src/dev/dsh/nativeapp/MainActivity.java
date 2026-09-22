@@ -257,7 +257,16 @@ public class MainActivity extends Activity {
 
     private void boot() throws Exception {
         final File root = new File(getFilesDir(), "dsh");
+        appRoot = root;
         log("私有目录: " + root);
+
+        // 把 agent 的工作目录放到共享存储，这样用文件管理器丢进去的项目
+        // agent 能直接读写，产出也能直接看到。
+        // （dsh-fs-local / dsh-bash-local 用 process.cwd() 解析相对路径）
+        workspace = resolveWorkspace();
+        log("工作区: " + (workspace != null ? workspace : root + "（回退到私有目录）"));
+
+        startHarnessService();
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
@@ -358,7 +367,7 @@ public class MainActivity extends Activity {
                 binJs.getAbsolutePath(),
                 "--profile", "web", "--no-open", "--port", String.valueOf(chosenPort));
         pb.redirectErrorStream(true);
-        pb.directory(root);
+        pb.directory(workspace != null ? workspace : root);
 
         String libPath = new File(root, "lib").getAbsolutePath()
                 + ":" + new File(toolsDir, "lib").getAbsolutePath();
@@ -454,6 +463,10 @@ public class MainActivity extends Activity {
 
     private volatile String lastUrl;
     private android.widget.FrameLayout rootView;
+    /** App 私有根目录，供设置页读写配置。 */
+    private volatile File appRoot;
+    /** agent 的工作目录（优先共享存储）。 */
+    private volatile File workspace;
     private android.view.View splashView;
     private android.widget.TextView splashStatus;
     private volatile boolean splashHidden;
@@ -533,6 +546,275 @@ public class MainActivity extends Activity {
             }
         }
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    // ---------------------------------------------------------------- 工作区
+    /**
+     * 选择 agent 的工作目录。
+     *
+     * <p>优先共享存储 —— 否则用户无法把文件放进 App 私有目录，agent 也就无从下手。
+     * 逐个候选路径试写，全失败则返回 null（调用方回退到私有目录）。
+     */
+    private File resolveWorkspace() {
+        String[] candidates = {
+                "/sdcard/DSHNative/workspace",
+                "/sdcard/Download/DSHNative/workspace",
+                "/storage/emulated/0/DSHNative/workspace",
+        };
+        for (String path : candidates) {
+            File d = new File(path);
+            try {
+                if (!d.exists() && !d.mkdirs()) continue;
+                File probe = new File(d, ".write-probe");
+                java.io.FileWriter w = new java.io.FileWriter(probe, true);
+                w.write("");
+                w.close();
+                probe.delete();
+                seedWorkspaceReadme(d);
+                return d;
+            } catch (Throwable ignored) {
+                // 试下一个
+            }
+        }
+        return null;
+    }
+
+    /** 在工作区放一份说明，用户知道该把文件放哪。 */
+    private void seedWorkspaceReadme(File dir) {
+        File readme = new File(dir, "把文件放到这里.txt");
+        if (readme.exists()) return;
+        try {
+            writeText(readme,
+                    "这是 DeepSeek Harness 的工作目录。\n"
+                  + "=====================================\n\n"
+                  + "• 把项目、文档放到这个文件夹，agent 就能直接读写它们\n"
+                  + "• agent 生成的产物也会出现在这里\n"
+                  + "• 该目录位于手机共享存储，任何文件管理器都能访问\n\n"
+                  + "路径：" + dir.getAbsolutePath() + "\n");
+        } catch (Throwable ignored) { }
+    }
+
+    // ---------------------------------------------------------------- 前台服务
+    /** 启动前台服务，避免切后台/锁屏时 agent 被系统冻结。 */
+    private void startHarnessService() {
+        try {
+            HarnessService.onStopRequested = new Runnable() {
+                @Override public void run() {
+                    log("收到停止请求，正在结束 …");
+                    if (nodeProcess != null) nodeProcess.destroy();
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { finish(); }
+                    });
+                }
+            };
+            HarnessService.onSettingsRequested = new Runnable() {
+                @Override public void run() {
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { showSettings(); }
+                    });
+                }
+            };
+            android.content.Intent svc =
+                    new android.content.Intent(this, HarnessService.class);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+            log("前台服务已启动（后台保活）");
+        } catch (Throwable t) {
+            log("⚠️ 前台服务启动失败（不影响运行）: " + t);
+        }
+    }
+
+    // ---------------------------------------------------------------- 设置页
+    private android.widget.EditText labeledField(
+            android.widget.LinearLayout box, String label, String value, boolean secret) {
+        float d = getResources().getDisplayMetrics().density;
+        android.widget.TextView tv = new android.widget.TextView(this);
+        tv.setText(label);
+        tv.setTextSize(12.5f);
+        tv.setTextColor(0xFF6B7280);
+        android.widget.LinearLayout.LayoutParams tlp =
+                new android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = (int) (12 * d);
+        box.addView(tv, tlp);
+
+        android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(value == null ? "" : value);
+        et.setTextSize(13.5f);
+        et.setSingleLine(true);
+        if (secret) {
+            et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        }
+        box.addView(et, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return et;
+    }
+
+    /** 原生设置页：编辑 API Key 与默认模型（避开手机上很难用的 Web 设置页）。 */
+    private void showSettings() {
+        try {
+            final File dshHome = new File(appRoot, ".dsh");
+            final File creds = new File(dshHome, ".credentials.yaml");
+            final File settings = new File(dshHome, "settings.yaml");
+
+            String cc = readRef(creds, "COMMANDCODE_API_KEY");
+            String ds = readRef(creds, "DEEPSEEK_API_KEY");
+            String model = readScalar(settings, "model");
+
+            float d = getResources().getDisplayMetrics().density;
+            android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            int pad = (int) (20 * d);
+            box.setPadding(pad, (int) (4 * d), pad, 0);
+
+            final android.widget.EditText ccField =
+                    labeledField(box, "Command Code API Key", cc, true);
+            final android.widget.EditText dsField =
+                    labeledField(box, "DeepSeek API Key", ds, true);
+            final android.widget.EditText modelField =
+                    labeledField(box, "默认模型", model, false);
+
+            android.widget.TextView hint = new android.widget.TextView(this);
+            hint.setText("保存后会重启 agent 服务。密钥仅保存在 App 私有目录，不会外传。");
+            hint.setTextSize(11.5f);
+            hint.setTextColor(0xFF9CA3AF);
+            android.widget.LinearLayout.LayoutParams hlp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            hlp.topMargin = (int) (14 * d);
+            box.addView(hint, hlp);
+
+            android.widget.ScrollView sc = new android.widget.ScrollView(this);
+            sc.addView(box);
+
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("DeepSeek Harness 设置")
+                .setView(sc)
+                .setPositiveButton("保存并重启", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface dlg, int which) {
+                        try {
+                            writeRefs(creds,
+                                    ccField.getText().toString().trim(),
+                                    dsField.getText().toString().trim());
+                            String m = modelField.getText().toString().trim();
+                            if (m.length() > 0) setScalar(settings, "model", m);
+                            toast("已保存，正在重启服务…");
+                            restartAgent();
+                        } catch (Throwable t) {
+                            toast("保存失败: " + t.getMessage());
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        } catch (Throwable t) {
+            toast("打开设置失败: " + t.getMessage());
+        }
+    }
+
+    /** 重启 agent（销毁旧进程后重新走一遍 boot）。 */
+    private void restartAgent() {
+        try {
+            if (nodeProcess != null) nodeProcess.destroy();
+        } catch (Throwable ignored) { }
+        dshPageLoaded = false;
+        splashHidden = false;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                if (splashView != null) splashView.setVisibility(android.view.View.VISIBLE);
+                if (splashStatus != null) splashStatus.setText("正在重启服务…");
+            }
+        });
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try { boot(); }
+                catch (Throwable t) { log("✗ 重启失败: " + t); }
+            }
+        }).start();
+    }
+
+    /** 轻提示。 */
+    private void toast(final String msg) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                android.widget.Toast.makeText(MainActivity.this, msg,
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    /** 从凭据文件 refs: 段读取某个键。 */
+    private String readRef(File f, String key) {
+        try {
+            if (!f.exists()) return "";
+            boolean inRefs = false;
+            for (String ln : readText(f).split("\n", -1)) {
+                if (ln.matches("^refs\\s*:.*")) { inRefs = true; continue; }
+                if (inRefs) {
+                    if (ln.length() > 0 && !Character.isWhitespace(ln.charAt(0))) break;
+                    String t = ln.trim();
+                    if (t.startsWith(key + ":")) return t.substring(key.length() + 1).trim();
+                }
+            }
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
+    /** 写回两个 API Key（保留文件里其它内容）。 */
+    private void writeRefs(File f, String cc, String ds) throws IOException {
+        String txt = f.exists() ? readText(f) : "version: 1\n";
+        txt = replaceRefLine(txt, "COMMANDCODE_API_KEY", cc);
+        txt = replaceRefLine(txt, "DEEPSEEK_API_KEY", ds);
+        if (txt.indexOf("refs:") < 0) txt += "refs:\n";
+        writeText(f, txt);
+    }
+
+    private String replaceRefLine(String txt, String key, String val) {
+        if (val == null || val.length() == 0) {
+            // 清空该行（保留键名，值为空）
+            return txt.replaceAll("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:).*$", "$1 ");
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:).*$").matcher(txt);
+        if (m.find()) {
+            return m.replaceFirst("$1 " + java.util.regex.Matcher.quoteReplacement(val));
+        }
+        // 追加到 refs: 段
+        java.util.regex.Matcher r = java.util.regex.Pattern.compile("(?m)^refs\\s*:.*$").matcher(txt);
+        if (r.find()) {
+            return txt.substring(0, r.end()) + "\n  " + key + ": " + val + txt.substring(r.end());
+        }
+        return txt + "refs:\n  " + key + ": " + val + "\n";
+    }
+
+    /** 读取 YAML 里某个标量（取第一个匹配的 key: value）。 */
+    private String readScalar(File f, String key) {
+        try {
+            if (!f.exists()) return "";
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("(?m)^\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:\\s*(.+?)\\s*$")
+                    .matcher(readText(f));
+            if (m.find()) return m.group(1).replaceAll("^[\"']|[\"']$", "");
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
+    /** 替换 YAML 里某个标量的值。 */
+    private void setScalar(File f, String key, String val) throws IOException {
+        String txt = f.exists() ? readText(f) : "";
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:)\\s*.*$").matcher(txt);
+        if (m.find()) {
+            txt = m.replaceFirst("$1 \"" + java.util.regex.Matcher.quoteReplacement(val) + "\"");
+        }
+        writeText(f, txt);
     }
 
     // ---------------------------------------------------------------- 系统栏
@@ -1434,7 +1716,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.8.0\n");
+            w.write("APK 版本: 0.9.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -1489,8 +1771,10 @@ public class MainActivity extends Activity {
                     "requestPermissions", String[].class, int.class);
             m.invoke(this, new String[]{
                     "android.permission.WRITE_EXTERNAL_STORAGE",
-                    "android.permission.READ_EXTERNAL_STORAGE"}, 1001);
-            log("已请求存储权限（用于把日志写到 /sdcard/DSHNative/）");
+                    "android.permission.READ_EXTERNAL_STORAGE",
+                    // Android 13+ 常驻通知需要它；拒绝也不影响服务运行，只是通知不显示
+                    "android.permission.POST_NOTIFICATIONS"}, 1001);
+            log("已请求存储与通知权限");
         } catch (Throwable t) {
             log("存储权限请求失败（不影响运行）: " + t.getClass().getSimpleName());
         }
