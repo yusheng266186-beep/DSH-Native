@@ -1,7 +1,7 @@
 {
-  "version": "0.14.0",
-  "tag": "v0.14.0-bootstrap",
+  "version": "0.14.1",
+  "tag": "v0.14.1-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v4",
-  "notes": "原生 UI 统一为 DSH 风格；直连优先；复用已下载安装包"
+  "notes": "自检日志区分「不需要」与「有问题」"
 }

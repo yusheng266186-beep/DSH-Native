@@ -1946,8 +1946,10 @@ public class MainActivity extends Activity {
                     String tag = f.length > 1 ? f[1] : "";
                     boolean pass = "PASS".equals(tag);
                     boolean warn = "WARN".equals(tag);
+                    boolean info = "INFO".equals(tag);
                     String detail = (f.length > 3 && f[3].length() > 0) ? " → " + f[3] : "";
-                    log("  " + (pass ? "✅" : warn ? "⚠️" : "❌")
+                    // INFO 用于「Android 上本就不需要」的项，避免用户误以为有问题
+                    log("  " + (pass ? "✅" : info ? "ℹ️" : warn ? "⚠️" : "❌")
                             + " " + (f.length > 2 ? f[2] : "?") + detail);
                 } else if (line.startsWith("PREFLIGHT_END|")) {
                     try { failed = Integer.parseInt(line.substring(14).trim()); }
@@ -2369,7 +2371,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.14.0\n");
+            w.write("APK 版本: 0.14.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

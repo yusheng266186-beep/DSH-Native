@@ -57,19 +57,30 @@ sync('node-pty', () => {
   return 'spawn 可用';
 });
 
-// ---- 可选模块探测（WARN 级：缺失属预期，不影响核心功能）----
+// ---- 可选模块探测 ----
+// level 的含义：
+//   'info' = 该模块在 Android 上**本就不需要**（例如只在 Windows 用的），
+//            缺失是预期状态，不需要任何处理 —— 标为信息而非警告，
+//            否则日志里会出现让用户误以为有问题的感叹号。
+//   'warn' = 缺失会让某项功能真正降级，需要用户知晓。
 const optional = [
-  ['koffi', '仅 Windows 路径与可选强管控使用'],
-  ['sharp', '仅图片附件使用（无 Android 构建）'],
-  ['@deepseek-ai/node-addon-system', '文件锁（已打 Android 补丁降级）'],
-  ['node-addon-require-builtin', '已由纯 JS 垫片替代'],
+  ['koffi', 'info', '仅 Windows 使用（代码里加载的是 advapi32.dll / kernel32.dll）'],
+  ['sharp', 'warn', '仅图片附件使用（无 Android 构建）'],
+  ['@deepseek-ai/node-addon-system', 'info',
+   '文件锁与 Landlock 沙箱；已用纯 JS 降级替代，单用户无影响'],
+  ['node-addon-require-builtin', 'info', '已由纯 JS 垫片替代'],
 ];
-for (const [mod, why] of optional) {
+for (const [mod, level, why] of optional) {
   try {
     require(mod);
     results.push([`可选:${mod}`, true, '可加载']);
   } catch (e) {
-    results.push([`可选:${mod}`, 'warn', `${why} — ${(e.message||'').split('\n')[0].slice(0,60)}`]);
+    const detail = (e.message || '').split('\n')[0].slice(0, 60);
+    if (level === 'info') {
+      results.push([`不需要:${mod}`, 'info', `${why}`]);
+    } else {
+      results.push([`可选:${mod}`, 'warn', `${why} — ${detail}`]);
+    }
   }
 }
 
@@ -110,7 +121,9 @@ for (const [exe, argv, why] of tools) {
   console.log('PREFLIGHT_BEGIN');
   let failed = 0;
   for (const [n, good, d] of all) {
-    const tag = good === 'warn' ? 'WARN' : (good ? 'PASS' : 'FAIL');
+    const tag = good === 'info' ? 'INFO'
+              : good === 'warn' ? 'WARN'
+              : (good ? 'PASS' : 'FAIL');
     console.log(`PREFLIGHT|${tag}|${n}|${d}`);
     if (good === false) failed++;
   }
