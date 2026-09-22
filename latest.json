@@ -3,5 +3,5 @@
   "tag": "v0.20.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "清除全部 emoji；文件图标改为 Canvas 自绘矢量"
+  "notes": "运行包瘦身 27MB（移除 Android 用不到的原生库）+ 启动路径去掉网络阻塞"
 }

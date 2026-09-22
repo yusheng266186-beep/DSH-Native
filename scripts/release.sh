@@ -120,13 +120,29 @@ for path in "$PRIMARY" "$MIRROR"; do
 done
 
 # 5) 全部通过后才更新版本清单
-python3 - "$VER" "$TAG" "$SHA" <<'PY'
+python3 - "$VER" "$TAG" "$SHA" "$NOTES" <<'PY'
 import json, sys, pathlib
-ver, tag, sha = sys.argv[1], sys.argv[2], sys.argv[3]
+ver, tag, sha, notes_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 p = pathlib.Path('latest.json')
 old = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+
+# notes 取发布说明里第一个有内容的行（去掉 markdown 标题符号）。
+# 这个字段 App 不读，但公开仓库里会被人看到 —— 曾经长期停留在
+# 十几版之前的旧文案，因为没人更新它。
+summary = ""
+try:
+    for line in pathlib.Path(notes_file).read_text(encoding='utf-8').splitlines():
+        t = line.strip().lstrip('#').strip()
+        if t:
+            summary = t[:120]
+            break
+except Exception:
+    pass
+
 old.update({"version": ver, "tag": tag, "apk": "DSHNative-bootstrap.apk",
             "payload": currentPayloadTag()})
+if summary:
+    old["notes"] = summary
 p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')
 print(f"  [OK] latest.json → {ver}")
 PY
