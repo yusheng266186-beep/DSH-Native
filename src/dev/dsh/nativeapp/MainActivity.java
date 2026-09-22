@@ -898,6 +898,56 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Android 补丁：附件落盘时的「目录持久化」会向上遍历到文件系统根。
+     *
+     * <p><b>这是 DSH 自身的一个平台假设问题</b>：
+     * {@code ensureDurableHome()} 以 {@code parse(home).root}（即 {@code "/"}）
+     * 作为遍历边界，{@code ensureDurableDirectory()} 便逐级打开父目录做 fsync。
+     *
+     * <p>在桌面/容器里这没问题；但在 Android 上，App 只能访问
+     * {@code /data/user/0/<包名>} 子树 —— 遍历到 {@code /data/user/0} 就 EACCES。
+     * 由于该异常不是 AttachmentError，最终被上层兜底包装成
+     * {@code prompt rejected (session/agent-busy)}，把真实原因完全掩盖。
+     *
+     * <p>（实测：我的环境以 root 运行、家目录在 {@code /root/.dsh}，向上遍历
+     * 全部可访问，因此图片一直正常 —— 差异就在这里。）
+     *
+     * <p><b>修法</b>：把 {@code syncDirectory} 包一层，EACCES/EPERM 视为
+     * 「该层无需持久化」直接跳过。这些目录本就不属于本应用，
+     * 无法也不应去 fsync 它们。
+     */
+    private void patchAttachmentDurability(File dshDir) {
+        try {
+            File f = new File(dshDir,
+                    "node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js");
+            if (!f.exists()) {
+                log("  （未找到附件模块，跳过持久化补丁）");
+                return;
+            }
+            String src = readText(f);
+            if (src.contains("__androidSyncDirectory")) {
+                log("  附件持久化补丁已应用");
+                return;
+            }
+            if (src.indexOf("await syncDirectory(") < 0) {
+                log("  ⚠️ 未匹配到 syncDirectory 调用，跳过（可能 DSH 版本变化）");
+                return;
+            }
+            String out = src.replace("await syncDirectory(",
+                                     "await __androidSyncDirectory(");
+            out = "/* Android patch: EACCES during the upward durability walk is\n"
+                + "   expected because an app cannot traverse above its own data dir. */\n"
+                + "async function __androidSyncDirectory(p){try{return await syncDirectory(p);}"
+                + "catch(e){if(e&&(e.code==='EACCES'||e.code==='EPERM'))return;throw e;}}\n"
+                + out;
+            writeText(f, out);
+            log("  已为附件落盘应用 Android 权限补丁（越界 fsync 不再中断）");
+        } catch (Throwable t) {
+            log("  ⚠️ 附件持久化补丁失败: " + t);
+        }
+    }
+
     // ---------------------------------------------------------------- 可选插件
     /**
      * 通过 {@code --patch} 覆盖层启用 DSH 自带但默认未启用的插件。
@@ -2081,6 +2131,7 @@ public class MainActivity extends Activity {
      */
     private void applyAndroidPatches(File root, File dshDir) {
         patchFrontendViewport(dshDir);
+        patchAttachmentDurability(dshDir);
         try {
             File shim = new File(root, "sharp-android.js");
             File helper = new File(root, "pillow_shim.py");
@@ -2636,7 +2687,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.7\n");
+            w.write("APK 版本: 0.16.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
