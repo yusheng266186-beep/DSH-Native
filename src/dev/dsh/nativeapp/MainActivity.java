@@ -92,7 +92,25 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        // 双保险：即使主题未被 ROM 正确解析，也确保没有标题栏、
+        // 且窗口底色为白（否则默认主题会露出黑色，形成顶部黑边）。
+        try {
+            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
+        } catch (Throwable t) {
+            log("窗口设置失败（不影响运行）: " + t);
+        }
+
+        // 状态栏透明 + 内容延伸上去 + 深色图标。
+        applySystemBars();
+
+        rootView = new android.widget.FrameLayout(this);
+        rootView.setBackgroundColor(0xFFFFFFFF);
+        // 内容延伸到状态栏之后，用等高内边距把内容推下来 ——
+        // 状态栏区域露出的是白色背景，配深色图标，视觉上连成一片。
+        rootView.setPadding(0, statusBarHeight(), 0, 0);
+        android.widget.FrameLayout root = rootView;
 
         // 日志面板不加入视图树：整个屏幕留给 DSH 界面。
         // 日志仍会写入 logcat 与 /sdcard/DSHNative/launch.log，便于后台排查。
@@ -165,6 +183,16 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                // 稍等片刻再淡出：DSH 是单页应用，页面 onload 后还需要一点时间渲染，
+                // 立刻收起开屏会先闪一下空白。
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(new Runnable() {
+                    @Override public void run() { hideSplash(); }
+                }, 250);
+            }
+
+            @Override
             public void onReceivedError(WebView view, int errorCode,
                                         String description, String failingUrl) {
                 log("WebView 加载失败: " + errorCode + " " + description + " @ " + failingUrl);
@@ -174,6 +202,13 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(webView, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
+        // 而不是滚动的日志行。加载完成后淡出。
+        splashView = buildSplash();
+        root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -192,6 +227,7 @@ public class MainActivity extends Activity {
                 } catch (Throwable t) {
                     log("✗ 启动失败: " + t);
                     Log.e(TAG, "boot failed", t);
+                    setSplashStatus("启动未完成 —— 点按此处可查看详细日志");
                 }
             }
         }).start();
@@ -212,6 +248,7 @@ public class MainActivity extends Activity {
         if (!probeNodeExec(node)) {
             return;
         }
+        setSplashStatus("正在准备运行环境…");
         log("Node 就绪: " + runCapture(node, new String[]{"--version"}));
 
         // 2. 下载并解压运行包（首次启动）
@@ -236,6 +273,7 @@ public class MainActivity extends Activity {
                         log("已有归档校验不通过，重新下载: " + name);
                         archive.delete();
                     }
+                    setSplashStatus("正在下载运行包…");
                     download(name, archive);
                     String actual = sha256(archive);
                     if (!expectedSha.equalsIgnoreCase(actual)) {
@@ -248,6 +286,7 @@ public class MainActivity extends Activity {
                     log("  ✓ SHA-256 校验通过");
                 }
 
+                setSplashStatus("正在解压运行包…");
                 log("解压 " + name + " …");
                 run(node, root, new String[]{
                         new File(root, "unpack.js").getAbsolutePath(),
@@ -258,6 +297,7 @@ public class MainActivity extends Activity {
             marker.createNewFile();
         } else {
             log("运行包已就绪，跳过下载");
+            setSplashStatus("正在准备运行环境…");
         }
 
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
@@ -279,6 +319,7 @@ public class MainActivity extends Activity {
         } else {
             log("使用端口 " + chosenPort + (chosenPort == PORT ? "" : "（" + PORT + " 已被占用）"));
         }
+        setSplashStatus("正在启动服务…");
         log("启动 dsh web …");
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
                 "--expose-internals",          // 关键：替代无 android 构建的原生插件
@@ -366,6 +407,11 @@ public class MainActivity extends Activity {
     }
 
     private volatile String lastUrl;
+    private android.widget.FrameLayout rootView;
+    private android.view.View splashView;
+    private android.widget.TextView splashStatus;
+    private volatile boolean splashHidden;
+
     /** DSH 触发的文件选择回调（必须保留引用，否则会被回收导致无响应）。 */
     private android.webkit.ValueCallback<android.net.Uri[]> pendingFileCallback;
     private static final int REQ_FILE_CHOOSER = 0x2001;
@@ -439,6 +485,154 @@ public class MainActivity extends Activity {
             }
         }
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    // ---------------------------------------------------------------- 系统栏
+    /** 状态栏透明 + 内容延伸上去 + 深色系统图标（消除顶部黑边）。 */
+    private void applySystemBars() {
+        try {
+            android.view.Window w = getWindow();
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+            w.setStatusBarColor(0x00000000);
+            w.setNavigationBarColor(0xFFFFFFFF);
+            w.getDecorView().setSystemUiVisibility(
+                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                  | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                  | android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        } catch (Throwable t) {
+            log("系统栏设置失败（不影响运行）: " + t);
+        }
+    }
+
+    private int statusBarHeight() {
+        try {
+            int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Throwable ignored) { }
+        return (int) (24 * getResources().getDisplayMetrics().density);
+    }
+
+    // ---------------------------------------------------------------- 开屏
+    /**
+     * 构建开屏页：鲸鱼标志（呼吸动画）+ 转圈 + 一行友好文案。
+     *
+     * <p>之前启动期间用户看到的是滚动的日志行，既不好看也不友好。
+     * 现在改为纯粹的视觉反馈；详细日志仍在后台写文件。
+     * 若启动失败，点一下开屏页即可收起，露出下方的详细错误页。
+     */
+    private android.view.View buildSplash() {
+        float d = getResources().getDisplayMetrics().density;
+
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        box.setBackgroundColor(0xFFFFFFFF);
+
+        android.widget.LinearLayout col = new android.widget.LinearLayout(this);
+        col.setOrientation(android.widget.LinearLayout.VERTICAL);
+        col.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+
+        // 鲸鱼标志
+        android.widget.ImageView logo = new android.widget.ImageView(this);
+        int id = getResources().getIdentifier(
+                "ic_launcher_foreground", "mipmap", getPackageName());
+        if (id > 0) logo.setImageResource(id);
+        int boxSize = (int) (196 * d);          // 前景里鲸鱼约占 58%，故视图取得大些
+        col.addView(logo, new android.widget.LinearLayout.LayoutParams(boxSize, boxSize));
+
+        // 呼吸动画：透明度 + 轻微缩放
+        try {
+            android.animation.PropertyValuesHolder a =
+                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
+            android.animation.PropertyValuesHolder sx =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
+            android.animation.PropertyValuesHolder sy =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
+            android.animation.ObjectAnimator anim =
+                    android.animation.ObjectAnimator.ofPropertyValuesHolder(logo, a, sx, sy);
+            anim.setDuration(1150);
+            anim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            anim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            anim.start();
+        } catch (Throwable ignored) { }
+
+        // 转圈
+        android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
+        try {
+            spin.getIndeterminateDrawable().setColorFilter(
+                    0xFF4D6BFE, android.graphics.PorterDuff.Mode.SRC_IN);
+        } catch (Throwable ignored) { }
+        android.widget.LinearLayout.LayoutParams slp =
+                new android.widget.LinearLayout.LayoutParams(
+                        (int) (30 * d), (int) (30 * d));
+        slp.topMargin = (int) (26 * d);
+        col.addView(spin, slp);
+
+        // 文案
+        splashStatus = new android.widget.TextView(this);
+        splashStatus.setText("正在启动 DeepSeek Harness");
+        splashStatus.setTextColor(0xFF6B7280);
+        splashStatus.setTextSize(13.5f);
+        android.widget.LinearLayout.LayoutParams tlp =
+                new android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = (int) (18 * d);
+        col.addView(splashStatus, tlp);
+
+        android.widget.FrameLayout.LayoutParams clp =
+                new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.gravity = android.view.Gravity.CENTER;
+        box.addView(col, clp);
+
+        // 失败时点一下可收起开屏，查看详细错误
+        box.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { hideSplash(); }
+        });
+        return box;
+    }
+
+    /** 更新开屏文案（友好措辞，不暴露日志）。 */
+    private void setSplashStatus(final String text) {
+        if (splashStatus == null || splashHidden) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                if (splashStatus != null && !splashHidden) splashStatus.setText(text);
+            }
+        });
+    }
+
+    /** 淡出并移除开屏。 */
+    private void hideSplash() {
+        if (splashView == null || splashHidden) return;
+        splashHidden = true;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    android.view.animation.AlphaAnimation fade =
+                            new android.view.animation.AlphaAnimation(1f, 0f);
+                    fade.setDuration(400);
+                    fade.setFillAfter(true);
+                    fade.setAnimationListener(
+                            new android.view.animation.Animation.AnimationListener() {
+                        @Override public void onAnimationEnd(
+                                android.view.animation.Animation a) {
+                            if (splashView != null) {
+                                splashView.setVisibility(android.view.View.GONE);
+                            }
+                        }
+                        @Override public void onAnimationStart(
+                                android.view.animation.Animation a) { }
+                        @Override public void onAnimationRepeat(
+                                android.view.animation.Animation a) { }
+                    });
+                    splashView.startAnimation(fade);
+                } catch (Throwable t) {
+                    splashView.setVisibility(android.view.View.GONE);
+                }
+            }
+        });
     }
 
     /** 把 DSH 请求的文件选择结果回传给它。 */
@@ -764,6 +958,7 @@ public class MainActivity extends Activity {
      * <p>失败不阻断启动，只告警 —— 这样即使有问题也能拿到最多的现场信息。
      */
     private boolean runPreflight(File node, File root, File toolsDir) {
+        setSplashStatus("正在检查运行环境…");
         log("运行环境自检 …");
         File script = new File(root, "preflight.js");
         if (!script.exists()) { log("  ⚠️ 缺少 preflight.js，跳过"); return true; }
@@ -904,6 +1099,8 @@ public class MainActivity extends Activity {
                         long secs = Math.max(1, (System.currentTimeMillis() - t0) / 1000);
                         log("  " + pct + "%  (" + (done / 1048576) + "/" + (total / 1048576)
                                 + " MB, " + (done / 1048576 / secs) + " MB/s, 重试 " + retries + " 次)");
+                        // 开屏只显示友好的进度，不显示速率/重试等技术细节
+                        setSplashStatus("正在下载运行包 " + pct + "%");
                     }
                 }
                 if (total < 0 && buf.length < CHUNK) break;
@@ -1191,7 +1388,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.6.0\n");
+            w.write("APK 版本: 0.7.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
