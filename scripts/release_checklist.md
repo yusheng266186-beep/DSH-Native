@@ -37,6 +37,14 @@ App 内自更新依赖仓库根目录的 `latest.json`，**每次发版必须同
 5. **若运行包有变化**：先发 payload release，更新 `manifest.json` 与
    `MainActivity` 里的 `ASSET_PATH`。
 
+## UI 设计规范（每次发版必查）
+
+**所有原生界面必须使用 `DshUi` 组件层**，禁止系统默认样式 ——
+详见 [docs/DESIGN.md](../docs/DESIGN.md)。
+
+构建脚本已内置强制检查：出现 `AlertDialog` 会直接**构建失败**。
+新增原生界面时请对照该文档第三节的检查清单。
+
 ## 为什么要用静态 latest.json 而不是 GitHub API
 
 GitHub API 未认证请求限 **60 次/小时且按 IP 计**。

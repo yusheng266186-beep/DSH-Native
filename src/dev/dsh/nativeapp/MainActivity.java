@@ -602,7 +602,7 @@ public class MainActivity extends Activity {
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
     }
 
-    /** 在应用内直接查看运行日志（省得依赖外部工具）。 */
+    /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
     private void showLog() {
         try {
             if (sharedLog == null || !sharedLog.exists()) {
@@ -610,13 +610,12 @@ public class MainActivity extends Activity {
                 return;
             }
             String text = readText(sharedLog);
-            // 只显示最后若干行，避免超大文件撑爆对话框
             String[] lines = text.split("\n", -1);
             int keep = 400;
             StringBuilder sb = new StringBuilder();
             if (lines.length > keep) {
-                sb.append("…（共 ").append(lines.length)
-                  .append(" 行，仅显示最后 ").append(keep).append(" 行）\n\n");
+                sb.append("共 ").append(lines.length).append(" 行，仅显示最后 ")
+                  .append(keep).append(" 行\n\n");
                 for (int i = lines.length - keep; i < lines.length; i++) {
                     sb.append(lines[i]).append('\n');
                 }
@@ -624,25 +623,34 @@ public class MainActivity extends Activity {
                 sb.append(text);
             }
 
+            android.widget.LinearLayout body = DshUi.paddedBody(this);
+            body.addView(DshUi.title(this, "运行日志"));
+            body.addView(DshUi.hint(this, sharedLog.getAbsolutePath()),
+                    DshUi.fullWidth(this, 4));
+
             android.widget.TextView tv = new android.widget.TextView(this);
             tv.setText(sb.toString());
             tv.setTextSize(10.5f);
-            tv.setTextIsSelectable(true);          // 便于复制
+            tv.setTextColor(DshUi.TEXT);
+            tv.setTextIsSelectable(true);
             tv.setTypeface(android.graphics.Typeface.MONOSPACE);
-            float d = getResources().getDisplayMetrics().density;
-            int pad = (int) (14 * d);
+            tv.setBackground(DshUi.fieldBg(this));
+            int pad = DshUi.dp(this, 12);
             tv.setPadding(pad, pad, pad, pad);
 
-            android.widget.ScrollView sc = new android.widget.ScrollView(this);
-            sc.addView(tv);
-            sc.setLayoutParams(new ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, (int) (420 * d)));
+            android.widget.ScrollView inner = new android.widget.ScrollView(this);
+            inner.addView(tv);
+            android.widget.LinearLayout.LayoutParams tvLp = DshUi.fullWidth(this, 12);
+            tvLp.height = DshUi.dp(this, 380);
+            body.addView(inner, tvLp);
 
-            new android.app.AlertDialog.Builder(this)
-                .setTitle("运行日志（" + sharedLog.getName() + "）")
-                .setView(sc)
-                .setPositiveButton("关闭", null)
-                .show();
+            android.widget.Button close = DshUi.button(this, "关闭", true);
+            final android.app.Dialog dlg = DshUi.dialog(this,
+                    DshUi.scroll(this, body), DshUi.footer(this, close), 660);
+            close.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) { dlg.dismiss(); }
+            });
+            dlg.show();
         } catch (Throwable t) {
             toast("读取日志失败: " + shorten(t));
         }
@@ -1160,36 +1168,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // ---------------------------------------------------------------- 设置页
-    private android.widget.EditText labeledField(
-            android.widget.LinearLayout box, String label, String value, boolean secret) {
-        float d = getResources().getDisplayMetrics().density;
-        android.widget.TextView tv = new android.widget.TextView(this);
-        tv.setText(label);
-        tv.setTextSize(12.5f);
-        tv.setTextColor(0xFF6B7280);
-        android.widget.LinearLayout.LayoutParams tlp =
-                new android.widget.LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = (int) (12 * d);
-        box.addView(tv, tlp);
-
-        android.widget.EditText et = new android.widget.EditText(this);
-        et.setText(value == null ? "" : value);
-        et.setTextSize(13.5f);
-        et.setSingleLine(true);
-        if (secret) {
-            et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                    | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        }
-        box.addView(et, new android.widget.LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        return et;
-    }
-
-    /** 原生设置页：编辑 API Key 与默认模型（避开手机上很难用的 Web 设置页）。 */
     private void showSettings() {
         log("打开设置页");
         try {
@@ -1201,128 +1179,90 @@ public class MainActivity extends Activity {
             String ds = readRef(creds, "DEEPSEEK_API_KEY");
             String model = readScalar(settings, "model");
 
-            float d = getResources().getDisplayMetrics().density;
-            android.widget.LinearLayout box = new android.widget.LinearLayout(this);
-            box.setOrientation(android.widget.LinearLayout.VERTICAL);
-            int pad = (int) (20 * d);
-            box.setPadding(pad, (int) (4 * d), pad, 0);
+            android.widget.LinearLayout body = DshUi.paddedBody(this);
+            body.addView(DshUi.title(this, "设置"));
+            body.addView(DshUi.hint(this, "密钥仅保存在 App 私有目录，不会外传。"),
+                    DshUi.fullWidth(this, 4));
 
             final android.widget.EditText ccField =
-                    labeledField(box, "Command Code API Key", cc, true);
+                    addField(body, "Command Code API Key", cc, true);
             final android.widget.EditText dsField =
-                    labeledField(box, "DeepSeek API Key", ds, true);
+                    addField(body, "DeepSeek API Key", ds, true);
             final android.widget.EditText modelField =
-                    labeledField(box, "默认模型", model, false);
+                    addField(body, "默认模型", model, false);
 
-            // ---- 更新区 ----
-            android.widget.TextView upTitle = new android.widget.TextView(this);
-            upTitle.setText("更新");
-            upTitle.setTextSize(13f);
-            upTitle.setTextColor(0xFF111827);
-            android.widget.LinearLayout.LayoutParams utlp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            utlp.topMargin = (int) (22 * d);
-            box.addView(upTitle, utlp);
+            // ── 更新区 ──
+            body.addView(DshUi.sectionLabel(this, "更新"), DshUi.fullWidth(this, 22));
+            final android.widget.TextView upStatus =
+                    DshUi.status(this, "当前 App 版本 " + appVersion());
+            body.addView(upStatus, DshUi.fullWidth(this, 6));
 
-            final android.widget.TextView upStatus = new android.widget.TextView(this);
-            upStatus.setText("当前 App 版本 " + appVersion()
-                    + "\n运行包：点下面按钮检查是否有新内容");
-            upStatus.setTextSize(11.5f);
-            upStatus.setTextColor(0xFF6B7280);
-            android.widget.LinearLayout.LayoutParams uslp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            uslp.topMargin = (int) (6 * d);
-            box.addView(upStatus, uslp);
-
-            android.widget.Button btnPayload = new android.widget.Button(this);
-            btnPayload.setText("更新运行包（DSH / 工具链）");
-            btnPayload.setTextSize(12.5f);
+            android.widget.Button btnPayload =
+                    DshUi.button(this, "更新运行包（DSH / 工具链）", false);
             btnPayload.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
                     log("用户点击: 更新运行包");
                     updatePayloadNow(upStatus);
                 }
             });
-            android.widget.LinearLayout.LayoutParams blp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            blp.topMargin = (int) (10 * d);
-            box.addView(btnPayload, blp);
+            body.addView(btnPayload, DshUi.fullWidth(this, 12));
 
-            android.widget.Button btnApp = new android.widget.Button(this);
-            btnApp.setText("检查 App 更新并安装");
-            btnApp.setTextSize(12.5f);
+            android.widget.Button btnApp =
+                    DshUi.button(this, "检查 App 更新并安装", false);
             btnApp.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
                     log("用户点击: 检查 App 更新");
                     checkAppUpdate(true, upStatus);
                 }
             });
-            android.widget.LinearLayout.LayoutParams blp2 =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            blp2.topMargin = (int) (6 * d);
-            box.addView(btnApp, blp2);
+            body.addView(btnApp, DshUi.fullWidth(this, 8));
 
-            android.widget.Button btnLog = new android.widget.Button(this);
-            btnLog.setText("查看运行日志");
-            btnLog.setTextSize(12.5f);
+            android.widget.Button btnLog = DshUi.button(this, "查看运行日志", false);
             btnLog.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
-            android.widget.LinearLayout.LayoutParams blp3 =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            blp3.topMargin = (int) (6 * d);
-            box.addView(btnLog, blp3);
+            body.addView(btnLog, DshUi.fullWidth(this, 8));
 
-            android.widget.TextView hint = new android.widget.TextView(this);
-            hint.setText("保存后会重启 agent 服务。密钥仅保存在 App 私有目录，不会外传。");
-            hint.setTextSize(11.5f);
-            hint.setTextColor(0xFF9CA3AF);
-            android.widget.LinearLayout.LayoutParams hlp =
-                    new android.widget.LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.WRAP_CONTENT);
-            hlp.topMargin = (int) (14 * d);
-            box.addView(hint, hlp);
+            android.widget.Button cancel = DshUi.button(this, "取消", false);
+            android.widget.Button save = DshUi.button(this, "保存并重启", true);
+            final android.app.Dialog dlg = DshUi.dialog(this,
+                    DshUi.scroll(this, body), DshUi.footer(this, cancel, save), 660);
 
-            android.widget.ScrollView sc = new android.widget.ScrollView(this);
-            sc.addView(box);
-
-            new android.app.AlertDialog.Builder(this)
-                .setTitle("DeepSeek Harness 设置")
-                .setView(sc)
-                .setPositiveButton("保存并重启", new android.content.DialogInterface.OnClickListener() {
-                    @Override public void onClick(android.content.DialogInterface dlg, int which) {
-                        try {
-                            writeRefs(creds,
-                                    ccField.getText().toString().trim(),
-                                    dsField.getText().toString().trim());
-                            String m = modelField.getText().toString().trim();
-                            if (m.length() > 0) setScalar(settings, "model", m);
-                            toast("已保存，正在重启服务…");
-                            restartAgent();
-                        } catch (Throwable t) {
-                            toast("保存失败: " + t.getMessage());
-                        }
+            cancel.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) { dlg.dismiss(); }
+            });
+            save.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    try {
+                        writeRefs(creds, ccField.getText().toString().trim(),
+                                dsField.getText().toString().trim());
+                        String m = modelField.getText().toString().trim();
+                        if (m.length() > 0) setScalar(settings, "model", m);
+                        dlg.dismiss();
+                        toast("已保存，正在重启服务…");
+                        restartAgent();
+                    } catch (Throwable t) {
+                        toast("保存失败: " + t.getMessage());
                     }
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                }
+            });
+            dlg.show();
         } catch (Throwable t) {
-            toast("打开设置失败: " + t.getMessage());
+            log("✗ 打开设置页失败: " + t);
+            toast("打开设置失败: " + shorten(t));
         }
     }
 
-    /** 重启 agent（销毁旧进程后重新走一遍 boot）。 */
+    /** 设置页里的「标签 + 输入框」组合。 */
+    private android.widget.EditText addField(android.widget.LinearLayout body,
+                                             String label, String value,
+                                             boolean secret) {
+        body.addView(DshUi.label(this, label), DshUi.fullWidth(this, 14));
+        android.widget.EditText et = DshUi.input(this, value, secret);
+        body.addView(et, DshUi.fullWidth(this, 6));
+        return et;
+    }
+
     private void restartAgent() {
         try {
             if (nodeProcess != null) nodeProcess.destroy();
@@ -2429,7 +2369,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.5\n");
+            w.write("APK 版本: 0.14.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

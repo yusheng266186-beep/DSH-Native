@@ -66,7 +66,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js openssl.cnf preflight.js sharpstub.js settings-preset.yaml; do
+for f in unpack.js openssl.cnf preflight.js sharpstub.js settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -121,6 +121,22 @@ say "3. 生成二进制 AndroidManifest.xml"
 DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
 echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
+
+# ---------------------------------------------------------------- 3.5 UI 规范
+# 强制检查：原生界面必须走 DshUi 组件层，禁止系统默认样式
+# （见 docs/DESIGN.md —— 用户要求原生 UI 与 DSH 视觉统一，此约束长期有效）
+say "3.5 UI 规范检查"
+# 只匹配真实调用（构造或 Builder），避免误报注释里对 AlertDialog 的说明
+# 注意 || true：set -o pipefail 下 grep 无匹配会返回 1，导致整条管道失败、
+# 脚本静默退出（同样的坑此前在 d8 步骤踩过一次）。
+UI_BAD=$(grep -rnE 'AlertDialog\.Builder|new +AlertDialog' "$BOOT/src" 2>/dev/null | wc -l || true)
+if [ "$UI_BAD" -gt 0 ]; then
+  echo "  ✗ 发现 $UI_BAD 处系统原生 AlertDialog，违反 docs/DESIGN.md"
+  grep -rnE 'AlertDialog\.Builder|new +AlertDialog' "$BOOT/src" | head -5 | sed 's/^/    /'
+  die "请改用 DshUi.dialog()（见 docs/DESIGN.md）"
+fi
+DSUI_USE=$(grep -rlc 'DshUi\.' "$BOOT/src" 2>/dev/null | wc -l || true)
+echo "  ✓ 无系统 AlertDialog；DshUi 使用文件数: $DSUI_USE"
 
 # ---------------------------------------------------------------- 4. Java
 say "4. 编译 Java"
