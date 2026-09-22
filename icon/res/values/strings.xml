@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 桌面快捷方式标签（aapt2 要求这里必须是资源引用，不能用字面量） -->
+    <string name="sc_settings_short">设置</string>
+    <string name="sc_settings_long">打开 DeepSeek Harness 设置</string>
+    <string name="sc_log_short">运行日志</string>
+    <string name="sc_log_long">查看 DeepSeek Harness 运行日志</string>
+    <string name="sc_update_short">检查更新</string>
+    <string name="sc_update_long">检查 App 与运行包更新</string>
+</resources>

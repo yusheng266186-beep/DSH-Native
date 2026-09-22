@@ -1,7 +1,7 @@
 {
-  "version": "0.16.3",
-  "tag": "v0.16.3-bootstrap",
+  "version": "0.17.0",
+  "tag": "v0.17.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "修复补丁无法升级；附件落盘三处加固"
+  "notes": "桌面快捷方式 + 补丁维护状态面板"
 }

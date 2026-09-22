@@ -83,7 +83,11 @@ cat > "$OUT/res_manifest.xml" <<'XEOF'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.dsh.native">
-    <application android:icon="@mipmap/ic_launcher" android:theme="@style/AppTheme"/>
+    <application android:icon="@mipmap/ic_launcher" android:theme="@style/AppTheme">
+        <activity android:name=".A">
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
+        </activity>
+    </application>
 </manifest>
 XEOF
 
@@ -97,7 +101,9 @@ ICON_RES_ID=$(awk '$2=="mipmap" && $3=="ic_launcher"{print $4}' "$OUT/symbols.tx
 THEME_RES_ID=$(awk '$2=="style" && $3=="AppTheme"{print $4}' "$OUT/symbols.txt")
 [ -n "$ICON_RES_ID" ] || die "未能取得 ic_launcher 资源 id"
 [ -n "$THEME_RES_ID" ] || die "未能取得 AppTheme 资源 id"
-echo "  ic_launcher = $ICON_RES_ID    AppTheme = $THEME_RES_ID"
+SHORTCUTS_RES_ID=$(awk '$2=="xml" && $3=="shortcuts"{print $4}' "$OUT/symbols.txt")
+[ -n "$SHORTCUTS_RES_ID" ] || die "未能取得 shortcuts 资源 id"
+echo "  ic_launcher = $ICON_RES_ID    AppTheme = $THEME_RES_ID    shortcuts = $SHORTCUTS_RES_ID"
 
 python3 - "$OUT/resources.apk" "$OUT/apk" <<'PYEOF'
 import sys, zipfile, os
@@ -119,6 +125,7 @@ PYEOF
 # ---------------------------------------------------------------- 3. 清单
 say "3. 生成二进制 AndroidManifest.xml"
 DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
+  DSH_SHORTCUTS_RES_ID="$SHORTCUTS_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
 echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
 

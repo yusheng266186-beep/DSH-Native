@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按桌面图标弹出的快捷方式。
+  三个入口都只是带不同 action 启动 MainActivity，由它按 action 决定行为，
+  不需要额外的 Activity。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="settings"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_settings_short"
+        android:shortcutLongLabel="@string/sc_settings_long">
+        <intent
+            android:action="dev.dsh.nativeapp.ACTION_SETTINGS"
+            android:targetPackage="dev.dsh.native"
+            android:targetClass="dev.dsh.nativeapp.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="log"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_log_short"
+        android:shortcutLongLabel="@string/sc_log_long">
+        <intent
+            android:action="dev.dsh.nativeapp.ACTION_LOG"
+            android:targetPackage="dev.dsh.native"
+            android:targetClass="dev.dsh.nativeapp.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="update"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_update_short"
+        android:shortcutLongLabel="@string/sc_update_long">
+        <intent
+            android:action="dev.dsh.nativeapp.ACTION_UPDATE"
+            android:targetPackage="dev.dsh.native"
+            android:targetClass="dev.dsh.nativeapp.MainActivity"/>
+        <categories android:name="android.shortcut.conversation"/>
+    </shortcut>
+
+</shortcuts>

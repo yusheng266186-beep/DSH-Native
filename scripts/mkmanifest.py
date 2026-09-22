@@ -72,6 +72,7 @@ NO_ENTRY = 0xFFFFFFFF
 # 因此这里只作兜底默认值 —— 两侧永远一致，不会再出现对不上的情况。
 ICON_RES_ID = int(os.environ.get("DSH_ICON_RES_ID", "0x7F030000"), 16)
 THEME_RES_ID = int(os.environ.get("DSH_THEME_RES_ID", "0x7F040000"), 16)
+SHORTCUTS_RES_ID = int(os.environ.get("DSH_SHORTCUTS_RES_ID", "0x7F050000"), 16)
 
 # Res_value::dataType
 TYPE_REFERENCE = 0x01
@@ -98,6 +99,8 @@ ATTR_IDS = {
     "windowSoftInputMode": 0x0101022B,
     # 供分享 intent-filter 的 <data android:mimeType> 使用
     "mimeType": 0x01010026,
+    # 快捷方式声明需要 android:resource
+    "resource": 0x01010025,
     # 更新用的 ContentProvider（FileProvider 的最小替代）
     "authorities": 0x01010018,
     "grantUriPermissions": 0x0101001B,
@@ -168,7 +171,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("0.12.0"))],
+              (A, "versionName", s("0.17.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -209,6 +212,10 @@ def manifest_tree():
                           # 键盘弹出时收缩窗口而不是平移，避免输入法盖住聊天内容
                           (A, "windowSoftInputMode", hx(0x10))],
                          [
+                             # 长按图标的快捷方式（res/xml/shortcuts.xml）
+                             E("meta-data",
+                               [(A, "name", s("android.app.shortcuts")),
+                                (A, "resource", ref(SHORTCUTS_RES_ID))]),
                              E("intent-filter", [], [
                                  E("action",
                                    [(A, "name", s("android.intent.action.MAIN"))]),

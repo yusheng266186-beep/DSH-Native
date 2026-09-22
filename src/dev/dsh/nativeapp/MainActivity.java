@@ -242,11 +242,20 @@ public class MainActivity extends Activity {
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
                 installFetchDiagnostics();
-                if (pendingOpenSettings) {
+                final String act = pendingAction;
+                pendingAction = "";
+                if (pendingOpenSettings || act.length() > 0) {
                     pendingOpenSettings = false;
                     new android.os.Handler(android.os.Looper.getMainLooper())
                             .postDelayed(new Runnable() {
-                        @Override public void run() { showSettings(); }
+                        @Override public void run() {
+                            if ("log".equals(act)) {
+                                showLog();
+                            } else {
+                                showSettings();
+                                if ("update".equals(act)) checkAppUpdate(true, null);
+                            }
+                        }
                     }, 600);
                 }
                 // 启动后静默检查一次更新：用户不必手动点，
@@ -290,10 +299,7 @@ public class MainActivity extends Activity {
         initSharedLog();
         requestStoragePermission();
         handleShareIntent(getIntent());
-        if (getIntent() != null
-                && getIntent().getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
-            pendingOpenSettings = true;
-        }
+        resolveLaunchIntent(getIntent());
 
         cleanupStaleUpdateApk();
         installCrashHandler();
@@ -539,6 +545,15 @@ public class MainActivity extends Activity {
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
     /** 待处理的设置请求（界面未就绪时先记下，加载完成后打开）。 */
     private volatile boolean pendingOpenSettings;
+    /** 快捷方式请求的动作："" / "log" / "update"。 */
+    private volatile String pendingAction = "";
+    /** 补丁执行状态，用于在设置页展示（DSH 更新后补丁可能失效）。 */
+    private final java.util.List<String> patchReport = new java.util.ArrayList<String>();
+
+    /** 记录一条补丁状态。 */
+    private void recordPatch(String name, boolean ok, String detail) {
+        patchReport.add((ok ? "✅ " : "⚠️ ") + name + (detail == null || detail.length() == 0 ? "" : " — " + detail));
+    }
     /** 本次启动是否使用了插件 --patch 覆盖层（用于失败时自动停用）。 */
     private volatile boolean usedPluginPatch;
     /** 真正的 DSH 页面是否已加载（用于区分状态页触发的 onPageFinished）。 */
@@ -771,6 +786,18 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
+    /** 运行包摘要（供设置页显示）。 */
+    private String payloadSummary() {
+        try {
+            File mf = new File(appRoot, "manifest.json");
+            if (!mf.exists()) return "未知";
+            org.json.JSONObject o = new org.json.JSONObject(readText(mf));
+            return o.optInt("version", 0) + "（" + o.getJSONArray("parts").length() + " 分片）";
+        } catch (Throwable t) {
+            return "未知";
+        }
+    }
+
     /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
     private void showLog() {
         try {
@@ -936,6 +963,7 @@ public class MainActivity extends Activity {
                 String raw = readText(f);
                 String base = stripAndroidPatch(raw);
                 if (base.indexOf("await syncDirectory(") < 0) {
+                    recordPatch("附件落盘", false, "DSH 代码已变化，补丁未应用（图片可能失效）");
                     log("  ⚠️ 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
                     return;
                 }
@@ -945,15 +973,18 @@ public class MainActivity extends Activity {
 
             String cur = readText(f);
             if (cur.contains(PATCH_TAG)) {
+                recordPatch("附件落盘", true, "已是最新");
                 log("  附件补丁已是最新（v3）");
                 return;
             }
             String out = buildPatchedAttachment(readText(orig), PATCH_TAG);
             if (out == null) {
+                recordPatch("附件落盘", false, "自检未通过，已放弃");
                 log("  ⚠️ 附件补丁自检未通过，放弃应用");
                 return;
             }
             writeText(f, out);
+            recordPatch("附件落盘", true, "越界 fsync 跳过 + 硬链接退化复制");
             log("  已应用附件补丁 v3（越界 fsync 跳过 + 硬链接退化复制 + 失败原因可见）");
         } catch (Throwable t) {
             log("  ⚠️ 附件持久化补丁失败: " + t);
@@ -1612,6 +1643,18 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            // ── 维护状态：补丁是否仍然生效（DSH 更新后可能失效）──
+            body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
+            StringBuilder pr = new StringBuilder();
+            if (patchReport.isEmpty()) {
+                pr.append("（暂无补丁记录）");
+            } else {
+                for (String line : patchReport) pr.append(line).append('\n');
+            }
+            pr.append("App ").append(appVersion())
+              .append("　运行包 ").append(payloadSummary());
+            body.addView(DshUi.hint(this, pr.toString()), DshUi.fullWidth(this, 6));
 
             android.widget.Button cancel = DshUi.button(this, "取消", false);
             android.widget.Button save = DshUi.button(this, "保存并重启", true);
@@ -2274,6 +2317,7 @@ public class MainActivity extends Activity {
             String to = "content=\"width=600\"";
             if (src.indexOf("content=\"width=600\"") >= 0) {
                 log("  viewport 已适配（600px），跳过");
+                recordPatch("前端 viewport", true, "600px 已适配");
                 return;
             }
             if (src.indexOf(from) < 0) {
@@ -2785,7 +2829,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.16.3\n");
+            w.write("APK 版本: 0.17.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -2868,11 +2912,37 @@ public class MainActivity extends Activity {
      *
      * <p>全屏 WebView 里若直接退出，用户想返回上个界面时会误关应用。
      */
+    /**
+     * 解析启动意图：通知栏「设置」标记，或桌面快捷方式的 action。
+     *
+     * <p>快捷方式只带 action 启动本 Activity（见 res/xml/shortcuts.xml），
+     * 由这里分流成具体的界面动作。
+     */
+    private void resolveLaunchIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
+            pendingOpenSettings = true;
+        }
+        String a = intent.getAction();
+        if (a == null) return;
+        if (a.endsWith("ACTION_SETTINGS")) {
+            pendingOpenSettings = true;
+            log("快捷方式: 打开设置");
+        } else if (a.endsWith("ACTION_LOG")) {
+            pendingAction = "log";
+            log("快捷方式: 查看日志");
+        } else if (a.endsWith("ACTION_UPDATE")) {
+            pendingAction = "update";
+            log("快捷方式: 检查更新");
+        }
+    }
+
     @Override
     protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         handleShareIntent(intent);
+        resolveLaunchIntent(intent);
         if (intent != null && intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             // 已在运行：直接打开设置
             showSettings();
