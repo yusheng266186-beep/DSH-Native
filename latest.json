@@ -1,7 +1,7 @@
 {
-  "version": "0.13.0",
-  "tag": "v0.13.0-bootstrap",
+  "version": "0.13.1",
+  "tag": "v0.13.1-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v4",
-  "notes": "设置入口可见；启用 Schedule 插件；修复 --patch 位置"
+  "notes": "可见设置入口；Schedule 插件；修复版本清单缓存"
 }

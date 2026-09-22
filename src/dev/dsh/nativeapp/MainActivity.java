@@ -70,10 +70,17 @@ public class MainActivity extends Activity {
      */
     private static final String RAW = "https://raw.githubusercontent.com/"
             + REPO + "/main/latest.json";
+    /**
+     * 顺序：直连优先，镜像兜底。
+     *
+     * <p>实测 gh-proxy 会缓存这个文件，多次返回旧版本（0.12.1），
+     * 而直连 raw 始终是最新的。GitHub raw 自身有 5 分钟 CDN 缓存，
+     * 不同边缘刷新时间还不一致 —— 所以后面还会「取所有源里版本最高的那个」。
+     */
     private static final String[] VERSION_SOURCES = {
+            RAW,
             "https://gh-proxy.com/" + RAW,
             "https://ghproxy.net/" + RAW,
-            RAW,
     };
 
     /**
@@ -725,26 +732,52 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 读取版本清单，返回 [version, tag, apkName]；失败返回 null。
-     * 多个来源依次尝试（镜像优先）。
+     * 读取版本清单，返回 [version, tag, apkName]；全部源都失败则返回 null。
+     *
+     * <p>两个稳健性设计：
+     * <ul>
+     *   <li>每个请求带时间戳参数，尽量绕过中间缓存</li>
+     *   <li><b>取所有源中版本最高的</b> —— 缓存只会让某个源返回偏旧的版本，
+     *       因此「取最大」是安全的，可避免镜像滞后导致误判「已是最新」</li>
+     * </ul>
      */
     private String[] latestRelease() {
-        Throwable last = null;
-        for (String u : VERSION_SOURCES) {
+        String[] best = null;
+        int[] bestVer = null;
+        int ok = 0;
+        for (String base : VERSION_SOURCES) {
             try {
-                org.json.JSONObject o = new org.json.JSONObject(httpGet(u));
+                String url = base + (base.indexOf('?') >= 0 ? "&" : "?")
+                        + "t=" + System.currentTimeMillis();
+                org.json.JSONObject o = new org.json.JSONObject(httpGet(url));
                 String ver = o.optString("version", "");
                 String tag = o.optString("tag", "");
                 String apk = o.optString("apk", "DSHNative-bootstrap.apk");
-                if (ver.length() > 0 && tag.length() > 0) {
-                    return new String[]{ ver, tag, apk };
+                if (ver.length() == 0 || tag.length() == 0) continue;
+                ok++;
+                int[] v = parseVer(ver);
+                if (bestVer == null || cmpVer(v, bestVer) > 0) {
+                    bestVer = v;
+                    best = new String[]{ ver, tag, apk };
                 }
             } catch (Throwable t) {
-                last = t;
+                // 换下一个源
             }
         }
-        if (last != null) log("版本清单获取失败: " + shorten(last));
-        return null;
+        if (best == null) {
+            log("版本清单获取失败（" + VERSION_SOURCES.length + " 个源均不可用）");
+        } else if (ok > 1) {
+            log("版本清单: 从 " + ok + " 个源取得，采用最高版本 " + best[0]);
+        }
+        return best;
+    }
+
+    /** 版本号比较：a>b 返回正，a<b 返回负。 */
+    private static int cmpVer(int[] a, int[] b) {
+        for (int i = 0; i < 3; i++) {
+            if (a[i] != b[i]) return a[i] - b[i];
+        }
+        return 0;
     }
 
     /** 检查 App 更新；interactive=true 时把结果显示在给定文本上/弹提示。 */
@@ -2305,7 +2338,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.0\n");
+            w.write("APK 版本: 0.13.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
