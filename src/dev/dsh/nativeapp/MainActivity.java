@@ -220,6 +220,13 @@ public class MainActivity extends Activity {
                 if (dshPageLoaded) return;
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
+                if (pendingOpenSettings) {
+                    pendingOpenSettings = false;
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(new Runnable() {
+                        @Override public void run() { showSettings(); }
+                    }, 600);
+                }
                 // 启动后静默检查一次更新：用户不必手动点，
                 // 日志里也总能留下一条可核对的结果。
                 new Thread(new Runnable() {
@@ -248,6 +255,11 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // 设置入口做成可见的悬浮按钮。
+        // 此前唯一入口藏在通知栏动作里，用户找不到（日志显示从未打开过），
+        // 且那条路依赖静态回调，进程被系统重启后会失效。
+        root.addView(buildSettingsButton(), settingsButtonParams());
+
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
         // 而不是滚动的日志行。加载完成后淡出。
         splashView = buildSplash();
@@ -260,6 +272,10 @@ public class MainActivity extends Activity {
         initSharedLog();
         requestStoragePermission();
         handleShareIntent(getIntent());
+        if (getIntent() != null
+                && getIntent().getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
+            pendingOpenSettings = true;
+        }
 
         installCrashHandler();
         showPreviousCrash();
@@ -272,6 +288,16 @@ public class MainActivity extends Activity {
                 } catch (Throwable t) {
                     log("✗ 启动失败: " + t);
                     Log.e(TAG, "boot failed", t);
+                    // 若本次启用了插件覆盖层，判定为插件所致并写入停用标记：
+                    // 最坏情况只是少一个插件，绝不会让 App 打不开。
+                    if (usedPluginPatch && appRoot != null) {
+                        try {
+                            writeText(new File(appRoot, ".plugins-disabled"),
+                                    "上次带插件启动失败，已自动停用。\n"
+                                  + "删除本文件可重新尝试启用插件。\n");
+                            log("已自动停用插件覆盖层，下次启动将不带 --patch");
+                        } catch (Throwable ignored) { }
+                    }
                     setSplashStatus("启动未完成 —— 点按此处可查看详细日志");
                     if (splashView != null) {
                         // 失败时给出退路：点一下收起开屏，露出下方详细错误页
@@ -344,11 +370,20 @@ public class MainActivity extends Activity {
         }
         setSplashStatus("正在启动服务…");
         log("启动 dsh web …");
-        ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
-                "--expose-internals",          // 关键：替代无 android 构建的原生插件
-                "--no-warnings",
-                binJs.getAbsolutePath(),
-                "--profile", "web", "--no-open", "--port", String.valueOf(chosenPort));
+        // 命令行改为列表构造，便于按需追加 --patch 覆盖层
+        // （--patch 最后应用、优先级最高，用它启用插件无需改动 profile 文件）。
+        java.util.List<String> dshCmd = new java.util.ArrayList<String>();
+        dshCmd.add(node.getAbsolutePath());
+        dshCmd.add("--expose-internals");      // 关键：替代无 android 构建的原生插件
+        dshCmd.add("--no-warnings");
+        dshCmd.add(binJs.getAbsolutePath());
+        // ⚠️ --patch 是「启动器级」选项，必须排在 --profile 之前。
+        // 实测放在 --profile 之后会报 unknown option 并导致 DSH 完全无法启动。
+        enableOptionalPlugins(dshDir, root, dshCmd);
+        dshCmd.add("--profile"); dshCmd.add("web");
+        dshCmd.add("--no-open");
+        dshCmd.add("--port"); dshCmd.add(String.valueOf(chosenPort));
+        ProcessBuilder pb = new ProcessBuilder(dshCmd);
         pb.redirectErrorStream(true);
         pb.directory(workspace != null ? workspace : root);
 
@@ -476,6 +511,12 @@ public class MainActivity extends Activity {
     private android.view.View splashView;
     private android.widget.TextView splashStatus;
     private volatile boolean splashHidden;
+    /** 通知栏「设置」动作带的标记。 */
+    public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
+    /** 待处理的设置请求（界面未就绪时先记下，加载完成后打开）。 */
+    private volatile boolean pendingOpenSettings;
+    /** 本次启动是否使用了插件 --patch 覆盖层（用于失败时自动停用）。 */
+    private volatile boolean usedPluginPatch;
     /** 真正的 DSH 页面是否已加载（用于区分状态页触发的 onPageFinished）。 */
     private volatile boolean dshPageLoaded;
 
@@ -552,6 +593,81 @@ public class MainActivity extends Activity {
             }
         }
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    // ---------------------------------------------------------------- 设置入口
+    /** 右上角悬浮设置按钮（半透明，尽量不遮挡 DSH 界面）。 */
+    private android.view.View buildSettingsButton() {
+        float d = getResources().getDisplayMetrics().density;
+        android.widget.TextView b = new android.widget.TextView(this);
+        b.setText("\u2699");                 // ⚙
+        b.setTextSize(17);
+        b.setGravity(android.view.Gravity.CENTER);
+        b.setTextColor(0xFF4B5563);
+
+        android.graphics.drawable.GradientDrawable bg =
+                new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(0xF2FFFFFF);              // 近白底，贴合 DSH 浅色界面
+        bg.setStroke((int) Math.max(1, d), 0x22000000);
+        b.setBackground(bg);
+        b.setAlpha(0.72f);                    // 平时淡一些，不抢视觉
+        b.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { showSettings(); }
+        });
+        return b;
+    }
+
+    private android.widget.FrameLayout.LayoutParams settingsButtonParams() {
+        float d = getResources().getDisplayMetrics().density;
+        int size = (int) (38 * d);
+        android.widget.FrameLayout.LayoutParams lp =
+                new android.widget.FrameLayout.LayoutParams(size, size);
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        lp.topMargin = (int) (10 * d);
+        lp.rightMargin = (int) (10 * d);
+        return lp;
+    }
+
+    // ---------------------------------------------------------------- 可选插件
+    /**
+     * 通过 {@code --patch} 覆盖层启用 DSH 自带但默认未启用的插件。
+     *
+     * <p>为什么用 --patch 而不是改 profile：启动器的叠加顺序是
+     * 「bundle 层 → profile 自身的 cordis.patch.yml → 启动器层（--patch）」，
+     * --patch 在最后、优先级最高，因此不必碰用户 profile。
+     *
+     * <p>每个插件都先确认运行包里真的有它 —— 实测引用不存在的插件会让
+     * DSH **整个启动失败**（plugin tree failed to load），必须防御。
+     */
+    private void enableOptionalPlugins(File dshDir, File root,
+                                       java.util.List<String> cmd) {
+        // Schedule：会话内定时提醒（模型可用 schedule_create/list/delete）
+        // 上次带插件启动失败过 → 本次不再启用，保证 App 一定能起来
+        if (new File(root, ".plugins-disabled").exists()) {
+            log("插件已被自动停用（上次启动失败），跳过 --patch");
+            return;
+        }
+        File sched = new File(dshDir, "node_modules/@deepseek-ai/dsh-schedule");
+        if (!sched.isDirectory()) {
+            log("运行包不含 dsh-schedule，跳过该插件");
+            return;
+        }
+        try {
+            File patch = new File(root, "cordis.schedule.yml");
+            writeText(patch,
+                    "# 启用 Schedule 插件：让模型能在会话里创建 / 查看 / 取消定时提醒。\n"
+                  + "# 由 App 自动生成。--patch 是启动器覆盖层（最后应用），无需改动 profile。\n"
+                  + "- insert:\n"
+                  + "    - id: schedule\n"
+                  + "      name: '@deepseek-ai/dsh-schedule'\n");
+            cmd.add("--patch");
+            cmd.add(patch.getAbsolutePath());
+            usedPluginPatch = true;
+            log("已启用插件: Schedule（会话内定时提醒）");
+        } catch (Throwable t) {
+            log("⚠️ Schedule 补丁写入失败，跳过启用: " + t);
+        }
     }
 
     // ---------------------------------------------------------------- 应用内更新
@@ -2189,7 +2305,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.12.1\n");
+            w.write("APK 版本: 0.13.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -2277,6 +2393,10 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleShareIntent(intent);
+        if (intent != null && intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
+            // 已在运行：直接打开设置
+            showSettings();
+        }
     }
 
     /**

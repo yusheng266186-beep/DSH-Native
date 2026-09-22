@@ -118,8 +118,12 @@ public class HarnessService extends Service {
         Intent stop = new Intent(this, HarnessService.class).setAction(ACTION_STOP);
         PendingIntent stopPi = PendingIntent.getService(this, 1, stop, flags);
 
-        Intent settings = new Intent(this, HarnessService.class).setAction(ACTION_SETTINGS);
-        PendingIntent settingsPi = PendingIntent.getService(this, 2, settings, flags);
+        // 「设置」直接拉起 MainActivity 并带上标记。
+        // 之前走 Service + 静态回调，进程被系统重启后那个回调是 null，点击毫无反应。
+        Intent settings = new Intent(this, MainActivity.class);
+        settings.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        settings.putExtra(MainActivity.EXTRA_OPEN_SETTINGS, true);
+        PendingIntent settingsPi = PendingIntent.getActivity(this, 2, settings, flags);
 
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
