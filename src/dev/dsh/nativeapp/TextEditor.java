@@ -17,8 +17,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
-import java.nio.charset.Charset;
-import java.util.Locale;
 
 /**
  * 简易文本编辑器。
@@ -64,48 +62,17 @@ public final class TextEditor {
             return;
         }
 
-        // 二进制判定：前 8KB 内出现 NUL 基本可以断定不是文本
-        boolean binary = false;
-        int scan = Math.min(head.length, 8192);
-        for (int i = 0; i < scan; i++) {
-            if (head[i] == 0) { binary = true; break; }
-        }
-        if (binary) {
+        // 二进制判定与解码交给 TextCodec（纯逻辑、有测试覆盖）：
+        // 二进制、BOM、UTF-8/GB18030、换行风格都在那里处理。
+        if (TextCodec.looksBinary(head)) {
             showInfo(act, f, "二进制文件", "无法以文本方式编辑。");
             return;
         }
-
-        Decoded dec = decode(head);
-        boolean readOnly = truncated;
-        showEditor(act, f, dec.text, dec.charset, readOnly, truncated);
+        final TextCodec.Decoded dec = TextCodec.decode(head);
+        final boolean readOnly = truncated;
+        showEditor(act, f, dec.text, dec, readOnly, truncated);
     }
 
-    /** 解码结果。 */
-    private static final class Decoded {
-        final String text;
-        final String charset;
-        Decoded(String text, String charset) { this.text = text; this.charset = charset; }
-    }
-
-    /**
-     * 解码字节：优先 UTF-8，失败退回 GB18030。
-     *
-     * <p>用「严格解码」判断成败 —— 默认的 UTF-8 解码器会把非法字节替换成
-     * U+FFFD 而不报错，那样 GBK 文本会被静默读成乱码。
-     */
-    private static Decoded decode(byte[] data) {
-        try {
-            java.nio.charset.CharsetDecoder d = Charset.forName("UTF-8").newDecoder();
-            d.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT);
-            d.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
-            return new Decoded(d.decode(java.nio.ByteBuffer.wrap(data)).toString(), "UTF-8");
-        } catch (Throwable ignored) { }
-        try {
-            return new Decoded(new String(data, "GB18030"), "GB18030");
-        } catch (Throwable t) {
-            return new Decoded(new String(data), "未知");
-        }
-    }
 
     private static void showInfo(Activity act, File f, String title, String detail) {
         LinearLayout body = DshUi.paddedBody(act);
@@ -121,19 +88,17 @@ public final class TextEditor {
     }
 
     private static void showEditor(final Activity act, final File f, String initial,
-                                   String charset, final boolean readOnly,
+                                   final TextCodec.Decoded meta, final boolean readOnly,
                                    boolean truncated) {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, f.getName()));
 
-        int lines = 1;
-        for (int i = 0; i < initial.length(); i++) if (initial.charAt(i) == '\n') lines++;
         String info = f.getAbsolutePath() + "\n"
-                + FileListing.humanSize(f.length()) + " · " + lines + " 行"
-                + " · " + charset
+                + FileListing.humanSize(f.length()) + " · " + TextCodec.countLines(initial) + " 行"
+                + " · " + meta.describe()
                 + (truncated ? " · 文件过大，仅预览前 " + FileListing.humanSize(PREVIEW_BYTES) : "");
-        TextView meta = DshUi.hint(act, info);
-        body.addView(meta, DshUi.fullWidth(act, 4));
+        TextView infoView = DshUi.hint(act, info);
+        body.addView(infoView, DshUi.fullWidth(act, 4));
 
         final EditText ed = new EditText(act);
         ed.setText(initial);
@@ -183,10 +148,13 @@ public final class TextEditor {
                 try {
                     // 原样写回（编码保持不变）；先写临时文件再改名，
                     // 避免写入中断把原文件截断成半截内容。
+                    // 用原编码 + 原 BOM 写回，避免把 GBK 文件悄悄转成 UTF-8、
+                    // 或把带 BOM 的文件丢掉 BOM。
+                    byte[] bytes = TextCodec.encode(text, meta);
                     File tmp = new File(f.getParentFile(), f.getName() + ".dsh-tmp");
                     FileOutputStream os = new FileOutputStream(tmp);
                     try {
-                        os.write(text.getBytes(charset.equals("UTF-8") ? "UTF-8" : "GB18030"));
+                        os.write(bytes);
                         os.flush();
                         os.getFD().sync();   // 落盘后再改名，避免断电留下半截文件
                     } finally {

@@ -16,8 +16,8 @@ public class FileListingTest {
     static int pass = 0, fail = 0;
 
     static void check(String what, boolean ok, String detail) {
-        if (ok) { pass++; System.out.println("  ✅ " + what); }
-        else { fail++; System.out.println("  ❌ " + what + "  →  " + detail); }
+        if (ok) { pass++; System.out.println("  OK   " + what); }
+        else { fail++; System.out.println("  FAIL " + what + "  -> " + detail); }
     }
 
     /** 测试用软链解析器：普通 JVM 用 Files.isSymbolicLink。 */
@@ -124,7 +124,8 @@ public class FileListingTest {
         check("不含截断提示时不应出现「仅显示」", !s2.contains("仅显示"), s2);
 
         System.out.println();
-        System.out.println("结果: " + pass + " 通过 / " + fail + " 失败");
+        // 统一用 ASCII 汇总行：构建脚本据此判断成败，不受终端编码影响
+        System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
     }
 
