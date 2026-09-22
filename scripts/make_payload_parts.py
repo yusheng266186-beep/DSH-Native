@@ -17,6 +17,8 @@ App 启动时先比对哨兵：若本地已解压内容与 manifest 一致，
 """
 
 import hashlib
+import shutil
+import shlex
 import json
 import os
 import subprocess
@@ -29,6 +31,37 @@ OUT = os.environ.get('DSH_PAYLOAD_OUT') or os.path.join(PKG, 'payload-v4')
 # 分片定义：(归档名, 目标目录, 哨兵相对路径)
 # 哨兵必须选「会随该分片内容变化」的文件：App 靠比对哨兵判断分片是否需要更新。
 # 若哨兵恰好在本次变更中未改动，App 会误判为已就绪、跳过下载。
+# 从 dsh 分片里排除的内容 —— 它们在 Android 上永远不会被加载。
+#
+# 依据：sharp 被 App 用 Pillow 实现整体替换（node_modules/sharp/index.js 被覆盖），
+# 而这些是 sharp 的 optionalDependencies（各平台的原生库）：
+#   sharp-linux-arm64          glibc ELF，Android 的 bionic 加载不了
+#   sharp-libvips-linux-arm64  glibc 原生库（18MB，最大的一块）
+#   sharp-wasm32               WASM 回退实现，替换后不会走到
+# 保留 @img/colour（纯 JS，96KB，保守起见）。
+DSH_EXCLUDE = [
+    './node_modules/@img/sharp-linux-arm64',
+    './node_modules/@img/sharp-libvips-linux-arm64',
+    './node_modules/@img/sharp-wasm32',
+]
+
+# 需要 App 从**已有安装**里删掉的路径（相对目标目录）。
+# 哨兵发现不了「文件被删了」，靠这份清单补 —— 见 PayloadUpdate 的说明。
+DSH_REMOVE = [
+    'node_modules/@img/sharp-linux-arm64',
+    'node_modules/@img/sharp-libvips-linux-arm64',
+    'node_modules/@img/sharp-wasm32',
+]
+
+# 各分片的修订号：内容有实质变化（含只删不加）时递增。
+#
+# 只给 dsh 分片递增：它删掉了 27MB，重下约 18MB，净赚。
+# tools 侧也有约 3.7MB 可删（npm 文档、补全脚本等），
+# 但改动会牵连整个分片重下（tools-base 13.7MB），得不偿失，故不动。
+PART_REVISION = {
+    'dsh.tar.zst': 2,
+}
+
 PARTS = [
     ('dsh.tar.zst',          'dsh',   'lib/bin.js'),
     ('tools-base.tar.zst',   'tools', 'share/git-core/templates/description'),
@@ -36,6 +69,30 @@ PARTS = [
     ('tools-python.tar.zst', 'tools', 'lib/python3.14/site-packages/pypdf/__init__.py'),  # 本次新增 pypdf
     ('tools-npm.tar.zst',    'tools', 'lib/node_modules/npm/package.json'),
 ]
+
+
+def part_entry(name, target, size, digest, sentinel, sent_size, sent_sha):
+    """构造清单里的一个分片条目。
+
+    revision：内容修订号，变化（含只删文件）时递增 —— 哨兵发现不了删除。
+    remove：处理该分片前要删掉的相对路径，同样是给「哨兵看不见的删除」用的。
+    """
+    e = {
+        'name': name, 'target': target, 'size': size, 'sha256': digest,
+        'sentinel': {'path': sentinel, 'size': sent_size, 'sha256': sent_sha},
+    }
+    rev = PART_REVISION.get(name, 0)
+    if rev:
+        e['revision'] = rev
+    if name == 'dsh.tar.zst' and DSH_REMOVE:
+        e['remove'] = list(DSH_REMOVE)
+    return e
+
+
+def rev_note(name):
+    """打印时补一句修订号说明。"""
+    rev = PART_REVISION.get(name, 0)
+    return f"  修订 {rev}" if rev else ""
 
 
 def sha256_file(path, limit=None):
@@ -83,9 +140,40 @@ def main():
             src = os.path.join(PKG, 'dsh.tar.zst')
             if not os.path.exists(src):
                 sys.exit(f"缺少 {src}")
-            print(f"  复用 {name}")
-            subprocess.run(['cp', src, out], check=True)
+            # 解压到临时目录后用 --exclude 重新打包。
+            # 不用管道流式过滤：tar 无法同时从 stdin 读、向 stdout 写并过滤条目。
+            # 排除清单里都是整目录，用 --exclude 最直接可靠。
+            print(f"  重打包 {name}（排除 {len(DSH_EXCLUDE)} 项无用原生库）…")
+            tmp = os.path.join(OUT, '.dsh-repack')
+            if os.path.exists(tmp):
+                shutil.rmtree(tmp)
+            os.makedirs(tmp, exist_ok=True)
+            r = subprocess.run(['bash', '-c',
+                                'zstd -dc %s | tar -xf - -C %s'
+                                % (shlex.quote(src), shlex.quote(tmp))],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                sys.exit(f"解压失败: {r.stderr[:400]}")
+            # 记录排除项删掉了多少
+            saved = 0
+            for e in DSH_EXCLUDE:
+                victim = os.path.join(tmp, e.lstrip('./'))
+                if os.path.exists(victim):
+                    saved += sum(os.path.getsize(os.path.join(dp, f))
+                                 for dp, _dn, fn in os.walk(victim) for f in fn)
+                    shutil.rmtree(victim)
+            if os.path.exists(out):
+                os.remove(out)
+            cmd = ("tar %s -cf - -C %s . | zstd -19 -T0 -q -o %s"
+                   % (' '.join(shlex.quote('--exclude=' + x.lstrip('./')) for x in DSH_EXCLUDE),
+                      shlex.quote(tmp), shlex.quote(out)))
+            r = subprocess.run(['bash', '-c', cmd], capture_output=True, text=True)
+            if r.returncode != 0:
+                sys.exit(f"重打包失败: {r.stderr[:400]}")
+            shutil.rmtree(tmp)
+            print(f"    已排除 {saved/1048576:.1f}MB 无用原生库")
             continue
+
         listing = groups[name]
         if not listing:
             sys.exit(f"分片 {name} 为空，分类逻辑可能出错")
@@ -128,20 +216,16 @@ def main():
                 sys.exit(f"哨兵提取失败: {sentinel}")
             sent_sha = hashlib.sha256(data).hexdigest()
             sent_size = len(data)
-            parts.append({
-                'name': name, 'target': target, 'size': size, 'sha256': digest,
-                'sentinel': {'path': sentinel, 'size': sent_size, 'sha256': sent_sha},
-            })
-            print(f"  {name:<22} {size/1048576:6.1f}MB  哨兵 {sentinel} ({sent_size}B)")
+            parts.append(part_entry(name, target, size, digest, sentinel, sent_size, sent_sha))
+            print(f"  {name:<22} {size/1048576:6.1f}MB  哨兵 {sentinel} ({sent_size}B)"
+                  + rev_note(name))
             continue
 
         sent_sha = sha256_file(sent_path)
         sent_size = os.path.getsize(sent_path)
-        parts.append({
-            'name': name, 'target': target, 'size': size, 'sha256': digest,
-            'sentinel': {'path': sentinel, 'size': sent_size, 'sha256': sent_sha},
-        })
-        print(f"  {name:<22} {size/1048576:6.1f}MB  哨兵 {sentinel} ({sent_size}B)")
+        parts.append(part_entry(name, target, size, digest, sentinel, sent_size, sent_sha))
+        print(f"  {name:<22} {size/1048576:6.1f}MB  哨兵 {sentinel} ({sent_size}B)"
+              + rev_note(name))
 
     # revision：**内容修订号**，任何实质性变化（包括只删文件）都要递增。
     #
@@ -149,8 +233,7 @@ def main():
     # 发现不了「某些文件被删了」—— 删掉之后其余文件的哨兵全部不变，
     # App 会判定「已是最新」，那些文件就永远留在设备上。
     # 递增这个号会触发 App 清空运行包目录后重新解压。
-    revision = int(os.environ.get('DSH_PAYLOAD_REVISION', '1'))
-    manifest = {'version': 4, 'revision': revision, 'parts': parts}
+    manifest = {'version': 4, 'parts': parts}
     mpath = os.path.join(OUT, 'manifest.json')
     with open(mpath, 'w') as f:
         json.dump(manifest, f, indent=2)

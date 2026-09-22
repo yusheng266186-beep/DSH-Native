@@ -1,11 +1,16 @@
 package dev.dsh.nativeapp;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * PayloadUpdate 的离线测试。
  *
- * 核心用例只有一个，但很关键：
- * **哨兵全部匹配、修订号却变了 → 必须整体重来**。
- * 这是「只删文件的更新」唯一能被发现的途径，漏掉它那些文件会永远留在设备上。
+ * 三组重点：
+ *   ① 「只删文件」这种哨兵发现不了的变化必须被识别（靠分片修订号）；
+ *   ② 删除路径的校验 —— 清单从网络下载，被篡改时不能让它删到运行包之外；
+ *   ③ 未被改动的分片不该被牵连（这是不用「整包重来」的理由）。
  */
 public class PayloadUpdateTest {
     static int pass = 0, fail = 0;
@@ -15,53 +20,85 @@ public class PayloadUpdateTest {
         else { fail++; System.out.println("  FAIL " + what + "  -> " + detail); }
     }
 
+    static PayloadUpdate.Part part(String name, int rev, boolean matched, String... remove) {
+        return new PayloadUpdate.Part(name, rev, matched, Arrays.asList(remove));
+    }
+
     public static void main(String[] args) {
-        System.out.println("=== 1. the case that used to be missed ===");
-        check("revision changed + NO sentinel mismatch -> FULL",
-                PayloadUpdate.decide(7, 6, 0) == PayloadUpdate.ACTION_FULL,
-                String.valueOf(PayloadUpdate.decide(7, 6, 0)));
-        check("  -> and it requires a wipe",
-                PayloadUpdate.needsWipe(PayloadUpdate.ACTION_FULL), "removed files would persist");
-        check("first install (applied=0) -> FULL",
-                PayloadUpdate.decide(1, 0, 0) == PayloadUpdate.ACTION_FULL, "wrong");
-        check("big jump -> FULL",
-                PayloadUpdate.decide(9, 3, 0) == PayloadUpdate.ACTION_FULL, "wrong");
+        System.out.println("=== 1. sentinel mismatch still triggers work ===");
+        check("missing file -> work",
+                PayloadUpdate.needsWork(part("a", 1, false), 1), "wrong");
+        check("intact + same revision -> no work",
+                !PayloadUpdate.needsWork(part("a", 1, true), 1), "wrong");
 
-        System.out.println("=== 2. incremental still works ===");
-        check("same revision + missing -> INCREMENTAL",
-                PayloadUpdate.decide(7, 7, 2) == PayloadUpdate.ACTION_INCREMENTAL, "wrong");
-        check("  -> no wipe needed",
-                !PayloadUpdate.needsWipe(PayloadUpdate.ACTION_INCREMENTAL), "should not wipe");
-        check("same revision + nothing missing -> UPTODATE",
-                PayloadUpdate.decide(7, 7, 0) == PayloadUpdate.ACTION_UPTODATE, "wrong");
+        System.out.println("=== 2. the case sentinels cannot see ===");
+        // 关键：哨兵全对，但修订号变高 —— 说明只有删除。必须处理。
+        check("intact + higher revision -> work",
+                PayloadUpdate.needsWork(part("dsh", 2, true), 1), "removed files would persist");
+        check("intact + equal revision -> no work",
+                !PayloadUpdate.needsWork(part("dsh", 2, true), 2), "wrong");
+        check("intact + LOWER revision -> no work (no downgrade)",
+                !PayloadUpdate.needsWork(part("dsh", 1, true), 2), "wrong");
 
-        System.out.println("=== 3. revision regression (server rolled back) ===");
-        // 远端修订号比本机小：不降级，但若哨兵不匹配仍补齐
-        check("remote older + nothing missing -> UPTODATE",
-                PayloadUpdate.decide(5, 7, 0) == PayloadUpdate.ACTION_UPTODATE, "wrong");
-        check("remote older + missing -> INCREMENTAL",
-                PayloadUpdate.decide(5, 7, 1) == PayloadUpdate.ACTION_INCREMENTAL, "wrong");
+        System.out.println("=== 3. removals only when revision grew ===");
+        PayloadUpdate.Part p = part("dsh", 2, true, "node_modules/@img");
+        List<String> r = PayloadUpdate.removalsFor(p, 1);
+        check("removal returned when revision grew", r.size() == 1 && r.get(0).equals("node_modules/@img"),
+                r.toString());
+        check("no removal when revision unchanged",
+                PayloadUpdate.removalsFor(p, 2).isEmpty(), "wrong");
+        // 哨兵不匹配（新增/改动）时不应删除任何东西
+        check("no removal when only sentinel mismatched",
+                PayloadUpdate.removalsFor(part("dsh", 1, false, "x"), 1).isEmpty(), "wrong");
 
-        System.out.println("=== 4. per-part download decision ===");
-        check("FULL downloads even matched parts",
-                PayloadUpdate.needsDownload(PayloadUpdate.ACTION_FULL, true), "wrong");
-        check("INCREMENTAL skips matched parts",
-                !PayloadUpdate.needsDownload(PayloadUpdate.ACTION_INCREMENTAL, true), "wrong");
-        check("INCREMENTAL downloads unmatched",
-                PayloadUpdate.needsDownload(PayloadUpdate.ACTION_INCREMENTAL, false), "wrong");
-        check("UPTODATE downloads nothing",
-                !PayloadUpdate.needsDownload(PayloadUpdate.ACTION_UPTODATE, false), "wrong");
+        System.out.println("=== 4. removal path safety (manifest comes from network) ===");
+        String[] safe = { "node_modules/@img", "lib/node_modules/npm/docs", "./share/zsh",
+                          "node_modules/@img/sharp-wasm32" };
+        for (String s : safe) {
+            check("allow: " + s, PayloadUpdate.isSafeRelativePath(s), "too strict");
+        }
+        String[] unsafe = {
+            "/etc/passwd", "..", "../..", "../../.dsh", "node_modules/../../.dsh",
+            "a/../../b", "\\windows", "C:\\x", "", "   ", ".dsh", ".dsh/credentials.yaml",
+            "cache", "cache/update.apk", null,
+        };
+        for (String s : unsafe) {
+            check("reject: " + String.valueOf(s),
+                    !PayloadUpdate.isSafeRelativePath(s), "UNSAFE ACCEPTED");
+        }
+        // 混合清单：非法项必须被剔除，合法项保留
+        PayloadUpdate.Part mixed = part("dsh", 3, true,
+                "node_modules/@img", "../.dsh", "lib/x", "/abs");
+        List<String> filtered = PayloadUpdate.removalsFor(mixed, 1);
+        check("mixed list keeps only safe entries", filtered.size() == 2, filtered.toString());
 
-        System.out.println("=== 5. descriptions mention the action ===");
-        check("full mentions re-download",
-                PayloadUpdate.describe(PayloadUpdate.ACTION_FULL, 5, 0).contains("重新下载"),
-                PayloadUpdate.describe(PayloadUpdate.ACTION_FULL, 5, 0));
-        check("incremental shows counts",
-                PayloadUpdate.describe(PayloadUpdate.ACTION_INCREMENTAL, 5, 2).contains("2/5"),
-                PayloadUpdate.describe(PayloadUpdate.ACTION_INCREMENTAL, 5, 2));
-        check("uptodate is reassuring",
-                PayloadUpdate.describe(PayloadUpdate.ACTION_UPTODATE, 5, 0).contains("最新"),
-                PayloadUpdate.describe(PayloadUpdate.ACTION_UPTODATE, 5, 0));
+        System.out.println("=== 5. unaffected parts are not touched ===");
+        List<PayloadUpdate.Part> parts = new ArrayList<PayloadUpdate.Part>();
+        parts.add(part("dsh", 2, true));            // 只有它变了
+        parts.add(part("tools-base", 1, true));
+        parts.add(part("tools-libs", 1, true));
+        parts.add(part("tools-python", 1, true));
+        parts.add(part("tools-npm", 1, true));
+        List<Integer> applied = Arrays.asList(1, 1, 1, 1, 1);
+        check("only the bumped part needs work",
+                PayloadUpdate.countNeedingWork(parts, applied) == 1,
+                String.valueOf(PayloadUpdate.countNeedingWork(parts, applied)));
+        check("description shows 1/5",
+                PayloadUpdate.describe(5, 1).contains("1/5"),
+                PayloadUpdate.describe(5, 1));
+        check("nothing to do -> reassuring text",
+                PayloadUpdate.describe(5, 0).contains("最新"), PayloadUpdate.describe(5, 0));
+        check("everything to do -> download text",
+                PayloadUpdate.describe(5, 5).contains("下载"), PayloadUpdate.describe(5, 5));
+
+        System.out.println("=== 6. revision storage round-trip ===");
+        String key = PayloadUpdate.revisionKey("dsh.tar.zst", 7);
+        check("key carries revision", PayloadUpdate.parseRevision(key) == 7, key);
+        check("unknown key -> 0", PayloadUpdate.parseRevision("nothing") == 0, "wrong");
+        check("null -> 0", PayloadUpdate.parseRevision(null) == 0, "wrong");
+        check("malformed -> 0", PayloadUpdate.parseRevision("x=abc") == 0, "wrong");
+        check("scoped name with slash survives",
+                PayloadUpdate.parseRevision(PayloadUpdate.revisionKey("a/b", 3)) == 3, "wrong");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

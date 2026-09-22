@@ -86,7 +86,7 @@ ver, tag, sha = sys.argv[1], sys.argv[2], sys.argv[3]
 p = pathlib.Path('latest.json')
 old = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
 old.update({"version": ver, "tag": tag, "apk": "DSHNative-bootstrap.apk",
-            "payload": old.get("payload", "payload-v6")})
+            "payload": old.get("payload", "payload-v7")})
 p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')
 print(f"  [OK] latest.json → {ver}")
 PY

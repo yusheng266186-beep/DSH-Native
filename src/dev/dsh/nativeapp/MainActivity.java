@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v6/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v7/";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -407,10 +407,26 @@ public class MainActivity extends Activity {
 
         // 增量更新：清单 + 哨兵校验，只下载缺失或变化的分片。
         // 不再用"整体版本号"判断 —— 那会导致改一个小工具也要重下整个包。
-        boolean upToDate = ensurePayload(node, root, dshDir, toolsDir);
-        if (upToDate) {
-            log("运行包已是最新，本次无需下载");
+        // 启动速度：本地运行包完整时**不做阻塞的网络检查**。
+        //
+        // 原来每次启动都要拉一次清单 —— 网络正常时 0.6~1.8 秒，
+        // 直连超时的情况下最多 35 秒（15s 连接 + 20s 读取）才开始走镜像。
+        // 现在改成：本地完整就直接启动，更新检查放到后台；
+        // 若后台发现有更新，记一个标记，**下次启动时**再真正应用。
+        boolean locallyComplete = payloadLocallyComplete(dshDir, toolsDir);
+        boolean updatePending = payloadUpdatePending();
+        if (locallyComplete && !updatePending) {
+            log("本地运行包完整，直接启动（更新检查移至后台）");
+            checkPayloadInBackground(node, root, dshDir, toolsDir);
             setSplashStatus("正在准备运行环境…");
+        } else {
+            if (updatePending) log("上次检查到运行包有更新，本次启动应用");
+            boolean upToDate = ensurePayload(node, root, dshDir, toolsDir);
+            clearPayloadUpdatePending();
+            if (upToDate) {
+                log("运行包已是最新，本次无需下载");
+                setSplashStatus("正在准备运行环境…");
+            }
         }
 
 
@@ -934,26 +950,147 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- 运行包修订号
 
-    /** 本机已应用的运行包修订号（0 表示尚未记录）。 */
-    private int appliedPayloadRevision() {
+    /** 本机已应用的分片修订号集合（形如 "dsh.tar.zst=1"）。 */
+    private java.util.Set<String> appliedRevisions() {
         try {
-            return getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .getInt("payloadRevision", 0);
-        } catch (Throwable t) {
-            return 0;
-        }
+            java.util.Set<String> s = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getStringSet("payloadRevisions", null);
+            if (s != null) return new java.util.HashSet<String>(s);
+        } catch (Throwable t) { }
+        return new java.util.HashSet<String>();
     }
 
-    /** 记录已应用的运行包修订号。 */
-    private void rememberPayloadRevision(int rev) {
-        if (rev <= appliedPayloadRevision()) return;
+    /** 从集合里找出某个分片的记录项（形如 "name=rev"）。 */
+    private static String findRevision(java.util.Set<String> set, String name) {
+        if (set == null || name == null) return null;
+        String prefix = name + "=";
+        for (String s : set) {
+            if (s != null && s.startsWith(prefix)) return s;
+        }
+        return null;
+    }
+
+    /**
+     * 记录各分片已应用的修订号。
+     *
+     * <p>只在**全部成功后**调用：中途失败若已记录，
+     * 下次启动会误判为已应用，那些该删的文件就永远补不回来了。
+     */
+    private void rememberPayloadRevisions(org.json.JSONArray parts, File dshDir, File toolsDir) {
         try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .putInt("payloadRevision", rev).apply();
-            log("运行包修订号已记录: " + rev);
+            java.util.Set<String> set = appliedRevisions();
+            boolean changed = false;
+            for (int i = 0; i < parts.length(); i++) {
+                org.json.JSONObject part = parts.getJSONObject(i);
+                String name = part.getString("name");
+                int rev = part.optInt("revision", 0);
+                String existing = findRevision(set, name);
+                if (existing != null) set.remove(existing);
+                set.add(PayloadUpdate.revisionKey(name, rev));
+                changed = true;
+            }
+            if (changed) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putStringSet("payloadRevisions", set).apply();
+                log("运行包修订号已记录（" + parts.length() + " 个分片）");
+            }
         } catch (Throwable t) {
             log("记录运行包修订号失败: " + t);
         }
+    }
+
+    /**
+     * 本地运行包是否看起来完整。
+     *
+     * <p>只看关键文件**是否存在**，不做摘要计算 —— 这一步在启动的关键路径上，
+     * 要的是快。真正的完整性校验交给后台检查去慢慢做。
+     */
+    private boolean payloadLocallyComplete(File dshDir, File toolsDir) {
+        try {
+            if (!new File(dshDir, "lib/bin.js").isFile()) return false;
+            if (!new File(toolsDir, "bin/node").isFile()) return false;
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 上次后台检查是否发现了待应用的更新。 */
+    private boolean payloadUpdatePending() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getBoolean("payloadUpdatePending", false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void setPayloadUpdatePending(boolean pending) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("payloadUpdatePending", pending).apply();
+        } catch (Throwable ignored) { }
+    }
+
+    private void clearPayloadUpdatePending() {
+        setPayloadUpdatePending(false);
+    }
+
+    /**
+     * 后台检查运行包更新。
+     *
+     * <p>**只读**：拉清单、比对哨兵，判断有没有需要处理的分片。
+     * 不在这里下载 —— 那会在 DSH 正在运行时替换它的文件。
+     * 发现有更新就记一个标记，下次启动时按正常流程应用。
+     */
+    private void checkPayloadInBackground(final File node, final File root,
+                                          final File dshDir, final File toolsDir) {
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    File mf = new File(root, "manifest.json");
+                    download("manifest.json", mf);
+                    org.json.JSONObject man = new org.json.JSONObject(readText(mf));
+                    org.json.JSONArray parts = man.getJSONArray("parts");
+                    java.util.Set<String> appliedRevs = appliedRevisions();
+                    int need = 0;
+                    for (int i = 0; i < parts.length(); i++) {
+                        org.json.JSONObject part = parts.getJSONObject(i);
+                        String name = part.getString("name");
+                        File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
+                        org.json.JSONObject sent = part.getJSONObject("sentinel");
+                        File sf = new File(dir, sent.getString("path"));
+                        boolean matched = sf.exists()
+                                && sf.length() == sent.getLong("size")
+                                && sent.getString("sha256").equalsIgnoreCase(sha256(sf));
+                        int rev = part.optInt("revision", 0);
+                        int applied = PayloadUpdate.parseRevision(findRevision(appliedRevs, name));
+                        java.util.List<String> rm = new java.util.ArrayList<String>();
+                        org.json.JSONArray ra = part.optJSONArray("remove");
+                        if (ra != null) {
+                            for (int k = 0; k < ra.length(); k++) rm.add(ra.optString(k, ""));
+                        }
+                        if (PayloadUpdate.needsWork(
+                                new PayloadUpdate.Part(name, rev, matched, rm), applied)) {
+                            need++;
+                        }
+                    }
+                    if (need > 0) {
+                        log("后台检查：有 " + need + " 个分片需要更新，下次启动时应用");
+                        setPayloadUpdatePending(true);
+                    } else {
+                        log("后台检查：运行包已是最新");
+                        // 顺手把修订号记下，避免下次重复比对
+                        rememberPayloadRevisions(parts, dshDir, toolsDir);
+                    }
+                } catch (Throwable t) {
+                    // 后台检查失败不影响使用 —— 本地运行包是完整的
+                    log("后台检查更新失败（不影响使用）: " + t.getMessage());
+                }
+            }
+        }, "payload-check");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** 递归删除目录（仅用于清空运行包，不动配置）。 */
@@ -1757,50 +1894,46 @@ public class MainActivity extends Activity {
 
         org.json.JSONObject man = new org.json.JSONObject(readText(mf));
         org.json.JSONArray parts = man.getJSONArray("parts");
-        int remoteRev = man.optInt("revision", 0);
-        int appliedRev = appliedPayloadRevision();
         log("运行包清单: " + parts.length() + " 个分片（结构版本 "
-                  + man.optInt("version", 0) + "，修订 " + remoteRev
-                  + "，本机已应用 " + appliedRev + "）");
+                  + man.optInt("version", 0) + "）");
 
-        // 第一遍：哨兵校验，找出缺失/变化的分片
+        // 第一遍：逐分片判定 —— 哨兵是否匹配 + 修订号是否变高。
+        // 判定逻辑在纯逻辑类 PayloadUpdate 里（37 项测试）。
+        java.util.Set<String> appliedRevs = appliedRevisions();
         java.util.List<String> missing = new java.util.ArrayList<String>();
+        java.util.LinkedHashMap<String, java.util.List<String>> removals =
+                new java.util.LinkedHashMap<String, java.util.List<String>>();
         for (int i = 0; i < parts.length(); i++) {
             org.json.JSONObject part = parts.getJSONObject(i);
+            String name = part.getString("name");
             File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
             org.json.JSONObject sent = part.getJSONObject("sentinel");
             File sf = new File(dir, sent.getString("path"));
-            boolean ok = sf.exists()
+            boolean matched = sf.exists()
                     && sf.length() == sent.getLong("size")
                     && sent.getString("sha256").equalsIgnoreCase(sha256(sf));
-            if (!ok) missing.add(part.getString("name"));
-        }
-        // 决策交给纯逻辑类（有 16 项测试）。
-        //
-        // 关键：**哨兵全部匹配也可能需要更新** —— 若修订号变了，
-        // 说明内容有实质变化（包括「只删文件」这种哨兵发现不了的改动），
-        // 必须清空重来，否则被删掉的文件会永远留在设备上。
-        int action = PayloadUpdate.decide(remoteRev, appliedRev, missing.size());
-        log(PayloadUpdate.describe(action, parts.length(), missing.size()));
-        if (action == PayloadUpdate.ACTION_UPTODATE) {
-            // 已是最新：记录修订号，否则它会一直是 0，下次又判定为「需要整体重来」
-            rememberPayloadRevision(remoteRev);
-            return true;
-        }
 
-        if (PayloadUpdate.needsWipe(action)) {
-            // 先清空：单靠覆盖解压无法移除文件，而这正是引入修订号要解决的问题。
-            // 只删运行包目录 —— 用户配置在 <root>/.dsh，不受影响。
-            setSplashStatus("正在更新运行包…");
-            log("清空运行包目录后重新解压（配置目录不受影响）");
-            deleteTree(dshDir);
-            deleteTree(toolsDir);
-            missing.clear();
-            for (int i = 0; i < parts.length(); i++) {
-                missing.add(parts.getJSONObject(i).getString("name"));
+            int rev = part.optInt("revision", 0);
+            int applied = PayloadUpdate.parseRevision(findRevision(appliedRevs, name));
+            java.util.List<String> rm = new java.util.ArrayList<String>();
+            org.json.JSONArray ra = part.optJSONArray("remove");
+            if (ra != null) {
+                for (int k = 0; k < ra.length(); k++) rm.add(ra.optString(k, ""));
+            }
+            PayloadUpdate.Part info = new PayloadUpdate.Part(name, rev, matched, rm);
+            if (PayloadUpdate.needsWork(info, applied)) {
+                missing.add(name);
+                java.util.List<String> del = PayloadUpdate.removalsFor(info, applied);
+                if (!del.isEmpty()) removals.put(name, del);
             }
         }
-        setSplashStatus(PayloadUpdate.describe(action, parts.length(), missing.size()));
+        log(PayloadUpdate.describe(parts.length(), missing.size()));
+        if (missing.isEmpty()) {
+            // 已是最新：把修订号记下来，否则每次都会重新判定
+            rememberPayloadRevisions(parts, dshDir, toolsDir);
+            return true;
+        }
+        setSplashStatus(PayloadUpdate.describe(parts.length(), missing.size()));
 
         // 第二遍：只下载这些分片
         long bytes = 0;
@@ -1824,6 +1957,19 @@ public class MainActivity extends Activity {
             bytes += archive.length();
             log("  " + name + " 校验通过");
 
+            // 处理前先执行该分片声明的删除。
+            // 哨兵发现不了「文件被删了」，这份清单就是为它准备的。
+            java.util.List<String> del = removals.get(name);
+            if (del != null && !del.isEmpty()) {
+                for (String rel : del) {
+                    File victim = new File(dir, rel);
+                    if (victim.exists()) {
+                        deleteTree(victim);
+                        log("  已移除 " + rel);
+                    }
+                }
+            }
+
             setSplashStatus("正在解压运行包…");
             log("解压 " + name + " …");
             run(node, root, new String[]{
@@ -1835,7 +1981,7 @@ public class MainActivity extends Activity {
         log("增量更新完成，本次下载 " + (bytes / 1048576) + " MB");
         // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
         // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
-        rememberPayloadRevision(remoteRev);
+        rememberPayloadRevisions(parts, dshDir, toolsDir);
         return false;
     }
 
@@ -3178,11 +3324,27 @@ public class MainActivity extends Activity {
 
         List<String> entries = new ArrayList<String>();
         collect("payload", entries);
+        int skipped = 0;
         for (String path : entries) {
             String rel = path.substring("payload/".length());
             if (rel.length() == 0) continue;
             File out = new File(target, rel);
             if (!refresh && out.exists() && out.length() > 0) continue;   // 版本未变，跳过
+            // 版本变了，但**内容未必变**。
+            //
+            // 原来只要版本号不同就把 93MB 全部重写一遍 —— 其中包括 47MB 的 node
+            // 和 31MB 的 ICU 数据，而这两个几乎从不变化。用户每次升级 APK 后
+            // 的首次启动都要为此多花几十秒的写入。
+            //
+            // 现在分两类：
+            //   小文件（脚本、证书，KB 级）—— 直接重写，省得比对；
+            //   大文件（二进制、库）—— 先比大小再比摘要，一致就跳过。
+            boolean isSmall = isSmallAsset(rel);
+            if (refresh && !isSmall && out.exists() && out.length() > 0
+                    && sameAsset(path, out)) {
+                skipped++;
+                continue;
+            }
             File parent = out.getParentFile();
             if (parent != null && !parent.exists()) parent.mkdirs();
             InputStream in = getAssets().open(path);
@@ -3193,7 +3355,56 @@ public class MainActivity extends Activity {
             os.close();
             in.close();
         }
+        if (refresh && skipped > 0) {
+            log("  已跳过 " + skipped + " 个内容未变的文件（省下重复写入）");
+        }
         try { writeText(verFile, curVer); } catch (Throwable ignored) { }
+    }
+
+    /** 小文件（脚本、证书）直接重写，不做摘要比对 —— 比对本身也要读一遍。 */
+    private static boolean isSmallAsset(String rel) {
+        return rel.endsWith(".js") || rel.endsWith(".py") || rel.endsWith(".crt")
+                || rel.endsWith(".json") || rel.endsWith(".txt") || rel.endsWith(".sh");
+    }
+
+    /**
+     * APK 内的资源与磁盘上的文件是否一致。
+     *
+     * <p>先比大小（便宜），再比 sha256（稍贵但准确）。
+     * 只比大小是不够的：同大小的不同构建会被漏掉，而那正是升级后必须更新的情况。
+     */
+    private boolean sameAsset(String assetPath, File disk) {
+        try {
+            // 一次遍历同时算大小与摘要 —— 不必为此把资源读两遍
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            long size = 0;
+            java.io.InputStream in = getAssets().open(assetPath);
+            try {
+                byte[] buf = new byte[262144];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    md.update(buf, 0, n);
+                    size += n;
+                }
+            } finally {
+                in.close();
+            }
+            if (size != disk.length()) return false;
+
+            java.security.MessageDigest md2 = java.security.MessageDigest.getInstance("SHA-256");
+            java.io.FileInputStream fis = new java.io.FileInputStream(disk);
+            try {
+                byte[] buf = new byte[262144];
+                int n;
+                while ((n = fis.read(buf)) > 0) md2.update(buf, 0, n);
+            } finally {
+                fis.close();
+            }
+            return java.util.Arrays.equals(md.digest(), md2.digest());
+        } catch (Throwable t) {
+            // 比对失败就当作不同 —— 宁可多写一次，也不要留下过期的二进制
+            return false;
+        }
     }
 
     private void collect(String dir, List<String> out) throws IOException {
@@ -3359,7 +3570,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.7\n");
+            w.write("APK 版本: 0.20.8\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
