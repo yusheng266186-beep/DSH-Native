@@ -92,10 +92,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 用 FrameLayout：WebView 全屏，右上角叠一个悬浮的「选择文件」按钮。
-        // 为什么要加这个按钮：DSH 的 Web 界面**只支持拖拽**接收文件
-        // （document 上的 drop 监听读 dataTransfer.files），手机上无法拖拽，
-        // 因此由原生按钮选文件，再用 JS 合成一次 drop 事件交给页面处理。
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
 
         // 日志面板不加入视图树：整个屏幕留给 DSH 界面。
@@ -117,6 +113,56 @@ public class MainActivity extends Activity {
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
+        // DSH 的「添加 → 文件」菜单会 click() 页面里的原生 <input type="file">。
+        // WebView 必须由宿主实现 onShowFileChooser，否则点击毫无反应 ——
+        // 这正是之前"无法上传文件"的真正原因。
+        webView.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view,
+                    android.webkit.ValueCallback<android.net.Uri[]> callback,
+                    android.webkit.WebChromeClient.FileChooserParams params) {
+                if (pendingFileCallback != null) {
+                    pendingFileCallback.onReceiveValue(null);
+                }
+                pendingFileCallback = callback;
+                try {
+                    android.content.Intent intent = new android.content.Intent(
+                            android.content.Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+                    boolean multiple = params.getMode()
+                            == android.webkit.WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE;
+
+                    String[] accept = params.getAcceptTypes();
+                    java.util.List<String> kinds = new java.util.ArrayList<String>();
+                    if (accept != null) {
+                        for (String a : accept) {
+                            if (a == null) continue;
+                            for (String piece : a.split(",")) {
+                                String t = piece.trim();
+                                if (t.length() > 0) kinds.add(t);
+                            }
+                        }
+                    }
+                    String type = kinds.isEmpty() ? "*/*" : kinds.get(0);
+                    if (kinds.size() > 1) {
+                        intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES,
+                                kinds.toArray(new String[0]));
+                    }
+                    intent.setType(type);
+                    intent.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, multiple);
+                    log("DSH 请求选择文件 (type=" + type + ", multiple=" + multiple + ")");
+                    startActivityForResult(
+                            android.content.Intent.createChooser(intent, "选择文件"),
+                            REQ_FILE_CHOOSER);
+                    return true;
+                } catch (Throwable t) {
+                    log("✗ 启动文件选择器失败: " + t);
+                    pendingFileCallback = null;
+                    return false;
+                }
+            }
+        });
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, int errorCode,
@@ -130,8 +176,6 @@ public class MainActivity extends Activity {
         root.addView(webView, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-
-        root.addView(buildAttachButton(), attachButtonParams());
 
         setContentView(root);
 
@@ -322,8 +366,9 @@ public class MainActivity extends Activity {
     }
 
     private volatile String lastUrl;
-    /** 文件选择回调（保留引用，避免被回收） */
-    private static final int REQ_PICK_FILES = 0x2001;
+    /** DSH 触发的文件选择回调（必须保留引用，否则会被回收导致无响应）。 */
+    private android.webkit.ValueCallback<android.net.Uri[]> pendingFileCallback;
+    private static final int REQ_FILE_CHOOSER = 0x2001;
 
     private void pipeOutput(final Process p) {
         final InputStream is = p.getInputStream();
@@ -396,185 +441,30 @@ public class MainActivity extends Activity {
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
     }
 
-    /** 悬浮「选择文件」按钮。 */
-    private android.widget.TextView buildAttachButton() {
-        android.widget.TextView b = new android.widget.TextView(this);
-        b.setText("\uD83D\uDCCE");          // 📎
-        b.setTextSize(22);
-        b.setGravity(android.view.Gravity.CENTER);
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        bg.setColor(0xE61F6FEB);
-        bg.setStroke(2, 0x66FFFFFF);
-        b.setBackground(bg);
-        float d = getResources().getDisplayMetrics().density;
-        b.setAlpha(0.85f);
-        b.setLayoutParams(attachButtonParams());
-        b.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { pickFiles(); }
-        });
-        return b;
-    }
-
-    private android.widget.FrameLayout.LayoutParams attachButtonParams() {
-        float d = getResources().getDisplayMetrics().density;
-        int size = (int) (48 * d);
-        android.widget.FrameLayout.LayoutParams lp =
-                new android.widget.FrameLayout.LayoutParams(size, size);
-        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
-        lp.topMargin = (int) (56 * d);        // 避开系统标题栏
-        lp.rightMargin = (int) (12 * d);
-        return lp;
-    }
-
-    /** 打开系统文件选择器（可多选）。 */
-    private void pickFiles() {
-        try {
-            android.content.Intent intent = new android.content.Intent(
-                    android.content.Intent.ACTION_GET_CONTENT);
-            intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            intent.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
-            log("打开文件选择器 …");
-            startActivityForResult(
-                    android.content.Intent.createChooser(intent, "选择要上传的文件"),
-                    REQ_PICK_FILES);
-        } catch (Throwable t) {
-            log("✗ 无法打开文件选择器: " + t);
-            toast("无法打开文件选择器");
-        }
-    }
-
+    /** 把 DSH 请求的文件选择结果回传给它。 */
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
                                     android.content.Intent data) {
-        if (requestCode != REQ_PICK_FILES) {
+        if (requestCode != REQ_FILE_CHOOSER) {
             super.onActivityResult(requestCode, resultCode, data);
             return;
         }
-        if (resultCode != RESULT_OK || data == null) {
-            log("文件选择已取消");
-            return;
-        }
-        java.util.List<android.net.Uri> uris = new java.util.ArrayList<android.net.Uri>();
-        if (data.getClipData() != null) {
-            int n = data.getClipData().getItemCount();
-            for (int i = 0; i < n; i++) uris.add(data.getClipData().getItemAt(i).getUri());
-        } else if (data.getData() != null) {
-            uris.add(data.getData());
-        }
-        if (uris.isEmpty()) { log("未选择文件"); return; }
-        log("已选择 " + uris.size() + " 个文件，开始注入 …");
-        final java.util.List<android.net.Uri> list = uris;
-        new Thread(new Runnable() {
-            @Override public void run() {
-                for (android.net.Uri u : list) injectFile(u);
-            }
-        }).start();
-    }
-
-    /**
-     * 读取选中文件并以「合成拖拽事件」的方式交给 DSH 页面。
-     *
-     * <p>页面的 drop 处理器要求 {@code dataTransfer.types} 含 "Files"，
-     * 因此这里构造真正的 {@code File} 与 {@code DataTransfer} 再派发事件。
-     */
-    private void injectFile(android.net.Uri uri) {
-        String name = "file";
-        String mime = "application/octet-stream";
-        byte[] bytes;
-        try {
-            android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
-            if (c != null) {
-                int ni = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                if (c.moveToFirst() && ni >= 0) name = c.getString(ni);
-                c.close();
-            }
-            String t = getContentResolver().getType(uri);
-            if (t != null && t.length() > 0) mime = t;
-
-            java.io.InputStream in = getContentResolver().openInputStream(uri);
-            if (in == null) throw new IOException("无法打开输入流");
-            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[65536];
-            int n, total = 0, LIMIT = 24 * 1024 * 1024;
-            while ((n = in.read(buf)) > 0) {
-                bos.write(buf, 0, n);
-                total += n;
-                if (total > LIMIT) { in.close(); throw new IOException("文件超过 24MB 上限"); }
-            }
-            in.close();
-            bytes = bos.toByteArray();
-        } catch (Throwable t) {
-            log("✗ 读取文件失败 " + uri + ": " + t);
-            toast("读取文件失败");
-            return;
-        }
-
-        String b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
-        log("  注入 " + name + "（" + (bytes.length / 1024) + " KB, " + mime + "）");
-
-        js("window.__dshFiles = [];");
-        final int CHUNK = 180 * 1024;
-        for (int i = 0; i < b64.length(); i += CHUNK) {
-            String part = b64.substring(i, Math.min(b64.length(), i + CHUNK));
-            js("window.__dshFiles.push(\"" + part + "\");");
-        }
-        js("(function(){try{"
-                + "var b64=window.__dshFiles.join('');window.__dshFiles=[];"
-                + "var bin=atob(b64);var u8=new Uint8Array(bin.length);"
-                + "for(var i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);"
-                + "var f=new File([u8]," + jsStr(name) + ",{type:" + jsStr(mime) + "});"
-                + "var dt=new DataTransfer();dt.items.add(f);"
-                + "document.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));"
-                + "return 'ok:'+u8.length;"
-                + "}catch(e){return 'err:'+(e&&e.message?e.message:e);}})();");
-    }
-
-    /** 同步执行一段 JS（等待结果，便于串行注入大文件）。 */
-    private void js(final String code) {
-        final java.util.concurrent.CountDownLatch latch =
-                new java.util.concurrent.CountDownLatch(1);
-        runOnUiThread(new Runnable() {
-            @Override public void run() {
-                try {
-                    webView.evaluateJavascript(code, new android.webkit.ValueCallback<String>() {
-                        @Override public void onReceiveValue(String v) {
-                            if (v != null && v.startsWith("\"err:")) log("  ⚠️ 注入返回: " + v);
-                            latch.countDown();
-                        }
-                    });
-                } catch (Throwable t) {
-                    log("  ⚠️ JS 执行失败: " + t);
-                    latch.countDown();
+        if (pendingFileCallback == null) return;
+        android.net.Uri[] result = null;
+        if (resultCode == RESULT_OK && data != null) {
+            if (data.getClipData() != null) {
+                int n = data.getClipData().getItemCount();
+                result = new android.net.Uri[n];
+                for (int i = 0; i < n; i++) {
+                    result[i] = data.getClipData().getItemAt(i).getUri();
                 }
+            } else if (data.getData() != null) {
+                result = new android.net.Uri[]{ data.getData() };
             }
-        });
-        try { latch.await(30, java.util.concurrent.TimeUnit.SECONDS); }
-        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-    }
-
-    /** JS 字符串字面量转义。 */
-    private static String jsStr(String s) {
-        StringBuilder sb = new StringBuilder("'");
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            if (ch == '\\' || ch == '\'') sb.append('\\').append(ch);
-            else if (ch == '\n') sb.append("\\n");
-            else if (ch < 0x20) sb.append(' ');
-            else sb.append(ch);
         }
-        return sb.append('\'').toString();
-    }
-
-    private void toast(final String msg) {
-        runOnUiThread(new Runnable() {
-            @Override public void run() {
-                android.widget.Toast.makeText(MainActivity.this, msg,
-                        android.widget.Toast.LENGTH_SHORT).show();
-            }
-        });
+        log("文件选择完成: " + (result == null ? "已取消" : result.length + " 个文件"));
+        pendingFileCallback.onReceiveValue(result);
+        pendingFileCallback = null;
     }
 
     /** 读取文本文件。 */
@@ -1301,7 +1191,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.5.0\n");
+            w.write("APK 版本: 0.5.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
