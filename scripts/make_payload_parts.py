@@ -143,7 +143,14 @@ def main():
         })
         print(f"  {name:<22} {size/1048576:6.1f}MB  哨兵 {sentinel} ({sent_size}B)")
 
-    manifest = {'version': 4, 'parts': parts}
+    # revision：**内容修订号**，任何实质性变化（包括只删文件）都要递增。
+    #
+    # 为什么需要它：哨兵机制只能发现「某个文件变了」，
+    # 发现不了「某些文件被删了」—— 删掉之后其余文件的哨兵全部不变，
+    # App 会判定「已是最新」，那些文件就永远留在设备上。
+    # 递增这个号会触发 App 清空运行包目录后重新解压。
+    revision = int(os.environ.get('DSH_PAYLOAD_REVISION', '1'))
+    manifest = {'version': 4, 'revision': revision, 'parts': parts}
     mpath = os.path.join(OUT, 'manifest.json')
     with open(mpath, 'w') as f:
         json.dump(manifest, f, indent=2)

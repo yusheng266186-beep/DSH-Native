@@ -9,7 +9,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.BufferedReader;
@@ -413,6 +412,7 @@ public class MainActivity extends Activity {
             log("运行包已是最新，本次无需下载");
             setSplashStatus("正在准备运行环境…");
         }
+
 
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
         applyAndroidPatches(root, dshDir);
@@ -930,6 +930,44 @@ public class MainActivity extends Activity {
     private String apkDownloadUrl() {
         return "https://github.com/yusheng266186-beep/DSH-Native/releases/download/v"
                 + appVersion() + "-bootstrap/DSHNative-bootstrap.apk";
+    }
+
+    // ---------------------------------------------------------------- 运行包修订号
+
+    /** 本机已应用的运行包修订号（0 表示尚未记录）。 */
+    private int appliedPayloadRevision() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getInt("payloadRevision", 0);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** 记录已应用的运行包修订号。 */
+    private void rememberPayloadRevision(int rev) {
+        if (rev <= appliedPayloadRevision()) return;
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putInt("payloadRevision", rev).apply();
+            log("运行包修订号已记录: " + rev);
+        } catch (Throwable t) {
+            log("记录运行包修订号失败: " + t);
+        }
+    }
+
+    /** 递归删除目录（仅用于清空运行包，不动配置）。 */
+    private static void deleteTree(File dir) {
+        if (dir == null || !dir.exists()) return;
+        File[] kids = dir.listFiles();
+        if (kids != null) {
+            for (File k : kids) deleteTree(k);
+        }
+        if (!dir.delete()) {
+            // 删不掉不阻断：后续解压会覆盖同名文件，
+            // 只是被移除的那些会残留 —— 记下来便于排查
+            android.util.Log.w("dsh", "无法删除: " + dir.getAbsolutePath());
+        }
     }
 
     /** 运行包摘要（供设置页显示）。 */
@@ -1714,8 +1752,11 @@ public class MainActivity extends Activity {
 
         org.json.JSONObject man = new org.json.JSONObject(readText(mf));
         org.json.JSONArray parts = man.getJSONArray("parts");
+        int remoteRev = man.optInt("revision", 0);
+        int appliedRev = appliedPayloadRevision();
         log("运行包清单: " + parts.length() + " 个分片（结构版本 "
-                + man.optInt("version", 0) + "）");
+                  + man.optInt("version", 0) + "，修订 " + remoteRev
+                  + "，本机已应用 " + appliedRev + "）");
 
         // 第一遍：哨兵校验，找出缺失/变化的分片
         java.util.List<String> missing = new java.util.ArrayList<String>();
@@ -1729,11 +1770,32 @@ public class MainActivity extends Activity {
                     && sent.getString("sha256").equalsIgnoreCase(sha256(sf));
             if (!ok) missing.add(part.getString("name"));
         }
-        if (missing.isEmpty()) return true;
+        // 决策交给纯逻辑类（有 16 项测试）。
+        //
+        // 关键：**哨兵全部匹配也可能需要更新** —— 若修订号变了，
+        // 说明内容有实质变化（包括「只删文件」这种哨兵发现不了的改动），
+        // 必须清空重来，否则被删掉的文件会永远留在设备上。
+        int action = PayloadUpdate.decide(remoteRev, appliedRev, missing.size());
+        log(PayloadUpdate.describe(action, parts.length(), missing.size()));
+        if (action == PayloadUpdate.ACTION_UPTODATE) {
+            // 已是最新：记录修订号，否则它会一直是 0，下次又判定为「需要整体重来」
+            rememberPayloadRevision(remoteRev);
+            return true;
+        }
 
-        log("需更新的分片（" + missing.size() + "/" + parts.length() + "）: " + missing);
-        setSplashStatus(missing.size() == parts.length()
-                ? "正在下载运行包…" : "正在增量更新（" + missing.size() + " 项）…");
+        if (PayloadUpdate.needsWipe(action)) {
+            // 先清空：单靠覆盖解压无法移除文件，而这正是引入修订号要解决的问题。
+            // 只删运行包目录 —— 用户配置在 <root>/.dsh，不受影响。
+            setSplashStatus("正在更新运行包…");
+            log("清空运行包目录后重新解压（配置目录不受影响）");
+            deleteTree(dshDir);
+            deleteTree(toolsDir);
+            missing.clear();
+            for (int i = 0; i < parts.length(); i++) {
+                missing.add(parts.getJSONObject(i).getString("name"));
+            }
+        }
+        setSplashStatus(PayloadUpdate.describe(action, parts.length(), missing.size()));
 
         // 第二遍：只下载这些分片
         long bytes = 0;
@@ -1766,6 +1828,9 @@ public class MainActivity extends Activity {
             archive.delete();
         }
         log("增量更新完成，本次下载 " + (bytes / 1048576) + " MB");
+        // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
+        // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
+        rememberPayloadRevision(remoteRev);
         return false;
     }
 
@@ -2633,6 +2698,7 @@ public class MainActivity extends Activity {
                 return false;
             }
             log("  自检通过，node 版本: " + sb);
+
             return true;
         } catch (Exception e) {
             log("错误: 自检异常: " + e);
@@ -3282,7 +3348,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.5\n");
+            w.write("APK 版本: 0.20.6\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

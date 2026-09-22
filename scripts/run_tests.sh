@@ -16,7 +16,8 @@ SRC="bootstrap/src/dev/dsh/nativeapp/FileListing.java
      bootstrap/src/dev/dsh/nativeapp/FileOps.java
      bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java
      bootstrap/src/dev/dsh/nativeapp/ShareTargets.java
-     bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java"
+     bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java
+     bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -25,14 +26,15 @@ TESTS="tests/FileListingTest.java
        tests/FileOpsTest.java
        tests/ConfigBackupTest.java
        tests/ShareTargetsTest.java
-       tests/PluginSpecsTest.java"
+       tests/PluginSpecsTest.java
+       tests/PayloadUpdateTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
 javac -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
