@@ -158,21 +158,41 @@ final class PluginSpecs {
             if (!f.isDirectory()) continue;
             if (n.startsWith(".")) continue;
             if (n.startsWith("@")) {
-                // scope 目录：再往下一层
                 File[] inner = f.listFiles();
                 if (inner == null) continue;
                 for (File g : inner) {
                     if (!g.isDirectory()) continue;
                     String full = n + "/" + g.getName();
                     if (full.startsWith(OFFICIAL_SCOPE)) continue;
-                    out.add(full);
+                    if (looksLikePlugin(g, g.getName())) out.add(full);
                 }
                 continue;
             }
-            out.add(n);
+            if (looksLikePlugin(f, n)) out.add(n);
         }
         Collections.sort(out, String.CASE_INSENSITIVE_ORDER);
         return out;
+    }
+
+    /**
+     * 这个包里装的是不是 DSH 插件（而不是被一起装进来的依赖）。
+     *
+     * <p><b>实测踩过</b>：装 {@code dsh-about} 会连带装上 react、js-tokens、
+     * loose-envify —— 它们和插件躺在同一个 node_modules 里，
+     * 不区分的话插件列表会被这些依赖淹没，用户根本找不到自己装的那个。
+     *
+     * <p>两条判据（满足其一）：
+     * <ul>
+     *   <li>package.json 里有 {@code dsh} 字段 —— DSH 插件的声明位；</li>
+     *   <li>包名以 {@code dsh-} 开头 —— 少数插件不带声明位，但遵循命名约定。</li>
+     * </ul>
+     */
+    static boolean looksLikePlugin(File dir, String name) {
+        if (dir == null) return false;
+        if (name != null && name.startsWith("dsh-")) return true;
+        String text = readPackageJson(dir);
+        if (text == null) return false;
+        return Pattern.compile("\"dsh\"\\s*:").matcher(text).find();
     }
 
     /** 从 package.json 里读 name 字段；读不到返回 null。 */
@@ -297,6 +317,38 @@ final class PluginSpecs {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** 一个推荐插件。 */
+    static final class Recommended {
+        final String spec;       // 安装规格（GitHub 简写）
+        final String title;      // 显示名
+        final String desc;       // 一句话说明
+        Recommended(String spec, String title, String desc) {
+            this.spec = spec; this.title = title; this.desc = desc;
+        }
+    }
+
+    /**
+     * 推荐插件。
+     *
+     * <p>**只收录在容器里实测能装上、且（至少）能被 npm 正确解析的**。
+     * 这里不放「看起来不错但没验证过」的东西 —— 装不上比不推荐更糟。
+     *
+     * <p>实测记录（2026-09-22）：
+     * <ul>
+     *   <li>{@code dsh-about} —— 安装成功，加入 bundles 后出现在首页 ✓</li>
+     *   <li>{@code dsh-session-diff} —— 安装成功（bundle 类型）✓</li>
+     *   <li>{@code dsh-workspace-menu} —— **npm 404，仓库名有误**，故不收录</li>
+     * </ul>
+     */
+    static Recommended[] recommended() {
+        return new Recommended[]{
+            new Recommended("1010n111/dsh-about", "关于",
+                    "在设置里显示 DSH 版本与更新日志"),
+            new Recommended("2002XiaoYu/dsh-session-diff", "会话改动",
+                    "在右侧栏查看本次会话改过哪些文件，带增删行高亮"),
+        };
     }
 
     /** 内置可选插件（运行包里已有，无需安装）。 */

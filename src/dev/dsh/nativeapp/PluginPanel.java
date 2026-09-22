@@ -77,6 +77,16 @@ public final class PluginPanel {
                 "支持 npm 包名、GitHub 简写（owner/repo）与绝对路径。启用后需重启 App 生效。");
         body.addView(hint, DshUi.fullWidth(act, 6));
 
+        // ── 推荐（只放实测装得上的）──
+        body.addView(DshUi.sectionLabel(act, "推荐"), DshUi.fullWidth(act, 14));
+        LinearLayout recBox = new LinearLayout(act);
+        recBox.setOrientation(LinearLayout.VERTICAL);
+        recBox.setBackground(DshUi.cardBg(act));
+        recBox.setPadding(0, DshUi.dp(act, 4), 0, DshUi.dp(act, 4));
+        recBox.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+        recBox.setDividerDrawable(DshUi.divider(act));
+        body.addView(recBox, DshUi.fullWidth(act, 6));
+
         // ── 安装 ──
         final EditText spec = DshUi.input(act, "", false);
         spec.setHint("npm 包名，如 dsh-foo 或 @scope/pkg");
@@ -115,6 +125,9 @@ public final class PluginPanel {
                 ui.removeCallbacksAndMessages(null);
             }
         });
+
+        // 推荐项的安装按钮与手动安装走同一条路径
+        final Runnable[] doInstall = new Runnable[1];
 
         final Runnable[] refresh = new Runnable[1];
         refresh[0] = new Runnable() {
@@ -155,8 +168,8 @@ public final class PluginPanel {
             }
         };
 
-        install.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
+        doInstall[0] = new Runnable() {
+            @Override public void run() {
                 String raw = spec.getText() == null ? "" : spec.getText().toString().trim();
                 String bad = PluginSpecs.validateSpec(raw);
                 if (bad != null) {
@@ -183,7 +196,7 @@ public final class PluginPanel {
                         final boolean good = ok;
                         ui.post(new Runnable() {
                             @Override public void run() {
-                                hint.setText(msg + (good ? "　请在上方列表中勾选启用" : ""));
+                                hint.setText(msg + (good ? "　请在下方列表中勾选启用" : ""));
                                 install.setEnabled(true);
                                 if (good) {
                                     spec.setText("");
@@ -195,7 +208,49 @@ public final class PluginPanel {
                     }
                 });
             }
+        };
+        install.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { doInstall[0].run(); }
         });
+
+        // 构建推荐项
+        for (final PluginSpecs.Recommended r : PluginSpecs.recommended()) {
+            LinearLayout row = new LinearLayout(act);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            int rp = DshUi.dp(act, 12);
+            row.setPadding(rp, rp, rp, rp);
+
+            LinearLayout text = new LinearLayout(act);
+            text.setOrientation(LinearLayout.VERTICAL);
+            TextView t = new TextView(act);
+            t.setText(r.title);
+            t.setTextSize(12.5f);
+            t.setTextColor(DshUi.TEXT);
+            t.setSingleLine(true);
+            text.addView(t, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            TextView d = DshUi.hint(act, r.desc);
+            d.setTextSize(10.5f);
+            d.setSingleLine(true);
+            d.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            text.addView(d, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            row.addView(text, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            final Button b = DshUi.toggleButton(act, "安装", false);
+            b.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    spec.setText(r.spec);
+                    doInstall[0].run();
+                }
+            });
+            row.addView(b, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            recBox.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
 
         dlg.show();
         refresh[0].run();

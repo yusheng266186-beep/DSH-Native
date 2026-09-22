@@ -88,7 +88,11 @@ public class PluginSpecsTest {
         File nm = new File(profile, "node_modules");
         new File(nm, "dsh-user-plugin").mkdirs();
         new File(nm, "@deepseek-ai/dsh-base").mkdirs();     // 官方，应跳过
-        new File(nm, "@scope/user-thing").mkdirs();         // 第三方 scope，应列出
+        File scoped = new File(nm, "@scope/user-thing");    // 第三方 scope，应列出
+        scoped.mkdirs();
+        // 必须带插件声明（dsh 字段）或遵循 dsh- 命名 —— 空目录不算插件
+        write(new File(scoped, "package.json"),
+                "{\"name\":\"@scope/user-thing\",\"dsh\":{\"client\":{\"platform\":\"web\"}}}");
         new File(nm, ".bin").mkdirs();                      // 隐藏，应跳过
         write(new File(nm, "dsh-user-plugin/package.json"),
                 "{ \"name\": \"dsh-user-plugin\", \"version\": \"1.0.0\" }");
@@ -102,6 +106,33 @@ public class PluginSpecsTest {
         check("missing dir safe", PluginSpecs.installedPlugins(new File("/no/such")).isEmpty(), "wrong");
         check("null profile safe", PluginSpecs.installedPlugins(null) == null
                 || PluginSpecs.installedPlugins(null).isEmpty(), "wrong");
+
+        System.out.println("=== 5.1 dependencies are NOT listed as plugins ===");
+        // 实测：装 dsh-about 会连带装上 react / js-tokens / loose-envify，
+        // 它们和插件躺在同一个 node_modules 里。不区分的话插件列表会被淹没。
+        new File(nm, "react").mkdirs();
+        write(new File(nm, "react/package.json"), "{\"name\":\"react\",\"version\":\"18.3.1\"}");
+        new File(nm, "js-tokens").mkdirs();
+        write(new File(nm, "js-tokens/package.json"), "{\"name\":\"js-tokens\",\"version\":\"4.0.0\"}");
+        new File(nm, "loose-envify").mkdirs();
+        write(new File(nm, "loose-envify/package.json"), "{\"name\":\"loose-envify\",\"version\":\"1.4.0\"}");
+        // 一个不带 dsh 字段、但遵循 dsh- 命名约定的插件
+        new File(nm, "dsh-naming-only").mkdirs();
+        write(new File(nm, "dsh-naming-only/package.json"),
+                "{\"name\":\"dsh-naming-only\",\"version\":\"1.0.0\"}");
+        // 一个带 dsh 字段但名字不含 dsh- 的（例如官方风格的包名）
+        new File(nm, "plugin-with-decl").mkdirs();
+        write(new File(nm, "plugin-with-decl/package.json"),
+                "{\"name\":\"plugin-with-decl\",\"dsh\":{\"client\":{\"platform\":\"web\"}}}");
+
+        List<String> filtered = PluginSpecs.installedPlugins(profile);
+        System.out.println("     filtered: " + filtered);
+        check("react excluded", !filtered.contains("react"), "dependency leaked into list");
+        check("js-tokens excluded", !filtered.contains("js-tokens"), "dependency leaked into list");
+        check("loose-envify excluded", !filtered.contains("loose-envify"), "dependency leaked into list");
+        check("dsh- naming convention kept", filtered.contains("dsh-naming-only"), "missed");
+        check("dsh field declaration kept", filtered.contains("plugin-with-decl"), "missed");
+        check("real plugin still listed", filtered.contains("dsh-user-plugin"), filtered.toString());
 
         System.out.println("=== 6. package.json name extraction ===");
         File pd = new File(nm, "dsh-user-plugin");
