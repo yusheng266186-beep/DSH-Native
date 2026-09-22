@@ -78,12 +78,18 @@ public class MainActivity extends Activity {
      * 不同边缘刷新时间还不一致 —— 所以后面还会「取所有源里版本最高的那个」。
      */
     private static final String[] VERSION_SOURCES = {
-            // jsDelivr 实测是实时的（推送后立刻可见），而 GitHub raw 有 5 分钟
-            // CDN 缓存、各边缘节点刷新时间还不一致。两个 jsDelivr 域名都放上。
-            "https://cdn.jsdelivr.net/gh/" + REPO + "@main/latest.json",
-            "https://fastly.jsdelivr.net/gh/" + REPO + "@main/latest.json",
+            // 顺序按**实测新鲜度**排，不是按印象：
+            //   GitHub raw    —— 5 分钟 CDN 缓存，实测最准
+            //   gh-proxy      —— 与 raw 同源，缓存同样几分钟
+            //   jsDelivr x2   —— **@main 分支缓存严重过期**（实测停在几十个版本前），
+            //                    保留它们只是因为「raw 被墙时还能拿到一个旧值」，
+            //                    放到最后，避免每次都先白等一轮
+            // 取「所有源的最高版本」而非第一个成功的 —— 正是这条逻辑
+            // 让 jsDelivr 的陈旧数据不会影响更新。
             RAW,
             "https://gh-proxy.com/" + RAW,
+            "https://cdn.jsdelivr.net/gh/" + REPO + "@main/latest.json",
+            "https://fastly.jsdelivr.net/gh/" + REPO + "@main/latest.json",
     };
 
     /**
@@ -1252,23 +1258,18 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static int[] parseVer(String v) {
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("(\\d+)\\.(\\d+)\\.(\\d+)").matcher(v == null ? "" : v);
-        if (m.find()) {
-            return new int[]{ Integer.parseInt(m.group(1)),
-                              Integer.parseInt(m.group(2)),
-                              Integer.parseInt(m.group(3)) };
-        }
-        return new int[]{0, 0, 0};
-    }
-
+    /**
+     * 版本比较统一走 {@link Version}（纯逻辑、有测试覆盖）。
+     *
+     * <p>这里原本自己实现了一份「严格三段式」解析
+     * （{@code \d+\.\d+\.\d+}），而网络诊断里另有一份 ——
+     * 两份实现必然会在某次修改后产生分歧，后果是
+     * 「更新提示说没有新版本」与「诊断说源有问题」互相矛盾，极难排查。
+     *
+     * <p>统一后的规则只有一处：按段比数字、缺位补 0、容忍非数字后缀。
+     */
     private static boolean isNewer(String remote, String local) {
-        int[] r = parseVer(remote), l = parseVer(local);
-        for (int i = 0; i < 3; i++) {
-            if (r[i] != l[i]) return r[i] > l[i];
-        }
-        return false;
+        return Version.isNewer(remote, local);
     }
 
     /**
@@ -1283,7 +1284,7 @@ public class MainActivity extends Activity {
      */
     private String[] latestRelease() {
         String[] best = null;
-        int[] bestVer = null;
+        String bestVer = null;      // 用原始版本串比较，不再转成 int[3]
         int ok = 0;
         for (String base : VERSION_SOURCES) {
             try {
@@ -1295,9 +1296,9 @@ public class MainActivity extends Activity {
                 String apk = o.optString("apk", "DSHNative-bootstrap.apk");
                 if (ver.length() == 0 || tag.length() == 0) continue;
                 ok++;
-                int[] v = parseVer(ver);
-                if (bestVer == null || cmpVer(v, bestVer) > 0) {
-                    bestVer = v;
+                // 统一走 Version：按段比数字、缺位补 0、容忍后缀
+                if (bestVer == null || Version.isNewer(ver, bestVer)) {
+                    bestVer = ver;
                     best = new String[]{ ver, tag, apk };
                 }
             } catch (Throwable t) {
@@ -1313,13 +1314,6 @@ public class MainActivity extends Activity {
     }
 
     /** 版本号比较：a>b 返回正，a<b 返回负。 */
-    private static int cmpVer(int[] a, int[] b) {
-        for (int i = 0; i < 3; i++) {
-            if (a[i] != b[i]) return a[i] - b[i];
-        }
-        return 0;
-    }
-
     /** 检查 App 更新；interactive=true 时把结果显示在给定文本上/弹提示。 */
     private void checkAppUpdate(final boolean interactive, final android.widget.TextView status) {
         new Thread(new Runnable() {
@@ -3056,7 +3050,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.19.6\n");
+            w.write("APK 版本: 0.19.7\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

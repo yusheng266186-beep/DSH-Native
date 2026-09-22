@@ -155,11 +155,24 @@ public final class NetworkDiag {
                         }
 
                         // ── 版本清单源 ──
-                        post(ui, results, sectionTitle(act, "版本清单源"));
+                        //
+                        // 这里**不只看能不能连上，还要看返回的版本新不新** ——
+                        // 实测 jsDelivr 的 @main 分支缓存会停在几十个版本之前：
+                        // 连通性完全正常（200），但数据是旧的。
+                        // 只报「可用」会让人以为更新检测没问题，实际可能永远发现不了新版本。
+                        post(ui, results, sectionTitle(act, "版本清单源（含数据新鲜度）"));
                         int manifestOk = 0;
+                        String bestVersion = null;
                         for (Target t : manifestTargets()) {
-                            final String line = checkHttp(t, false, null);
-                            if (line.contains("200")) manifestOk++;
+                            String fetched = fetchVersion(t.url);
+                            final String line;
+                            if (fetched == null) {
+                                line = "失败（取不到或不是合法 JSON）";
+                            } else {
+                                manifestOk++;
+                                bestVersion = Version.max(bestVersion, fetched);
+                                line = "返回 " + fetched;
+                            }
                             lines.add("清单 " + t.label + ": " + line);
                             post(ui, results, row(act, t.label, line));
                         }
@@ -189,9 +202,20 @@ public final class NetworkDiag {
 
                         // ── 结论 ──
                         final String verdict;
+                        final String best = bestVersion;
                         if (dlOk > 0 && manifestOk > 0) {
                             verdict = "更新功能正常"
                                     + (state[0] ? "（直连可用）" : "（直连不通，走镜像）");
+                            // 提示各源版本不一致：更新逻辑取最高值，因此仍能正常工作
+                            if (best != null) {
+                                final String tip = "提醒：各源返回的最高版本为 " + best
+                                        + "。更新逻辑取所有源中的最高值，因此不受单个源缓存陈旧影响。";
+                                ui.post(new Runnable() {
+                                    @Override public void run() {
+                                        results.addView(DshUi.hint(act, tip));
+                                    }
+                                });
+                            }
                         } else if (dlOk > 0) {
                             verdict = "可下载，但版本清单的源都不通 —— 可能检测不到新版本";
                         } else if (manifestOk > 0) {
@@ -284,6 +308,33 @@ public final class NetworkDiag {
         } catch (Throwable e) {
             if (speedFlag != null) speedFlag[0] = false;
             return "失败（" + shortErr(e) + "）";
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** 从清单 URL 取版本号；取不到或格式不对返回 null。 */
+    private static String fetchVersion(String url) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(TIMEOUT);
+            c.setReadTimeout(TIMEOUT);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", "DSH-Native-NetDiag");
+            c.setRequestProperty("Cache-Control", "no-cache");
+            if (c.getResponseCode() != 200) return null;
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int r;
+            while ((r = in.read(buf)) > 0 && bos.size() < 65536) bos.write(buf, 0, r);
+            in.close();
+            org.json.JSONObject o = new org.json.JSONObject(bos.toString("UTF-8"));
+            String v = o.optString("version", null);
+            return v == null || v.length() == 0 ? null : v;
+        } catch (Throwable e) {
+            return null;
         } finally {
             if (c != null) c.disconnect();
         }
