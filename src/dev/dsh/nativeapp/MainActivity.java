@@ -76,7 +76,9 @@ public class MainActivity extends Activity {
             {"tools.tar.zst", "c088ca79dbd49a07e647a85e11bdec1e64200bbd45a4f08fc43d91097d7208e7"},
     };
 
+    /** 首选端口。实际使用 chosenPort —— 3080 常被设备上其他 DSH 实例占用。 */
     private static final int PORT = 3080;
+    private int chosenPort = PORT;
 
     private WebView webView;
     private TextView logView;
@@ -213,12 +215,20 @@ public class MainActivity extends Activity {
 
         // 4. 启动 dsh web
         File binJs = new File(dshDir, "lib/bin.js");
+        // 必须挑一个空闲端口：设备上可能已有别的 DSH 实例占用 3080，
+        // 直接沿用会 EADDRINUSE 导致启动失败、界面空白。
+        chosenPort = findFreePort(PORT, PORT + 200);
+        if (chosenPort == 0) {
+            log("⚠ 未找到空闲端口，交给系统分配（--port 0）");
+        } else {
+            log("使用端口 " + chosenPort + (chosenPort == PORT ? "" : "（" + PORT + " 已被占用）"));
+        }
         log("启动 dsh web …");
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
                 "--expose-internals",          // 关键：替代无 android 构建的原生插件
                 "--no-warnings",
                 binJs.getAbsolutePath(),
-                "--profile", "web", "--no-open", "--port", String.valueOf(PORT));
+                "--profile", "web", "--no-open", "--port", String.valueOf(chosenPort));
         pb.redirectErrorStream(true);
         pb.directory(root);
 
@@ -256,7 +266,7 @@ public class MainActivity extends Activity {
         if (url == null) {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
             if (probeHttp(PORT) > 0) {
-                url = "http://127.0.0.1:" + PORT + "/";
+                url = "http://127.0.0.1:" + chosenPort + "/";
                 log("⚠ 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
             }
         }
@@ -284,7 +294,7 @@ public class MainActivity extends Activity {
                 return null;
             }
 
-            int code = probeHttp(PORT);
+            int code = probeHttp(chosenPort);
             if (code > 0 && i % 5 == 0) {
                 log("  端口已响应 (HTTP " + code + ")，等待打印地址 …");
             }
@@ -523,9 +533,12 @@ public class MainActivity extends Activity {
             while ((line = r.readLine()) != null) {
                 if (line.startsWith("PREFLIGHT|")) {
                     String[] f = line.split("\\|", 4);
-                    boolean good = f.length > 1 && "PASS".equals(f[1]);
+                    String tag = f.length > 1 ? f[1] : "";
+                    boolean pass = "PASS".equals(tag);
+                    boolean warn = "WARN".equals(tag);
                     String detail = (f.length > 3 && f[3].length() > 0) ? " → " + f[3] : "";
-                    log("  " + (good ? "✅" : "❌") + " " + (f.length > 2 ? f[2] : "?") + detail);
+                    log("  " + (pass ? "✅" : warn ? "⚠️" : "❌")
+                            + " " + (f.length > 2 ? f[2] : "?") + detail);
                 } else if (line.startsWith("PREFLIGHT_END|")) {
                     try { failed = Integer.parseInt(line.substring(14).trim()); }
                     catch (NumberFormatException ignored) { }
@@ -783,6 +796,11 @@ public class MainActivity extends Activity {
     }
 
     private String pidOf(Process p) {
+        // Android 上 Process 用 pid() 方法而非字段
+        try {
+            Object r = Process.class.getMethod("pid").invoke(p);
+            if (r != null) return String.valueOf(r);
+        } catch (Throwable ignored) { }
         try {
             java.lang.reflect.Field f = Process.class.getDeclaredField("pid");
             f.setAccessible(true);
@@ -818,6 +836,29 @@ public class MainActivity extends Activity {
                 webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
             }
         });
+    }
+
+    /**
+     * 从 start 起寻找可绑定的空闲端口；找不到返回 0（交由系统分配）。
+     *
+     * <p>绑定后立即释放，存在极小的竞争窗口，但足以避免与设备上
+     * 已运行的同类服务（如另一个 DSH 实例）冲突。
+     */
+    private int findFreePort(int start, int end) {
+        for (int p = start; p <= end; p++) {
+            java.net.ServerSocket s = null;
+            try {
+                s = new java.net.ServerSocket();
+                s.setReuseAddress(true);
+                s.bind(new java.net.InetSocketAddress("127.0.0.1", p));
+                return p;
+            } catch (Throwable ignored) {
+                // 端口被占用，试下一个
+            } finally {
+                if (s != null) try { s.close(); } catch (Exception ignored) { }
+            }
+        }
+        return 0;
     }
 
     /** 探测本地端口：返回 HTTP 状态码；未就绪返回 -1。 */
@@ -864,20 +905,38 @@ public class MainActivity extends Activity {
      * 把启动日志写在这里，就无需 adb、无需截图即可排查。
      */
     private void initSharedLog() {
+        // 依次尝试多个候选位置：不同 ROM 的共享存储策略不同，
+        // 且目录若由其他 UID 创建则本 App 可能无写权限。
+        java.util.List<File> candidates = new java.util.ArrayList<File>();
+        candidates.add(new File("/sdcard/DSHNative/launch.log"));
+        candidates.add(new File("/sdcard/Download/DSHNative/launch.log"));
+        candidates.add(new File("/storage/emulated/0/DSHNative/launch.log"));
+        candidates.add(new File("/sdcard/launch.log"));
+        for (File cand : candidates) {
+            try {
+                File dir = cand.getParentFile();
+                if (dir != null && !dir.exists()) dir.mkdirs();
+                java.io.FileWriter probe = new java.io.FileWriter(cand, true);
+                probe.write("");
+                probe.close();
+                sharedLog = cand;
+                break;
+            } catch (Throwable ignored) { /* 试下一个 */ }
+        }
         try {
-            File dir = new File("/sdcard/DSHNative");
-            if (!dir.exists()) dir.mkdirs();
-            sharedLog = new File(dir, "launch.log");
+            if (sharedLog == null) throw new IOException("所有候选路径均不可写");
+            File dir = sharedLog.getParentFile();
             java.io.FileWriter w = new java.io.FileWriter(sharedLog, false);
             w.write("=== DSH Native 启动日志 ===\n");
             w.write("时间: " + new java.util.Date() + "\n");
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.2.8\n");
+            w.write("APK 版本: 0.3.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
+            Log.i(TAG, "shared log: " + sharedLog.getAbsolutePath());
         } catch (Throwable t) {
             Log.w(TAG, "initSharedLog failed", t);
             sharedLog = null;

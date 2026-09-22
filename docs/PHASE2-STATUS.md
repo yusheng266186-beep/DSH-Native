@@ -504,6 +504,86 @@ Permission denied  →  子进程退出码 13
 
 ---
 
+## 三之八、🎉🎉 最终成功（端到端全部打通）
+
+用户在 Xiaomi 25128PNA1C / Android 17 上安装 v0.3.0 后确认：**App 正常工作**。
+
+### 最终启动日志（设备实测，取自 `/sdcard/DSHNative/launch.log`）
+
+```
+=== DSH Native 启动日志 ===
+设备: 25128PNA1C / Android 17 (SDK 37)
+APK 版本: 0.3.0
+
+自检: 检查 Node 可执行性 …
+  node 权限: 可执行, 大小 47MB
+  ✓ 自检通过，node 版本: v26.4.0
+存储权限结果: 已授予
+运行包已就绪，跳过下载
+
+运行环境自检 …
+  ✅ crypto 模块 → 2d711642b726b044
+  ✅ zlib/zstd → 往返正常
+  ✅ 文件读写 → 正常
+  ✅ 子进程 + 自带 bash → BASH_OK
+  ✅ node-pty → spawn 可用
+  ⚠️ 可选:koffi          （仅 Windows 路径，预期缺失）
+  ✅ 可选:sharp → 可加载
+  ⚠️ 可选:node-addon-system（已打降级补丁，预期）
+  ✅ 可选:node-addon-require-builtin → 可加载
+  ✅ worker_threads → 正常
+  ✅ DNS 解析 → 198.18.0.18
+  ✅ 自检全部通过
+
+使用端口 3081（3080 已被占用）
+启动 dsh web …
+[dsh] dsh web: http://127.0.0.1:3081/?token=***
+  ✓ 已捕获服务地址
+界面就绪: http://127.0.0.1:3081/?token=***
+```
+
+### 目标达成情况
+
+| 目标项 | 状态 |
+|---|---|
+| 单个 APK 内置 Node 运行时 | ✅ |
+| 内置完整 DSH agent | ✅ |
+| 内置 shell 工具链（rg/git/bash/fd/jq） | ✅ |
+| 不使用 Termux / proot 桥接 | ✅ |
+| `targetSdk 28` 保留 exec 权限 | ✅ 真机验证 |
+| 首启下载运行包（镜像 + 分块 + 重试 + SHA 校验） | ✅ 33MB @ 6MB/s 零重试 |
+| 上传至用户 GitHub 仓库 | ✅ |
+| **用户下载安装并验证可用** | ✅ **已确认** |
+
+**「在单 APK 内原生运行 DSH agent」这一目标已完全实现。**
+
+### 全程解决的 8 个问题（按发现顺序）
+
+| # | 问题 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 启动即闪退 | 清单 `.MainActivity` 展开为 `dev.dsh.native.MainActivity`，与 dex 中 `dev.dsh.nativeapp.MainActivity` 不一致 | 清单改用全限定类名 + **交叉验证**清单与 dex |
+| 2 | 大文件下载失败 | 直连 GitHub CDN 不可达 | 分块 + 重试 + SHA 校验；后改为**镜像优先 + 多源降级** |
+| 3 | 解压失败退出码 13 | Termux 的 `libcrypto` 硬编码 OPENSSLDIR，App 不同 UID 读不到 | 内置 `openssl.cnf` + `OPENSSL_CONF` 覆盖 |
+| 4 | 原生插件缺失 | `node-addon-require-builtin` 无 android 构建 | 纯 JS 垫片 + `--expose-internals` |
+| 5 | 会话日志无法落盘 | bionic 拒绝硬链接 `link()` | 改 `lstat` + `rename()` |
+| 6 | 文件锁平台拒绝 | `flock.js` 白名单无 android | 放开 android + no-op 降级 |
+| 7 | **下半屏空白** | 给 dsh 设 `TERM=xterm-256color`，URL 被 ANSI 转义污染 | `TERM=dumb` + 剥离 ANSI + 正则精确提取 |
+| 8 | **仍空白（真因）** | **端口 3080 被宿主 DSH 实例占用 → EADDRINUSE** | **启动前探测空闲端口** |
+
+### 方法论教训（最重要的一条）
+
+**前 6 轮「全链路验证通过」却仍连续出错**，根源是：
+测试环境（设备上的 proot 容器，root 身份）与真实 App（独立 UID，bionic）
+在**跨 UID 可访问性**与 **libc ABI** 上完全不同。
+
+容器里能读 Termux 路径、能加载 glibc 预编译模块，掩盖了问题 3、4、6。
+
+**转折点是「共享日志」通道**：让 App 把日志写入 `/sdcard/DSHNative/launch.log`，
+调试方（同设备容器）可直接读取。此后问题 7、8 都是**一次定位**。
+另确认 `logcat` 亦可从容器直接读取，是第二条通道。
+
+---
+
 ## 四、待办清单（按依赖顺序）
 
 - [x] ~~**P0** 实现 `node-addon-require-builtin` 的纯 JS 垫片~~ → **已完成并验证**
