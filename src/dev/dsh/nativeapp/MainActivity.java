@@ -167,6 +167,8 @@ public class MainActivity extends Activity {
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
+        // 文字缩放：只影响字号，不改变布局宽度
+        ws.setTextZoom(currentZoom());
         // DSH 的「添加 → 文件」菜单会 click() 页面里的原生 <input type="file">。
         // WebView 必须由宿主实现 onShowFileChooser，否则点击毫无反应 ——
         // 这正是之前"无法上传文件"的真正原因。
@@ -536,6 +538,15 @@ public class MainActivity extends Activity {
     private android.widget.FrameLayout rootView;
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
+    /**
+     * 可选的显示缩放档位（百分比）。
+     *
+     * <p>为什么需要：为了让 DSH 的桌面布局在手机上不被挤压，
+     * 前端 viewport 被固定为 600px，代价是整体缩放后**文字偏小**。
+     * WebView 的 textZoom 只放大文字、不影响布局，正好补上这个取舍。
+     */
+    private static final int[] ZOOM_STEPS = {100, 115, 130, 150};
+    private static final String PREFS = "dsh-native";
     /** agent 的工作目录（优先共享存储）。 */
     private volatile File workspace;
     private android.view.View splashView;
@@ -549,6 +560,28 @@ public class MainActivity extends Activity {
     private volatile String pendingAction = "";
     /** 补丁执行状态，用于在设置页展示（DSH 更新后补丁可能失效）。 */
     private final java.util.List<String> patchReport = new java.util.ArrayList<String>();
+
+    /** 读取显示缩放（默认 100%）。 */
+    private int currentZoom() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).getInt("textZoom", 100);
+        } catch (Throwable t) {
+            return 100;
+        }
+    }
+
+    /** 应用显示缩放；立即生效，无需重启。 */
+    private void applyZoom(int pct) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putInt("textZoom", pct).apply();
+            if (webView != null) webView.getSettings().setTextZoom(pct);
+            recordPatch("显示缩放", true, pct + "%");
+            log("显示缩放已设为 " + pct + "%");
+        } catch (Throwable t) {
+            log("⚠️ 设置显示缩放失败: " + t);
+        }
+    }
 
     /** 记录一条补丁状态。 */
     private void recordPatch(String name, boolean ok, String detail) {
@@ -1643,6 +1676,34 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            // ── 显示缩放 ──
+            body.addView(DshUi.sectionLabel(this, "显示缩放"),
+                    DshUi.fullWidth(this, 22));
+            body.addView(DshUi.hint(this, "界面布局已固定为桌面宽度，文字偏小可在此放大（立即生效）"),
+                    DshUi.fullWidth(this, 6));
+            android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
+            zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            for (final int pct : ZOOM_STEPS) {
+                boolean cur = pct == currentZoom();
+                android.widget.Button zb = DshUi.button(this,
+                        pct + "%" + (cur ? " ✓" : ""), cur);
+                zb.setOnClickListener(new android.view.View.OnClickListener() {
+                    @Override public void onClick(android.view.View v) {
+                        applyZoom(pct);
+                        if (v instanceof android.widget.Button) {
+                            ((android.widget.Button) v).setText(pct + "% ✓");
+                        }
+                        toast("显示缩放已设为 " + pct + "%");
+                    }
+                });
+                android.widget.LinearLayout.LayoutParams zlp =
+                        new android.widget.LinearLayout.LayoutParams(
+                                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                zlp.rightMargin = DshUi.dp(this, 6);
+                zoomRow.addView(zb, zlp);
+            }
+            body.addView(zoomRow, DshUi.fullWidth(this, 8));
 
             // ── 维护状态：补丁是否仍然生效（DSH 更新后可能失效）──
             body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
@@ -2829,7 +2890,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.17.0\n");
+            w.write("APK 版本: 0.17.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
