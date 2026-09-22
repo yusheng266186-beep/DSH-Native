@@ -105,6 +105,10 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
+        // 允许双指缩放：适配后的布局文字偏小，用户可自行放大
+        ws.setSupportZoom(true);
+        ws.setBuiltInZoomControls(true);
+        ws.setDisplayZoomControls(false);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, int errorCode,
@@ -341,37 +345,143 @@ public class MainActivity extends Activity {
         File dshHome = new File(root, ".dsh");
         if (!dshHome.exists()) dshHome.mkdirs();
 
-        // 1) 预置 settings.yaml（provider/model 配置，不含任何密钥）
-        File settingsSrc = new File(root, "settings.yaml");
-        File settingsDst = new File(dshHome, "settings.yaml");
-        if (settingsSrc.exists() && !settingsDst.exists()) {
-            copyFile(settingsSrc, settingsDst);
-            log("  已写入预置模型配置 settings.yaml");
+        // 1) 模型配置 —— 必须「合并」而不是「不存在才写」：
+        //    DSH 启动时会自行创建 settings.yaml（写入 onboarding 状态等），
+        //    所以文件通常已存在，简单跳过会导致预置模型永远注入不进去。
+        File preset = new File(root, "settings-preset.yaml");
+        File settings = new File(dshHome, "settings.yaml");
+        if (preset.exists()) {
+            java.util.List<String> added = mergeTopLevelBlocks(readText(preset), settings);
+            if (!added.isEmpty()) {
+                log("  已注入模型配置: " + added);
+            } else {
+                log("  模型配置已存在，无需注入");
+            }
         }
 
-        // 2) 凭据：从共享目录读取（避免把 API Key 打进公开仓库的 APK）
-        File credsDst = new File(dshHome, ".credentials.yaml");
-        if (!credsDst.exists()) {
-            String[] candidates = {
-                    "/sdcard/DSHNative/credentials.yaml",
-                    "/sdcard/DSHNative/.credentials.yaml",
-                    "/sdcard/Download/DSHNative/credentials.yaml",
-                    "/storage/emulated/0/DSHNative/credentials.yaml",
-            };
-            for (String path : candidates) {
-                File src = new File(path);
-                if (src.exists() && src.length() > 16) {
-                    copyFile(src, credsDst);
-                    // 凭据位于 App 私有目录，已由 Android 沙箱保护，
-                    // 无需额外设权限（java.nio.file 需要 API 26+，这里也不用）。
-                    log("  已从 " + path + " 导入凭据");
-                    return;
+        // 2) 凭据 —— 同理，DSH 会自建 .credentials.yaml 存放浏览器会话授权，
+        //    因此要把 refs 段「合并」进去，而不是文件存在就跳过。
+        File creds = new File(dshHome, ".credentials.yaml");
+        String[] candidates = {
+                "/sdcard/DSHNative/credentials.yaml",
+                "/sdcard/DSHNative/.credentials.yaml",
+                "/sdcard/Download/DSHNative/credentials.yaml",
+                "/storage/emulated/0/DSHNative/credentials.yaml",
+        };
+        for (String path : candidates) {
+            File src = new File(path);
+            if (src.exists() && src.length() > 16) {
+                java.util.List<String> added = mergeCredentials(src, creds);
+                if (!added.isEmpty()) {
+                    log("  已从 " + path + " 导入凭据: " + added);
+                } else {
+                    log("  凭据已就绪，无需导入");
                 }
+                return;
             }
-            log("  未找到共享凭据，请在 Web 界面的 Models 页面填写 API Key");
-        } else {
-            log("  凭据已存在，跳过导入");
         }
+        log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    /** 读取文本文件。 */
+    private String readText(File f) throws IOException {
+        byte[] b = new byte[(int) f.length()];
+        java.io.FileInputStream in = new java.io.FileInputStream(f);
+        int off = 0, n;
+        while (off < b.length && (n = in.read(b, off, b.length - off)) > 0) off += n;
+        in.close();
+        return new String(b, 0, off, "UTF-8");
+    }
+
+    /** YAML 里是否已存在某顶层键。 */
+    private boolean hasTopLevelKey(String yaml, String key) {
+        return java.util.regex.Pattern
+                .compile("(?m)^" + java.util.regex.Pattern.quote(key) + "\\s*:")
+                .matcher(yaml).find();
+    }
+
+    /**
+     * 把预置 YAML 中「目标文件尚不存在的顶层块」追加进去。
+     *
+     * @return 实际追加的顶层键名
+     */
+    private java.util.List<String> mergeTopLevelBlocks(String preset, File dst) throws IOException {
+        String target = dst.exists() ? readText(dst) : "";
+        java.util.List<String> added = new java.util.ArrayList<String>();
+        java.util.List<String[]> blocks = new java.util.ArrayList<String[]>();
+
+        String key = null;
+        StringBuilder block = new StringBuilder();
+        java.util.regex.Pattern topKey =
+                java.util.regex.Pattern.compile("^([A-Za-z_][A-Za-z0-9_.-]*):");
+        for (String ln : preset.split("\n", -1)) {
+            java.util.regex.Matcher m = topKey.matcher(ln);
+            if (m.find()) {
+                if (key != null) blocks.add(new String[]{key, block.toString()});
+                key = m.group(1);
+                block = new StringBuilder();
+            }
+            if (key != null) block.append(ln).append('\n');
+        }
+        if (key != null) blocks.add(new String[]{key, block.toString()});
+
+        StringBuilder add = new StringBuilder();
+        for (String[] b : blocks) {
+            if (hasTopLevelKey(target, b[0])) continue;
+            add.append(b[1]);
+            added.add(b[0]);
+        }
+        if (added.isEmpty()) return added;
+
+        StringBuilder out = new StringBuilder(target);
+        if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') out.append('\n');
+        out.append('\n').append(add);
+        writeText(dst, out.toString());
+        return added;
+    }
+
+    /**
+     * 把源凭据文件 refs: 段下的条目合并进目标文件（跳过已存在的键）。
+     *
+     * @return 实际导入的键值对
+     */
+    private java.util.List<String> mergeCredentials(File src, File dst) throws IOException {
+        String mine = readText(src);
+        String target = dst.exists() ? readText(dst) : "";
+        java.util.List<String> refs = new java.util.ArrayList<String>();
+        java.util.List<String> added = new java.util.ArrayList<String>();
+
+        boolean inRefs = false;
+        for (String ln : mine.split("\n", -1)) {
+            if (ln.matches("^refs\\s*:.*")) { inRefs = true; continue; }
+            if (inRefs) {
+                if (ln.length() > 0 && !Character.isWhitespace(ln.charAt(0))) break;
+                String t = ln.trim();
+                if (t.length() > 0 && t.indexOf(':') > 0) refs.add(t);
+            }
+        }
+        for (String r : refs) {
+            String k = r.substring(0, r.indexOf(':')).trim();
+            if (target.indexOf(k + ":") < 0) added.add(r);
+        }
+        if (added.isEmpty()) return added;
+
+        StringBuilder out = new StringBuilder(target);
+        if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') out.append('\n');
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^refs\\s*:.*$").matcher(out);
+        if (m.find()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(out, 0, m.end());
+            for (String r : added) sb.append("\n  ").append(r);
+            sb.append(out.substring(m.end()));
+            out = sb;
+        } else {
+            out.append("refs:\n");
+            for (String r : added) out.append("  ").append(r).append('\n');
+        }
+        writeText(dst, out.toString());
+        return added;
     }
 
     /**
@@ -493,6 +603,7 @@ public class MainActivity extends Activity {
      * 这里替换为优雅降级的桩，避免用户上传图片时看到晦涩的加载器报错。
      */
     private void applyAndroidPatches(File root, File dshDir) {
+        patchFrontendViewport(dshDir);
         try {
             File stubSrc = new File(root, "sharpstub.js");
             File sharpDir = new File(dshDir, "node_modules/sharp");
@@ -506,6 +617,42 @@ public class MainActivity extends Activity {
             log("  已为 sharp 应用优雅降级桩（图片附件不可用，其余功能不受影响）");
         } catch (Throwable t) {
             log("  ⚠️ Android 补丁应用失败: " + t);
+        }
+    }
+
+    /**
+     * 手机端适配：把前端 viewport 由「设备宽度」改为固定宽度。
+     *
+     * <p>DSH 的 Web 界面是桌面优先设计：设置弹窗需要约 600 CSS px，
+     * 而手机纵向只有约 400 px，导致内容横向溢出、被切割挤压。
+     *
+     * <p>把 viewport 固定为 600 px 后，浏览器会整体缩放以适配屏幕宽度 ——
+     * 相当于「桌面版网站」模式：布局得到足够空间，代价是文字略小，
+     * 因此同时开启了双指缩放供用户自行调整。
+     */
+    private void patchFrontendViewport(File dshDir) {
+        File html = new File(dshDir,
+                "node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html");
+        if (!html.exists()) {
+            log("  ⚠️ 未找到前端 index.html，跳过 viewport 适配");
+            return;
+        }
+        try {
+            String src = readText(html);
+            String from = "content=\"width=device-width, initial-scale=1\"";
+            String to = "content=\"width=600\"";
+            if (src.indexOf("content=\"width=600\"") >= 0) {
+                log("  viewport 已适配（600px），跳过");
+                return;
+            }
+            if (src.indexOf(from) < 0) {
+                log("  ⚠️ viewport 标签格式不符，未做适配");
+                return;
+            }
+            writeText(html, src.replace(from, to));
+            log("  已适配手机布局：viewport → 600px（可双指缩放）");
+        } catch (Throwable t) {
+            log("  ⚠️ viewport 适配失败: " + t);
         }
     }
 
@@ -959,7 +1106,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.4.0\n");
+            w.write("APK 版本: 0.4.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
