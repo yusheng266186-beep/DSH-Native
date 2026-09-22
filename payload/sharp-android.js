@@ -17,6 +17,22 @@ const { execFile } = require('child_process');
 const path = require('path');
 
 const HELPER = path.join(__dirname, 'pillow_shim.py');
+
+// 诊断通道：DSH 会把任何非预期异常包装成 "prompt rejected (session/agent-busy)"，
+// 真实原因被藏在错误对象的 reason 字段里、界面上看不到。
+// 因此这里把失败细节写到 App 私有目录下的日志，便于定位。
+// （HOME 由 App 设为私有根目录）
+function diag(msg) {
+  const line = new Date().toISOString() + ' ' + msg;
+  try {
+    process.stderr.write('[sharp-shim] ' + msg + '\n');
+  } catch (e) { /* ignore */ }
+  try {
+    const fs = require('fs');
+    const dir = process.env.HOME || process.env.TMPDIR || '/tmp';
+    fs.appendFileSync(path.join(dir, 'sharp-shim.log'), line + '\n');
+  } catch (e) { /* ignore */ }
+}
 // python3 由运行包提供，PATH 已指向 tools/bin
 const PYTHON = process.env.DSH_PYTHON || 'python3';
 const TIMEOUT_MS = 120000;
@@ -26,13 +42,17 @@ function runHelper(req) {
   return new Promise((resolve, reject) => {
     let child;
     try {
+      diag('调用 ' + PYTHON + ' ' + HELPER + ' op=' + req.op
+           + ' 输入=' + Math.round((req.data || '').length * 3 / 4) + 'B');
       child = execFile(PYTHON, [HELPER], {
         maxBuffer: MAX_BUFFER,
         timeout: TIMEOUT_MS,
         encoding: 'utf8',
       }, (err, stdout, stderr) => {
         if (err) {
-          reject(new Error('图像处理进程失败: ' + ((stderr || err.message || '') + '').slice(0, 300)));
+          const detail = ((stderr || err.message || '') + '').slice(0, 500);
+          diag('辅助进程失败: ' + detail);
+          reject(new Error('图像处理进程失败: ' + detail));
           return;
         }
         let parsed;
@@ -43,6 +63,7 @@ function runHelper(req) {
           return;
         }
         if (parsed && parsed._error) {
+          diag('Pillow 返回错误: ' + parsed._error);
           reject(new Error('图像处理失败: ' + parsed._error));
           return;
         }
@@ -94,7 +115,8 @@ class Sharp {
   png() { this.outFormat = 'png'; return this; }
 
   metadata() {
-    return runHelper({ op: 'metadata', data: this.input.toString('base64') });
+    return runHelper({ op: 'metadata', data: this.input.toString('base64') })
+      .catch((e) => { diag('metadata 失败: ' + e.message); throw e; });
   }
 
   toBuffer(opts) {

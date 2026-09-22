@@ -575,6 +575,10 @@ public class MainActivity extends Activity {
             } else {
                 log("  模型配置已存在，无需注入");
             }
+            // 顶层块存在 ≠ 内容正确：早期生成的 settings.yaml 缺少模型的
+            // input 声明，而 DSH 对未声明者一律按「仅文字」处理 ——
+            // 表现为发图片被拒。这里以预设为准做幂等补齐。
+            ensureImageModalities(root, settings);
         }
 
         // 2) 凭据 —— 同理，DSH 会自建 .credentials.yaml 存放浏览器会话授权，
@@ -600,6 +604,76 @@ public class MainActivity extends Activity {
             }
         }
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
+    }
+
+    /**
+     * 确保「支持图片输入的模型」在 settings.yaml 里也声明了 {@code input}。
+     *
+     * <p><b>为什么需要</b>：DSH 的模型 schema 里
+     * {@code input: entry.input ?? base?.input ?? [...request.defaultInput]}，
+     * 而 {@code DEFAULT_INPUT} 是 {@code ["text"]}。即**未声明 input 的模型
+     * 一律被视为不支持图片**，发图片会在准入阶段被拒
+     * （界面显示 "prompt rejected (session/agent-busy)"，
+     * 真实原因是那个兜底 catch 把非预期错误一并包装了）。
+     *
+     * <p>预设里 deepseek-v4.1-flash 等模型一直有 {@code input: [ text, image ]}，
+     * 但 {@code mergeTopLevelBlocks} 只判断顶层块是否存在 ——
+     * 块已存在就整体跳过，这两行补不进去。
+     *
+     * <p>这里以预设为唯一事实来源做幂等补齐：只给缺失的模型补一行，不动其它内容。
+     */
+    private void ensureImageModalities(File root, File settings) {
+        try {
+            File preset = new File(root, "settings-preset.yaml");
+            if (!preset.exists() || !settings.exists()) return;
+
+            // 1) 从预设里收集声明了图片能力的模型 id
+            java.util.List<String> vision = new java.util.ArrayList<String>();
+            // 注意：中间不允许再出现 "- id:"，否则会把后面模型的 input
+            // 错误地归给当前模型（实测踩过：v4-flash 被误判为支持图片）。
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                    "(?m)^\\s*-\\s*id:\\s*[\"']?([^\"'\\n]+?)[\"']?\\s*$"
+                  + "((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)"
+                  + "^\\s*input:\\s*\\[\\s*text\\s*,\\s*image\\s*\\]")
+                    .matcher(readText(preset));
+            while (m.find()) vision.add(m.group(1).trim());
+            if (vision.isEmpty()) {
+                log("  预设未声明任何图片模型，跳过补齐");
+                return;
+            }
+
+            String txt = readText(settings);
+            int added = 0;
+            StringBuilder names = new StringBuilder();
+            for (String id : vision) {
+                java.util.regex.Matcher e = java.util.regex.Pattern.compile(
+                        "(?m)^(\\s*)-\\s*id:\\s*[\"']?"
+                      + java.util.regex.Pattern.quote(id) + "[\"']?\\s*$"
+                      + "([\\s\\S]{0,300}?)(?=^\\s*-\\s*id:|\\Z)").matcher(txt);
+                if (!e.find()) continue;
+                if (e.group(2).contains("input:")) continue;      // 已声明
+                java.util.regex.Matcher cw = java.util.regex.Pattern
+                        .compile("(?m)^(\\s*)contextWindow\\s*:.*$").matcher(e.group(0));
+                if (!cw.find()) continue;
+                String indent = cw.group(1);
+                // 注意：cw 是在 e.group(0) 上匹配的，其 end() 是**子串内偏移**，
+                // 必须加上 e.start() 才能用作 txt 的下标（否则插到错误位置）。
+                int at = e.start() + cw.end();
+                txt = txt.substring(0, at)
+                        + "\n" + indent + "input: [ text, image ]"
+                        + txt.substring(at);
+                added++;
+                names.append(id).append(' ');
+            }
+            if (added > 0) {
+                writeText(settings, txt);
+                log("  已为 " + added + " 个模型补齐图片输入声明: " + names.toString().trim());
+            } else {
+                log("  图片输入声明已齐全");
+            }
+        } catch (Throwable t) {
+            log("  ⚠️ 补齐图片输入声明失败: " + shorten(t));
+        }
     }
 
     /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
@@ -2198,13 +2272,26 @@ public class MainActivity extends Activity {
 
     /** 递归解压 assets/payload 到目标目录。 */
     private void extractAssets(File target) throws IOException {
+        // 关键：此前是「文件已存在就跳过」，导致 APK 升级后
+        // preflight.js / unpack.js / sharp-android.js 等内置脚本**永远不会更新** ——
+        // 用户升级了 APK，跑的却还是旧脚本（preflight 的告警文案一直没变就是这个原因）。
+        // 改为按 APK 版本号判断：版本变了就整体重新解压，版本没变则保持快速跳过。
+        File verFile = new File(target, ".assets-version");
+        final String curVer = appVersion();
+        String haveVer = verFile.exists() ? readText(verFile).trim() : "";
+        final boolean refresh = !curVer.equals(haveVer);
+        if (refresh) {
+            log("APK 内置脚本需更新（" + (haveVer.length() == 0 ? "首次" : haveVer)
+                    + " → " + curVer + "），重新解压");
+        }
+
         List<String> entries = new ArrayList<String>();
         collect("payload", entries);
         for (String path : entries) {
             String rel = path.substring("payload/".length());
             if (rel.length() == 0) continue;
             File out = new File(target, rel);
-            if (out.exists() && out.length() > 0) continue;   // 已解压
+            if (!refresh && out.exists() && out.length() > 0) continue;   // 版本未变，跳过
             File parent = out.getParentFile();
             if (parent != null && !parent.exists()) parent.mkdirs();
             InputStream in = getAssets().open(path);
@@ -2215,6 +2302,7 @@ public class MainActivity extends Activity {
             os.close();
             in.close();
         }
+        try { writeText(verFile, curVer); } catch (Throwable ignored) { }
     }
 
     private void collect(String dir, List<String> out) throws IOException {
@@ -2380,7 +2468,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.0\n");
+            w.write("APK 版本: 0.15.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
