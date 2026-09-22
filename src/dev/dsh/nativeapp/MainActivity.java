@@ -105,6 +105,11 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
+        // 关键：Android WebView 默认忽略 viewport meta 里的固定宽度，
+        // 必须开启 useWideViewPort 才会遵循，否则我们写入的 width=600 无效。
+        // loadWithOverviewMode 让页面整体缩放以适配屏幕宽度。
+        ws.setUseWideViewPort(true);
+        ws.setLoadWithOverviewMode(true);
         // 允许双指缩放：适配后的布局文字偏小，用户可自行放大
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
@@ -373,7 +378,8 @@ public class MainActivity extends Activity {
             if (src.exists() && src.length() > 16) {
                 java.util.List<String> added = mergeCredentials(src, creds);
                 if (!added.isEmpty()) {
-                    log("  已从 " + path + " 导入凭据: " + added);
+                    // 只记录键名 —— 绝不把密钥值写进日志
+                    log("  已从共享文件导入凭据: " + added);
                 } else {
                     log("  凭据已就绪，无需导入");
                 }
@@ -460,9 +466,10 @@ public class MainActivity extends Activity {
                 if (t.length() > 0 && t.indexOf(':') > 0) refs.add(t);
             }
         }
+        java.util.List<String> addedLines = new java.util.ArrayList<String>();
         for (String r : refs) {
             String k = r.substring(0, r.indexOf(':')).trim();
-            if (target.indexOf(k + ":") < 0) added.add(r);
+            if (target.indexOf(k + ":") < 0) { addedLines.add(r); added.add(k); }
         }
         if (added.isEmpty()) return added;
 
@@ -473,12 +480,12 @@ public class MainActivity extends Activity {
         if (m.find()) {
             StringBuilder sb = new StringBuilder();
             sb.append(out, 0, m.end());
-            for (String r : added) sb.append("\n  ").append(r);
+            for (String r : addedLines) sb.append("\n  ").append(r);
             sb.append(out.substring(m.end()));
             out = sb;
         } else {
             out.append("refs:\n");
-            for (String r : added) out.append("  ").append(r).append('\n');
+            for (String r : addedLines) out.append("  ").append(r).append('\n');
         }
         writeText(dst, out.toString());
         return added;
@@ -1106,7 +1113,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.4.1\n");
+            w.write("APK 版本: 0.4.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -1117,13 +1124,27 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 日志脱敏。
+     *
+     * <p>曾经只处理了 {@code token=}，结果导入凭据时把**完整 API Key 明文写进了日志**。
+     * 现在覆盖常见密钥形态，并兜底屏蔽超长无空格串。
+     */
+    private static String maskSecrets(String s) {
+        s = s.replaceAll("token=[A-Za-z0-9_\\-]+", "token=***");
+        s = s.replaceAll("sk-[A-Za-z0-9_\\-]{6,}", "sk-***");
+        s = s.replaceAll("user_[A-Za-z0-9_\\-]{12,}", "user_***");
+        s = s.replaceAll("[A-Za-z0-9_\\-]{40,}", "***");
+        return s;
+    }
+
     /** 追加一行到共享日志；token 等敏感串做脱敏。 */
     private void appendSharedLog(String msg) {
         if (sharedLog == null) return;
         synchronized (logLock) {
             java.io.FileWriter w = null;
             try {
-                String line = msg.replaceAll("token=[A-Za-z0-9_\\-]+", "token=***");
+                String line = maskSecrets(msg);
                 w = new java.io.FileWriter(sharedLog, true);
                 w.write(line);
                 w.write('\n');
