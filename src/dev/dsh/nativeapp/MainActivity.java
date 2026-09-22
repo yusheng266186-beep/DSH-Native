@@ -117,6 +117,7 @@ public class MainActivity extends Activity {
         // 内容延伸到状态栏之后，用等高内边距把内容推下来 ——
         // 状态栏区域露出的是白色背景，配深色图标，视觉上连成一片。
         rootView.setPadding(0, statusBarHeight(), 0, 0);
+        installImeInsetHandler();
         android.widget.FrameLayout root = rootView;
 
         // 日志面板不加入视图树：整个屏幕留给 DSH 界面。
@@ -857,6 +858,87 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("系统栏设置失败（不影响运行）: " + t);
         }
+    }
+
+    /**
+     * 让 WebView 在键盘弹出时真正“变矮”。
+     *
+     * <p>仅靠清单里的 {@code adjustResize} 不够 —— 本应用用了
+     * {@code SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN}（边到边），窗口不会随键盘收缩。
+     * 因此直接监听 IME 的 window inset，把它转成根视图的底部内边距。
+     *
+     * <p>两种机制是**互补**而非叠加：
+     * 若 adjustResize 已生效，系统会把 IME 这块 inset 消耗掉，这里读到的
+     * 只有导航栏高度 → 内边距为 0；反之则由这里兜住。
+     */
+    private void installImeInsetHandler() {
+        try {
+            rootView.setOnApplyWindowInsetsListener(
+                    new android.view.View.OnApplyWindowInsetsListener() {
+                private int lastPad = -1;
+                @Override
+                public android.view.WindowInsets onApplyWindowInsets(
+                        android.view.View v, android.view.WindowInsets insets) {
+                    try {
+                        int bottom = insets.getSystemWindowInsetBottom();
+                        int nav = navigationBarHeight();
+                        int pad = Math.max(0, bottom - nav);
+                        if (pad != lastPad) {
+                            lastPad = pad;
+                            log("键盘内边距 " + pad + "px（底部 inset=" + bottom
+                                    + ", 导航栏=" + nav + "）");
+                            v.setPadding(0, statusBarHeight(), 0, pad);
+                        }
+                    } catch (Throwable t) {
+                        log("inset 处理失败: " + t);
+                    }
+                    return insets;
+                }
+            });
+            rootView.requestApplyInsets();
+        } catch (Throwable t) {
+            log("⚠️ 无法注册 inset 监听: " + t);
+        }
+
+        // 第二条路（更经典可靠）：比较窗口可见区域与根视图高度来推断键盘高度。
+        // 即使 inset 未派发（edge-to-edge 下可能发生），这条也能拿到数值。
+        try {
+            final android.view.View decor = getWindow().getDecorView();
+            decor.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                private int lastKb = -1;
+                @Override public void onGlobalLayout() {
+                    try {
+                        android.graphics.Rect visible = new android.graphics.Rect();
+                        decor.getWindowVisibleDisplayFrame(visible);
+                        int screenH = decor.getRootView().getHeight();
+                        int hidden = screenH - visible.bottom;      // 被遮挡的高度
+                        int nav = navigationBarHeight();
+                        int kb = hidden - nav;
+                        if (kb < 0) kb = 0;
+                        // 小于 15% 视为噪声（状态栏/导航栏抖动）
+                        if (kb < screenH * 0.15) kb = 0;
+                        if (kb != lastKb) {
+                            lastKb = kb;
+                            log("键盘检测: 高 " + kb + "px（窗口 " + screenH
+                                    + ", 可见底 " + visible.bottom + ", 导航栏 " + nav + "）");
+                            rootView.setPadding(0, statusBarHeight(), 0, kb);
+                        }
+                    } catch (Throwable ignored) { }
+                }
+            });
+            log("已启用键盘布局监听");
+        } catch (Throwable t) {
+            log("⚠️ 无法注册布局监听: " + t);
+        }
+    }
+
+    private int navigationBarHeight() {
+        try {
+            int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Throwable ignored) { }
+        return 0;
     }
 
     private int statusBarHeight() {
@@ -1752,7 +1834,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.9.2\n");
+            w.write("APK 版本: 0.9.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
