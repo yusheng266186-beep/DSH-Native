@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v4/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v5/";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -1830,22 +1830,31 @@ public class MainActivity extends Activity {
      * 应用 Android 专项补丁。
      *
      * <p>目前只处理 sharp：它的预编译产物是 glibc 链接的，Android(bionic) 无法
-     * dlopen。它由 {@code dsh-attachment-local} 惰性加载（仅处理图片时用到），
-     * 这里替换为优雅降级的桩，避免用户上传图片时看到晦涩的加载器报错。
+     * dlopen。但它并非无法解决 —— DSH 只用到很窄的一组 sharp API
+     * （metadata / rotate / resize / jpeg / webp / toBuffer），
+     * 因此这里替换为一个**可用实现**：JS 侧提供同样的 API，
+     * 实际图像处理交给运行包自带的 Python + Pillow（sharp-android.js + pillow_shim.py）。
+     *
+     * <p>这样图片附件在手机上也能正常工作，且无需编译任何原生模块。
      */
     private void applyAndroidPatches(File root, File dshDir) {
         patchFrontendViewport(dshDir);
         try {
-            File stubSrc = new File(root, "sharpstub.js");
+            File shim = new File(root, "sharp-android.js");
+            File helper = new File(root, "pillow_shim.py");
             File sharpDir = new File(dshDir, "node_modules/sharp");
-            if (!stubSrc.exists() || !sharpDir.isDirectory()) {
+            if (!shim.exists() || !helper.exists() || !sharpDir.isDirectory()) {
+                log("  ⚠️ 图片处理组件缺失，跳过（文字功能不受影响）");
                 return;
             }
-            copyFile(stubSrc, new File(sharpDir, "index.js"));
+            // 两者必须放在同一目录：JS 侧用 __dirname 定位 pillow_shim.py
+            copyFile(shim, new File(sharpDir, "index.js"));
+            copyFile(helper, new File(sharpDir, "pillow_shim.py"));
             writeText(new File(sharpDir, "package.json"),
-                    "{\"name\":\"sharp\",\"version\":\"0.0.0-android-stub\","
-                    + "\"main\":\"index.js\",\"description\":\"Android graceful-degradation stub\"}");
-            log("  已为 sharp 应用优雅降级桩（图片附件不可用，其余功能不受影响）");
+                    "{\"name\":\"sharp\",\"version\":\"0.0.0-android-pillow\","
+                    + "\"main\":\"index.js\","
+                    + "\"description\":\"Android implementation backed by Python/Pillow\"}");
+            log("  已启用图片附件（sharp 由 Python/Pillow 实现）");
         } catch (Throwable t) {
             log("  ⚠️ Android 补丁应用失败: " + t);
         }
@@ -2371,7 +2380,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.14.1\n");
+            w.write("APK 版本: 0.15.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

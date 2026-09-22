@@ -23,15 +23,17 @@ import subprocess
 import sys
 
 PKG = '/root/build/pkg'
-TOOLS = os.path.join(PKG, 'tools_v3')
-OUT = os.path.join(PKG, 'payload-v4')
+TOOLS = os.environ.get('DSH_TOOLS_DIR') or os.path.join(PKG, 'tools_v3')
+OUT = os.environ.get('DSH_PAYLOAD_OUT') or os.path.join(PKG, 'payload-v4')
 
 # 分片定义：(归档名, 目标目录, 哨兵相对路径)
+# 哨兵必须选「会随该分片内容变化」的文件：App 靠比对哨兵判断分片是否需要更新。
+# 若哨兵恰好在本次变更中未改动，App 会误判为已就绪、跳过下载。
 PARTS = [
     ('dsh.tar.zst',          'dsh',   'lib/bin.js'),
     ('tools-base.tar.zst',   'tools', 'share/git-core/templates/description'),
-    ('tools-libs.tar.zst',   'tools', 'lib/libffi.so'),
-    ('tools-python.tar.zst', 'tools', 'lib/python3.14/os.py'),
+    ('tools-libs.tar.zst',   'tools', 'lib/libwebp.so'),          # 本次新增该库
+    ('tools-python.tar.zst', 'tools', 'lib/python3.14/site-packages/PIL/Image.py'),  # 本次新增 Pillow
     ('tools-npm.tar.zst',    'tools', 'lib/node_modules/npm/package.json'),
 ]
 

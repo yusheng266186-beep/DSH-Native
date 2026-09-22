@@ -1,7 +1,7 @@
 {
-  "version": "0.14.1",
-  "tag": "v0.14.1-bootstrap",
+  "version": "0.15.0",
+  "tag": "v0.15.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
-  "payload": "payload-v4",
-  "notes": "自检日志区分「不需要」与「有问题」"
+  "payload": "payload-v5",
+  "notes": "图片附件可用（Pillow 实现 sharp）"
 }
