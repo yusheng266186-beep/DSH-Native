@@ -89,19 +89,10 @@ public class HarnessService extends Service {
     }
 
     private void createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        try {
-            NotificationManager nm =
-                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm == null) return;
-            if (nm.getNotificationChannel(CHANNEL_ID) != null) return;
-            NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "DeepSeek Harness",
-                    NotificationManager.IMPORTANCE_LOW);   // 低优先级：不打扰、无声音
-            ch.setDescription("保持 agent 在后台运行");
-            ch.setShowBadge(false);
-            nm.createNotificationChannel(ch);
-        } catch (Throwable ignored) { }
+        // 与任务完成通知共用同一份实现，避免两处逻辑分叉
+        dev.dsh.nativeapp.DshUi.ensureChannel(this, CHANNEL_ID, "DeepSeek Harness",
+                "运行状态与任务完成提醒",
+                android.app.NotificationManager.IMPORTANCE_LOW);
     }
 
     private Notification buildNotification(String text) {

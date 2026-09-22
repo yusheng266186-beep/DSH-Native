@@ -1035,6 +1035,11 @@ public class MainActivity extends Activity {
             android.app.NotificationManager nm =
                     (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
+            // 先确保渠道存在：渠道原本只由前台服务创建，
+            // 服务没起来时通知会因渠道不存在而静默丢失
+            DshUi.ensureChannel(this, HarnessService.CHANNEL_ID,
+                    "DeepSeek Harness", "运行状态与任务完成提醒",
+                    android.app.NotificationManager.IMPORTANCE_LOW);
             int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
             if (icon == 0) icon = android.R.drawable.stat_notify_sync;
 
@@ -2023,7 +2028,13 @@ public class MainActivity extends Activity {
                 final File pluginDshDir = dshDirRef;
                 btnPlugins.setOnClickListener(new android.view.View.OnClickListener() {
                     @Override public void onClick(android.view.View v) {
-                        if (pluginDshDir == null) { toast("DSH 目录尚未就绪"); return; }
+                        // toolsDirRef / nodeRef 在启动流程中才赋值。
+                        // 不检查的话，启动未完成时安装插件会在后台线程 NPE，
+                        // 而被 catch 吞掉、只显示「安装失败」，看不到原因。
+                        if (pluginDshDir == null || toolsDirRef == null || nodeRef == null) {
+                            toast("运行环境尚未就绪，请稍后再试");
+                            return;
+                        }
                         PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
                             @Override public File dshDir() { return pluginDshDir; }
                             @Override public File root() { return appRoot; }
@@ -3348,7 +3359,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.6\n");
+            w.write("APK 版本: 0.20.7\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

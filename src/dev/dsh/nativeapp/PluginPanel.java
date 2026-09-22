@@ -313,6 +313,11 @@ public final class PluginPanel {
      */
     private static String runNpmInstall(Host host, File profileDir, String spec)
             throws Exception {
+        // 防御性检查：宿主引用可能尚未就绪（启动未完成）。
+        // 明确抛出比 NPE 好 —— NPE 的信息对用户毫无意义。
+        if (host.node() == null || host.toolsDir() == null || host.root() == null) {
+            throw new Exception("运行环境尚未就绪");
+        }
         File npmCli = new File(host.toolsDir(),
                 "lib/node_modules/npm/bin/npm-cli.js");
         if (!npmCli.isFile()) throw new Exception("未找到 npm（运行包不完整）");

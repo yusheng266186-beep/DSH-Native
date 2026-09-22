@@ -296,6 +296,30 @@ public final class DshUi {
         }
     }
 
+    /**
+     * 确保通知渠道存在（API 26+ 必需）。
+     *
+     * <p>抽成共用的原因：渠道原本只在 {@code HarnessService} 里创建，
+     * 而任务完成通知也用同一个渠道 —— **服务若没起来（权限被拒等），
+     * 通知会因为渠道不存在而抛异常，又被外层的 catch 吞掉，用户什么都看不到**。
+     * 通知前先确保渠道存在，就不依赖「服务一定启动过」这个前提。
+     */
+    public static void ensureChannel(Context c, String id, String name,
+                                     String description, int importance) {
+        if (c == null || id == null) return;
+        if (android.os.Build.VERSION.SDK_INT < 26) return;
+        try {
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (nm.getNotificationChannel(id) != null) return;
+            android.app.NotificationChannel ch =
+                    new android.app.NotificationChannel(id, name, importance);
+            if (description != null) ch.setDescription(description);
+            nm.createNotificationChannel(ch);
+        } catch (Throwable ignored) { }
+    }
+
     public static void toast(Context c, CharSequence msg) {
         if (c == null || msg == null) return;
         try {
