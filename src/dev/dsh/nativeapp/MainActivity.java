@@ -78,9 +78,12 @@ public class MainActivity extends Activity {
      * 不同边缘刷新时间还不一致 —— 所以后面还会「取所有源里版本最高的那个」。
      */
     private static final String[] VERSION_SOURCES = {
+            // jsDelivr 实测是实时的（推送后立刻可见），而 GitHub raw 有 5 分钟
+            // CDN 缓存、各边缘节点刷新时间还不一致。两个 jsDelivr 域名都放上。
+            "https://cdn.jsdelivr.net/gh/" + REPO + "@main/latest.json",
+            "https://fastly.jsdelivr.net/gh/" + REPO + "@main/latest.json",
             RAW,
             "https://gh-proxy.com/" + RAW,
-            "https://ghproxy.net/" + RAW,
     };
 
     /**
@@ -2338,7 +2341,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.1\n");
+            w.write("APK 版本: 0.13.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
