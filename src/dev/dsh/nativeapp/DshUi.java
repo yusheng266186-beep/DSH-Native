@@ -169,6 +169,10 @@ public final class DshUi {
         b.setAllCaps(false);
         b.setTextColor(primary ? ON_ACCENT : TEXT);
         b.setBackground(buttonBg(c, primary));
+        // 清掉主题可能附加的背景着色（backgroundTint）——
+        // 否则 setBackground 设的颜色会被 tint 覆盖，
+        // 导致「切回次按钮样式却仍显示主按钮色」这类不一致。
+        try { b.setBackgroundTintList(null); } catch (Throwable ignored) { }
         b.setPadding(dp(c, 16), dp(c, 11), dp(c, 16), dp(c, 11));
         b.setMinimumHeight(0);
         b.setMinimumWidth(0);

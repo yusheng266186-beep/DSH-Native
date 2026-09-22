@@ -547,6 +547,13 @@ public class MainActivity extends Activity {
      */
     private static final int[] ZOOM_STEPS = {100, 115, 130, 150};
     private static final String PREFS = "dsh-native";
+    /** 前端 index.html 原始 viewport 写法（补丁从这里重新生成，保证可重复更新）。 */
+    private static final String VP_ORIG =
+            "content=\"width=device-width, initial-scale=1\"";
+    /** 当前已应用的 viewport 宽度（0 = 尚未应用）。 */
+    private volatile int appliedViewportWidth = 0;
+    /** DSH 安装目录，供屏幕方向变化时重新适配 viewport。 */
+    private volatile File dshDirRef;
     /** agent 的工作目录（优先共享存储）。 */
     private volatile File workspace;
     private android.view.View splashView;
@@ -566,6 +573,37 @@ public class MainActivity extends Activity {
      */
     private final java.util.Map<String, String> patchReport =
             new java.util.LinkedHashMap<String, String>();
+
+    /**
+     * 填充显示缩放档位按钮。
+     *
+     * <p>每次点击**整行重建**，而不是逐个按钮改文字和背景。
+     * 早先的写法要同时维护「文字对勾 + 背景高亮」两份状态，
+     * 与按钮自身的 focus/pressed 状态互相干扰，实测出现
+     * 「多个档位同时高亮 / 对勾与当前值不一致」。
+     * 现在渲染只依赖 {@link #currentZoom()} 这一个数据源，不可能不一致。
+     */
+    private void fillZoomRow(final android.widget.LinearLayout row) {
+        row.removeAllViews();
+        for (int i = 0; i < ZOOM_STEPS.length; i++) {
+            final int pct = ZOOM_STEPS[i];
+            boolean cur = pct == currentZoom();
+            android.widget.Button b = DshUi.button(this,
+                    pct + "%" + (cur ? " ✓" : ""), cur);
+            b.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    applyZoom(pct);
+                    fillZoomRow(row);          // 重建 → 状态必然一致
+                    toast("显示缩放已设为 " + pct + "%");
+                }
+            });
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.rightMargin = DshUi.dp(this, 6);
+            row.addView(b, lp);
+        }
+    }
 
     /** 读取显示缩放（默认 100%）。 */
     private int currentZoom() {
@@ -1744,33 +1782,7 @@ public class MainActivity extends Activity {
                     DshUi.fullWidth(this, 6));
             android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
             zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            final android.widget.Button[] zoomBtns =
-                    new android.widget.Button[ZOOM_STEPS.length];
-            for (int zi = 0; zi < ZOOM_STEPS.length; zi++) {
-                final int pct = ZOOM_STEPS[zi];
-                final int idx = zi;
-                boolean cur = pct == currentZoom();
-                zoomBtns[idx] = DshUi.button(this, pct + "%" + (cur ? " ✓" : ""), cur);
-                zoomBtns[idx].setOnClickListener(new android.view.View.OnClickListener() {
-                    @Override public void onClick(android.view.View v) {
-                        applyZoom(pct);
-                        // 对勾必须互斥：早先只给点中的按钮打勾、不清旧的，
-                        // 导致多个档位同时显示 ✓。
-                        for (int k = 0; k < ZOOM_STEPS.length; k++) {
-                            if (zoomBtns[k] == null) continue;
-                            boolean on = k == idx;
-                            zoomBtns[k].setText(ZOOM_STEPS[k] + "%" + (on ? " ✓" : ""));
-                            DshUi.setButtonActive(zoomBtns[k], on);
-                        }
-                        toast("显示缩放已设为 " + pct + "%");
-                    }
-                });
-                android.widget.LinearLayout.LayoutParams zlp =
-                        new android.widget.LinearLayout.LayoutParams(
-                                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                zlp.rightMargin = DshUi.dp(this, 6);
-                zoomRow.addView(zoomBtns[idx], zlp);
-            }
+            fillZoomRow(zoomRow);
             body.addView(zoomRow, DshUi.fullWidth(this, 8));
 
             // ── 维护状态：补丁是否仍然生效（DSH 更新后可能失效）──
@@ -2433,7 +2445,25 @@ public class MainActivity extends Activity {
      * 相当于「桌面版网站」模式：布局得到足够空间，代价是文字略小，
      * 因此同时开启了双指缩放供用户自行调整。
      */
+    /**
+     * 按当前屏幕宽度计算 viewport 宽度。
+     *
+     * <p>关键点：宽度必须**随屏幕宽度成比例**变化，否则渲染缩放会随方向变化。
+     * 固定 600px 时，竖屏缩放 400/600=0.67，横屏却是 869/600=1.45 ——
+     * 横屏内容被放大一倍多，几乎没法用。
+     *
+     * <p>取 1.5 倍：竖屏 400dp → 600px（与原行为一致），
+     * 横屏 869dp → 1303px，两者缩放都是 0.67，文字物理大小一致，
+     * 而横屏多出来的宽度全部交给 DSH 的桌面布局使用。
+     */
+    private int viewportWidthFor(android.content.res.Configuration cfg) {
+        int cssW = cfg != null ? cfg.screenWidthDp : 400;
+        int w = Math.round(cssW * 1.5f);
+        return Math.max(600, Math.min(1600, w));
+    }
+
     private void patchFrontendViewport(File dshDir) {
+        dshDirRef = dshDir;
         File html = new File(dshDir,
                 "node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html");
         if (!html.exists()) {
@@ -2441,20 +2471,27 @@ public class MainActivity extends Activity {
             return;
         }
         try {
+            int want = viewportWidthFor(getResources().getConfiguration());
             String src = readText(html);
-            String from = "content=\"width=device-width, initial-scale=1\"";
-            String to = "content=\"width=600\"";
-            if (src.indexOf("content=\"width=600\"") >= 0) {
-                log("  viewport 已适配（600px），跳过");
-                recordPatch("前端 viewport", true, "600px 已适配");
-                return;
-            }
-            if (src.indexOf(from) < 0) {
+            // 先把任何旧的 width=NNN 还原成原始写法，再统一替换 ——
+            // 这样方向切换时可以反复更新（早先靠「是否已是 600」判断，
+            // 换一个宽度就再也改不动了）。
+            String base = src.replaceAll("content=\"width=[0-9]+\"", VP_ORIG);
+            if (base.indexOf(VP_ORIG) < 0) {
                 log("  ⚠️ viewport 标签格式不符，未做适配");
+                recordPatch("前端 viewport", false, "标签格式不符，未适配");
                 return;
             }
-            writeText(html, src.replace(from, to));
-            log("  已适配手机布局：viewport → 600px（可双指缩放）");
+            if (want == appliedViewportWidth && src.equals(base.replace(VP_ORIG,
+                    "content=\"width=" + want + "\""))) {
+                log("  viewport 已适配（" + want + "px），无需改动");
+                recordPatch("前端 viewport", true, want + "px");
+                return;
+            }
+            writeText(html, base.replace(VP_ORIG, "content=\"width=" + want + "\""));
+            appliedViewportWidth = want;
+            log("  已适配屏幕宽度：" + want + "px（竖屏 600 / 横屏按比例放大，保持缩放一致）");
+            recordPatch("前端 viewport", true, want + "px");
         } catch (Throwable t) {
             log("  ⚠️ viewport 适配失败: " + t);
         }
@@ -2958,7 +2995,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.18.0\n");
+            w.write("APK 版本: 0.18.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -3063,6 +3100,35 @@ public class MainActivity extends Activity {
         } else if (a.endsWith("ACTION_UPDATE")) {
             pendingAction = "update";
             log("快捷方式: 检查更新");
+        }
+    }
+
+    /**
+     * 屏幕方向变化：重新计算 viewport 宽度并重载页面。
+     *
+     * <p>为什么必须重载：viewport meta 只在页面加载时解析一次，
+     * 改了内容不会重新布局。好在只在宽度确实变化时才重载
+     * （轻微变化不触发），且 DSH 的会话在服务端，重载不丢内容。
+     *
+     * <p>清单已声明 configChanges 含 orientation/screenSize，
+     * 因此本方法会被调用，而 Activity 不会被重建。
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration cfg) {
+        super.onConfigurationChanged(cfg);
+        try {
+            int want = viewportWidthFor(cfg);
+            File dir = dshDirRef;
+            log("屏幕方向变化：宽 " + cfg.screenWidthDp + "dp → viewport "
+                    + want + "px（当前 " + appliedViewportWidth + "）");
+            if (dir == null || want == appliedViewportWidth) return;
+            patchFrontendViewport(dir);
+            if (webView != null) {
+                log("  重新加载页面以应用新的 viewport");
+                webView.reload();
+            }
+        } catch (Throwable t) {
+            log("  ⚠️ 方向切换处理失败: " + t);
         }
     }
 
