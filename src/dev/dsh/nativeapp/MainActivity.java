@@ -265,10 +265,6 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 设置入口做成可见的悬浮按钮。
-        // 此前唯一入口藏在通知栏动作里，用户找不到（日志显示从未打开过），
-        // 且那条路依赖静态回调，进程被系统重启后会失效。
-        root.addView(buildSettingsButton(), settingsButtonParams());
 
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
         // 而不是滚动的日志行。加载完成后淡出。
@@ -649,40 +645,6 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             toast("读取日志失败: " + shorten(t));
         }
-    }
-
-    // ---------------------------------------------------------------- 设置入口
-    /** 右上角悬浮设置按钮（半透明，尽量不遮挡 DSH 界面）。 */
-    private android.view.View buildSettingsButton() {
-        float d = getResources().getDisplayMetrics().density;
-        android.widget.TextView b = new android.widget.TextView(this);
-        b.setText("\u2699");                 // ⚙
-        b.setTextSize(17);
-        b.setGravity(android.view.Gravity.CENTER);
-        b.setTextColor(0xFF4B5563);
-
-        android.graphics.drawable.GradientDrawable bg =
-                new android.graphics.drawable.GradientDrawable();
-        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        bg.setColor(0xF2FFFFFF);              // 近白底，贴合 DSH 浅色界面
-        bg.setStroke((int) Math.max(1, d), 0x22000000);
-        b.setBackground(bg);
-        b.setAlpha(0.72f);                    // 平时淡一些，不抢视觉
-        b.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showSettings(); }
-        });
-        return b;
-    }
-
-    private android.widget.FrameLayout.LayoutParams settingsButtonParams() {
-        float d = getResources().getDisplayMetrics().density;
-        int size = (int) (38 * d);
-        android.widget.FrameLayout.LayoutParams lp =
-                new android.widget.FrameLayout.LayoutParams(size, size);
-        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
-        lp.topMargin = (int) (10 * d);
-        lp.rightMargin = (int) (10 * d);
-        return lp;
     }
 
     // ---------------------------------------------------------------- 可选插件
@@ -2409,7 +2371,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.13.3\n");
+            w.write("APK 版本: 0.13.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

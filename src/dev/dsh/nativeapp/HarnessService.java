@@ -69,7 +69,9 @@ public class HarnessService extends Service {
 
         // 常驻通知
         try {
-            startForeground(NOTIFICATION_ID, buildNotification("正在运行"));
+            // 文案里点一下"展开"，因为部分 ROM 会折叠动作按钮（用户已实测遇到）
+            startForeground(NOTIFICATION_ID, buildNotification("正在运行 · 展开通知可设置"));
+
         } catch (Throwable t) {
             Log.w(TAG, "startForeground 失败", t);
         }

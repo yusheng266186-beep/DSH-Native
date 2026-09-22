@@ -1,7 +1,7 @@
 {
-  "version": "0.13.3",
-  "tag": "v0.13.3-bootstrap",
+  "version": "0.13.4",
+  "tag": "v0.13.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v4",
-  "notes": "日志追加写+轮转；应用内查看日志"
+  "notes": "移除悬浮按钮；设置入口仅保留通知栏"
 }
