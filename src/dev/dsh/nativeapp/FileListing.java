@@ -26,6 +26,11 @@ final class FileListing {
     /** 单目录最多列出多少项。 */
     static final int LIST_CAP = 800;
 
+    /** 图标形态：目录 / 普通文件 / 符号链接（与 FileIconView 的常量一一对应）。 */
+    static final int ICON_FOLDER = 0;
+    static final int ICON_FILE = 1;
+    static final int ICON_LINK = 2;
+
     /** 排序方式。 */
     static final int SORT_NAME = 0;
     static final int SORT_SIZE = 1;
@@ -237,25 +242,19 @@ final class FileListing {
         return humanSize(e.size) + "  " + shortTime(e.mtime);
     }
 
-    /** 条目左侧的图标。 */
-    static String iconOf(Entry e) {
-        if (e.linkTarget != null) return "🔗 ";
-        if (e.dir) return "📁 ";
-        return iconForName(e.name);
-    }
-
-    static String iconForName(String name) {
-        String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".log") || n.endsWith(".txt") || n.endsWith(".md")) return "📄 ";
-        if (n.endsWith(".json") || n.endsWith(".yml") || n.endsWith(".yaml")) return "⚙️ ";
-        if (n.endsWith(".js") || n.endsWith(".mjs") || n.endsWith(".ts")) return "📜 ";
-        if (n.endsWith(".py")) return "🐍 ";
-        if (n.endsWith(".sh")) return "🖥 ";
-        if (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".webp") || n.endsWith(".gif")) return "🖼 ";
-        if (n.endsWith(".so") || n.endsWith(".node")) return "🔧 ";
-        if (n.endsWith(".apk") || n.endsWith(".zst") || n.endsWith(".tar")) return "📦 ";
-        return "📄 ";
+    /**
+     * 条目对应的图标形态。
+     *
+     * <p>只返回类型码，具体图形由界面的 {@code FileIconView} 自绘 ——
+     * 这样本类保持纯逻辑（无 Android 依赖，可离线测试），
+     * 而图标又不受系统字体影响。
+     *
+     * <p>不再按扩展名区分图形：扩展名本来就在文件名里，18dp 尺寸下再多画
+     * 十种图形只会显得杂乱；链接优先于目录/文件（它是「指向别处」这一事实）。
+     */
+    static int iconTypeOf(Entry e) {
+        if (e.linkTarget != null) return ICON_LINK;
+        return e.dir ? ICON_FOLDER : ICON_FILE;
     }
 
     /** 列表下方的统计文字（也在这里，便于测试措辞与截断提示）。 */

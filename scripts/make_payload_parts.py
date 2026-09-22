@@ -33,7 +33,7 @@ PARTS = [
     ('dsh.tar.zst',          'dsh',   'lib/bin.js'),
     ('tools-base.tar.zst',   'tools', 'share/git-core/templates/description'),
     ('tools-libs.tar.zst',   'tools', 'lib/libwebp.so'),          # 本次新增该库
-    ('tools-python.tar.zst', 'tools', 'lib/python3.14/site-packages/PIL/Image.py'),  # 本次新增 Pillow
+    ('tools-python.tar.zst', 'tools', 'lib/python3.14/site-packages/pypdf/__init__.py'),  # 本次新增 pypdf
     ('tools-npm.tar.zst',    'tools', 'lib/node_modules/npm/package.json'),
 ]
 

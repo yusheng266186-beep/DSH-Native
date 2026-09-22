@@ -85,12 +85,18 @@ public class FileListingTest {
         FileListing.Entry link = find(lh, "link-to-sub");
         check("软链被识别（linkTarget 非空）", link != null && link.linkTarget != null,
                 link == null ? "条目未找到" : String.valueOf(link.linkTarget));
-        check("软链图标为 🔗", link != null && FileListing.iconOf(link).startsWith("🔗"),
-                link == null ? "-" : FileListing.iconOf(link));
+        check("软链图标类型为 LINK",
+                link != null && FileListing.iconTypeOf(link) == FileListing.ICON_LINK,
+                link == null ? "-" : String.valueOf(FileListing.iconTypeOf(link)));
         check("软链信息列以 → 开头", link != null && FileListing.infoText(link).startsWith("→ "),
                 link == null ? "-" : FileListing.infoText(link));
         FileListing.Entry plain = find(lh, "file1.txt");
         check("普通文件 linkTarget 为 null", plain != null && plain.linkTarget == null, "-");
+        check("普通文件图标类型为 FILE",
+                plain != null && FileListing.iconTypeOf(plain) == FileListing.ICON_FILE, "-");
+        FileListing.Entry dirEntry = find(lh, "subdir");
+        check("目录图标类型为 FOLDER",
+                dirEntry != null && FileListing.iconTypeOf(dirEntry) == FileListing.ICON_FOLDER, "-");
 
         System.out.println("=== 6. long symlink target (overflow risk) ===");
         FileListing.Entry longLink = find(lh, "long-link-name");

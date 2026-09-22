@@ -30,7 +30,7 @@ import java.util.List;
  *       这里按启动分隔行切分，默认只显示最近一次。</li>
  *   <li><b>能筛能搜</b> —— 按级别（警告 / 错误）与关键字过滤，
  *       排查时不必在几百行里用眼睛找。</li>
- *   <li><b>级别可视化</b> —— 日志用 ✅ / ⚠️ / ✗ 表示状态，
+ *   <li><b>级别可视化</b> —— 日志用文字前缀区分级别，
  *       提取出来作为颜色标记，扫一眼就能定位问题行。</li>
  * </ul>
  *
@@ -58,10 +58,16 @@ public final class LogViewer {
         Line(String text, int level) { this.text = text; this.level = level; }
     }
 
+    /**
+     * 判定一行日志的级别。
+     *
+     * <p>日志不再使用图形符号（显得廉价，且与 DSH 的克制风格不符），
+     * 改为文字前缀：[错误] / [警告] / [通过] / [信息]。
+     */
     private static int levelOf(String s) {
-        if (s.indexOf('✗') >= 0 || s.indexOf('❌') >= 0) return LV_ERROR;
-        if (s.indexOf('⚠') >= 0) return LV_WARN;
-        if (s.indexOf('✅') >= 0) return LV_OK;
+        if (s.indexOf("[错误]") >= 0) return LV_ERROR;
+        if (s.indexOf("[警告]") >= 0) return LV_WARN;
+        if (s.indexOf("[通过]") >= 0) return LV_OK;
         return LV_INFO;
     }
 

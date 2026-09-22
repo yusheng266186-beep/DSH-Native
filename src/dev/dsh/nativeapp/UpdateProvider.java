@@ -29,6 +29,7 @@ public class UpdateProvider extends ContentProvider {
     /** 更新包在缓存目录中的固定文件名。 */
     public static final String APK_NAME = "update.apk";
 
+    /** 更新包以 content URI 形式交给系统安装器。 */
     public static Uri contentUri() {
         return Uri.parse("content://" + AUTHORITY + "/" + APK_NAME);
     }
@@ -46,9 +47,10 @@ public class UpdateProvider extends ContentProvider {
     public ParcelFileDescriptor openFile(Uri uri, String mode)
             throws FileNotFoundException {
         if (getContext() == null) throw new FileNotFoundException("no context");
+
         File f = apkFile(getContext());
         if (!f.exists()) throw new FileNotFoundException(f.getAbsolutePath());
-        // 只读打开：安装器只需读取
+        // 更新包只读：安装器只需读取
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
     }
 

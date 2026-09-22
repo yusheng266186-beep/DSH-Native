@@ -24,7 +24,7 @@ AAPT2_LIB="$TERMUX_LIB"
 RESDIR="$BUILD/icon/res"
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
-die() { printf '\n\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+die() { printf '\n\033[1;31m[FAIL] %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- 0. 工具链
 say "0. 检查工具链"
@@ -147,7 +147,7 @@ for f in $PURE_FILES; do
         die "$f 引入了 Android 依赖 —— 它将无法离线测试"
     fi
 done
-echo "  ✓ 纯逻辑层无 Android 依赖（$(basename -a $PURE_FILES | tr '\n' ' '))"
+echo "  [OK] 纯逻辑层无 Android 依赖（$(basename -a $PURE_FILES | tr '\n' ' '))"
 
 # ---------------------------------------------------------------- 3.5 UI 规范
 # 强制检查：原生界面必须走 DshUi 组件层，禁止系统默认样式
@@ -158,12 +158,12 @@ say "3.5 UI 规范检查"
 # 脚本静默退出（同样的坑此前在 d8 步骤踩过一次）。
 UI_BAD=$(grep -rnE 'AlertDialog\.Builder|new +AlertDialog' "$BOOT/src" 2>/dev/null | wc -l || true)
 if [ "$UI_BAD" -gt 0 ]; then
-  echo "  ✗ 发现 $UI_BAD 处系统原生 AlertDialog，违反 docs/DESIGN.md"
+  echo "  [FAIL] 发现 $UI_BAD 处系统原生 AlertDialog，违反 docs/DESIGN.md"
   grep -rnE 'AlertDialog\.Builder|new +AlertDialog' "$BOOT/src" | head -5 | sed 's/^/    /'
   die "请改用 DshUi.dialog()（见 docs/DESIGN.md）"
 fi
 DSUI_USE=$(grep -rlc 'DshUi\.' "$BOOT/src" 2>/dev/null | wc -l || true)
-echo "  ✓ 无系统 AlertDialog；DshUi 使用文件数: $DSUI_USE"
+echo "  [OK] 无系统 AlertDialog；DshUi 使用文件数: $DSUI_USE"
 
 # ---------------------------------------------------------------- 4. Java
 say "4. 编译 Java"

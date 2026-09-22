@@ -22,7 +22,7 @@ for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
-        echo "  ✗ $name 失败"
+        echo "  [FAIL] $name 失败"
         rc=1
     else
         echo "  $name: $(echo "$out" | grep -a 'TOTAL' | tail -1)"

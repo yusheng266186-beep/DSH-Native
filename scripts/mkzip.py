@@ -25,5 +25,5 @@ bad = 0
 with zipfile.ZipFile(out) as z:
     if z.testzip() is not None: bad += 1
     n = len(z.namelist())
-print(f"  条目数: {n}   完整性: {'✅ 通过' if bad == 0 else '❌ 失败'}")
+print(f"  条目数: {n}   完整性: {'通过' if bad == 0 else '失败'}")
 print(f"  输出: {out}   {size/1024/1024:.1f} MB")

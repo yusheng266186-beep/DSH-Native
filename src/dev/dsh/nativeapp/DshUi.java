@@ -198,7 +198,7 @@ public final class DshUi {
     /**
      * 分档选择按钮（例如显示缩放的 100% / 115% / 130% / 150%）。
      *
-     * <p><b>必须保证单行</b>：选中项的文字形如 {@code "100% ✓"}，
+     * <p><b>必须保证单行</b>：标签较长时不应折行，
      * 比未选中的 {@code "115%"} 更长 —— 一旦宽度不够就会把对勾折到第二行，
      * 按钮随之被撑高，看起来就像「溢出」到同级按钮之外（实测踩过）。
      * 这里用 {@code setSingleLine(true)} 从根上杜绝换行，并收窄内边距
@@ -361,7 +361,7 @@ public final class DshUi {
 
         LinearLayout card = column(c);
         card.setBackground(cardBg(c));
-        // ⚠️ body 必须用 WRAP_CONTENT，**不能**用 0dp + weight=1：
+        // body 必须用 WRAP_CONTENT，**不能**用 0dp + weight=1：
         // 权重子视图在「未指定高度」下测量结果是 0，
         // 会把 body 内部的权重区域（文件列表、日志列表）整块压扁。
         card.addView(body, new LinearLayout.LayoutParams(

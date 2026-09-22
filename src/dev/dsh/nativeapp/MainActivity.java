@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
                             REQ_FILE_CHOOSER);
                     return true;
                 } catch (Throwable t) {
-                    log("✗ 启动文件选择器失败: " + t);
+                    log("错误: 启动文件选择器失败: " + t);
                     pendingFileCallback = null;
                     return false;
                 }
@@ -312,7 +312,7 @@ public class MainActivity extends Activity {
                 log("已允许绘制到刘海区域（避免横屏黑边）");
             }
         } catch (Throwable t) {
-            log("⚠️ 刘海模式设置失败: " + t);
+            log("警告: 刘海模式设置失败: " + t);
         }
 
         // 让各 UI 组件（文件浏览、编辑器等）能把诊断信息写进统一日志
@@ -337,7 +337,7 @@ public class MainActivity extends Activity {
                 try {
                     boot();
                 } catch (Throwable t) {
-                    log("✗ 启动失败: " + t);
+                    log("错误: 启动失败: " + t);
                     Log.e(TAG, "boot failed", t);
                     // 若本次启用了插件覆盖层，判定为插件所致并写入停用标记：
                     // 最坏情况只是少一个插件，绝不会让 App 打不开。
@@ -415,7 +415,7 @@ public class MainActivity extends Activity {
         // 直接沿用会 EADDRINUSE 导致启动失败、界面空白。
         chosenPort = findFreePort(PORT, PORT + 200);
         if (chosenPort == 0) {
-            log("⚠ 未找到空闲端口，交给系统分配（--port 0）");
+            log("警告: 未找到空闲端口，交给系统分配（--port 0）");
         } else {
             log("使用端口 " + chosenPort + (chosenPort == PORT ? "" : "（" + PORT + " 已被占用）"));
         }
@@ -428,7 +428,7 @@ public class MainActivity extends Activity {
         dshCmd.add("--expose-internals");      // 关键：替代无 android 构建的原生插件
         dshCmd.add("--no-warnings");
         dshCmd.add(binJs.getAbsolutePath());
-        // ⚠️ --patch 是「启动器级」选项，必须排在 --profile 之前。
+        // --patch 是「启动器级」选项，必须排在 --profile 之前。
         // 实测放在 --profile 之后会报 unknown option 并导致 DSH 完全无法启动。
         enableOptionalPlugins(dshDir, root, dshCmd);
         dshCmd.add("--profile"); dshCmd.add("web");
@@ -516,7 +516,7 @@ public class MainActivity extends Activity {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
             if (probeHttp(PORT) > 0) {
                 url = "http://127.0.0.1:" + chosenPort + "/";
-                log("⚠ 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
+                log("警告: 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
             }
         }
         if (url != null) {
@@ -537,7 +537,7 @@ public class MainActivity extends Activity {
             if (lastUrl != null) return lastUrl;
 
             if (!isProcessAlive(nodeProcess)) {
-                log("✗ dsh web 进程已退出，且未打印服务地址");
+                log("错误: dsh web 进程已退出，且未打印服务地址");
                 showStatus("DSH 启动失败",
                         "dsh 进程已退出。请查看上方日志面板中标有 <code>[dsh]</code> 的输出行。");
                 return null;
@@ -553,7 +553,7 @@ public class MainActivity extends Activity {
             }
             try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
         }
-        log("⚠ 等待服务超时（" + MAX_SECONDS + " 秒）");
+        log("警告: 等待服务超时（" + MAX_SECONDS + " 秒）");
         showStatus("启动超时", "已等待 " + MAX_SECONDS + " 秒仍未拿到服务地址，请查看上方日志。");
         return null;
     }
@@ -612,9 +612,9 @@ public class MainActivity extends Activity {
         for (int i = 0; i < ZOOM_STEPS.length; i++) {
             final int pct = ZOOM_STEPS[i];
             boolean cur = pct == currentZoom();
-            // 用 toggleButton：保证「100% ✓」单行显示，不会把按钮撑高
-            android.widget.Button b = DshUi.toggleButton(this,
-                    pct + "%" + (cur ? " ✓" : ""), cur);
+            // 用 toggleButton：保证单行显示，不会把按钮撑高
+            // 选中态由按钮样式（主/次）体现，不再叠加符号
+            android.widget.Button b = DshUi.toggleButton(this, pct + "%", cur);
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
                     applyZoom(pct);
@@ -648,13 +648,14 @@ public class MainActivity extends Activity {
             // 不写入「维护状态」——那是补丁清单；当前档位由按钮对勾体现
             log("显示缩放已设为 " + pct + "%");
         } catch (Throwable t) {
-            log("⚠️ 设置显示缩放失败: " + t);
+            log("警告: 设置显示缩放失败: " + t);
         }
     }
 
     /** 记录一条补丁状态。 */
     private void recordPatch(String name, boolean ok, String detail) {
-        patchReport.put(name, (ok ? "✅ " : "⚠️ ") + name
+        // 状态用颜色区分（设置页按 \u0000/\u0001 上色），文字里不含任何符号
+        patchReport.put(name, (ok ? "\u0000" : "\u0001") + name
                 + (detail == null || detail.length() == 0 ? "" : " — " + detail));
     }
     /** 本次启动是否使用了插件 --patch 覆盖层（用于失败时自动停用）。 */
@@ -681,7 +682,7 @@ public class MainActivity extends Activity {
                             java.util.regex.Matcher m = URL_PATTERN.matcher(clean);
                             if (m.find()) {
                                 lastUrl = m.group();
-                                log("  ✓ 已捕获服务地址");
+                                log("  已捕获服务地址");
                             }
                         }
                         carry.setLength(0);
@@ -765,7 +766,7 @@ public class MainActivity extends Activity {
 
             String want = topLevelBlock(readText(preset), "llm-pi-ai");
             if (want == null || want.length() == 0) {
-                log("  ⚠️ 预设里没有 llm-pi-ai 块，跳过同步");
+                log("  [警告] 预设里没有 llm-pi-ai 块，跳过同步");
                 return;
             }
             String cur = readText(settings);
@@ -795,7 +796,7 @@ public class MainActivity extends Activity {
             log("  已同步模型配置；支持图片输入的模型: "
                     + (withImage.isEmpty() ? "（无）" : withImage.toString()));
         } catch (Throwable t) {
-            log("  ⚠️ 同步模型配置失败: " + shorten(t));
+            log("  [警告] 同步模型配置失败: " + shorten(t));
         }
         try { dumpForDiagnosis(topLevelBlock(readText(settings), "llm-pi-ai")); }
         catch (Throwable ignored) { }
@@ -841,7 +842,7 @@ public class MainActivity extends Activity {
             if (txt.indexOf("- id: \"" + model + "\"") < 0
                     && txt.indexOf("- id: " + model) < 0
                     && txt.indexOf("'" + model + "'") < 0) {
-                log("  ⚠️ 该模型不在配置的模型清单中 —— "
+                log("  [警告] 该模型不在配置的模型清单中 —— "
                         + "发图片时 resolveModelInfo 会失败，请改用清单内的模型");
                 return;
             }
@@ -853,7 +854,7 @@ public class MainActivity extends Activity {
                   + "[\"']?\\s*$([\\s\\S]*?)(?=^\\s*-\\s*id:|\\Z)").matcher(txt);
             if (m.find()) {
                 boolean img = m.group(1).contains("input:") && m.group(1).contains("image");
-                log("  该模型" + (img ? "已声明支持图片输入 ✅" : "未声明图片输入 ⚠️（发图会被拒）"));
+                log("  该模型" + (img ? "已声明支持图片输入" : "未声明图片输入（发图会被拒）"));
             }
         } catch (Throwable t) {
             log("  （模型核对失败: " + shorten(t) + "）");
@@ -988,7 +989,7 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript(js, null);
             log("已注入接口捕获 + 客户端异常捕获");
         } catch (Throwable t) {
-            log("⚠️ 注入接口捕获失败: " + t);
+            log("警告: 注入接口捕获失败: " + t);
         }
     }
 
@@ -1031,7 +1032,7 @@ public class MainActivity extends Activity {
                 String base = stripAndroidPatch(raw);
                 if (base.indexOf("await syncDirectory(") < 0) {
                     recordPatch("附件落盘", false, "DSH 代码已变化，补丁未应用（图片可能失效）");
-                    log("  ⚠️ 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
+                    log("  [警告] 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
                     return;
                 }
                 writeText(orig, base);
@@ -1047,14 +1048,14 @@ public class MainActivity extends Activity {
             String out = buildPatchedAttachment(readText(orig), PATCH_TAG);
             if (out == null) {
                 recordPatch("附件落盘", false, "自检未通过，已放弃");
-                log("  ⚠️ 附件补丁自检未通过，放弃应用");
+                log("  [警告] 附件补丁自检未通过，放弃应用");
                 return;
             }
             writeText(f, out);
             recordPatch("附件落盘", true, "越界 fsync 跳过 + 硬链接退化复制");
             log("  已应用附件补丁 v3（越界 fsync 跳过 + 硬链接退化复制 + 失败原因可见）");
         } catch (Throwable t) {
-            log("  ⚠️ 附件持久化补丁失败: " + t);
+            log("  [警告] 附件持久化补丁失败: " + t);
         }
     }
 
@@ -1101,7 +1102,7 @@ public class MainActivity extends Activity {
      */
     private static String buildPatchedAttachment(String src, String tag) {
         if (src == null || src.indexOf("await syncDirectory(") < 0) return null;
-        // ⚠️ 必须先替换调用点、再前置包装函数 —— 反过来会把包装函数自身的调用
+        // 必须先替换调用点、再前置包装函数 —— 反过来会把包装函数自身的调用
         // 也替换掉，造成自我递归（实测 RangeError: Maximum call stack size exceeded）。
         String out = src.replace("await syncDirectory(", "await __androidSyncDirectory(");
         out = out.replace("await link(staged.path, target);", "await __androidLink(staged.path, target);");
@@ -1182,7 +1183,7 @@ public class MainActivity extends Activity {
                    .append("      name: '@deepseek-ai/dsh-schedule'\n");
                 enabled.add("Schedule（会话内定时提醒）");
             }
-            // ⚠️ dsh-mcp-client 在**没有配置任何 server** 时会让 DSH 整个启动失败：
+            // dsh-mcp-client 在**没有配置任何 server** 时会让 DSH 整个启动失败：
             //     failed to apply loader entry mcp-client: Cannot read properties of
             //     undefined (reading 'reconnect')
             // 已用真实命令验证过，故不启用；待其能在空配置下安全加载再开。
@@ -1201,7 +1202,7 @@ public class MainActivity extends Activity {
             log("已启用插件: " + enabled);
             recordPatch("可选插件", true, enabled.toString());
         } catch (Throwable t) {
-            log("⚠️ Schedule 补丁写入失败，跳过启用: " + t);
+            log("警告: Schedule 补丁写入失败，跳过启用: " + t);
         }
     }
 
@@ -1361,7 +1362,7 @@ public class MainActivity extends Activity {
                     setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
                     installApk(apk);
                 } catch (Throwable t) {
-                    log("✗ 检查更新失败: " + t);
+                    log("错误: 检查更新失败: " + t);
                     setStatus(status, "检查失败：" + shorten(t));
                     if (interactive) toast("检查更新失败");
                 }
@@ -1409,7 +1410,7 @@ public class MainActivity extends Activity {
             startActivity(i);
             toast("请在安装界面确认覆盖安装");
         } catch (Throwable t) {
-            log("✗ 调起安装器失败: " + t);
+            log("错误: 调起安装器失败: " + t);
             toast("无法调起安装器: " + shorten(t));
         }
     }
@@ -1492,7 +1493,7 @@ public class MainActivity extends Activity {
                         restartAgent();
                     }
                 } catch (Throwable t) {
-                    log("✗ 更新运行包失败: " + t);
+                    log("错误: 更新运行包失败: " + t);
                     setStatus(status, "更新失败：" + shorten(t));
                 }
             }
@@ -1570,7 +1571,7 @@ public class MainActivity extends Activity {
                         + "\n  期望 " + expected + "\n  实际 " + actual);
             }
             bytes += archive.length();
-            log("  ✓ " + name + " 校验通过");
+            log("  " + name + " 校验通过");
 
             setSplashStatus("正在解压运行包…");
             log("解压 " + name + " …");
@@ -1705,7 +1706,7 @@ public class MainActivity extends Activity {
                 log("通知权限: 无法查询 (" + t.getClass().getSimpleName() + ")");
             }
         } catch (Throwable t) {
-            log("⚠️ 前台服务启动失败（不影响运行）: " + t);
+            log("警告: 前台服务启动失败（不影响运行）: " + t);
         }
     }
 
@@ -1788,15 +1789,32 @@ public class MainActivity extends Activity {
 
             // ── 维护状态：补丁是否仍然生效（DSH 更新后可能失效）──
             body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
-            StringBuilder pr = new StringBuilder();
+            // 状态用颜色表达（不再用符号前缀）：
+            // \u0000 = 正常，\u0001 = 需注意
+            android.text.SpannableStringBuilder pr = new android.text.SpannableStringBuilder();
             if (patchReport.isEmpty()) {
                 pr.append("（暂无补丁记录）");
             } else {
-                for (String line : patchReport.values()) pr.append(line).append('\n');
+                for (String line : patchReport.values()) {
+                    boolean warn = line.startsWith("\u0001");
+                    String text = line.length() > 0 ? line.substring(1) : line;
+                    int start = pr.length();
+                    pr.append(text).append('\n');
+                    pr.setSpan(new android.text.style.ForegroundColorSpan(
+                                    warn ? 0xFFB26A00 : DshUi.TEXT_2),
+                            start, pr.length(),
+                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
             }
+            int tail = pr.length();
             pr.append("App ").append(appVersion())
               .append("　运行包 ").append(payloadSummary());
-            body.addView(DshUi.hint(this, pr.toString()), DshUi.fullWidth(this, 6));
+            pr.setSpan(new android.text.style.ForegroundColorSpan(DshUi.TEXT_3),
+                    tail, pr.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            // hint() 只接受 String，这里需要富文本（逐行着色）
+            android.widget.TextView prView = DshUi.hint(this, "");
+            prView.setText(pr);
+            body.addView(prView, DshUi.fullWidth(this, 6));
 
             android.widget.Button cancel = DshUi.button(this, "取消", false);
             android.widget.Button save = DshUi.button(this, "保存并重启", true);
@@ -1823,7 +1841,7 @@ public class MainActivity extends Activity {
             });
             dlg.show();
         } catch (Throwable t) {
-            log("✗ 打开设置页失败: " + t);
+            log("错误: 打开设置页失败: " + t);
             toast("打开设置失败: " + shorten(t));
         }
     }
@@ -1853,7 +1871,7 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override public void run() {
                 try { boot(); }
-                catch (Throwable t) { log("✗ 重启失败: " + t); }
+                catch (Throwable t) { log("错误: 重启失败: " + t); }
             }
         }).start();
     }
@@ -2009,7 +2027,7 @@ public class MainActivity extends Activity {
             });
             rootView.requestApplyInsets();
         } catch (Throwable t) {
-            log("⚠️ 无法注册 inset 监听: " + t);
+            log("警告: 无法注册 inset 监听: " + t);
         }
 
         // 第二条路（更经典可靠）：比较窗口可见区域与根视图高度来推断键盘高度。
@@ -2041,7 +2059,7 @@ public class MainActivity extends Activity {
             });
             log("已启用键盘布局监听");
         } catch (Throwable t) {
-            log("⚠️ 无法注册布局监听: " + t);
+            log("警告: 无法注册布局监听: " + t);
         }
     }
 
@@ -2321,11 +2339,11 @@ public class MainActivity extends Activity {
     private boolean probeNodeExec(File node) {
         log("自检: 检查 Node 可执行性 …");
         if (!node.exists()) {
-            log("✗ 自检失败: node 文件不存在 → " + node.getAbsolutePath());
+            log("错误: 自检失败: node 文件不存在 → " + node.getAbsolutePath());
             return false;
         }
         // 记录权限位，便于判断 chmod 是否真的生效
-        log("  node 权限: " + (node.canExecute() ? "可执行" : "⚠ 无执行位")
+        log("  node 权限: " + (node.canExecute() ? "可执行" : "警告: 无执行位")
                 + ", 大小 " + (node.length() / 1048576) + "MB");
 
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(), "--version");
@@ -2341,14 +2359,14 @@ public class MainActivity extends Activity {
             p = pb.start();
         } catch (IOException e) {
             log("");
-            log("✗✗ 自检失败：无法执行自带的 Node");
+            log("[错误] 自检失败：无法执行自带的 Node");
             log("    原因: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             log("");
             log("  这通常意味着 SELinux 拦截了对私有目录的 execve。");
             log("  本 App 已设 targetSdk=28 以规避该限制，若仍被拦截，");
             log("  说明此 ROM 的策略更严格，需要改用 nativeLibraryDir 方案。");
             log("");
-            log("  👉 请把以上内容完整反馈，这是判断架构是否成立的关键依据。");
+            log("  请把以上内容完整反馈，这是判断架构是否成立的关键依据。");
             return false;
         }
         try {
@@ -2362,13 +2380,13 @@ public class MainActivity extends Activity {
             }
             int code = p.waitFor();
             if (code != 0) {
-                log("✗ 自检失败: node --version 退出码 " + code + "，输出: " + sb);
+                log("错误: 自检失败: node --version 退出码 " + code + "，输出: " + sb);
                 return false;
             }
-            log("  ✓ 自检通过，node 版本: " + sb);
+            log("  自检通过，node 版本: " + sb);
             return true;
         } catch (Exception e) {
-            log("✗ 自检异常: " + e);
+            log("错误: 自检异常: " + e);
             return false;
         }
     }
@@ -2410,7 +2428,7 @@ public class MainActivity extends Activity {
             int n = in.read(raw);
             in.close();
             if (n <= 0) return;
-            log("⚠️ 检测到上次运行崩溃，堆栈如下（同时保存在 " + crashFile + "）：");
+            log("警告: 检测到上次运行崩溃，堆栈如下（同时保存在 " + crashFile + "）：");
             String txt = new String(raw, 0, n, "UTF-8");
             for (String line : txt.split("\n")) {
                 if (line.trim().length() > 0) log("  " + line);
@@ -2439,7 +2457,7 @@ public class MainActivity extends Activity {
             File helper = new File(root, "pillow_shim.py");
             File sharpDir = new File(dshDir, "node_modules/sharp");
             if (!shim.exists() || !helper.exists() || !sharpDir.isDirectory()) {
-                log("  ⚠️ 图片处理组件缺失，跳过（文字功能不受影响）");
+                log("  [警告] 图片处理组件缺失，跳过（文字功能不受影响）");
                 return;
             }
             // 两者必须放在同一目录：JS 侧用 __dirname 定位 pillow_shim.py
@@ -2451,7 +2469,7 @@ public class MainActivity extends Activity {
                     + "\"description\":\"Android implementation backed by Python/Pillow\"}");
             log("  已启用图片附件（sharp 由 Python/Pillow 实现）");
         } catch (Throwable t) {
-            log("  ⚠️ Android 补丁应用失败: " + t);
+            log("  [警告] Android 补丁应用失败: " + t);
         }
     }
 
@@ -2487,7 +2505,7 @@ public class MainActivity extends Activity {
         File html = new File(dshDir,
                 "node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html");
         if (!html.exists()) {
-            log("  ⚠️ 未找到前端 index.html，跳过 viewport 适配");
+            log("  [警告] 未找到前端 index.html，跳过 viewport 适配");
             return;
         }
         try {
@@ -2498,7 +2516,7 @@ public class MainActivity extends Activity {
             // 换一个宽度就再也改不动了）。
             String base = src.replaceAll("content=\"width=[0-9]+\"", VP_ORIG);
             if (base.indexOf(VP_ORIG) < 0) {
-                log("  ⚠️ viewport 标签格式不符，未做适配");
+                log("  [警告] viewport 标签格式不符，未做适配");
                 recordPatch("前端 viewport", false, "标签格式不符，未适配");
                 return;
             }
@@ -2513,7 +2531,7 @@ public class MainActivity extends Activity {
             log("  已适配屏幕宽度：" + want + "px（竖屏 600 / 横屏按比例放大，保持缩放一致）");
             recordPatch("前端 viewport", true, want + "px");
         } catch (Throwable t) {
-            log("  ⚠️ viewport 适配失败: " + t);
+            log("  [警告] viewport 适配失败: " + t);
         }
     }
 
@@ -2543,7 +2561,7 @@ public class MainActivity extends Activity {
         setSplashStatus("正在检查运行环境…");
         log("运行环境自检 …");
         File script = new File(root, "preflight.js");
-        if (!script.exists()) { log("  ⚠️ 缺少 preflight.js，跳过"); return true; }
+        if (!script.exists()) { log("  [警告] 缺少 preflight.js，跳过"); return true; }
 
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
                 script.getAbsolutePath(), root.getAbsolutePath());
@@ -2579,7 +2597,7 @@ public class MainActivity extends Activity {
                     boolean info = "INFO".equals(tag);
                     String detail = (f.length > 3 && f[3].length() > 0) ? " → " + f[3] : "";
                     // INFO 用于「Android 上本就不需要」的项，避免用户误以为有问题
-                    log("  " + (pass ? "✅" : info ? "ℹ️" : warn ? "⚠️" : "❌")
+                    log("  " + (pass ? "[通过]" : info ? "[信息]" : warn ? "[警告]" : "[错误]")
                             + " " + (f.length > 2 ? f[2] : "?") + detail);
                 } else if (line.startsWith("PREFLIGHT_END|")) {
                     try { failed = Integer.parseInt(line.substring(14).trim()); }
@@ -2587,12 +2605,12 @@ public class MainActivity extends Activity {
                 }
             }
             p.waitFor();
-            if (failed == 0) { log("  ✅ 自检全部通过"); return true; }
-            log("  ⚠️ 有 " + (failed < 0 ? "若干" : String.valueOf(failed))
+            if (failed == 0) { log("  自检全部通过"); return true; }
+            log("  [警告] 有 " + (failed < 0 ? "若干" : String.valueOf(failed))
                     + " 项未通过，仍继续启动以便收集信息");
             return false;
         } catch (Exception e) {
-            log("  ⚠️ 自检执行失败: " + e);
+            log("  [警告] 自检执行失败: " + e);
             return true;
         }
     }
@@ -3015,7 +3033,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.19.1\n");
+            w.write("APK 版本: 0.19.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -3148,7 +3166,7 @@ public class MainActivity extends Activity {
                 webView.reload();
             }
         } catch (Throwable t) {
-            log("  ⚠️ 方向切换处理失败: " + t);
+            log("  [警告] 方向切换处理失败: " + t);
         }
     }
 
@@ -3218,7 +3236,7 @@ public class MainActivity extends Activity {
                 toast("已放入工作区：" + out.getName());
             }
         } catch (Throwable t) {
-            log("✗ 处理分享内容失败: " + t);
+            log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
         }
     }

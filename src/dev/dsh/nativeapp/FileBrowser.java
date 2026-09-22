@@ -182,9 +182,9 @@ public final class FileBrowser {
                         }
                         sb.append("，常用位置 ");
                         if (tight.length() == 0) {
-                            sb.append("标签均完整 ✓");
+                            sb.append("标签均完整");
                         } else {
-                            sb.append("⚠️ 这些标签被省略: ").append(tight);
+                            sb.append("警告: 这些标签被省略: ").append(tight);
                         }
 
                         // 底部按钮总宽 vs 可用宽：四个按钮用 wrap_content，
@@ -211,7 +211,7 @@ public final class FileBrowser {
                                 int avail = cardW - rowCandidate.getPaddingLeft()
                                         - rowCandidate.getPaddingRight();
                                 sb.append("，底部按钮 ").append(total).append("/").append(avail);
-                                sb.append(total > avail ? " ⚠️ 放不下" : " ✓");
+                                sb.append(total > avail ? "，放不下" : "，正常");
                                 break;
                             }
                         }
@@ -276,7 +276,7 @@ public final class FileBrowser {
                 Button btn = rootButtons.get(i);
                 DshUi.setButtonActive(btn, samePath(cwd, roots.get(i).dir));
             }
-            hiddenToggle.setText("隐藏文件" + (showHidden ? " ✓" : ""));
+            hiddenToggle.setText("隐藏文件");
             DshUi.setButtonActive(hiddenToggle, showHidden);
             sortToggle.setText(FileListing.sortLabel(sortMode));
             DshUi.setButtonActive(sortToggle, sortMode != FileListing.SORT_NAME);
@@ -335,8 +335,15 @@ public final class FileBrowser {
             int rp = DshUi.dp(act, 8);
             row.setPadding(rp, rp, rp, rp);
 
+            // 图标用自绘 View（不受系统字体影响），名称另起一个 TextView
+            FileIconView icon = new FileIconView(act, FileListing.iconTypeOf(e));
+            int iconBox = DshUi.dp(act, 18);
+            LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(iconBox, iconBox);
+            iconLp.rightMargin = DshUi.dp(act, 10);
+            row.addView(icon, iconLp);
+
             TextView name = new TextView(act);
-            name.setText(FileListing.iconOf(e) + e.name);
+            name.setText(e.name);
             name.setTextSize(12.5f);
             name.setTextColor(e.dir ? DshUi.TEXT : DshUi.TEXT_2);
             name.setSingleLine(true);
