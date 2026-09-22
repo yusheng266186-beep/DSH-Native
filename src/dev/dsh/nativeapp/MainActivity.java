@@ -846,7 +846,8 @@ public class MainActivity extends Activity {
           + "function isAsset(u){return /\\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map)(\\?|$)/i.test(u);}"
           + "window.fetch=function(){"
           + "  var a=arguments[0];"
-          + "  var u=(typeof a==='string')?a:((a&&a.url)||'');"
+          + "  var u='';"
+          + "  try{u=(typeof a==='string')?a:(a&&a.url?a.url:String(a));}catch(x){}"
           + "  var p=of.apply(this,arguments);"
           + "  try{"
           + "    p.then(function(r){"
@@ -867,10 +868,31 @@ public class MainActivity extends Activity {
           + "  }catch(e){}"
           + "  return p;"
           + "};"
+          + "})();"
+          // 客户端异常捕获：这是我此前一直缺的一块。
+          // fetch 包装只能看到「已发出的请求」，而纯客户端抛错（例如
+          // 文件 MIME 不在允许列表里而抛 UnsupportedImageMediaTypeError）
+          // 根本不会产生请求 —— 必须靠 error / unhandledrejection 才能看到。
+          + ";(function(){"
+          + "if(window.__dshErr)return;window.__dshErr=1;"
+          + "window.addEventListener('error',function(e){"
+          + "  try{"
+          + "    var st=(e.error&&e.error.stack)?e.error.stack:'';"
+          + "    console.error('[dsh-js-error] '+(e.message||'')+' @'+(e.filename||'')+':'+(e.lineno||0)+' :: '+String(st).slice(0,700));"
+          + "  }catch(x){}"
+          + "});"
+          + "window.addEventListener('unhandledrejection',function(e){"
+          + "  try{"
+          + "    var r=e.reason;"
+          + "    var d=(r&&(r.stack||r.message))?(r.stack||r.message):String(r);"
+          + "    var n=(r&&r.name)?(r.name+': '):'';"
+          + "    console.error('[dsh-js-reject] '+n+String(d).slice(0,800));"
+          + "  }catch(x){}"
+          + "});"
           + "})();";
         try {
             webView.evaluateJavascript(js, null);
-            log("已注入接口捕获（记录所有非静态请求的响应）");
+            log("已注入接口捕获 + 客户端异常捕获");
         } catch (Throwable t) {
             log("⚠️ 注入接口捕获失败: " + t);
         }
@@ -2614,7 +2636,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.6\n");
+            w.write("APK 版本: 0.15.7\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

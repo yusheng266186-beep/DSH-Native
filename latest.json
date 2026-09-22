@@ -1,7 +1,7 @@
 {
-  "version": "0.15.6",
-  "tag": "v0.15.6-bootstrap",
+  "version": "0.15.7",
+  "tag": "v0.15.7-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "移除 NODE_PATH（对齐可用环境）+ 全量响应记录"
+  "notes": "补上客户端异常捕获（error / unhandledrejection）"
 }
