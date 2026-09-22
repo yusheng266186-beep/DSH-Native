@@ -185,6 +185,13 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    // 任务事件单独分流：不写进日志（每 4 秒一次的轮询若都记，
+                    // 日志会被刷爆），只用于通知判定
+                    String[] ev = TaskNotifier.parseConsole(m);
+                    if (ev != null) {
+                        onTaskEvent(ev[0], ev[1]);
+                        return true;
+                    }
                     log("[web] " + (m.length() > 900 ? m.substring(0, 900) : m));
                 }
                 return true;
@@ -250,6 +257,7 @@ public class MainActivity extends Activity {
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
                 installFetchDiagnostics();
+                installTaskWatcher();
                 final String act = pendingAction;
                 pendingAction = "";
                 if (pendingOpenSettings || act.length() > 0) {
@@ -568,6 +576,13 @@ public class MainActivity extends Activity {
     private android.widget.FrameLayout rootView;
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
+
+    /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里，有 33 项测试）。 */
+    private final TaskNotifier taskNotifier = new TaskNotifier();
+    /** App 是否在前台：在前台时界面本来就看得见结果，不必再弹通知。 */
+    private volatile boolean inForeground = true;
+    /** 任务完成通知的通知 id（与前台服务通知区分开）。 */
+    private static final int TASK_DONE_NOTIFY_ID = 1001;
     /**
      * 可选的显示缩放档位（百分比）。
      *
@@ -935,6 +950,72 @@ public class MainActivity extends Activity {
                 }
             }
         });
+    }
+
+    // ---------------------------------------------------------------- 任务完成通知
+    /**
+     * 注入会话状态轮询：观察 {@code running} 由有到无，判断任务完成。
+     *
+     * <p>为什么用注入而不是原生轮询：页面已经完成认证（会话 Cookie），
+     * 同源 {@code fetch} 直接可用，不必把 token 拿出来在原生侧另开一条请求。
+     * 回报走 {@code console.log} —— 不改动网页的安全面（不引入 JS 桥）。
+     */
+    private void installTaskWatcher() {
+        try {
+            webView.evaluateJavascript(TaskNotifier.pollScript(), null);
+            log("已注入任务状态监听（完成后会在后台通知）");
+        } catch (Throwable t) {
+            log("任务状态监听注入失败: " + t);
+        }
+    }
+
+    /** 处理来自注入脚本的任务事件。 */
+    private void onTaskEvent(String kind, String sessionId) {
+        try {
+            String msg = taskNotifier.onEvent(kind, sessionId,
+                    System.currentTimeMillis(), inForeground);
+            if (msg == null) return;
+            notifyTaskDone(msg);
+        } catch (Throwable t) {
+            log("任务事件处理失败: " + t);
+        }
+    }
+
+    /** 发一条任务完成通知。 */
+    private void notifyTaskDone(String text) {
+        try {
+            android.app.NotificationManager nm =
+                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+            if (icon == 0) icon = android.R.drawable.stat_notify_sync;
+
+            android.content.Intent open = new android.content.Intent(this, MainActivity.class);
+            open.setFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT;
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                flags |= android.app.PendingIntent.FLAG_IMMUTABLE;
+            }
+            android.app.PendingIntent pi =
+                    android.app.PendingIntent.getActivity(this, 0, open, flags);
+
+            android.app.Notification.Builder b;
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                b = new android.app.Notification.Builder(this, HarnessService.CHANNEL_ID);
+            } else {
+                b = new android.app.Notification.Builder(this);
+            }
+            b.setContentTitle("DeepSeek Harness")
+             .setContentText(text)
+             .setSmallIcon(icon)
+             .setContentIntent(pi)
+             .setAutoCancel(true);
+            nm.notify(TASK_DONE_NOTIFY_ID, b.build());
+            log("已发出任务完成通知: " + text);
+        } catch (Throwable t) {
+            log("任务完成通知发送失败: " + t);
+        }
     }
 
     // ---------------------------------------------------------------- 网络诊断
@@ -3063,7 +3144,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.19.8\n");
+            w.write("APK 版本: 0.19.9\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -3198,6 +3279,18 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("  [警告] 方向切换处理失败: " + t);
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        inForeground = true;
+    }
+
+    @Override
+    protected void onPause() {
+        inForeground = false;
+        super.onPause();
     }
 
     @Override
