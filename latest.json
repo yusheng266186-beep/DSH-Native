@@ -1,7 +1,7 @@
 {
-  "version": "0.18.8",
-  "tag": "v0.18.8-bootstrap",
+  "version": "0.18.9",
+  "tag": "v0.18.9-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "提示条移到顶部（修遮挡）+ 文件排序 + 编辑器行号与外部改动保护"
+  "notes": "文件浏览器布局自检（尺寸写入日志）+ 跨组件日志钩子"
 }

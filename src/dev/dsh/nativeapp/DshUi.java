@@ -252,6 +252,30 @@ public final class DshUi {
      * 也在底部 —— 实测每次提示都会盖住「取消 / 保存」按钮，用户点不到。
      * 而对话框上方的留白区（约屏幕高 15%）正好空着，放那里互不遮挡。
      */
+    /** 日志接收方：由宿主 Activity 注册，把各组件日志汇入统一日志文件。 */
+    public interface LogSink {
+        void log(String msg);
+    }
+
+    private static volatile LogSink logSink;
+
+    /** 注册日志接收方（宿主启动时调用一次）。 */
+    public static void setLogSink(LogSink sink) { logSink = sink; }
+
+    /**
+     * 记录一条日志。
+     *
+     * <p>各 UI 组件（文件浏览、编辑器、日志查看器）通过它把「布局自检」这类
+     * 诊断信息汇入统一日志 —— 否则这些信息只能靠截图看，
+     * 而截图恰恰看不出「是内容真的少了，还是被裁掉了」。
+     */
+    public static void log(String msg) {
+        LogSink sink = logSink;
+        if (sink != null && msg != null) {
+            try { sink.log(msg); } catch (Throwable ignored) { }
+        }
+    }
+
     public static void toast(Context c, CharSequence msg) {
         if (c == null || msg == null) return;
         try {

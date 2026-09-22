@@ -122,6 +122,70 @@ public final class FileBrowser {
 
         void refresh() { navigate(cwd); }
 
+        /**
+         * 布局自检：把关键尺寸写进日志。
+         *
+         * <p>目的很实际 —— 界面问题只能靠截图发现，而截图往往看不出
+         * 「是内容真的少了，还是被裁掉了」。这里在布局完成后实测各区域尺寸，
+         * 从日志就能判断：列表拿到多少高度、一屏能显示几行、面包屑是否超宽、
+         * 底部按钮有没有挤出卡片。
+         */
+        void reportLayout(Dialog dlg, final ScrollView listScroll,
+                          final LinearLayout rootRow,
+                          final android.widget.HorizontalScrollView crumb) {
+            final android.view.View decor = dlg.getWindow() == null
+                    ? null : dlg.getWindow().getDecorView();
+            if (decor == null) return;
+            decor.post(new Runnable() {
+                @Override public void run() {
+                    try {
+                        int dw = decor.getWidth(), dh = decor.getHeight();
+                        int lw = listScroll.getWidth(), lh = listScroll.getHeight();
+                        int rows = listBox.getChildCount();
+                        int rowH = rows > 0 ? listBox.getChildAt(0).getHeight() : 0;
+                        int visible = rowH > 0 ? lh / rowH : 0;
+
+                        StringBuilder sb = new StringBuilder("布局自检: ");
+                        sb.append("对话框 ").append(dw).append("x").append(dh);
+                        sb.append("，列表 ").append(lw).append("x").append(lh);
+                        sb.append("，条目 ").append(rows).append(" 个");
+                        sb.append("，行高 ").append(rowH).append("px");
+                        sb.append("，可见 ").append(visible).append(" 行");
+                        // 面包屑内容宽 vs 可视宽：超出说明需要横向滚动（正常，不是缺陷）
+                        int crumbContent = crumb.getChildCount() > 0
+                                ? crumb.getChildAt(0).getWidth() : 0;
+                        sb.append("，面包屑 ").append(crumbContent)
+                          .append("/").append(crumb.getWidth());
+                        // 常用位置一行是否放得下
+                        int rootNeeded = 0;
+                        for (int i = 0; i < rootRow.getChildCount(); i++) {
+                            android.view.View c = rootRow.getChildAt(i);
+                            rootNeeded += c.getWidth();
+                            android.view.ViewGroup.MarginLayoutParams lp =
+                                    (android.view.ViewGroup.MarginLayoutParams) c.getLayoutParams();
+                            rootNeeded += lp.leftMargin + lp.rightMargin;
+                        }
+                        sb.append("，常用位置 ").append(rootNeeded)
+                          .append("/").append(rootRow.getWidth());
+                        sb.append(rootNeeded > rootRow.getWidth() ? " ⚠️ 放不下" : " ✓");
+
+                        // 行内两列是否都被压到过窄（各占约一半为正常）
+                        if (rows > 0 && rowH > 0) {
+                            android.view.ViewGroup row =
+                                    (android.view.ViewGroup) listBox.getChildAt(0);
+                            if (row.getChildCount() >= 2) {
+                                sb.append("，名称列 ").append(row.getChildAt(0).getWidth())
+                                  .append(" / 说明列 ").append(row.getChildAt(1).getWidth());
+                            }
+                        }
+                        DshUi.log(sb.toString());
+                    } catch (Throwable t) {
+                        DshUi.log("布局自检失败: " + t);
+                    }
+                }
+            });
+        }
+
         void shutdown() {
             try { io.shutdownNow(); } catch (Throwable ignored) { }
             try { ui.removeCallbacksAndMessages(null); } catch (Throwable ignored) { }
@@ -372,5 +436,6 @@ public final class FileBrowser {
 
         dlg.show();
         b.navigate(b.cwd);
+        b.reportLayout(dlg, scroll, rootRow, b.crumbScroll);
     }
 }
