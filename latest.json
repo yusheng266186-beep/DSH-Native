@@ -1,7 +1,7 @@
 {
-  "version": "0.16.0",
-  "tag": "v0.16.0-bootstrap",
+  "version": "0.16.2",
+  "tag": "v0.16.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "修复附件落盘向上遍历越界导致的 EACCES"
+  "notes": "附件落盘双加固：越界 fsync 跳过 + 硬链接退化复制"
 }

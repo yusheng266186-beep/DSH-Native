@@ -936,13 +936,59 @@ public class MainActivity extends Activity {
             }
             String out = src.replace("await syncDirectory(",
                                      "await __androidSyncDirectory(");
-            out = "/* Android patch: EACCES during the upward durability walk is\n"
-                + "   expected because an app cannot traverse above its own data dir. */\n"
+            // 把底层 cause 暴露出来：原本 persist 失败时只抛
+            // "Unable to persist attachment."，真正的 error.code/message 被塞进
+            // cause 字段、界面看不到 —— 又被掩盖一次。
+            // 这里把 cause 拼进 message，界面上就能直接读到根因。
+            int replaced = 0;
+            String marker = "throw new AttachmentError(\"Unable to persist attachment.\", \"ATTACHMENT_WRITE_FAILED\", { cause: error });";
+            if (out.contains(marker)) {
+                String diag = "console.error('[dsh-attach] persist failed: ' + String(error && error.code) "
+                        + "+ ' ' + String(error && error.message) "
+                        + "+ (error && error.cause ? (' <= ' + String(error.cause.code) + ' ' + String(error.cause.message)) : ''));\n\t\t\t"
+                        + "throw new AttachmentError(\"Unable to persist attachment. [\" + String(error && error.code) "
+                        + "+ '] ' + String(error && error.message) "
+                        + "+ (error && error.cause ? (' <= ' + String(error.cause.code) + ' ' + String(error.cause.message)) : ''), "
+                        + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
+                out = out.replace(marker, diag);
+                replaced = 1;
+            }
+            // 两处加固：
+            // ① syncDirectory 越界 fsync：App 无法访问自家 data 目录之上的路径。
+            //    目录 fsync 属「尽力而为」的持久化措施，失败不应中断附件写入，
+            //    因此这里吞掉**所有**错误（并记日志），而不只是 EACCES。
+            // ② link 硬链接发布：部分 Android 文件系统（FUSE/sdcardfs 等）
+            //    不支持硬链接，会返回 EPERM/EXDEV/ENOSYS 等。此时退化为复制。
+            String helper =
+                  "/* Android patch: the upward durability walk cannot traverse above\n"
+                + "   the app's own data dir; dir fsync is best-effort. */\n"
                 + "async function __androidSyncDirectory(p){try{return await syncDirectory(p);}"
-                + "catch(e){if(e&&(e.code==='EACCES'||e.code==='EPERM'))return;throw e;}}\n"
-                + out;
+                + "catch(e){console.error('[dsh-attach] syncDirectory skipped ' + p + ': ' + String(e && e.code));}}\n"
+                + "/* Android patch: hard links are unsupported on some Android filesystems. */\n"
+                + "async function __androidLink(from,to){try{return await link(from,to);}"
+                + "catch(e){var c=e&&e.code;"
+                + "if(c==='EPERM'||c==='EXDEV'||c==='ENOSYS'||c==='EACCES'||c==='EMLINK'||c==='EOPNOTSUPP'){"
+                + "console.error('[dsh-attach] link unsupported (' + c + '), falling back to copy');"
+                + "const b=await readFile(from);await writeFile(to,b,{mode:384});return;}"
+                + "throw e;}}\n";
+            // ⚠️ 顺序很重要：必须**先替换调用点，再前置包装函数**。
+            // 反过来会把包装函数自身的 syncDirectory/link 调用也替换掉，
+            // 造成自我递归（实测造成 RangeError: Maximum call stack size exceeded）。
+            out = out.replace("await link(staged.path, target);",
+                              "await __androidLink(staged.path, target);");
+            out = out.replace("await link(source, target);",
+                              "await __androidLink(source, target);");
+            out = helper + out;
+            // 自检：包装函数体内必须仍是原始调用，否则会自我递归
+            // （此坑实测踩过：RangeError: Maximum call stack size exceeded）。
+            if (out.indexOf("__androidSyncDirectory(p){try{return await syncDirectory(p);}") < 0
+                    || out.indexOf("__androidLink(from,to){try{return await link(from,to);}") < 0) {
+                log("  ⚠️ 附件补丁自检未通过（包装函数可能自我递归），已放弃应用");
+                return;
+            }
             writeText(f, out);
-            log("  已为附件落盘应用 Android 权限补丁（越界 fsync 不再中断）");
+            log("  已为附件落盘应用 Android 补丁（越界 fsync 跳过 + 硬链接退化复制"
+                    + (replaced > 0 ? " + 失败原因可见" : "") + "）");
         } catch (Throwable t) {
             log("  ⚠️ 附件持久化补丁失败: " + t);
         }
@@ -2687,7 +2733,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.16.0\n");
+            w.write("APK 版本: 0.16.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
