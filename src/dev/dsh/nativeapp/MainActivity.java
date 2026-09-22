@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v2/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v3/";
 
     private static final String[] SOURCES = {
             "https://gh-proxy.com/" + ASSET_PATH,
@@ -73,7 +73,7 @@ public class MainActivity extends Activity {
      */
     private static final String[][] ARCHIVES = {
             {"dsh.tar.zst", "565ed47e26b2410b593d826c7604b6e8ae4940ab75b791a5e6e52e1a5d045bf0"},
-            {"tools.tar.zst", "9b5639415af79e1dc80a1373a4bf96785f4005729a52efb3b92e91e87acc5f35"},
+            {"tools.tar.zst", "f98c33b0e5efbfd72c12f45aeaca7e7ec1843e536cd430c0b3b4bf8f2b45e8aa"},
     };
 
     /** 首选端口。实际使用 chosenPort —— 3080 常被设备上其他 DSH 实例占用。 */
@@ -84,7 +84,7 @@ public class MainActivity extends Activity {
      * 标记文件里记的是版本号而非"存在与否"，
      * 否则旧版运行包会被永远跳过（此前 payload-v2 加入 Python 时就踩过这个坑）。
      */
-    private static final String PAYLOAD_VERSION = "2";
+    private static final String PAYLOAD_VERSION = "3";
     private int chosenPort = PORT;
 
     private WebView webView;
@@ -233,6 +233,8 @@ public class MainActivity extends Activity {
 
         initSharedLog();
         requestStoragePermission();
+        handleShareIntent(getIntent());
+
         installCrashHandler();
         showPreviousCrash();
 
@@ -413,6 +415,18 @@ public class MainActivity extends Activity {
             pb.environment().put("GIT_SSL_CAINFO", ca);
             pb.environment().put("REQUESTS_CA_BUNDLE", ca);   // 供 python-requests 类工具
         }
+        // $SHELL 若不设置会继承到不存在的 Termux 路径（agent 已实测踩到），
+        // 显式指向自带 bash，依赖 $SHELL 的工具才不会误判。
+        File bash = new File(toolsDir, "bin/bash");
+        if (bash.exists()) {
+            pb.environment().put("SHELL", bash.getAbsolutePath());
+        }
+        // npm 的前缀同样被硬编码成 Termux 路径；指到自带目录，
+        // 这样 npm install -g 才会装进我们自己的可写目录。
+        pb.environment().put("PREFIX", toolsDir.getAbsolutePath());
+        pb.environment().put("npm_config_prefix", toolsDir.getAbsolutePath());
+        pb.environment().put("npm_config_cache", new File(root, ".npm-cache").getAbsolutePath());
+        pb.environment().put("npm_config_update_notifier", "false");
         pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
         pb.environment().put("PYTHONNOUSERSITE", "1");
 
@@ -1834,7 +1848,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.9.3\n");
+            w.write("APK 版本: 0.10.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -1917,6 +1931,88 @@ public class MainActivity extends Activity {
      *
      * <p>全屏 WebView 里若直接退出，用户想返回上个界面时会误关应用。
      */
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    /**
+     * 处理从其他 App 分享过来的内容。
+     *
+     * <p>文件直接落到工作区；文本存成带时间戳的说明文件。
+     * 这样用户在任何 App 里「分享到 DeepSeek Harness」，
+     * 内容就出现在 agent 能直接读写的地方。
+     */
+    private void handleShareIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (!android.content.Intent.ACTION_SEND.equals(action)
+                && !android.content.Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            return;
+        }
+        try {
+            final File ws = workspace;
+            if (ws == null) {
+                toast("工作区不可用，无法接收分享内容");
+                return;
+            }
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
+                    java.util.Locale.US).format(new java.util.Date());
+
+            android.net.Uri stream = intent.getParcelableExtra(
+                    android.content.Intent.EXTRA_STREAM);
+            String text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
+            String subject = intent.getStringExtra(android.content.Intent.EXTRA_SUBJECT);
+
+            if (stream != null) {
+                String name = queryDisplayName(stream);
+                if (name == null || name.length() == 0) name = "分享文件-" + stamp;
+                File out = new File(ws, name);
+                java.io.InputStream in = getContentResolver().openInputStream(stream);
+                if (in == null) throw new IOException("无法读取分享的文件");
+                java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+                byte[] buf = new byte[65536];
+                int k;
+                while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
+                fo.close();
+                in.close();
+                log("已接收分享文件: " + out.getAbsolutePath());
+                toast("已放入工作区：" + name);
+                return;
+            }
+
+            if (text != null && text.length() > 0) {
+                String base = (subject != null && subject.trim().length() > 0)
+                        ? subject.trim().replaceAll("[\\/:*?\"<>|]", "_") : "分享内容";
+                File out = new File(ws, base + "-" + stamp + ".txt");
+                writeText(out, text);
+                log("已接收分享文本: " + out.getAbsolutePath());
+                toast("已放入工作区：" + out.getName());
+            }
+        } catch (Throwable t) {
+            log("✗ 处理分享内容失败: " + t);
+            toast("接收分享内容失败");
+        }
+    }
+
+    private String queryDisplayName(android.net.Uri uri) {
+        try {
+            android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
+            if (c != null) {
+                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (c.moveToFirst() && i >= 0) {
+                    String v = c.getString(i);
+                    c.close();
+                    return v;
+                }
+                c.close();
+            }
+        } catch (Throwable ignored) { }
+        return null;
+    }
+
     @Override
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) {

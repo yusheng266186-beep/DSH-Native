@@ -93,6 +93,11 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 # --------------------------------------------------------------------------
 ATTR_IDS = {
     "theme": 0x01010000,
+    # 键盘弹出时收缩窗口（而非平移），避免输入法挡住内容；
+    # id 取自 35 个真实 APK 采集的属性表：16843307 = 0x0101022b
+    "windowSoftInputMode": 0x0101022B,
+    # 供分享 intent-filter 的 <data android:mimeType> 使用
+    "mimeType": 0x01010026,
     "label": 0x01010001,
     "icon": 0x01010002,
     "name": 0x01010003,
@@ -158,7 +163,7 @@ def manifest_tree():
     return E("manifest",
              [(None, "package", s("dev.dsh.native")),
               (A, "versionCode", dec(1)),
-              (A, "versionName", s("0.9.0"))],
+              (A, "versionName", s("0.10.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -192,7 +197,9 @@ def manifest_tree():
                           (A, "exported", boolean(True)),
                           (A, "configChanges",
                            hx(CONFIG_ORIENTATION | CONFIG_SCREEN_SIZE
-                              | CONFIG_KEYBOARD_HIDDEN))],
+                              | CONFIG_KEYBOARD_HIDDEN)),
+                          # 键盘弹出时收缩窗口而不是平移，避免输入法盖住聊天内容
+                          (A, "windowSoftInputMode", hx(0x10))],
                          [
                              E("intent-filter", [], [
                                  E("action",
@@ -200,6 +207,14 @@ def manifest_tree():
                                  E("category",
                                    [(A, "name",
                                       s("android.intent.category.LAUNCHER"))]),
+                                      # 接收其他 App 的「分享」：文件与文本直接落到工作区
+                                      E("intent-filter", [], [
+                                          E("action",
+                                            [(A, "name", s("android.intent.action.SEND"))]),
+                                          E("category",
+                                            [(A, "name", s("android.intent.category.DEFAULT"))]),
+                                          E("data", [(A, "mimeType", s("*/*"))]),
+                                      ]),
                              ]),
                          ]),
                    # 前台服务：保活 + 通知栏提供「设置 / 停止」
