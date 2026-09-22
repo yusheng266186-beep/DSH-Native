@@ -1191,7 +1191,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.5.1\n");
+            w.write("APK 版本: 0.6.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -1265,6 +1265,20 @@ public class MainActivity extends Activity {
                 && grantResults[0] == 0;   // PackageManager.PERMISSION_GRANTED
         log("存储权限结果: " + (granted ? "已授予，日志将写入 /sdcard/DSHNative/launch.log"
                 : "被拒绝 —— 无法写共享日志，不影响 App 运行"));
+    }
+
+    /**
+     * 返回键：先在 WebView 内后退，退无可退才退出 App。
+     *
+     * <p>全屏 WebView 里若直接退出，用户想返回上个界面时会误关应用。
+     */
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override

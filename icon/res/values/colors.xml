@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DeepSeek 品牌蓝（取自官网 logo） -->
+    <color name="brand_blue">#FF4D6BFE</color>
+    <color name="surface">#FFFFFFFF</color>
+    <color name="surface_tint">#FFEEF2FF</color>
+</resources>
