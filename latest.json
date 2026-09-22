@@ -1,7 +1,7 @@
 {
-  "version": "0.12.0",
-  "tag": "v0.12.0-bootstrap",
+  "version": "0.12.1",
+  "tag": "v0.12.1-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v4",
-  "notes": "应用内更新"
+  "notes": "更新功能可观测：新增自动检查与操作日志"
 }

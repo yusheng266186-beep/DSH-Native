@@ -220,6 +220,14 @@ public class MainActivity extends Activity {
                 if (dshPageLoaded) return;
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
+                // 启动后静默检查一次更新：用户不必手动点，
+                // 日志里也总能留下一条可核对的结果。
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        try { Thread.sleep(3000); } catch (InterruptedException ignored) { }
+                        autoCheckUpdate();
+                    }
+                }).start();
                 // 稍等片刻再淡出：单页应用 onload 后还需一点时间渲染
                 new android.os.Handler(android.os.Looper.getMainLooper())
                         .postDelayed(new Runnable() {
@@ -628,6 +636,7 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override public void run() {
                 setStatus(status, "正在检查更新…");
+                log("开始检查 App 更新（当前 " + appVersion() + "）…");
                 try {
                     final String[] rel = latestRelease();
                     if (rel == null) {
@@ -705,6 +714,30 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("✗ 调起安装器失败: " + t);
             toast("无法调起安装器: " + shorten(t));
+        }
+    }
+
+    /** 启动后的静默检查：只记日志；有新版本时提示一次，不打断使用。 */
+    private void autoCheckUpdate() {
+        try {
+            log("自动检查更新（当前 " + appVersion() + "）…");
+            final String[] rel = latestRelease();
+            if (rel == null) {
+                log("自动检查更新：无法获取版本清单（不影响使用）");
+                return;
+            }
+            if (!isNewer(rel[0], appVersion())) {
+                log("自动检查更新：已是最新版本 " + appVersion());
+                return;
+            }
+            log("自动检查更新：发现新版本 " + rel[0] + "（当前 " + appVersion() + "）");
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    toast("有新版本 " + rel[0] + "，可在通知栏「设置」中更新");
+                }
+            });
+        } catch (Throwable t) {
+            log("自动检查更新失败（不影响使用）: " + shorten(t));
         }
     }
 
@@ -940,6 +973,7 @@ public class MainActivity extends Activity {
 
     /** 原生设置页：编辑 API Key 与默认模型（避开手机上很难用的 Web 设置页）。 */
     private void showSettings() {
+        log("打开设置页");
         try {
             final File dshHome = new File(appRoot, ".dsh");
             final File creds = new File(dshHome, ".credentials.yaml");
@@ -991,6 +1025,7 @@ public class MainActivity extends Activity {
             btnPayload.setTextSize(12.5f);
             btnPayload.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    log("用户点击: 更新运行包");
                     updatePayloadNow(upStatus);
                 }
             });
@@ -1006,6 +1041,7 @@ public class MainActivity extends Activity {
             btnApp.setTextSize(12.5f);
             btnApp.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    log("用户点击: 检查 App 更新");
                     checkAppUpdate(true, upStatus);
                 }
             });
@@ -1793,6 +1829,8 @@ public class MainActivity extends Activity {
 
     /** 从指定 release 路径下载（供 App 自更新使用，它不在运行包那个 release 下）。 */
     private void downloadPath(String basePath, String assetName, File out) throws IOException {
+        // 小文件（如 manifest.json）不打进度，否则会出现 "100% (0/0 MB)" 这种误导性输出
+        final boolean quiet = assetName.endsWith(".json");
         final int CHUNK = 2 * 1024 * 1024;
         final int MAX_RETRY_PER_SOURCE = 4;
 
@@ -1853,6 +1891,7 @@ public class MainActivity extends Activity {
                     if (pct / 10 != lastLoggedPct / 10) {
                         lastLoggedPct = pct;
                         long secs = Math.max(1, (System.currentTimeMillis() - t0) / 1000);
+                        if (quiet) { /* 静默 */ } else
                         log("  " + pct + "%  (" + (done / 1048576) + "/" + (total / 1048576)
                                 + " MB, " + (done / 1048576 / secs) + " MB/s, 重试 " + retries + " 次)");
                         // 开屏只显示友好的进度，不显示速率/重试等技术细节
@@ -2150,7 +2189,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.12.0\n");
+            w.write("APK 版本: 0.12.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
