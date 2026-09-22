@@ -418,6 +418,12 @@ public class MainActivity extends Activity {
         applyAndroidPatches(root, dshDir);
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
+        // 记录给插件管理用（安装时需要 node 与 npm 的路径）
+
+        toolsDirRef = toolsDir;
+
+        nodeRef = node;
+
         runPreflight(node, root, toolsDir);
 
         // 3. 准备 DSH 配置（若不存在）
@@ -597,6 +603,10 @@ public class MainActivity extends Activity {
             "content=\"width=device-width, initial-scale=1\"";
     /** 当前已应用的 viewport 宽度（0 = 尚未应用）。 */
     private volatile int appliedViewportWidth = 0;
+    /** 工具链目录与 node 可执行文件（插件安装需要）。 */
+    private volatile File toolsDirRef;
+    private volatile File nodeRef;
+
     /** DSH 安装目录，供屏幕方向变化时重新适配 viewport。 */
     private volatile File dshDirRef;
     /** agent 的工作目录（优先共享存储）。 */
@@ -1254,55 +1264,102 @@ public class MainActivity extends Activity {
      * <p>每个插件都先确认运行包里真的有它 —— 实测引用不存在的插件会让
      * DSH **整个启动失败**（plugin tree failed to load），必须防御。
      */
+    /**
+     * 生成插件覆盖层（{@code --patch}）。
+     *
+     * <p>启用哪些插件由**用户选择**决定（设置 → 插件），默认只启用 Schedule。
+     * 覆盖层的内容交给纯逻辑类 {@link PluginSpecs#buildPatchYaml} 生成
+     * （有 64 项测试，含命令注入防护与 YAML 结构校验）。
+     *
+     * <p>关键约束：**引用一个不存在的插件会让 DSH 整个启动失败**，
+     * 所以每个名字在写进覆盖层之前都必须确认真的能解析到 ——
+     * 内置插件在运行包里，用户装的在 profile 的 node_modules 里，两处都要看。
+     */
     private void enableOptionalPlugins(File dshDir, File root,
                                        java.util.List<String> cmd) {
-        // Schedule：会话内定时提醒（模型可用 schedule_create/list/delete）
-        // 上次带插件启动失败过 → 本次不再启用，保证 App 一定能起来
         if (new File(root, ".plugins-disabled").exists()) {
             log("插件已被自动停用（上次启动失败），跳过 --patch");
             return;
         }
-        // 逐个确认运行包里确实存在该插件 —— 引用不存在的插件会让 DSH 整个启动失败
-        File sched = new File(dshDir, "node_modules/@deepseek-ai/dsh-schedule");
-        File mcp = new File(dshDir, "node_modules/@deepseek-ai/dsh-mcp-client");
-        if (!sched.isDirectory() && !mcp.isDirectory()) {
-            log("运行包不含可选插件，跳过");
+
+        java.util.List<String> enabled = enabledPluginNames(dshDir, root);
+        if (enabled.isEmpty()) {
+            log("没有启用任何插件，跳过 --patch");
             return;
         }
         try {
-            StringBuilder yml = new StringBuilder();
-            java.util.List<String> enabled = new java.util.ArrayList<String>();
-            yml.append("# 由 App 自动生成的插件覆盖层。\n")
-               .append("# --patch 是启动器级覆盖层（最后应用、优先级最高），\n")
-               .append("# 因此启用插件无需改动用户的 profile 文件。\n")
-               .append("- insert:\n");
-            if (sched.isDirectory()) {
-                yml.append("    - id: schedule\n")
-                   .append("      name: '@deepseek-ai/dsh-schedule'\n");
-                enabled.add("Schedule（会话内定时提醒）");
-            }
-            // dsh-mcp-client 在**没有配置任何 server** 时会让 DSH 整个启动失败：
-            //     failed to apply loader entry mcp-client: Cannot read properties of
-            //     undefined (reading 'reconnect')
-            // 已用真实命令验证过，故不启用；待其能在空配置下安全加载再开。
-            if (mcp.isDirectory()) {
-                log("  跳过 MCP 客户端（空配置会导致启动失败，已验证）");
-            }
-            if (enabled.isEmpty()) {
-                log("没有可启用的插件，跳过 --patch");
-                return;
-            }
             File patch = new File(root, "cordis.plugins.yml");
-            writeText(patch, yml.toString());
+            writeText(patch, PluginSpecs.buildPatchYaml(enabled));
             cmd.add("--patch");
             cmd.add(patch.getAbsolutePath());
             usedPluginPatch = true;
             log("已启用插件: " + enabled);
             recordPatch("可选插件", true, enabled.toString());
         } catch (Throwable t) {
-            log("警告: Schedule 补丁写入失败，跳过启用: " + t);
+            log("插件覆盖层写入失败，跳过启用: " + t);
         }
     }
+
+    /** 用户选择的插件（已过滤掉解析不到的）。 */
+    private java.util.List<String> enabledPluginNames(File dshDir, File root) {
+        java.util.Set<String> saved = null;
+        try {
+            saved = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getStringSet("plugins", null);
+        } catch (Throwable ignored) { }
+        java.util.List<String> want = new java.util.ArrayList<String>();
+        if (saved == null) {
+            want.add("@deepseek-ai/dsh-schedule");      // 默认
+        } else {
+            want.addAll(saved);
+        }
+
+        File profileModules = new File(new File(root, ".dsh"),
+                "profiles/web/node_modules");
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        for (String name : want) {
+            if (name == null || name.length() == 0) continue;
+            if (resolvePlugin(dshDir, profileModules, name) == null) {
+                log("  跳过插件 " + name + "：解析不到（可能未安装）");
+                continue;
+            }
+            out.add(name);
+        }
+        return out;
+    }
+
+    /** 插件在磁盘上的位置；解析不到返回 null。两处都查：内置与用户安装。 */
+    private File resolvePlugin(File dshDir, File profileModules, String name) {
+        File a = new File(new File(dshDir, "node_modules"), name);
+        if (a.isDirectory()) return a;
+        File b = new File(profileModules, name);
+        if (b.isDirectory()) return b;
+        return null;
+    }
+
+    /** 持久化用户的插件选择；下次启动生效。 */
+    private void setEnabledPlugins(java.util.Set<String> names) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putStringSet("plugins", new java.util.HashSet<String>(names))
+                    .apply();
+        } catch (Throwable t) {
+            log("保存插件选择失败: " + t);
+        }
+    }
+
+    /** 读取当前选择（未设置过时为默认值）。 */
+    private java.util.Set<String> savedPluginSelection() {
+        try {
+            java.util.Set<String> s = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getStringSet("plugins", null);
+            if (s != null) return new java.util.HashSet<String>(s);
+        } catch (Throwable ignored) { }
+        java.util.Set<String> def = new java.util.HashSet<String>();
+        def.add("@deepseek-ai/dsh-schedule");
+        return def;
+    }
+
 
     // ---------------------------------------------------------------- 应用内更新
     /** 当前 APK 版本名。 */
@@ -1850,6 +1907,33 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            // ── 插件 ──
+            body.addView(DshUi.sectionLabel(this, "插件"), DshUi.fullWidth(this, 22));
+            body.addView(DshUi.hint(this, "启用内置插件，或从 npm 安装社区插件（重启后生效）"),
+                    DshUi.fullWidth(this, 6));
+            android.widget.Button btnPlugins = DshUi.button(this, "管理插件", false);
+            {
+                final File pluginDshDir = dshDirRef;
+                btnPlugins.setOnClickListener(new android.view.View.OnClickListener() {
+                    @Override public void onClick(android.view.View v) {
+                        if (pluginDshDir == null) { toast("DSH 目录尚未就绪"); return; }
+                        PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
+                            @Override public File dshDir() { return pluginDshDir; }
+                            @Override public File root() { return appRoot; }
+                            @Override public File toolsDir() { return toolsDirRef; }
+                            @Override public File node() { return nodeRef; }
+                            @Override public java.util.Set<String> selection() {
+                                return savedPluginSelection();
+                            }
+                            @Override public void saveSelection(java.util.Set<String> names) {
+                                setEnabledPlugins(names);
+                            }
+                        });
+                    }
+                });
+            }
+            body.addView(btnPlugins, DshUi.fullWidth(this, 8));
 
             // ── 配置备份 ──
             body.addView(DshUi.sectionLabel(this, "配置备份"), DshUi.fullWidth(this, 22));
@@ -3157,7 +3241,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.2\n");
+            w.write("APK 版本: 0.20.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
