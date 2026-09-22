@@ -46,7 +46,9 @@ function runHelper(req) {
     let child;
     try {
       diag('调用 ' + PYTHON + ' ' + HELPER + ' op=' + req.op
-           + ' 输入=' + Math.round((req.data || '').length * 3 / 4) + 'B');
+           + ' 输入=' + Math.round((req.data || '').length * 3 / 4) + 'B'
+           + (req.ops && req.ops.length ? ' ops=' + JSON.stringify(req.ops) : '')
+           + (req.format ? ' format=' + req.format + '@' + req.quality : ''));
       child = execFile(PYTHON, [HELPER], {
         maxBuffer: MAX_BUFFER,
         timeout: TIMEOUT_MS,
@@ -62,9 +64,13 @@ function runHelper(req) {
         try {
           parsed = JSON.parse(stdout);
         } catch (e) {
+          diag('返回无法解析（原始输出前 300 字符）: ' + String(stdout).slice(0, 300));
+          diag('stderr: ' + String(stderr || '').slice(0, 300));
           reject(new Error('图像处理返回无法解析: ' + String(stdout).slice(0, 200)));
           return;
         }
+        diag('完成 op=' + req.op
+             + (parsed && parsed.width ? ' → ' + parsed.width + '×' + parsed.height : ''));
         if (parsed && parsed._error) {
           diag('Pillow 返回错误: ' + parsed._error);
           reject(new Error('图像处理失败: ' + parsed._error));
@@ -147,8 +153,35 @@ class Sharp {
   }
 }
 
+// DSH 若调用了我们未实现的方法，默认只会得到 "xxx is not a function" 的
+// TypeError —— 被 DSH 的兜底 catch 包装成 "prompt rejected"，看不出真因。
+// 这里用 Proxy 兜底：任何未实现的方法名都会被记录下来，然后抛出可读错误。
+const SHARP_METHODS = [
+  'clone', 'rotate', 'autoOrient', 'toColourspace', 'resize', 'raw',
+  'jpeg', 'jpg', 'webp', 'png', 'metadata', 'toBuffer',
+];
+
+function makeProxy(instance) {
+  return new Proxy(instance, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && !(prop in target)
+          && prop !== 'then' && !prop.startsWith('_')) {
+        // 未实现的方法：记录后返回一个会抛错的函数
+        return function () {
+          diag('调用了未实现的 sharp 方法: ' + prop + '()');
+          throw new TypeError('sharp(android) 未实现方法: ' + prop);
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+class SharpImpl extends Sharp { }
+
 function sharp(input, options) {
-  return new Sharp(input, options);
+  return makeProxy(new Sharp(input, options));
 }
 
 // 兼容 sharp 暴露的静态成员

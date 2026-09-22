@@ -637,6 +637,8 @@ public class MainActivity extends Activity {
             String have = topLevelBlock(cur, "llm-pi-ai");
             if (want.equals(have)) {
                 log("  模型配置与预设一致（含图片能力声明）");
+                dumpForDiagnosis(want);          // 仍需导出供核对
+                reportModelDiagnostics(settings);
                 return;
             }
 
@@ -660,7 +662,28 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("  ⚠️ 同步模型配置失败: " + shorten(t));
         }
+        try { dumpForDiagnosis(topLevelBlock(readText(settings), "llm-pi-ai")); }
+        catch (Throwable ignored) { }
         reportModelDiagnostics(settings);
+    }
+
+    /**
+     * 把 {@code llm-pi-ai} 配置导出到共享目录，便于在设备外核对。
+     *
+     * <p>只导出 provider 与模型定义：其中 {@code apiKeyEnv} 存的是
+     * **环境变量名**而非密钥值，密钥始终只在 .credentials.yaml 里，
+     * 因此这份导出不含敏感信息。
+     */
+    private void dumpForDiagnosis(String block) {
+        try {
+            if (block == null || block.length() == 0) return;
+            File out = new File("/sdcard/DSHNative/model-config.yaml");
+            File dir = out.getParentFile();
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            writeText(out, "# 由 App 导出的模型配置（不含密钥值，只有环境变量名）\n"
+                    + "# 用途：核对模型是否声明了 input: [text, image]\n\n" + block);
+            log("  已导出模型配置供核对: " + out.getAbsolutePath());
+        } catch (Throwable ignored) { }
     }
 
     /**
@@ -2521,7 +2544,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.2\n");
+            w.write("APK 版本: 0.15.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
