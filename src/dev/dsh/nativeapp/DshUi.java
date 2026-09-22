@@ -207,6 +207,9 @@ public final class DshUi {
     public static Button toggleButton(Context c, String text, boolean primary) {
         Button b = button(c, text, primary);
         b.setSingleLine(true);
+        // 单行 + 省略号：权重分配的按钮在标签过长时应显示「…」，
+        // 而不是把字硬切一半
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setIncludeFontPadding(false);
         b.setTextSize(13f);
         b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));

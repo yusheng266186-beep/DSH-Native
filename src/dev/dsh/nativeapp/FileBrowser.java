@@ -298,7 +298,11 @@ public final class FileBrowser {
                     if (e.dir) {
                         navigate(e.file);
                     } else {
-                        TextEditor.open(act, e.file);
+                        // 保存后刷新列表：否则大小与修改时间仍是旧的，
+                        // 看起来像没保存成功
+                        TextEditor.open(act, e.file, new Runnable() {
+                            @Override public void run() { refresh(); }
+                        });
                     }
                 }
             });

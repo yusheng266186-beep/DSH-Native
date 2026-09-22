@@ -135,6 +135,20 @@ echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注
 say "3.4 纯逻辑测试"
 bash run_tests.sh
 
+# ---------------------------------------------------------------- 3.45 架构约束
+# 纯逻辑层必须保持无 Android 依赖 —— 否则就无法在普通 JVM 上测试，
+# 「构建期跑测试」这个保证会静默失效。这是架构约束，不是风格偏好。
+say "3.45 架构约束检查"
+PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java"
+for f in $PURE_FILES; do
+    [ -f "$f" ] || die "缺少纯逻辑文件 $f"
+    if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then
+        grep -nE '^import +android\.|^import +androidx\.' "$f" | sed 's/^/    /'
+        die "$f 引入了 Android 依赖 —— 它将无法离线测试"
+    fi
+done
+echo "  ✓ 纯逻辑层无 Android 依赖（$(basename -a $PURE_FILES | tr '\n' ' '))"
+
 # ---------------------------------------------------------------- 3.5 UI 规范
 # 强制检查：原生界面必须走 DshUi 组件层，禁止系统默认样式
 # （见 docs/DESIGN.md —— 用户要求原生 UI 与 DSH 视觉统一，此约束长期有效）

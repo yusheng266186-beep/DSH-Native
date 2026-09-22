@@ -1,7 +1,7 @@
 {
-  "version": "0.18.9",
-  "tag": "v0.18.9-bootstrap",
+  "version": "0.19.0",
+  "tag": "v0.19.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "文件浏览器布局自检（尺寸写入日志）+ 跨组件日志钩子"
+  "notes": "补上编辑后刷新；新增架构约束检查（纯逻辑层禁 Android 依赖）"
 }

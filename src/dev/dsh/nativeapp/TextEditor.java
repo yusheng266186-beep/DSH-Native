@@ -47,6 +47,17 @@ public final class TextEditor {
 
     /** 打开一个文件：能编辑就编辑，否则给只读预览或明确说明。 */
     public static void open(final Activity act, final File f) {
+        open(act, f, null);
+    }
+
+    /**
+     * 打开文件。
+     *
+     * @param onSaved 保存成功后的回调（可为 null）。
+     *                文件浏览器用它刷新列表 —— 否则编辑保存后，
+     *                列表里的大小与修改时间仍是旧的，看起来像没保存成功。
+     */
+    public static void open(final Activity act, final File f, final Runnable onSaved) {
         if (f == null || !f.isFile()) {
             DshUi.toast(act, "不是常规文件");
             return;
@@ -70,7 +81,7 @@ public final class TextEditor {
         }
         final TextCodec.Decoded dec = TextCodec.decode(head);
         final boolean readOnly = truncated;
-        showEditor(act, f, dec.text, dec, readOnly, truncated);
+        showEditor(act, f, dec.text, dec, readOnly, truncated, onSaved);
     }
 
 
@@ -89,7 +100,7 @@ public final class TextEditor {
 
     private static void showEditor(final Activity act, final File f, String initial,
                                    final TextCodec.Decoded meta, final boolean readOnly,
-                                   final boolean truncated) {
+                                   final boolean truncated, final Runnable onSaved) {
         // 记录打开时的文件状态：保存前比对，防止覆盖别的程序（或 agent）
         // 在此期间写入的内容。
         final long openMtime = f.lastModified();
@@ -163,10 +174,10 @@ public final class TextEditor {
             @Override public void onClick(View v) {
                 // 打开后文件被别的程序改过 → 先确认，别直接覆盖别人的写入
                 if (f.lastModified() != openMtime || f.length() != openLength) {
-                    confirmOverwrite(act, f, ed, meta, dlg);
+                    confirmOverwrite(act, f, ed, meta, dlg, onSaved);
                     return;
                 }
-                doSave(act, f, ed.getText().toString(), meta, dlg);
+                doSave(act, f, ed.getText().toString(), meta, dlg, onSaved);
             }
         });
 
@@ -175,7 +186,8 @@ public final class TextEditor {
 
     /** 覆盖确认：文件在编辑期间被外部改动过。 */
     private static void confirmOverwrite(final Activity act, final File f, final EditText ed,
-                                         final TextCodec.Decoded meta, final Dialog parent) {
+                                         final TextCodec.Decoded meta, final Dialog parent,
+                                         final Runnable onSaved) {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, "文件已被外部修改"));
         body.addView(DshUi.hint(act,
@@ -191,7 +203,7 @@ public final class TextEditor {
         overwrite.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 ask.dismiss();
-                doSave(act, f, ed.getText().toString(), meta, parent);
+                doSave(act, f, ed.getText().toString(), meta, parent, onSaved);
             }
         });
         ask.show();
@@ -199,7 +211,8 @@ public final class TextEditor {
 
     /** 实际写入：先写临时文件并落盘，再改名替换。 */
     private static void doSave(final Activity act, final File f, String text,
-                               final TextCodec.Decoded meta, final Dialog dlg) {
+                               final TextCodec.Decoded meta, final Dialog dlg,
+                               final Runnable onSaved) {
         try {
             // 用原编码 + 原 BOM 写回（避免把 GBK 文件悄悄转成 UTF-8、或丢掉 BOM）；
             // 先写临时文件并 fsync，再改名替换 —— 中途失败也不会把原文件截断。
@@ -219,6 +232,10 @@ public final class TextEditor {
             }
             DshUi.toast(act, "已保存 " + FileListing.humanSize(f.length()));
             dlg.dismiss();
+            // 通知调用方刷新 —— 列表里的大小/时间依赖它
+            if (onSaved != null) {
+                try { onSaved.run(); } catch (Throwable ignored) { }
+            }
         } catch (Throwable t) {
             DshUi.toast(act, "保存失败: " + t.getMessage());
         }
