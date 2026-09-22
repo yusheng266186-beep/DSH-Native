@@ -172,6 +172,17 @@ public class MainActivity extends Activity {
         // 这正是之前"无法上传文件"的真正原因。
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
             @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage cm) {
+                // DSH 把真实错误藏在 API 响应里、界面只显示概括信息。
+                // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
+                String m = cm == null ? "" : cm.message();
+                if (m != null && m.length() > 0) {
+                    log("[web] " + (m.length() > 900 ? m.substring(0, 900) : m));
+                }
+                return true;
+            }
+
+            @Override
             public boolean onShowFileChooser(WebView view,
                     android.webkit.ValueCallback<android.net.Uri[]> callback,
                     android.webkit.WebChromeClient.FileChooserParams params) {
@@ -230,6 +241,7 @@ public class MainActivity extends Activity {
                 if (dshPageLoaded) return;
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
+                installFetchDiagnostics();
                 if (pendingOpenSettings) {
                     pendingOpenSettings = false;
                     new android.os.Handler(android.os.Looper.getMainLooper())
@@ -711,11 +723,13 @@ public class MainActivity extends Activity {
                 return;
             }
             // 该模型是否声明了图片输入
+            // 注意：分组必须用「至少一个字符」的惰性量词并带终止锚点，
+            // 否则会匹配空串 —— 之前就因此永远报「未声明图片输入」（误报）。
             java.util.regex.Matcher m = java.util.regex.Pattern.compile(
                     "(?m)^\\s*-\\s*id:\\s*[\"']?" + java.util.regex.Pattern.quote(model)
-                  + "[\"']?\\s*$((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)").matcher(txt);
+                  + "[\"']?\\s*$([\\s\\S]*?)(?=^\\s*-\\s*id:|\\Z)").matcher(txt);
             if (m.find()) {
-                boolean img = m.group(1).contains("image");
+                boolean img = m.group(1).contains("input:") && m.group(1).contains("image");
                 log("  该模型" + (img ? "已声明支持图片输入 ✅" : "未声明图片输入 ⚠️（发图会被拒）"));
             }
         } catch (Throwable t) {
@@ -803,6 +817,41 @@ public class MainActivity extends Activity {
             dlg.show();
         } catch (Throwable t) {
             toast("读取日志失败: " + shorten(t));
+        }
+    }
+
+    // ---------------------------------------------------------------- 网络诊断
+    /**
+     * 注入一段 JS，把失败的 fetch 响应体打到浏览器控制台。
+     *
+     * <p>为什么需要：DSH 的接口在出错时返回结构化 JSON，
+     * 但界面只显示一句概括（例如 "prompt rejected (session/agent-busy)"），
+     * 真正的 reason 字段被丢掉了。包装 fetch 后可把它完整取出来，
+     * 再由 onConsoleMessage 落到 App 日志里。
+     */
+    private void installFetchDiagnostics() {
+        final String js =
+            "(function(){"
+          + "if(window.__dshDiag)return;window.__dshDiag=1;"
+          + "var of=window.fetch;"
+          + "window.fetch=function(){"
+          + "  var u=arguments[0];"
+          + "  u=(typeof u==='string')?u:(u&&u.url)||'';"
+          + "  return of.apply(this,arguments).then(function(r){"
+          + "    if(!r.ok){"
+          + "      r.clone().text().then(function(t){"
+          + "        console.error('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,1200));"
+          + "      }).catch(function(){});"
+          + "    }"
+          + "    return r;"
+          + "  });"
+          + "};"
+          + "})();";
+        try {
+            webView.evaluateJavascript(js, null);
+            log("已注入接口错误捕获（后续失败会记录完整响应）");
+        } catch (Throwable t) {
+            log("⚠️ 注入接口捕获失败: " + t);
         }
     }
 
@@ -2544,7 +2593,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.3\n");
+            w.write("APK 版本: 0.15.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

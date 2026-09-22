@@ -1,7 +1,7 @@
 {
-  "version": "0.15.3",
-  "tag": "v0.15.3-bootstrap",
+  "version": "0.15.4",
+  "tag": "v0.15.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v5",
-  "notes": "图片问题诊断补全（所有失败路径留痕）"
+  "notes": "抓取 DSH 接口的完整错误详情"
 }
