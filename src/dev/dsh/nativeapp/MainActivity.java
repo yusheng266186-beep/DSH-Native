@@ -106,7 +106,16 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setAllowFileAccess(true);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedError(WebView view, int errorCode,
+                                        String description, String failingUrl) {
+                log("WebView 加载失败: " + errorCode + " " + description + " @ " + failingUrl);
+                statusPageLoading = false;
+                showStatus("界面加载失败",
+                        "错误 " + errorCode + "：" + description + "<br>地址 " + failingUrl);
+            }
+        });
         root.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.58f));
 
@@ -226,7 +235,10 @@ public class MainActivity extends Activity {
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
         pb.environment().put("TMPDIR", root.getAbsolutePath());
-        pb.environment().put("TERM", "xterm-256color");
+        // 用 dumb 而非 xterm-256color：避免 dsh 输出 ANSI 颜色转义。
+        // 之前正是这些转义混进了 URL（\u001b[36m...\u001b[0m），
+        // 导致 WebView 加载了非法地址 → 下半屏一直空白。
+        pb.environment().put("TERM", "dumb");
         // git 把系统配置硬编码为 /data/data/com.termux/files/usr/etc/gitconfig，
         // 我们读不到该路径，禁用系统级配置以免产生警告；同时指定自带的 helper 目录。
         pb.environment().put("GIT_CONFIG_NOSYSTEM", "1");
@@ -241,24 +253,50 @@ public class MainActivity extends Activity {
 
         // 5. 等待服务就绪后加载界面
         String url = waitForServer();
+        if (url == null) {
+            // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
+            if (probeHttp(PORT) > 0) {
+                url = "http://127.0.0.1:" + PORT + "/";
+                log("⚠ 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
+            }
+        }
         if (url != null) {
             log("界面就绪: " + url);
             final String target = url;
+            statusPageLoading = false;
             runOnUiThread(new Runnable() {
                 @Override public void run() { webView.loadUrl(target); }
             });
-        } else {
-            log("⚠ 等待服务超时，请查看上方日志");
         }
     }
 
     /** 轮询本地端口，从 stdout 抓取带 token 的地址。 */
     private String waitForServer() {
-        for (int i = 0; i < 60; i++) {
+        final int MAX_SECONDS = 240;
+        showStatus("正在启动 DSH …", "首次启动需加载插件，通常 20–60 秒。");
+        for (int i = 0; i < MAX_SECONDS; i++) {
             if (lastUrl != null) return lastUrl;
+
+            if (!isProcessAlive(nodeProcess)) {
+                log("✗ dsh web 进程已退出，且未打印服务地址");
+                showStatus("DSH 启动失败",
+                        "dsh 进程已退出。请查看上方日志面板中标有 <code>[dsh]</code> 的输出行。");
+                return null;
+            }
+
+            int code = probeHttp(PORT);
+            if (code > 0 && i % 5 == 0) {
+                log("  端口已响应 (HTTP " + code + ")，等待打印地址 …");
+            }
+            if (i > 0 && i % 20 == 0) {
+                showStatus("正在启动 DSH …", "已等待 " + i + " 秒。若超过 2 分钟仍无响应，"
+                        + "请查看上方日志面板。");
+            }
             try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
         }
-        return lastUrl;
+        log("⚠ 等待服务超时（" + MAX_SECONDS + " 秒）");
+        showStatus("启动超时", "已等待 " + MAX_SECONDS + " 秒仍未拿到服务地址，请查看上方日志。");
+        return null;
     }
 
     private volatile String lastUrl;
@@ -272,13 +310,14 @@ public class MainActivity extends Activity {
                     String line;
                     StringBuilder carry = new StringBuilder();
                     while ((line = r.readLine()) != null) {
-                        log("[dsh] " + line);
-                        int idx = line.indexOf("http://127.0.0.1");
-                        if (idx >= 0 && lastUrl == null) {
-                            String u = line.substring(idx).trim();
-                            int sp = u.indexOf(' ');
-                            if (sp > 0) u = u.substring(0, sp);
-                            lastUrl = u;
+                        String clean = stripAnsi(line);
+                        log("[dsh] " + clean);
+                        if (lastUrl == null) {
+                            java.util.regex.Matcher m = URL_PATTERN.matcher(clean);
+                            if (m.find()) {
+                                lastUrl = m.group();
+                                log("  ✓ 已捕获服务地址");
+                            }
                         }
                         carry.setLength(0);
                     }
@@ -751,6 +790,64 @@ public class MainActivity extends Activity {
         } catch (Throwable t) { return "?"; }
     }
 
+    /** 匹配 dsh 启动时打印的本地服务地址（含 token）。 */
+    private static final java.util.regex.Pattern URL_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "http://(?:127\\.0\\.0\\.1|localhost):\\d+(?:/[A-Za-z0-9_\\-?=&.]*)?");
+
+    /** 去掉 ANSI 转义序列，避免颜色码混进 URL。 */
+    private static String stripAnsi(String s) {
+        return s.replaceAll("\\u001B\\[[0-9;?]*[ -/]*[@-~]", "");
+    }
+
+    private volatile boolean statusPageLoading;
+
+    /** 在 WebView 中显示状态，避免出现无从判断的空白区域。 */
+    private void showStatus(final String title, final String detail) {
+        if (statusPageLoading) return;
+        statusPageLoading = true;
+        final String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+                + "<style>body{margin:0;padding:22px;background:#0b0e14;color:#e6e6e6;"
+                + "font:15px/1.7 -apple-system,system-ui,sans-serif}"
+                + "h1{font-size:18px;margin:0 0 10px}p{color:#8b949e;font-size:13px;margin:0 0 6px}"
+                + "code{background:#161b22;padding:2px 6px;border-radius:4px;font-size:12px}</style>"
+                + "</head><body><h1>" + title + "</h1><p>" + detail + "</p></body></html>";
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
+            }
+        });
+    }
+
+    /** 探测本地端口：返回 HTTP 状态码；未就绪返回 -1。 */
+    private int probeHttp(int port) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(
+                    "http://127.0.0.1:" + port + "/").openConnection();
+            c.setConnectTimeout(2000);
+            c.setReadTimeout(2000);
+            c.setRequestMethod("GET");
+            return c.getResponseCode();
+        } catch (Throwable t) {
+            return -1;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** Process.isAlive() 是 API 26+，用反射以便在旧 jar 上编译。 */
+    private boolean isProcessAlive(Process p) {
+        if (p == null) return false;
+        try {
+            Object r = Process.class.getMethod("isAlive").invoke(p);
+            return Boolean.TRUE.equals(r);
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private void log(final String msg) {
         Log.i(TAG, msg);
         appendSharedLog(msg);
@@ -777,7 +874,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.2.7\n");
+            w.write("APK 版本: 0.2.8\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
