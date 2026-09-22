@@ -118,6 +118,57 @@ public class FileListingTest {
         System.out.println("     统计文字: " + sum);
         check("统计文字含截断提示", sum.contains("仅显示前"), sum);
 
+        System.out.println("=== 10. sort modes ===");
+        File sortDir = new File("/tmp/fltest/sortdir"); rmrf(sortDir); sortDir.mkdirs();
+        new File(sortDir, "small.txt").createNewFile();                       // 0 B
+        write(new File(sortDir, "big.txt"), 3000);                            // 3 KB
+        write(new File(sortDir, "mid.txt"), 500);                             // 500 B
+        new File(sortDir, "subdir").mkdirs();
+        new File(sortDir, "big.txt").setLastModified(1000000000000L);
+        new File(sortDir, "mid.txt").setLastModified(1500000000000L);
+        new File(sortDir, "small.txt").setLastModified(1700000000000L);
+
+        FileListing.Listing byName = FileListing.listDirectory(sortDir, false,
+                FileListing.SORT_NAME, LINKS);
+        check("SORT_NAME: dirs first", byName.entries.get(0).dir, namesOf(byName));
+        check("SORT_NAME: subdir before big.txt (dir first)",
+                idx(byName,"subdir") < idx(byName,"big.txt"), namesOf(byName));
+        check("SORT_NAME: big/mid/small alphabetical",
+                idx(byName,"big.txt") < idx(byName,"mid.txt")
+                && idx(byName,"mid.txt") < idx(byName,"small.txt"), namesOf(byName));
+
+        FileListing.Listing bySize = FileListing.listDirectory(sortDir, false,
+                FileListing.SORT_SIZE, LINKS);
+        System.out.println("     by size: " + namesOf(bySize));
+        check("SORT_SIZE: dirs still first", bySize.entries.get(0).dir, namesOf(bySize));
+        check("SORT_SIZE: big > mid > small",
+                idx(bySize,"big.txt") < idx(bySize,"mid.txt")
+                && idx(bySize,"mid.txt") < idx(bySize,"small.txt"), namesOf(bySize));
+
+        FileListing.Listing byTime = FileListing.listDirectory(sortDir, false,
+                FileListing.SORT_TIME, LINKS);
+        System.out.println("     by time: " + namesOf(byTime));
+        check("SORT_TIME: dirs still first", byTime.entries.get(0).dir, namesOf(byTime));
+        check("SORT_TIME: newest first (small > mid > big)",
+                idx(byTime,"small.txt") < idx(byTime,"mid.txt")
+                && idx(byTime,"mid.txt") < idx(byTime,"big.txt"), namesOf(byTime));
+
+        check("SORT_SIZE is deterministic across calls",
+                namesOf(FileListing.listDirectory(sortDir,false,FileListing.SORT_SIZE,LINKS))
+                    .equals(namesOf(bySize)), "unstable");
+
+        System.out.println("=== 11. sort label cycling ===");
+        check("label name", FileListing.sortLabel(FileListing.SORT_NAME).contains("名称"),
+                FileListing.sortLabel(FileListing.SORT_NAME));
+        check("label size shows direction",
+                FileListing.sortLabel(FileListing.SORT_SIZE).contains("大小")
+                && FileListing.sortLabel(FileListing.SORT_SIZE).contains("↓"),
+                FileListing.sortLabel(FileListing.SORT_SIZE));
+        check("cycle name->size->time->name",
+                FileListing.nextSortMode(FileListing.SORT_NAME) == FileListing.SORT_SIZE
+                && FileListing.nextSortMode(FileListing.SORT_SIZE) == FileListing.SORT_TIME
+                && FileListing.nextSortMode(FileListing.SORT_TIME) == FileListing.SORT_NAME, "broken");
+
         System.out.println("=== 9. summary wording ===");
         String s2 = FileListing.summaryOf(l);
         System.out.println("     " + s2);
@@ -140,6 +191,12 @@ public class FileListingTest {
     }
     static FileListing.Entry find(FileListing.Listing l, String name) {
         int i = idx(l, name); return i < 0 ? null : l.entries.get(i);
+    }
+    static void write(File f, int bytes) throws Exception {
+        byte[] b = new byte[bytes];
+        java.util.Arrays.fill(b, (byte) 'x');
+        java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+        os.write(b); os.close();
     }
     static void rmrf(File f) {
         if (f.isDirectory()) { File[] c = f.listFiles(); if (c != null) for (File x : c) rmrf(x); }

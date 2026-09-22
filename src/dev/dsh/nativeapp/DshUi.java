@@ -245,11 +245,21 @@ public final class DshUi {
         return d;
     }
 
-    /** 轻提示。集中在这里，便于统一时长与样式。 */
+    /**
+     * 轻提示。
+     *
+     * <p><b>必须显示在顶部。</b>系统 Toast 默认贴近底部，而对话框的操作按钮
+     * 也在底部 —— 实测每次提示都会盖住「取消 / 保存」按钮，用户点不到。
+     * 而对话框上方的留白区（约屏幕高 15%）正好空着，放那里互不遮挡。
+     */
     public static void toast(Context c, CharSequence msg) {
         if (c == null || msg == null) return;
         try {
-            android.widget.Toast.makeText(c, msg, android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast t = android.widget.Toast.makeText(
+                    c, msg, android.widget.Toast.LENGTH_SHORT);
+            int y = (int) (48 * c.getResources().getDisplayMetrics().density);
+            t.setGravity(android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL, 0, y);
+            t.show();
         } catch (Throwable ignored) { }
     }
 

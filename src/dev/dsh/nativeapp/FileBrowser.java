@@ -60,6 +60,7 @@ public final class FileBrowser {
         final android.widget.HorizontalScrollView crumbScroll;
         final LinearLayout listBox;
         final Button hiddenToggle;
+        final Button sortToggle;
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -79,6 +80,7 @@ public final class FileBrowser {
 
         File cwd;
         boolean showHidden = false;
+        int sortMode = FileListing.SORT_NAME;
         /** 每次导航自增，用于丢弃过期的后台结果。 */
         int generation = 0;
 
@@ -90,6 +92,7 @@ public final class FileBrowser {
             crumbScroll = new android.widget.HorizontalScrollView(act);
             listBox = new LinearLayout(act);
             hiddenToggle = DshUi.toggleButton(act, "隐藏文件", false);
+            sortToggle = DshUi.toggleButton(act, "排序", false);
         }
 
         /** 导航到目录。读取放后台，避免大目录阻塞界面。 */
@@ -102,9 +105,11 @@ public final class FileBrowser {
             listBox.removeAllViews();
 
             final boolean hidden = showHidden;
+            final int sort = sortMode;
             io.execute(new Runnable() {
                 @Override public void run() {
-                    final FileListing.Listing listing = FileListing.listDirectory(dir, hidden, links);
+                    final FileListing.Listing listing =
+                            FileListing.listDirectory(dir, hidden, sort, links);
                     ui.post(new Runnable() {
                         @Override public void run() {
                             if (gen != generation) return;      // 已导航到别处，丢弃过期结果
@@ -161,6 +166,8 @@ public final class FileBrowser {
             }
             hiddenToggle.setText("隐藏文件" + (showHidden ? " ✓" : ""));
             DshUi.setButtonActive(hiddenToggle, showHidden);
+            sortToggle.setText(FileListing.sortLabel(sortMode));
+            DshUi.setButtonActive(sortToggle, sortMode != FileListing.SORT_NAME);
         }
 
         /** 列表区。 */
@@ -324,6 +331,12 @@ public final class FileBrowser {
                 b.refresh();
             }
         });
+        b.sortToggle.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                b.sortMode = FileListing.nextSortMode(b.sortMode);
+                b.refresh();
+            }
+        });
         Button refreshBtn = DshUi.button(act, "刷新", false);
         refreshBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { b.refresh(); }
@@ -331,7 +344,7 @@ public final class FileBrowser {
         Button close = DshUi.button(act, "关闭", true);
 
         final Dialog dlg = DshUi.dialogFill(act, body,
-                DshUi.footer(act, b.hiddenToggle, refreshBtn, close), 820);
+                DshUi.footer(act, b.hiddenToggle, b.sortToggle, refreshBtn, close), 820);
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });

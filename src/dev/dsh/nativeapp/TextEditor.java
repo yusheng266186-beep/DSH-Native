@@ -89,18 +89,35 @@ public final class TextEditor {
 
     private static void showEditor(final Activity act, final File f, String initial,
                                    final TextCodec.Decoded meta, final boolean readOnly,
-                                   boolean truncated) {
+                                   final boolean truncated) {
+        // 记录打开时的文件状态：保存前比对，防止覆盖别的程序（或 agent）
+        // 在此期间写入的内容。
+        final long openMtime = f.lastModified();
+        final long openLength = f.length();
+        final int totalLines = TextCodec.countLines(initial);
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, f.getName()));
 
-        String info = f.getAbsolutePath() + "\n"
-                + FileListing.humanSize(f.length()) + " · " + TextCodec.countLines(initial) + " 行"
+        final String head = f.getAbsolutePath() + "\n"
+                + FileListing.humanSize(f.length()) + " · " + totalLines + " 行"
                 + " · " + meta.describe()
                 + (truncated ? " · 文件过大，仅预览前 " + FileListing.humanSize(PREVIEW_BYTES) : "");
-        TextView infoView = DshUi.hint(act, info);
+        final TextView infoView = DshUi.hint(act, head + "　·　第 1 行");
         body.addView(infoView, DshUi.fullWidth(act, 4));
 
-        final EditText ed = new EditText(act);
+        // 用匿名子类是为了拿到 onSelectionChanged —— 光标移动不触发 TextWatcher，
+        // 只有覆写这个方法才能实时更新「第 N 行」。
+        final EditText ed = new EditText(act) {
+            @Override protected void onSelectionChanged(int selStart, int selEnd) {
+                super.onSelectionChanged(selStart, selEnd);
+                if (selStart < 0) return;
+                int line = 1;
+                CharSequence cs = getText();
+                int end = Math.min(selStart, cs.length());
+                for (int i = 0; i < end; i++) if (cs.charAt(i) == '\n') line++;
+                infoView.setText(head + "　·　第 " + line + " 行");
+            }
+        };
         ed.setText(initial);
         ed.setTextSize(12f);
         ed.setTypeface(Typeface.MONOSPACE);
@@ -144,36 +161,67 @@ public final class TextEditor {
 
         save.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                String text = ed.getText().toString();
-                try {
-                    // 原样写回（编码保持不变）；先写临时文件再改名，
-                    // 避免写入中断把原文件截断成半截内容。
-                    // 用原编码 + 原 BOM 写回，避免把 GBK 文件悄悄转成 UTF-8、
-                    // 或把带 BOM 的文件丢掉 BOM。
-                    byte[] bytes = TextCodec.encode(text, meta);
-                    File tmp = new File(f.getParentFile(), f.getName() + ".dsh-tmp");
-                    FileOutputStream os = new FileOutputStream(tmp);
-                    try {
-                        os.write(bytes);
-                        os.flush();
-                        os.getFD().sync();   // 落盘后再改名，避免断电留下半截文件
-                    } finally {
-                        os.close();
-                    }
-                    if (!tmp.renameTo(f)) {
-                        // rename 失败（跨挂载点等）时退回直接覆盖
-                        copyFile(tmp, f);
-                        tmp.delete();
-                    }
-                    DshUi.toast(act, "已保存 " + FileListing.humanSize(f.length()));
-                    dlg.dismiss();
-                } catch (Throwable t) {
-                    DshUi.toast(act, "保存失败: " + t.getMessage());
+                // 打开后文件被别的程序改过 → 先确认，别直接覆盖别人的写入
+                if (f.lastModified() != openMtime || f.length() != openLength) {
+                    confirmOverwrite(act, f, ed, meta, dlg);
+                    return;
                 }
+                doSave(act, f, ed.getText().toString(), meta, dlg);
             }
         });
 
         dlg.show();
+    }
+
+    /** 覆盖确认：文件在编辑期间被外部改动过。 */
+    private static void confirmOverwrite(final Activity act, final File f, final EditText ed,
+                                         final TextCodec.Decoded meta, final Dialog parent) {
+        LinearLayout body = DshUi.paddedBody(act);
+        body.addView(DshUi.title(act, "文件已被外部修改"));
+        body.addView(DshUi.hint(act,
+                f.getName() + " 在你编辑期间被其他程序改写过。\n\n"
+              + "继续保存会覆盖对方的改动；取消则保留磁盘上的版本。"),
+                DshUi.fullWidth(act, 8));
+        Button cancel = DshUi.button(act, "取消", false);
+        Button overwrite = DshUi.button(act, "覆盖保存", true);
+        final Dialog ask = DshUi.dialog(act, body, DshUi.footer(act, cancel, overwrite), 360);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { ask.dismiss(); }
+        });
+        overwrite.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                ask.dismiss();
+                doSave(act, f, ed.getText().toString(), meta, parent);
+            }
+        });
+        ask.show();
+    }
+
+    /** 实际写入：先写临时文件并落盘，再改名替换。 */
+    private static void doSave(final Activity act, final File f, String text,
+                               final TextCodec.Decoded meta, final Dialog dlg) {
+        try {
+            // 用原编码 + 原 BOM 写回（避免把 GBK 文件悄悄转成 UTF-8、或丢掉 BOM）；
+            // 先写临时文件并 fsync，再改名替换 —— 中途失败也不会把原文件截断。
+            byte[] bytes = TextCodec.encode(text, meta);
+            File tmp = new File(f.getParentFile(), f.getName() + ".dsh-tmp");
+            FileOutputStream os = new FileOutputStream(tmp);
+            try {
+                os.write(bytes);
+                os.flush();
+                os.getFD().sync();   // 落盘后再改名，避免断电留下半截文件
+            } finally {
+                os.close();
+            }
+            if (!tmp.renameTo(f)) {
+                copyFile(tmp, f);    // rename 失败（跨挂载点等）时退回直接覆盖
+                tmp.delete();
+            }
+            DshUi.toast(act, "已保存 " + FileListing.humanSize(f.length()));
+            dlg.dismiss();
+        } catch (Throwable t) {
+            DshUi.toast(act, "保存失败: " + t.getMessage());
+        }
     }
 
     private static void confirmDiscard(final Activity act, final Dialog dlg) {

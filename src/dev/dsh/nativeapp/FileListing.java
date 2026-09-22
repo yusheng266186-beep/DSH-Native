@@ -26,6 +26,23 @@ final class FileListing {
     /** 单目录最多列出多少项。 */
     static final int LIST_CAP = 800;
 
+    /** 排序方式。 */
+    static final int SORT_NAME = 0;
+    static final int SORT_SIZE = 1;
+    static final int SORT_TIME = 2;
+
+    /** 排序方式的可读名称（含方向，避免用户猜）。 */
+    static String sortLabel(int mode) {
+        if (mode == SORT_SIZE) return "排序: 大小↓";
+        if (mode == SORT_TIME) return "排序: 时间↓";
+        return "排序: 名称";
+    }
+
+    /** 循环切换到下一种排序方式。 */
+    static int nextSortMode(int mode) {
+        return mode == SORT_NAME ? SORT_SIZE : (mode == SORT_SIZE ? SORT_TIME : SORT_NAME);
+    }
+
     private FileListing() { }
 
     // ================================================================ 数据模型
@@ -90,6 +107,18 @@ final class FileListing {
      * 早先把 {@code isDirectory()} 放在比较器里，会产生 O(n log n) 次 syscall。
      */
     static Listing listDirectory(File dir, boolean showHidden, LinkResolver resolver) {
+        return listDirectory(dir, showHidden, SORT_NAME, resolver);
+    }
+
+    /**
+     * 读取目录并生成快照（纯函数，可离线测试）。
+     *
+     * <p>排序规则统一为：**目录永远置顶**，组内按所选方式，
+     * 且**始终以自然序文件名作为末级 tiebreaker** ——
+     * 否则同名大小/同时间的条目顺序不确定，每次进来都在跳。
+     */
+    static Listing listDirectory(File dir, boolean showHidden, final int sortMode,
+                                 LinkResolver resolver) {
         if (dir == null) return Listing.failed("目录为空");
         if (!dir.isDirectory()) return Listing.failed("不是目录");
 
@@ -115,7 +144,13 @@ final class FileListing {
         Collections.sort(all, new Comparator<Entry>() {
             @Override public int compare(Entry a, Entry b) {
                 if (a.dir != b.dir) return a.dir ? -1 : 1;      // 目录优先
-                return naturalCompare(a.name, b.name);
+                if (sortMode == SORT_SIZE && a.size != b.size) {
+                    return a.size > b.size ? -1 : 1;            // 大文件在前
+                }
+                if (sortMode == SORT_TIME && a.mtime != b.mtime) {
+                    return a.mtime > b.mtime ? -1 : 1;          // 新文件在前
+                }
+                return naturalCompare(a.name, b.name);          // 末级 tiebreaker
             }
         });
 

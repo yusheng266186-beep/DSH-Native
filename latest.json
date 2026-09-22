@@ -1,7 +1,7 @@
 {
-  "version": "0.18.7",
-  "tag": "v0.18.7-bootstrap",
+  "version": "0.18.8",
+  "tag": "v0.18.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "编辑器编码安全（BOM/换行/GBK）+ 死代码清理；构建期 60 项断言"
+  "notes": "提示条移到顶部（修遮挡）+ 文件排序 + 编辑器行号与外部改动保护"
 }
