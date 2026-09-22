@@ -195,6 +195,51 @@ public final class DshUi {
         b.setTextColor(primary ? ON_ACCENT : TEXT);
     }
 
+    /**
+     * 分档选择按钮（例如显示缩放的 100% / 115% / 130% / 150%）。
+     *
+     * <p><b>必须保证单行</b>：选中项的文字形如 {@code "100% ✓"}，
+     * 比未选中的 {@code "115%"} 更长 —— 一旦宽度不够就会把对勾折到第二行，
+     * 按钮随之被撑高，看起来就像「溢出」到同级按钮之外（实测踩过）。
+     * 这里用 {@code setSingleLine(true)} 从根上杜绝换行，并收窄内边距
+     * 与字号，给标记留出空间。
+     */
+    public static Button toggleButton(Context c, String text, boolean primary) {
+        Button b = button(c, text, primary);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
+        b.setTextSize(13f);
+        b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
+        return b;
+    }
+
+    /**
+     * 列表行的背景：默认透明，按下/聚焦时淡淡一层。
+     *
+     * <p>文件列表这类行式条目用它，保持与卡片一致的圆角与配色。
+     */
+    public static StateListDrawable rowBg(Context c) {
+        StateListDrawable d = new StateListDrawable();
+        GradientDrawable press = new GradientDrawable();
+        press.setColor(BTN_PRESS);
+        press.setCornerRadius(dp(c, 8));
+        GradientDrawable normal = new GradientDrawable();
+        normal.setColor(0x00000000);
+        normal.setCornerRadius(dp(c, 8));
+        d.addState(new int[]{ android.R.attr.state_pressed }, press);
+        d.addState(new int[]{ android.R.attr.state_focused }, press);
+        d.addState(new int[]{}, normal);
+        return d;
+    }
+
+    /** 轻提示。集中在这里，便于统一时长与样式。 */
+    public static void toast(Context c, CharSequence msg) {
+        if (c == null || msg == null) return;
+        try {
+            android.widget.Toast.makeText(c, msg, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable ignored) { }
+    }
+
     public static LinearLayout.LayoutParams fullWidth(Context c, int topMarginDp) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -234,16 +279,33 @@ public final class DshUi {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        // 键盘弹出时收缩对话框窗口，而不是把它顶出屏幕
+        d.getWindow().setSoftInputMode(
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+
         d.setContentView(card);
         Window w = d.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
-            // 宽度：屏幕宽度减去两侧留白；高度自适应但不超过上限
             int screenW = c.getResources().getDisplayMetrics().widthPixels;
             int screenH = c.getResources().getDisplayMetrics().heightPixels;
             int width = Math.min(screenW - dp(c, 32), dp(c, 520));
             int maxH = Math.min(dp(c, maxHeightDp), (int) (screenH * 0.86f));
-            w.setLayout(width, maxH > 0 ? maxH : ViewGroup.LayoutParams.WRAP_CONTENT);
+
+            // 高度贴合内容，而不是永远等于上限。
+            // 早先写死 maxH：内容少时下方留一大片空白、内容多时也不会更高，
+            // 看起来就像「溢出 / 没对齐」。这里先按最终宽度测量内容高度，
+            // 再取 min(内容高, 上限) —— 短对话框就短，长对话框封顶后内部滚动。
+            int contentH = ViewGroup.LayoutParams.WRAP_CONTENT;
+            try {
+                card.measure(
+                        View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                contentH = card.getMeasuredHeight();
+            } catch (Throwable ignored) { }
+            int height = contentH == ViewGroup.LayoutParams.WRAP_CONTENT
+                    ? maxH : Math.min(contentH, maxH);
+            w.setLayout(width, height);
         }
         return d;
     }

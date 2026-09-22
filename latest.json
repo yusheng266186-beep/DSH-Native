@@ -1,7 +1,7 @@
 {
-  "version": "0.18.1",
-  "tag": "v0.18.1-bootstrap",
+  "version": "0.18.2",
+  "tag": "v0.18.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "横屏 viewport 按屏幕比例自适应；缩放按钮整行重建"
+  "notes": "分档按钮单行修溢出；新增文件浏览/编辑与日志查看器"
 }

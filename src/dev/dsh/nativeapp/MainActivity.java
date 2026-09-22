@@ -588,7 +588,8 @@ public class MainActivity extends Activity {
         for (int i = 0; i < ZOOM_STEPS.length; i++) {
             final int pct = ZOOM_STEPS[i];
             boolean cur = pct == currentZoom();
-            android.widget.Button b = DshUi.button(this,
+            // 用 toggleButton：保证「100% ✓」单行显示，不会把按钮撑高
+            android.widget.Button b = DshUi.toggleButton(this,
                     pct + "%" + (cur ? " ✓" : ""), cur);
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
@@ -878,56 +879,20 @@ public class MainActivity extends Activity {
 
     /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
     private void showLog() {
-        try {
-            if (sharedLog == null || !sharedLog.exists()) {
-                toast("暂无日志文件");
-                return;
-            }
-            String text = readText(sharedLog);
-            String[] lines = text.split("\n", -1);
-            int keep = 400;
-            StringBuilder sb = new StringBuilder();
-            if (lines.length > keep) {
-                sb.append("共 ").append(lines.length).append(" 行，仅显示最后 ")
-                  .append(keep).append(" 行\n\n");
-                for (int i = lines.length - keep; i < lines.length; i++) {
-                    sb.append(lines[i]).append('\n');
+        // 交给专门的查看器：支持「本次启动 / 全部」、级别过滤与搜索 ——
+        // 旧实现只是把最后 400 行倒进一个 TextView，二十多次启动的日志
+        // 混在一起，根本分不清哪条是当前的。
+        LogViewer.show(this, sharedLog, new Runnable() {
+            @Override public void run() {
+                try {
+                    if (sharedLog != null && sharedLog.exists()) {
+                        writeText(sharedLog, "=== DSH Native 启动日志 ===\n");
+                    }
+                } catch (Throwable t) {
+                    log("清空日志失败: " + t);
                 }
-            } else {
-                sb.append(text);
             }
-
-            android.widget.LinearLayout body = DshUi.paddedBody(this);
-            body.addView(DshUi.title(this, "运行日志"));
-            body.addView(DshUi.hint(this, sharedLog.getAbsolutePath()),
-                    DshUi.fullWidth(this, 4));
-
-            android.widget.TextView tv = new android.widget.TextView(this);
-            tv.setText(sb.toString());
-            tv.setTextSize(10.5f);
-            tv.setTextColor(DshUi.TEXT);
-            tv.setTextIsSelectable(true);
-            tv.setTypeface(android.graphics.Typeface.MONOSPACE);
-            tv.setBackground(DshUi.fieldBg(this));
-            int pad = DshUi.dp(this, 12);
-            tv.setPadding(pad, pad, pad, pad);
-
-            android.widget.ScrollView inner = new android.widget.ScrollView(this);
-            inner.addView(tv);
-            android.widget.LinearLayout.LayoutParams tvLp = DshUi.fullWidth(this, 12);
-            tvLp.height = DshUi.dp(this, 380);
-            body.addView(inner, tvLp);
-
-            android.widget.Button close = DshUi.button(this, "关闭", true);
-            final android.app.Dialog dlg = DshUi.dialog(this,
-                    DshUi.scroll(this, body), DshUi.footer(this, close), 660);
-            close.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) { dlg.dismiss(); }
-            });
-            dlg.show();
-        } catch (Throwable t) {
-            toast("读取日志失败: " + shorten(t));
-        }
+        });
     }
 
     // ---------------------------------------------------------------- 网络诊断
@@ -1774,6 +1739,18 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            // ── 文件 ──
+            body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
+            body.addView(DshUi.hint(this, "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑"),
+                    DshUi.fullWidth(this, 6));
+            android.widget.Button btnFiles = DshUi.button(this, "浏览文件", false);
+            btnFiles.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    FileBrowser.show(MainActivity.this, appRoot);
+                }
+            });
+            body.addView(btnFiles, DshUi.fullWidth(this, 8));
 
             // ── 显示缩放 ──
             body.addView(DshUi.sectionLabel(this, "显示缩放"),
@@ -2995,7 +2972,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.18.1\n");
+            w.write("APK 版本: 0.18.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
