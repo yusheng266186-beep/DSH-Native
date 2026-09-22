@@ -10,17 +10,19 @@ cd "$(dirname "$0")"
 
 SRC="bootstrap/src/dev/dsh/nativeapp/FileListing.java
      bootstrap/src/dev/dsh/nativeapp/TextCodec.java
-     bootstrap/src/dev/dsh/nativeapp/Version.java"
+     bootstrap/src/dev/dsh/nativeapp/Version.java
+     bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
-       tests/VersionTest.java"
+       tests/VersionTest.java
+       tests/CommandCodeUsageTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
 javac -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
