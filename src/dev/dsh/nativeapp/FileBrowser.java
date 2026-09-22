@@ -82,6 +82,9 @@ public final class FileBrowser {
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
 
+        /** 允许写入的根（其余位置只读）。私有目录之外一律不改，避免误删。 */
+        final java.util.List<File> writeRoots = new java.util.ArrayList<File>();
+
         /** Android 的软链判定实现（{@code java.io.File} 会跟随链接，判断不出）。 */
         final FileListing.LinkResolver links = new FileListing.LinkResolver() {
             @Override public String linkTargetOf(File f) {
@@ -285,7 +288,6 @@ public final class FileBrowser {
         /** 路径、面包屑、常用位置高亮：只依赖 cwd，与列表内容无关。 */
         void renderChrome() {
             if (cwd == null) return;
-            pathView.setText(cwd.getAbsolutePath());
 
             // 面包屑：每段可点。不截断文字 —— 外层是横向滚动容器，
             // 放不下可以滑，截断只会丢信息。
@@ -312,6 +314,10 @@ public final class FileBrowser {
                 @Override public void run() { crumbScroll.fullScroll(View.FOCUS_RIGHT); }
             });
 
+            // 只读位置明确标出来 —— 否则用户点了「新建」才被告知不行
+            pathView.setText(cwd.getAbsolutePath()
+                    + (cwdWritable() ? "" : "　（只读）"));
+
             // 常用位置高亮：只依赖 cwd 一个来源
             for (int i = 0; i < roots.size() && i < rootButtons.size(); i++) {
                 Button btn = rootButtons.get(i);
@@ -321,6 +327,132 @@ public final class FileBrowser {
             DshUi.setButtonActive(hiddenToggle, showHidden);
             sortToggle.setText(FileListing.sortLabel(sortMode));
             DshUi.setButtonActive(sortToggle, sortMode != FileListing.SORT_NAME);
+        }
+
+        /** 当前目录是否可写。 */
+        boolean cwdWritable() {
+            return FileOps.isWritable(cwd, writeRoots);
+        }
+
+        /**
+         * 长按条目的操作菜单。
+         *
+         * <p>不可写的位置**不禁用菜单本身**，而是把「重命名 / 删除」置灰并说明原因 ——
+         * 直接不给按钮会让用户以为功能不存在。
+         */
+        void showItemMenu(final FileListing.Entry e) {
+            final boolean writable = FileOps.isWritable(e.file, writeRoots);
+
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, e.name));
+            box.addView(DshUi.hint(act, e.file.getAbsolutePath()
+                    + (writable ? "" : "\n该位置只读，不能修改")), DshUi.fullWidth(act, 6));
+
+            Button copy = DshUi.button(act, "复制路径", false);
+            Button rename = DshUi.button(act, "重命名", false);
+            Button del = DshUi.button(act, "删除", false);
+            rename.setEnabled(writable);
+            del.setEnabled(writable);
+            if (!writable) {
+                rename.setTextColor(DshUi.TEXT_3);
+                del.setTextColor(DshUi.TEXT_3);
+            }
+
+            final Dialog menu = DshUi.dialog(act, box, DshUi.footer(act, copy, rename, del), 340);
+            copy.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    menu.dismiss();
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager)
+                                    act.getSystemService(Activity.CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                "路径", e.file.getAbsolutePath()));
+                        DshUi.toast(act, "已复制路径");
+                    }
+                }
+            });
+            rename.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    menu.dismiss();
+                    promptName("重命名", e.name, new NameSink() {
+                        @Override public void onName(String name) {
+                            String err = FileOps.rename(e.file, name, writeRoots);
+                            if (err == null) {
+                                DshUi.toast(act, "已重命名");
+                                refresh();
+                            } else {
+                                DshUi.toast(act, err);
+                            }
+                        }
+                    });
+                }
+            });
+            del.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    menu.dismiss();
+                    confirmDelete(e);
+                }
+            });
+            menu.show();
+        }
+
+        /** 输入名称的回调。 */
+        interface NameSink { void onName(String name); }
+
+        /** 弹一个名称输入框（新建与重命名共用）。 */
+        void promptName(String title, String initial, final NameSink sink) {
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, title));
+            final android.widget.EditText input = DshUi.input(act, initial == null ? "" : initial, false);
+            input.setSingleLine(true);
+            box.addView(input, DshUi.fullWidth(act, 10));
+            Button cancel = DshUi.button(act, "取消", false);
+            Button ok = DshUi.button(act, "确定", true);
+            final Dialog d = DshUi.dialog(act, box, DshUi.footer(act, cancel, ok), 340);
+            cancel.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { d.dismiss(); }
+            });
+            ok.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    String name = input.getText() == null ? "" : input.getText().toString();
+                    // 先本地校验，错误就地提示；通过后再交给上层执行
+                    String bad = FileOps.validateName(name);
+                    if (bad != null) { DshUi.toast(act, bad); return; }
+                    d.dismiss();
+                    sink.onName(name.trim());
+                }
+            });
+            d.show();
+        }
+
+        /** 删除确认。目录会说明将删除多少条目 —— 递归删除不该只问一句「确定吗」。 */
+        void confirmDelete(final FileListing.Entry e) {
+            final int n = e.dir ? FileOps.countEntries(e.file) : 0;
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, "删除 " + e.name + "？"));
+            box.addView(DshUi.hint(act, e.dir
+                    ? "这是一个文件夹，将连同其中 " + n + " 个条目一起删除。\n此操作不可恢复。"
+                    : "此操作不可恢复。"), DshUi.fullWidth(act, 8));
+            Button cancel = DshUi.button(act, "取消", false);
+            Button ok = DshUi.button(act, "删除", true);
+            final Dialog d = DshUi.dialog(act, box, DshUi.footer(act, cancel, ok), 340);
+            cancel.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { d.dismiss(); }
+            });
+            ok.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    d.dismiss();
+                    String err = FileOps.delete(e.file, writeRoots);
+                    if (err == null) {
+                        DshUi.toast(act, e.dir ? "已删除 " + n + " 个条目" : "已删除");
+                        refresh();
+                    } else {
+                        DshUi.toast(act, err);
+                    }
+                }
+            });
+            d.show();
         }
 
         /** 居中的状态提示（空目录 / 无权限 / 出错）。 */
@@ -422,14 +554,7 @@ public final class FileBrowser {
             });
             row.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override public boolean onLongClick(View v) {
-                    android.content.ClipboardManager cm =
-                            (android.content.ClipboardManager)
-                                    act.getSystemService(Activity.CLIPBOARD_SERVICE);
-                    if (cm != null) {
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText(
-                                "路径", e.file.getAbsolutePath()));
-                        DshUi.toast(act, "已复制路径");
-                    }
+                    showItemMenu(e);
                     return true;
                 }
             });
@@ -457,6 +582,9 @@ public final class FileBrowser {
             if (tools.isDirectory()) b.roots.add(new Root("工具链", tools));
         }
         b.roots.add(new Root("根", new File("/")));
+        // 写入白名单：只有应用自己的目录可增删改，其余位置只读。
+        // 刻意不含 / 与整个 /sdcard —— 那些位置含系统文件与其它应用数据。
+        b.writeRoots.addAll(FileOps.writableRoots(appDir));
         b.cwd = appDir != null && appDir.isDirectory() ? appDir : b.roots.get(0).dir;
         DshUi.log("打开文件浏览: " + b.cwd.getAbsolutePath()
                 + "（可用位置 " + b.roots.size() + " 个）");
@@ -527,6 +655,26 @@ public final class FileBrowser {
                 b.refresh();
             }
         });
+        Button newBtn = DshUi.button(act, "新建", false);
+        newBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!b.cwdWritable()) {
+                    DshUi.toast(act, "该位置只读，不能新建");
+                    return;
+                }
+                b.promptName("新建文件夹", "", new Browser.NameSink() {
+                    @Override public void onName(String name) {
+                        String err = FileOps.mkdir(b.cwd, name, b.writeRoots);
+                        if (err == null) {
+                            DshUi.toast(act, "已创建 " + name);
+                            b.refresh();
+                        } else {
+                            DshUi.toast(act, err);
+                        }
+                    }
+                });
+            }
+        });
         Button refreshBtn = DshUi.button(act, "刷新", false);
         refreshBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { b.refresh(); }
@@ -534,7 +682,7 @@ public final class FileBrowser {
         Button close = DshUi.button(act, "关闭", true);
 
         final Dialog dlg = DshUi.dialogFill(act, body,
-                DshUi.footer(act, b.hiddenToggle, b.sortToggle, refreshBtn, close), 820);
+                DshUi.footer(act, newBtn, b.hiddenToggle, b.sortToggle, refreshBtn, close), 820);
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });

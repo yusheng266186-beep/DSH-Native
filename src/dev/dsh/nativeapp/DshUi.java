@@ -428,7 +428,7 @@ public final class DshUi {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = dp(c, 20);
+        int pad = dp(c, 14);
         row.setPadding(pad, dp(c, 12), pad, pad);
         // **等权重分配**，不用 WRAP_CONTENT。
         //
@@ -441,6 +441,10 @@ public final class DshUi {
             Button b = buttons[i];
             b.setSingleLine(true);      // 双保险：即使标签偏长也只省略，不换行
             b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            // 统一紧凑内边距：底部按钮数量会变（文件浏览已是 5 个），
+            // 若沿用 dp(16) 的默认边距，两字标签就要 64dp，
+            // 等权重分到的宽度会不够。收到 dp(6) 后两字只需 44dp。
+            b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             if (i > 0) lp.leftMargin = dp(c, 8);
