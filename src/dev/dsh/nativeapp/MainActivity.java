@@ -296,6 +296,25 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // 允许绘制到刘海（挖孔）区域。
+        //
+        // Android 默认会让窗口**避开**刘海，在那一侧留一条黑边 ——
+        // 竖屏时刘海在顶部（被状态栏遮住不明显），横屏时刘海转到侧面，
+        // 于是左边出现一大块黑边。
+        // SHORT_EDGES 表示「短边方向可延伸到刘海区」，配合下面的
+        // 刘海安全区内边距，内容既填满屏幕又不会被摄像头挡住。
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams
+                        .LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                getWindow().setAttributes(lp);
+                log("已允许绘制到刘海区域（避免横屏黑边）");
+            }
+        } catch (Throwable t) {
+            log("⚠️ 刘海模式设置失败: " + t);
+        }
+
         setContentView(root);
 
         initSharedLog();
@@ -1945,6 +1964,8 @@ public class MainActivity extends Activity {
             rootView.setOnApplyWindowInsetsListener(
                     new android.view.View.OnApplyWindowInsetsListener() {
                 private int lastPad = -1;
+                private int lastLeft = -1;
+                private int lastRight = -1;
                 @Override
                 public android.view.WindowInsets onApplyWindowInsets(
                         android.view.View v, android.view.WindowInsets insets) {
@@ -1956,7 +1977,24 @@ public class MainActivity extends Activity {
                             lastPad = pad;
                             log("键盘内边距 " + pad + "px（底部 inset=" + bottom
                                     + ", 导航栏=" + nav + "）");
-                            v.setPadding(0, statusBarHeight(), 0, pad);
+                            // 左右内边距来自系统窗口 inset 与刘海安全区。
+                            // 横屏时刘海在侧面：不预留会挡内容，预留了又怕留黑边 ——
+                            // 两者必须同时处理，所以这里显式取最大值。
+                            int left = insets.getSystemWindowInsetLeft();
+                            int right = insets.getSystemWindowInsetRight();
+                            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                                android.view.DisplayCutout cut = insets.getDisplayCutout();
+                                if (cut != null) {
+                                    left = Math.max(left, cut.getSafeInsetLeft());
+                                    right = Math.max(right, cut.getSafeInsetRight());
+                                }
+                            }
+                            if (left != lastLeft || right != lastRight) {
+                                lastLeft = left;
+                                lastRight = right;
+                                log("左右内边距 " + left + " / " + right + "px（刘海/导航栏）");
+                            }
+                            v.setPadding(left, statusBarHeight(), right, pad);
                         }
                     } catch (Throwable t) {
                         log("inset 处理失败: " + t);
@@ -2972,7 +3010,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.18.3\n");
+            w.write("APK 版本: 0.18.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

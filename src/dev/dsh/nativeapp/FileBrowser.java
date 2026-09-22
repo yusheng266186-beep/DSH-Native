@@ -149,8 +149,77 @@ public final class FileBrowser {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });
 
+        // 返回键：先逐级退目录，退到顶层再关闭（与桌面文件管理器一致）
+        dlg.setOnKeyListener(new android.content.DialogInterface.OnKeyListener() {
+            @Override public boolean onKey(android.content.DialogInterface d, int code,
+                                           android.view.KeyEvent e) {
+                if (code == android.view.KeyEvent.KEYCODE_BACK
+                        && e.getAction() == android.view.KeyEvent.ACTION_UP) {
+                    File up = cwd[0].getParentFile();
+                    if (up != null && !up.getAbsolutePath().equals(cwd[0].getAbsolutePath())) {
+                        cwd[0] = up;
+                        refresh.run();
+                        return true;      // 已处理：不退对话框
+                    }
+                }
+                return false;
+            }
+        });
+
         refresh.run();
         dlg.show();
+    }
+
+    /**
+     * 是否为符号链接；是则返回链接目标，否则返回 null。
+     *
+     * <p>用 {@code Os.lstat}（API 21+）而不是 {@code java.io.File} ——
+     * 后者会跟随链接，无法判断条目本身是不是链接。
+     * （{@code java.nio.file.Files} 是 API 26+，本应用 minSdk 24 用不了。）
+     */
+    private static String symlinkTargetOf(File f) {
+        try {
+            android.system.StructStat st = android.system.Os.lstat(f.getAbsolutePath());
+            if (!android.system.OsConstants.S_ISLNK(st.st_mode)) return null;
+            return android.system.Os.readlink(f.getAbsolutePath());
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 文件名自然序：{@code file2} 排在 {@code file10} 之前。
+     *
+     * <p>直接比较会得到字典序（"file10" &lt; "file2"），与直觉相反。
+     * 这里逐段比较，遇到连续数字时按**数值**比（先比有效位数，避免溢出）。
+     */
+    static int naturalCompare(String a, String b) {
+        int i = 0, j = 0;
+        while (i < a.length() && j < b.length()) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int si = i, sj = j;
+                while (i < a.length() && Character.isDigit(a.charAt(i))) i++;
+                while (j < b.length() && Character.isDigit(b.charAt(j))) j++;
+                String na = trimZeros(a.substring(si, i));
+                String nb = trimZeros(b.substring(sj, j));
+                if (na.length() != nb.length()) return na.length() - nb.length();
+                int c = na.compareTo(nb);
+                if (c != 0) return c;
+            } else {
+                int c = Character.toLowerCase(ca) - Character.toLowerCase(cb);
+                if (c != 0) return c;
+                i++;
+                j++;
+            }
+        }
+        return (a.length() - i) - (b.length() - j);
+    }
+
+    private static String trimZeros(String digits) {
+        int k = 0;
+        while (k < digits.length() - 1 && digits.charAt(k) == '0') k++;
+        return digits.substring(k);
     }
 
     private static boolean samePath(File a, File b) {
@@ -216,7 +285,7 @@ public final class FileBrowser {
             @Override public int compare(File a, File b) {
                 boolean da = a.isDirectory(), db = b.isDirectory();
                 if (da != db) return da ? -1 : 1;                 // 目录优先
-                return a.getName().compareToIgnoreCase(b.getName());
+                return naturalCompare(a.getName(), b.getName());
             }
         });
 
@@ -227,6 +296,10 @@ public final class FileBrowser {
             if (shown >= LIST_CAP) break;
             shown++;
             final boolean isDir = f.isDirectory();
+            // java.io.File 会**跟随**符号链接，无法判断某个条目本身是不是链接。
+            // 运行包目录里大量文件是软链（tools/bin/* 等），
+            // 不区分的话会以为它们是普通文件，误编辑会直接改到目标文件。
+            final String linkTarget = symlinkTargetOf(f);
             if (isDir) dirCount++; else { fileCount++; totalSize += f.length(); }
 
             LinearLayout row = new LinearLayout(act);
@@ -236,7 +309,7 @@ public final class FileBrowser {
             row.setPadding(rp, rp, rp, rp);
 
             TextView name = new TextView(act);
-            name.setText((isDir ? "📁 " : iconFor(f)) + f.getName());
+            name.setText((linkTarget != null ? "🔗 " : (isDir ? "📁 " : iconFor(f))) + f.getName());
             name.setTextSize(12.5f);
             name.setTextColor(isDir ? DshUi.TEXT : DshUi.TEXT_2);
             name.setSingleLine(true);
@@ -245,7 +318,9 @@ public final class FileBrowser {
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             TextView info = new TextView(act);
-            info.setText(isDir ? "目录" : humanSize(f.length()) + "  " + shortTime(f.lastModified()));
+            info.setText(linkTarget != null
+                    ? "→ " + linkTarget
+                    : (isDir ? "目录" : humanSize(f.length()) + "  " + shortTime(f.lastModified())));
             info.setTextSize(10.5f);
             info.setTextColor(DshUi.TEXT_3);
             info.setSingleLine(true);
