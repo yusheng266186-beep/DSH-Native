@@ -110,7 +110,7 @@ public final class TextEditor {
     private static void showInfo(Activity act, File f, String title, String detail) {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, title));
-        body.addView(DshUi.hint(act, f.getName() + "\n" + FileBrowser.humanSize(f.length())
+        body.addView(DshUi.hint(act, f.getName() + "\n" + FileListing.humanSize(f.length())
                 + "\n\n" + detail), DshUi.fullWidth(act, 8));
         Button close = DshUi.button(act, "关闭", true);
         final Dialog dlg = DshUi.dialog(act, body, DshUi.footer(act, close), 400);
@@ -129,9 +129,9 @@ public final class TextEditor {
         int lines = 1;
         for (int i = 0; i < initial.length(); i++) if (initial.charAt(i) == '\n') lines++;
         String info = f.getAbsolutePath() + "\n"
-                + FileBrowser.humanSize(f.length()) + " · " + lines + " 行"
+                + FileListing.humanSize(f.length()) + " · " + lines + " 行"
                 + " · " + charset
-                + (truncated ? " · 文件过大，仅预览前 " + FileBrowser.humanSize(PREVIEW_BYTES) : "");
+                + (truncated ? " · 文件过大，仅预览前 " + FileListing.humanSize(PREVIEW_BYTES) : "");
         TextView meta = DshUi.hint(act, info);
         body.addView(meta, DshUi.fullWidth(act, 4));
 
@@ -197,7 +197,7 @@ public final class TextEditor {
                         copyFile(tmp, f);
                         tmp.delete();
                     }
-                    DshUi.toast(act, "已保存 " + FileBrowser.humanSize(f.length()));
+                    DshUi.toast(act, "已保存 " + FileListing.humanSize(f.length()));
                     dlg.dismiss();
                 } catch (Throwable t) {
                     DshUi.toast(act, "保存失败: " + t.getMessage());
@@ -258,8 +258,4 @@ public final class TextEditor {
         }
     }
 
-    /** 供日志等场景复用的大小格式化。 */
-    static String size(long n) {
-        return String.format(Locale.ROOT, "%.1f KB", n / 1024.0);
-    }
 }

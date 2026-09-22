@@ -214,6 +214,19 @@ public final class DshUi {
     }
 
     /**
+     * 内容区背景：纯色圆角，无状态变化。
+     *
+     * <p>与 {@link #fieldBg} 的区别很重要：那是**输入框**背景，
+     * 带 focus/disabled 状态；拿它当列表容器背景会在获得焦点时变色。
+     */
+    public static GradientDrawable surfaceBg(Context c) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(FIELD);
+        d.setCornerRadius(dp(c, 10));
+        return d;
+    }
+
+    /**
      * 列表行的背景：默认透明，按下/聚焦时淡淡一层。
      *
      * <p>文件列表这类行式条目用它，保持与卡片一致的圆角与配色。

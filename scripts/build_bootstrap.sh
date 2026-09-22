@@ -129,6 +129,12 @@ DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
 echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
 
+# ---------------------------------------------------------------- 3.4 纯逻辑测试
+# FileListing 是纯 Java（无 Android 依赖），可在普通 JVM 上直接验证。
+# 排序、边界、格式化一旦改坏，这里立刻失败 —— 不必等装到手机靠截图发现。
+say "3.4 纯逻辑测试"
+bash run_tests.sh
+
 # ---------------------------------------------------------------- 3.5 UI 规范
 # 强制检查：原生界面必须走 DshUi 组件层，禁止系统默认样式
 # （见 docs/DESIGN.md —— 用户要求原生 UI 与 DSH 视觉统一，此约束长期有效）
