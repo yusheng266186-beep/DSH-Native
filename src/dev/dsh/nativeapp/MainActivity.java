@@ -830,26 +830,42 @@ public class MainActivity extends Activity {
      * 再由 onConsoleMessage 落到 App 日志里。
      */
     private void installFetchDiagnostics() {
+        // 策略：记录**所有非静态资源**请求的状态与响应体（截断）。
+        // 之前只记录非 2xx，但 DSH 的 RPC 很可能用 200 + 错误负载，
+        // 于是什么都没抓到。全量记录才能保证失败请求必然显现 ——
+        // 真正的错误详情（details.reason）只能从这里拿到。
         final String js =
             "(function(){"
           + "if(window.__dshDiag)return;window.__dshDiag=1;"
           + "var of=window.fetch;"
+          + "function isAsset(u){return /\\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map)(\\?|$)/i.test(u);}"
           + "window.fetch=function(){"
-          + "  var u=arguments[0];"
-          + "  u=(typeof u==='string')?u:(u&&u.url)||'';"
-          + "  return of.apply(this,arguments).then(function(r){"
-          + "    if(!r.ok){"
-          + "      r.clone().text().then(function(t){"
-          + "        console.error('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,1200));"
-          + "      }).catch(function(){});"
-          + "    }"
-          + "    return r;"
-          + "  });"
+          + "  var a=arguments[0];"
+          + "  var u=(typeof a==='string')?a:((a&&a.url)||'');"
+          + "  var p=of.apply(this,arguments);"
+          + "  try{"
+          + "    p.then(function(r){"
+          + "      try{"
+          + "        if(isAsset(u))return;"
+          + "        var ct=(r.headers&&r.headers.get)?(r.headers.get('content-type')||''):'';"
+          + "        var isJson=ct.indexOf('json')>=0;"
+          + "        if(!isJson&&r.status<400){"
+          + "          console.log('[dsh-api] '+r.status+' '+u+' ('+ct.split(';')[0]+')');return;"
+          + "        }"
+          + "        r.clone().text().then(function(t){"
+          + "          console.log('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,700));"
+          + "        }).catch(function(){});"
+          + "      }catch(e){}"
+          + "    }).catch(function(e){"
+          + "      console.error('[dsh-api] NETFAIL '+u+' :: '+String(e));"
+          + "    });"
+          + "  }catch(e){}"
+          + "  return p;"
           + "};"
           + "})();";
         try {
             webView.evaluateJavascript(js, null);
-            log("已注入接口错误捕获（后续失败会记录完整响应）");
+            log("已注入接口捕获（记录所有非静态请求的响应）");
         } catch (Throwable t) {
             log("⚠️ 注入接口捕获失败: " + t);
         }
@@ -2593,7 +2609,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.15.4\n");
+            w.write("APK 版本: 0.15.5\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
