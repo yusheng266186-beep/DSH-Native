@@ -52,6 +52,18 @@
 
 ---
 
+## 🔄 应用内更新
+
+**通知栏 →「设置」→ 底部「更新」区**：
+
+| 按钮 | 作用 |
+|---|---|
+| 更新运行包 | 检查 DSH / 工具链更新（走分片清单，只下变化部分），完成后自动重启 agent |
+| 检查 App 更新并安装 | 读取 `latest.json` → 下载新 APK → 调起系统安装器覆盖安装 |
+
+> ⚠️ 发版时**必须同步更新仓库根目录的 `latest.json`**，否则 App 检测不到新版本。
+> 详见 [scripts/release_checklist.md](scripts/release_checklist.md)。
+
 ## ⚡ 增量更新
 
 运行包按功能切分为五个分片（DSH / 基础工具 / 共享库 / Python / npm），

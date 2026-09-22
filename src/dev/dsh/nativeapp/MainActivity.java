@@ -58,12 +58,35 @@ public class MainActivity extends Activity {
      */
     private static final String ASSET_PATH =
             "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v4/";
+    /** 用于检查 App 自身更新的仓库。 */
+    private static final String REPO = "yusheng266186-beep/DSH-Native";
 
+    /**
+     * 版本清单来源。
+     *
+     * <p>**刻意不用 GitHub API** —— 未认证请求限 60 次/小时且按 IP 计，
+     * 手机流量多为运营商 NAT 共享 IP，实测已直接返回 403。
+     * 改为读取仓库里的静态 latest.json（走 CDN，无此限制）。
+     */
+    private static final String RAW = "https://raw.githubusercontent.com/"
+            + REPO + "/main/latest.json";
+    private static final String[] VERSION_SOURCES = {
+            "https://gh-proxy.com/" + RAW,
+            "https://ghproxy.net/" + RAW,
+            RAW,
+    };
+
+    /**
+     * 镜像前缀。**只放前缀**，完整路径由 downloadPath 传入 ——
+     * 之前把 ASSET_PATH 拼进这里，导致 App 自更新（走另一个 release）时
+     * URL 变成 payload-v4/releases/download/... 这种错误组合。
+     * 空串表示直连 GitHub 兜底。
+     */
     private static final String[] SOURCES = {
-            "https://gh-proxy.com/" + ASSET_PATH,
-            "https://ghfast.top/" + ASSET_PATH,
-            "https://ghproxy.net/" + ASSET_PATH,
-            ASSET_PATH,                       // 直连兜底
+            "https://gh-proxy.com/",
+            "https://ghfast.top/",
+            "https://ghproxy.net/",
+            "",                               // 直连兜底
     };
 
     /**
@@ -523,6 +546,192 @@ public class MainActivity extends Activity {
         log("  未找到共享凭据文件，请在 Models 页面填写 API Key");
     }
 
+    // ---------------------------------------------------------------- 应用内更新
+    /** 当前 APK 版本名。 */
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
+
+    /** 极简 HTTP GET（GitHub API 用；走系统 CA，与运行包的证书问题无关）。 */
+    private String httpGet(String url) throws IOException {
+        java.net.HttpURLConnection c =
+                (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(20000);
+        c.setRequestProperty("User-Agent", "DSH-Native-Android");
+        c.setRequestProperty("Accept", "application/vnd.github+json");
+        try {
+            int code = c.getResponseCode();
+            java.io.InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            if (in != null) {
+                byte[] b = new byte[8192];
+                int k;
+                while ((k = in.read(b)) > 0) bo.write(b, 0, k);
+                in.close();
+            }
+            if (code >= 400) throw new IOException("HTTP " + code);
+            return new String(bo.toByteArray(), "UTF-8");
+        } finally {
+            try { c.disconnect(); } catch (Throwable ignored) { }
+        }
+    }
+
+    private static int[] parseVer(String v) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(\\d+)\\.(\\d+)\\.(\\d+)").matcher(v == null ? "" : v);
+        if (m.find()) {
+            return new int[]{ Integer.parseInt(m.group(1)),
+                              Integer.parseInt(m.group(2)),
+                              Integer.parseInt(m.group(3)) };
+        }
+        return new int[]{0, 0, 0};
+    }
+
+    private static boolean isNewer(String remote, String local) {
+        int[] r = parseVer(remote), l = parseVer(local);
+        for (int i = 0; i < 3; i++) {
+            if (r[i] != l[i]) return r[i] > l[i];
+        }
+        return false;
+    }
+
+    /**
+     * 读取版本清单，返回 [version, tag, apkName]；失败返回 null。
+     * 多个来源依次尝试（镜像优先）。
+     */
+    private String[] latestRelease() {
+        Throwable last = null;
+        for (String u : VERSION_SOURCES) {
+            try {
+                org.json.JSONObject o = new org.json.JSONObject(httpGet(u));
+                String ver = o.optString("version", "");
+                String tag = o.optString("tag", "");
+                String apk = o.optString("apk", "DSHNative-bootstrap.apk");
+                if (ver.length() > 0 && tag.length() > 0) {
+                    return new String[]{ ver, tag, apk };
+                }
+            } catch (Throwable t) {
+                last = t;
+            }
+        }
+        if (last != null) log("版本清单获取失败: " + shorten(last));
+        return null;
+    }
+
+    /** 检查 App 更新；interactive=true 时把结果显示在给定文本上/弹提示。 */
+    private void checkAppUpdate(final boolean interactive, final android.widget.TextView status) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                setStatus(status, "正在检查更新…");
+                try {
+                    final String[] rel = latestRelease();
+                    if (rel == null) {
+                        setStatus(status, "未找到可用的发布版本");
+                        return;
+                    }
+                    final String tag = rel[1];
+                    final String apkName = rel[2];
+                    final String local = appVersion();
+                    if (!isNewer(rel[0], local)) {
+                        log("已是最新版本: " + local + "（远端 " + rel[0] + "）");
+                        setStatus(status, "已是最新版本 " + local);
+                        if (interactive) toast("已是最新版本");
+                        return;
+                    }
+                    log("发现新版本: " + tag + "（当前 " + local + "）");
+                    setStatus(status, "发现新版本 " + rel[0] + "，正在下载…");
+                    if (interactive) toast("发现新版本 " + rel[0] + "，开始下载");
+                    File apk = UpdateProvider.apkFile(MainActivity.this);
+                    if (apk.exists()) apk.delete();
+                    downloadPath("https://github.com/" + REPO
+                                    + "/releases/download/" + tag + "/",
+                            apkName, apk);
+                    log("更新包已下载: " + (apk.length() / 1048576) + " MB");
+                    setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
+                    installApk(apk);
+                } catch (Throwable t) {
+                    log("✗ 检查更新失败: " + t);
+                    setStatus(status, "检查失败：" + shorten(t));
+                    if (interactive) toast("检查更新失败");
+                }
+            }
+        }).start();
+    }
+
+    private void setStatus(final android.widget.TextView tv, final String text) {
+        if (tv == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() { tv.setText(text); }
+        });
+    }
+
+    /** 请求「安装未知应用」权限（API 26+ 必须由用户手动开启）。 */
+    private boolean ensureInstallPermission() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                if (!getPackageManager().canRequestPackageInstalls()) {
+                    log("需要「安装未知应用」权限，正在跳转设置 …");
+                    android.content.Intent i = new android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                    i.setData(android.net.Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                    toast("请先允许「安装未知应用」，然后重新点击检查更新");
+                    return false;
+                }
+            }
+        } catch (Throwable t) {
+            log("安装权限检查失败（继续尝试）: " + t);
+        }
+        return true;
+    }
+
+    /** 调起系统安装器覆盖安装。 */
+    private void installApk(File apk) {
+        if (!ensureInstallPermission()) return;
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW);
+            i.setDataAndType(UpdateProvider.contentUri(),
+                    "application/vnd.android.package-archive");
+            i.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            toast("请在安装界面确认覆盖安装");
+        } catch (Throwable t) {
+            log("✗ 调起安装器失败: " + t);
+            toast("无法调起安装器: " + shorten(t));
+        }
+    }
+
+    /** 手动更新运行包（重新走清单校验，然后重启 agent）。 */
+    private void updatePayloadNow(final android.widget.TextView status) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                setStatus(status, "正在检查运行包…");
+                try {
+                    File root = appRoot;
+                    File node = new File(root, "node");
+                    boolean upToDate = ensurePayload(node, root,
+                            new File(root, "dsh"), new File(root, "tools"));
+                    setStatus(status, upToDate ? "运行包已是最新" : "运行包已更新，正在重启…");
+                    if (upToDate) {
+                        toast("运行包已是最新");
+                    } else {
+                        restartAgent();
+                    }
+                } catch (Throwable t) {
+                    log("✗ 更新运行包失败: " + t);
+                    setStatus(status, "更新失败：" + shorten(t));
+                }
+            }
+        }).start();
+    }
+
     // ---------------------------------------------------------------- 运行包
     /**
      * 确保运行包就绪，**只下载缺失或变化的分片**。
@@ -752,6 +961,60 @@ public class MainActivity extends Activity {
                     labeledField(box, "DeepSeek API Key", ds, true);
             final android.widget.EditText modelField =
                     labeledField(box, "默认模型", model, false);
+
+            // ---- 更新区 ----
+            android.widget.TextView upTitle = new android.widget.TextView(this);
+            upTitle.setText("更新");
+            upTitle.setTextSize(13f);
+            upTitle.setTextColor(0xFF111827);
+            android.widget.LinearLayout.LayoutParams utlp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            utlp.topMargin = (int) (22 * d);
+            box.addView(upTitle, utlp);
+
+            final android.widget.TextView upStatus = new android.widget.TextView(this);
+            upStatus.setText("当前 App 版本 " + appVersion()
+                    + "\n运行包：点下面按钮检查是否有新内容");
+            upStatus.setTextSize(11.5f);
+            upStatus.setTextColor(0xFF6B7280);
+            android.widget.LinearLayout.LayoutParams uslp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            uslp.topMargin = (int) (6 * d);
+            box.addView(upStatus, uslp);
+
+            android.widget.Button btnPayload = new android.widget.Button(this);
+            btnPayload.setText("更新运行包（DSH / 工具链）");
+            btnPayload.setTextSize(12.5f);
+            btnPayload.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    updatePayloadNow(upStatus);
+                }
+            });
+            android.widget.LinearLayout.LayoutParams blp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp.topMargin = (int) (10 * d);
+            box.addView(btnPayload, blp);
+
+            android.widget.Button btnApp = new android.widget.Button(this);
+            btnApp.setText("检查 App 更新并安装");
+            btnApp.setTextSize(12.5f);
+            btnApp.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    checkAppUpdate(true, upStatus);
+                }
+            });
+            android.widget.LinearLayout.LayoutParams blp2 =
+                    new android.widget.LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT);
+            blp2.topMargin = (int) (6 * d);
+            box.addView(btnApp, blp2);
 
             android.widget.TextView hint = new android.widget.TextView(this);
             hint.setText("保存后会重启 agent 服务。密钥仅保存在 App 私有目录，不会外传。");
@@ -1525,6 +1788,11 @@ public class MainActivity extends Activity {
      * 任一块失败只影响该块，已下载进度保留。
      */
     private void download(String assetName, File out) throws IOException {
+        downloadPath(ASSET_PATH, assetName, out);
+    }
+
+    /** 从指定 release 路径下载（供 App 自更新使用，它不在运行包那个 release 下）。 */
+    private void downloadPath(String basePath, String assetName, File out) throws IOException {
         final int CHUNK = 2 * 1024 * 1024;
         final int MAX_RETRY_PER_SOURCE = 4;
 
@@ -1544,7 +1812,7 @@ public class MainActivity extends Activity {
 
                 byte[] buf = null;
                 for (int s = 0; s < SOURCES.length && buf == null; s++) {
-                    String url = SOURCES[s] + assetName;
+                    String url = SOURCES[s] + basePath + assetName;
                     for (int attempt = 0; attempt < MAX_RETRY_PER_SOURCE; attempt++) {
                         try {
                             Object[] r = fetchRange(url, done, end);
@@ -1600,7 +1868,7 @@ public class MainActivity extends Activity {
     }
 
     /** 压缩异常信息，避免日志刷屏。 */
-    private String shorten(Exception e) {
+    private String shorten(Throwable e) {
         String m = e.getMessage();
         if (m == null) m = e.getClass().getSimpleName();
         if (m.length() > 60) m = m.substring(0, 60) + "…";
@@ -1882,7 +2150,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.11.0\n");
+            w.write("APK 版本: 0.12.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

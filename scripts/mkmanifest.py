@@ -98,6 +98,9 @@ ATTR_IDS = {
     "windowSoftInputMode": 0x0101022B,
     # 供分享 intent-filter 的 <data android:mimeType> 使用
     "mimeType": 0x01010026,
+    # 更新用的 ContentProvider（FileProvider 的最小替代）
+    "authorities": 0x01010018,
+    "grantUriPermissions": 0x0101001B,
     "label": 0x01010001,
     "icon": 0x01010002,
     "name": 0x01010003,
@@ -162,8 +165,10 @@ def manifest_tree():
     A = ANDROID_NS
     return E("manifest",
              [(None, "package", s("dev.dsh.native")),
-              (A, "versionCode", dec(1)),
-              (A, "versionName", s("0.10.0"))],
+              # versionCode 由版本名推导（major*10000+minor*100+patch），
+              # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
+              (A, "versionCode", dec(VERSION_CODE)),
+              (A, "versionName", s("0.12.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -181,6 +186,9 @@ def manifest_tree():
                    # Android 13+ 显示常驻通知需要它
                  E("uses-permission",
                    [(A, "name", s("android.permission.POST_NOTIFICATIONS"))]),
+                   # 应用内自更新：允许请求安装 APK
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.REQUEST_INSTALL_PACKAGES"))]),
                  E("application",
                    [(A, "label", s("DeepSeek Harness")),
                     # 主题：去标题栏 + 状态栏/导航栏同色（见 res/values/styles.xml）
@@ -221,6 +229,13 @@ def manifest_tree():
                    E("service",
                      [(A, "name", s("dev.dsh.nativeapp.HarnessService")),
                       (A, "exported", boolean(False))],
+                     []),
+                   # 更新包以 content:// 交给系统安装器（API 24+ 禁止 file:// 跨应用传递）
+                   E("provider",
+                     [(A, "name", s("dev.dsh.nativeapp.UpdateProvider")),
+                      (A, "authorities", s("dev.dsh.native.updates")),
+                      (A, "exported", boolean(False)),
+                      (A, "grantUriPermissions", boolean(True))],
                      []),
                    ]),
              ])
@@ -351,6 +366,20 @@ def _walk(node, out):
     out.append(node)
     for child in node[2]:
         _walk(child, out)
+
+
+def _version_code():
+    """把 0.12.0 这样的版本名换算成 versionCode：major*10000+minor*100+patch。"""
+    import re as _re
+    src = open(__file__, encoding="utf-8").read()
+    m = _re.search(r's\("(\d+)\.(\d+)\.(\d+)"\)', src)
+    if not m:
+        return 1
+    a, b, c = (int(x) for x in m.groups())
+    return a * 10000 + b * 100 + c
+
+
+VERSION_CODE = _version_code()
 
 
 def build_manifest():
