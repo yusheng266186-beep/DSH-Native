@@ -1,5 +1,7 @@
 # Upstream issue draft — attachment persistence fails on Android
 
+> **Posted:** <https://github.com/deepseek-ai/deepseek-harness/discussions/7507>
+
 > Repo: <https://github.com/deepseek-ai/deepseek-harness>
 > Packages: `packages/attachment/attachment-local` (`@deepseek-ai/dsh-attachment-local@0.1.6-alpha.2`),
 > `packages/api/session-controller`
