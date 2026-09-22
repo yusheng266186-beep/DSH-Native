@@ -364,9 +364,16 @@ public final class DshUi {
         // body 必须用 WRAP_CONTENT，**不能**用 0dp + weight=1：
         // 权重子视图在「未指定高度」下测量结果是 0，
         // 会把 body 内部的权重区域（文件列表、日志列表）整块压扁。
-        card.addView(body, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        // body 的高度策略随对话框类型而定：
+        //   dialogFill（列表类）→ 0dp + weight=1，**窗口高度已固定**，此时权重是安全的，
+        //     且能保证底部按钮永远贴底、不会被超长列表顶出屏幕；
+        //   dialog（贴合内容）→ WRAP_CONTENT，让卡片高度随内容。
+        card.addView(body, fillHeight
+                ? new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+                : new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
         if (footer != null) card.addView(footer, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -420,14 +427,23 @@ public final class DshUi {
     public static LinearLayout footer(Context c, Button... buttons) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         int pad = dp(c, 20);
         row.setPadding(pad, dp(c, 12), pad, pad);
-        for (Button b : buttons) {
+        // **等权重分配**，不用 WRAP_CONTENT。
+        //
+        // 原因：WRAP_CONTENT 下按钮总宽由文字决定，一旦超出可用宽度，
+        // 最后一个按钮会被压缩、文字竖排成两行（实测「关闭」变成「关/闭」）。
+        // 中文按钮在每个机型上的字宽还不一样，靠估算留不出安全余量。
+        // 等权重则**必然平分可用宽度**，永远不会溢出 ——
+        // 常用位置那一行六个按钮就是这么做，从未出问题。
+        for (int i = 0; i < buttons.length; i++) {
+            Button b = buttons[i];
+            b.setSingleLine(true);      // 双保险：即使标签偏长也只省略，不换行
+            b.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.leftMargin = dp(c, 8);
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) lp.leftMargin = dp(c, 8);
             row.addView(b, lp);
         }
         return row;

@@ -38,9 +38,11 @@ final class FileListing {
 
     /** 排序方式的可读名称（含方向，避免用户猜）。 */
     static String sortLabel(int mode) {
-        if (mode == SORT_SIZE) return "排序: 大小↓";
-        if (mode == SORT_TIME) return "排序: 时间↓";
-        return "排序: 名称";
+        // 标签要短：底部按钮等权重分配，每个约 78dp，
+        // 「排序: 名称」这种长度会被省略号截断。
+        if (mode == SORT_SIZE) return "大小↓";
+        if (mode == SORT_TIME) return "时间↓";
+        return "名称";
     }
 
     /** 循环切换到下一种排序方式。 */

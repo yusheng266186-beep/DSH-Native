@@ -98,7 +98,7 @@ public final class FileBrowser {
             crumbRow = new LinearLayout(act);
             crumbScroll = new android.widget.HorizontalScrollView(act);
             listBox = new LinearLayout(act);
-            hiddenToggle = DshUi.toggleButton(act, "隐藏文件", false);
+            hiddenToggle = DshUi.toggleButton(act, "隐藏", false);
             sortToggle = DshUi.toggleButton(act, "排序", false);
         }
 
@@ -108,8 +108,9 @@ public final class FileBrowser {
             cwd = dir;
             final int gen = ++generation;
             renderChrome();
+            // **不清空列表**：清空会让界面白一下再重建，点按钮时像在闪。
+            // 保留旧内容直到新结果到达，只在统计行提示正在读取。
             meta.setText("正在读取…");
-            listBox.removeAllViews();
 
             final boolean hidden = showHidden;
             final int sort = sortMode;
@@ -187,31 +188,39 @@ public final class FileBrowser {
                             sb.append("警告: 这些标签被省略: ").append(tight);
                         }
 
-                        // 底部按钮总宽 vs 可用宽：四个按钮用 wrap_content，
-                        // 窄屏或横屏下可能挤出卡片
+                        // 底部按钮：逐个比较「文字宽 + 内边距」与实际宽度。
+                        // 这正是「关闭」曾被压缩换行的原因 —— 只看总宽不够，
+                        // 必须能指出是哪一个按钮放不下。
                         android.view.View parent = (android.view.View) probeRootRow.getParent();
                         if (parent instanceof LinearLayout) {
                             LinearLayout col = (LinearLayout) parent;
-                            int cardW = col.getWidth();
                             for (int i = 0; i < col.getChildCount(); i++) {
                                 android.view.View child = col.getChildAt(i);
                                 if (!(child instanceof LinearLayout)) continue;
-                                LinearLayout rowCandidate = (LinearLayout) child;
-                                if (rowCandidate.getChildCount() == 0) continue;
-                                if (!(rowCandidate.getChildAt(0) instanceof android.widget.Button)) continue;
-                                int total = 0;
-                                for (int k = 0; k < rowCandidate.getChildCount(); k++) {
-                                    android.view.View b2 = rowCandidate.getChildAt(k);
-                                    total += b2.getWidth();
-                                    android.view.ViewGroup.MarginLayoutParams mlp =
-                                            (android.view.ViewGroup.MarginLayoutParams)
-                                                    b2.getLayoutParams();
-                                    total += mlp.leftMargin + mlp.rightMargin;
+                                LinearLayout rowC = (LinearLayout) child;
+                                if (rowC.getChildCount() == 0) continue;
+                                if (!(rowC.getChildAt(0) instanceof android.widget.Button)) continue;
+
+                                StringBuilder tightBtn = new StringBuilder();
+                                for (int k = 0; k < rowC.getChildCount(); k++) {
+                                    android.widget.TextView b2 =
+                                            (android.widget.TextView) rowC.getChildAt(k);
+                                    int need2 = (int) b2.getPaint()
+                                            .measureText(String.valueOf(b2.getText()))
+                                            + b2.getPaddingLeft() + b2.getPaddingRight();
+                                    if (need2 > b2.getWidth()) {
+                                        if (tightBtn.length() > 0) tightBtn.append("/");
+                                        tightBtn.append(b2.getText());
+                                    }
                                 }
-                                int avail = cardW - rowCandidate.getPaddingLeft()
-                                        - rowCandidate.getPaddingRight();
-                                sb.append("，底部按钮 ").append(total).append("/").append(avail);
-                                sb.append(total > avail ? "，放不下" : "，正常");
+                                sb.append("，底部按钮 ");
+                                sb.append(tightBtn.length() == 0
+                                        ? "均完整" : "被截断: " + tightBtn);
+
+                                // 底部按钮是否被挤出卡片（超出可视区域）
+                                int cardBottom = col.getHeight();
+                                int rowBottom = rowC.getTop() + rowC.getHeight();
+                                sb.append(rowBottom > cardBottom ? "，底部被挤出卡片" : "，底部可见");
                                 break;
                             }
                         }
@@ -276,7 +285,7 @@ public final class FileBrowser {
                 Button btn = rootButtons.get(i);
                 DshUi.setButtonActive(btn, samePath(cwd, roots.get(i).dir));
             }
-            hiddenToggle.setText("隐藏文件");
+            hiddenToggle.setText("隐藏");
             DshUi.setButtonActive(hiddenToggle, showHidden);
             sortToggle.setText(FileListing.sortLabel(sortMode));
             DshUi.setButtonActive(sortToggle, sortMode != FileListing.SORT_NAME);

@@ -14,13 +14,14 @@
 #   3) 直连与镜像两条下载路径都返回成功
 #
 # 用法：
-#   scripts/release.sh <版本号> <构建目录>
+#   scripts/release.sh <版本号> <构建目录> [发布说明.md]
 # 例：
-#   scripts/release.sh 0.19.3 /root/build
+#   scripts/release.sh 0.19.3 /root/build /tmp/notes.md
 set -euo pipefail
 
-VER="${1:?用法: release.sh <版本号> <构建目录>}"
-BUILD_DIR="${2:?用法: release.sh <版本号> <构建目录>}"
+VER="${1:?用法: release.sh <版本号> <构建目录> [发布说明.md]}"
+BUILD_DIR="${2:?用法: release.sh <版本号> <构建目录> [发布说明.md]}"
+NOTES="${3:-}"
 TAG="v${VER}-bootstrap"
 REPO="yusheng266186-beep/DSH-Native"
 APK_NAME="DSHNative-bootstrap.apk"
@@ -45,10 +46,14 @@ fi
 
 # 2) 上传
 echo "  上传中 …"
-gh release create "$TAG" --repo "$REPO" \
-    --title "DeepSeek Harness v${VER}" \
-    --notes "见仓库 README 与 git log。" \
-    "$APK"
+if [ -n "$NOTES" ] && [ -f "$NOTES" ]; then
+    gh release create "$TAG" --repo "$REPO" \
+        --title "DeepSeek Harness v${VER}" --notes-file "$NOTES" "$APK"
+else
+    gh release create "$TAG" --repo "$REPO" \
+        --title "DeepSeek Harness v${VER}" \
+        --notes "见仓库 README 与 git log。" "$APK"
+fi
 
 # 3) 验证资产确实存在
 ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets \
