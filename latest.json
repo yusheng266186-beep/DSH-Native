@@ -1,7 +1,7 @@
 {
-  "version": "0.18.4",
-  "tag": "v0.18.4-bootstrap",
+  "version": "0.18.5",
+  "tag": "v0.18.5-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v6",
-  "notes": "修横屏刘海黑边；文件浏览器支持软链识别/自然排序/返回键退目录"
+  "notes": "列表类对话框占满高度；对话框加宽到 720dp"
 }

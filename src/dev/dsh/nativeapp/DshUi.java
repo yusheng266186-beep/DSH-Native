@@ -266,8 +266,28 @@ public final class DshUi {
      * @param footer   底部操作区（可为 null）
      * @param maxHeightDp 最大高度，超出则内部滚动
      */
+    /**
+     * 列表类对话框：窗口**占满**可用高度。
+     *
+     * <p>为什么需要单独一个方法：这类对话框的内容里有
+     * {@code 0dp + weight=1} 的填充区（文件列表、日志列表）。
+     * 「贴合内容」的高度取决于测量时序，实测会出现列表被压成 0 高度
+     * （对话框只剩标题与按钮那样一条）。
+     * 这里直接给窗口一个确定的高度，内部权重区自然拿到剩余空间 ——
+     * 不依赖测量，行为可预测。
+     */
+    public static android.app.Dialog dialogFill(Context c, View body, View footer,
+                                                int maxHeightDp) {
+        return buildDialog(c, body, footer, maxHeightDp, true);
+    }
+
     public static android.app.Dialog dialog(Context c, View body, View footer,
                                             int maxHeightDp) {
+        return buildDialog(c, body, footer, maxHeightDp, false);
+    }
+
+    private static android.app.Dialog buildDialog(Context c, View body, View footer,
+                                                  int maxHeightDp, boolean fillHeight) {
         android.app.Dialog d = new android.app.Dialog(c);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -293,23 +313,26 @@ public final class DshUi {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
             int screenW = c.getResources().getDisplayMetrics().widthPixels;
             int screenH = c.getResources().getDisplayMetrics().heightPixels;
-            int width = Math.min(screenW - dp(c, 32), dp(c, 520));
+            // 宽度：两侧各留 24dp，上限放宽到 720dp。
+            // 早先上限 520dp，横屏时（屏幕宽约 869dp）只能用到六成，很浪费；
+            // 竖屏仍受屏幕限制（400dp 屏 → 352dp），几乎满宽。
+            int width = Math.min(screenW - dp(c, 24), dp(c, 720));
             int maxH = Math.min(dp(c, maxHeightDp), (int) (screenH * 0.86f));
 
-            // 高度：既贴合内容、又不超过上限。
-            //
-            // 用 AT_MOST(上限) 测量（**不能用 UNSPECIFIED** —— 那会让内部的
-            // 权重区域测成 0 高度，把文件列表/日志列表整块压扁，实测踩过）：
-            //   • 内容本身不高 → 测得自然高度，对话框就短
-            //   • 内容里有 0dp+weight 的填充区 → 测得上限高度，该区域拿到剩余空间
             int height = maxH;
-            try {
-                card.measure(
-                        View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
-                int measured = card.getMeasuredHeight();
-                if (measured > 0) height = Math.min(measured, maxH);
-            } catch (Throwable ignored) { }
+            if (!fillHeight) {
+                // 贴合内容：先按最终宽度测量，再取 min(内容高, 上限)。
+                // 必须用 AT_MOST —— UNSPECIFIED 会让内部权重区域测成 0 高度。
+                try {
+                    card.measure(
+                            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+                    int measured = card.getMeasuredHeight();
+                    if (measured > 0) height = Math.min(measured, maxH);
+                } catch (Throwable ignored) { }
+            }
+            // fillHeight 时 height 就是 maxH：给窗口一个确定高度，
+            // 内部 0dp+weight 的列表区必然拿到剩余空间。
             w.setLayout(width, height);
         }
         return d;

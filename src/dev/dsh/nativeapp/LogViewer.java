@@ -232,8 +232,8 @@ public final class LogViewer {
         });
 
         Button close = DshUi.button(act, "关闭", true);
-        final android.app.Dialog dlg = DshUi.dialog(act, body,
-                DshUi.footer(act, copy, clear, close), 720);
+        final android.app.Dialog dlg = DshUi.dialogFill(act, body,
+                DshUi.footer(act, copy, clear, close), 820);
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });

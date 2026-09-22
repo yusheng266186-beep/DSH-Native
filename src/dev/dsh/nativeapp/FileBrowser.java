@@ -144,7 +144,8 @@ public final class FileBrowser {
         }
 
         Button close = DshUi.button(act, "关闭", true);
-        final Dialog dlg = DshUi.dialog(act, body, DshUi.footer(act, close), 760);
+        // 列表类：占满高度，否则列表区会被压扁（只剩标题与按钮那样一条）
+        final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, close), 820);
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });

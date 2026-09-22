@@ -162,9 +162,10 @@ public final class TextEditor {
         Button save = DshUi.button(act, "保存", true);
         save.setEnabled(!readOnly);
 
+        // 编辑区需要空间，同样占满高度
         final Dialog dlg = readOnly
-                ? DshUi.dialog(act, body, DshUi.footer(act, close), 780)
-                : DshUi.dialog(act, body, DshUi.footer(act, close, save), 780);
+                ? DshUi.dialogFill(act, body, DshUi.footer(act, close), 820)
+                : DshUi.dialogFill(act, body, DshUi.footer(act, close, save), 820);
 
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
