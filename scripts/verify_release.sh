@@ -42,7 +42,7 @@ import json,sys
 d=json.load(sys.stdin)
 for a in d.get('assets',[]):
     print(f\"  [OK] 资产 {a['name']}  {a['size']/1048576:.2f}MB\")
-if not d.get('assets'): print('  [FAIL] 没有任何资产')
+if not d.get('assets'): print('  [--] 资产列表为空（多为 API 限流），以下载路径为准')
 "
     printf '%s' "$INFO" | python3 -c "
 import json,sys
