@@ -336,6 +336,49 @@ final class SessionStatus {
     }
 
     /**
+     * 触摸屏适配：让「悬停菜单」在手指抬起后不要立刻关闭。
+     *
+     * <h3>问题</h3>
+     * DSH 的会话操作菜单（重命名 / 分叉 / 归档）用的是悬停卡片，
+     * 组件上写着 {@code closeOnPointerLeave: true}。鼠标上是合理的：
+     * 移开就收起。但**手指抬起同样会产生 pointerleave** ——
+     * 于是菜单在点中的瞬间就被关掉，用户点的其实是一片空白。
+     *
+     * <p>实测证据：WebSocket 探针显示所有 RPC 里**没有任何一条 request**
+     *（归档、重命名都是 request），只有订阅用的 open ——
+     * 说明点击根本没走到处理函数，问题出在菜单本身。
+     *
+     * <h3>做法</h3>
+     * 记录最近一次触摸时间；在**捕获阶段**拦掉紧随触摸之后的
+     * {@code pointerleave}。React 的事件是委托到根节点的，
+     * 捕获阶段停掉传播，它就不会收到这个事件，菜单也就不会关。
+     *
+     * <p>只影响触摸后的短窗口（800ms），鼠标行为不受影响。
+     */
+    static String touchMenuFixScript() {
+        return "(function(){"
+             + "if(window.__dshTouchFix)return;window.__dshTouchFix=1;"
+             + "var lastTouch=0;"
+             + "function mark(){lastTouch=Date.now();}"
+             + "document.addEventListener('touchstart',mark,true);"
+             + "document.addEventListener('touchend',mark,true);"
+             + "document.addEventListener('pointerdown',function(e){"
+             + "  if(e.pointerType==='touch')mark();"
+             + "},true);"
+             + "function block(e){"
+             + "  if(Date.now()-lastTouch<800){"
+             + "    e.stopPropagation();"
+             + "    if(e.stopImmediatePropagation)e.stopImmediatePropagation();"
+             + "  }"
+             + "}"
+             + "document.addEventListener('pointerleave',block,true);"
+             + "document.addEventListener('mouseleave',block,true);"
+             + "document.addEventListener('pointerout',block,true);"
+             + "console.log('[dsh-touch] 触摸菜单修复已安装');"
+             + "})();";
+    }
+
+    /**
      * 解析注入脚本上报的状态码。
      *
      * @return 状态常量；不是状态上报时返回 -1
