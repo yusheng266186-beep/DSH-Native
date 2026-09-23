@@ -1,7 +1,7 @@
 {
-  "version": "0.22.6",
-  "tag": "v0.22.6-bootstrap",
+  "version": "0.22.7",
+  "tag": "v0.22.7-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "状态看板改用 /api/session/list 的 running 字段"
+  "notes": "修复版本号不一致导致的无限更新提示"
 }
