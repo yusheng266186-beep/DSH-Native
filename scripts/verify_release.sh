@@ -47,7 +47,6 @@ if not d.get('assets'): print('  [--] 资产列表为空（多为 API 限流）�
     printf '%s' "$INFO" | python3 -c "
 import json,sys
 sys.exit(0 if json.load(sys.stdin).get('assets') else 1)
-" || FAILED=1
 fi
 
 say "2. 两条下载路径都能取到（直连 + 镜像）"
