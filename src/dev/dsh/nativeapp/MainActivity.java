@@ -446,13 +446,42 @@ public class MainActivity extends Activity {
 
         nodeRef = node;
 
-        runPreflight(node, root, toolsDir);
+        // 自检要跑十几次 node 调用（crypto / 子进程 / git / python / rg / bash …），
+        // 每次启动都做一遍是「关掉再打开很慢」的一大来源。
+        // 环境没变就没必要重测：用「运行包修订 + 资源版本」当指纹，
+        // 两者都没变时直接跳过。真出问题时日志里仍能看到它是被跳过的。
+        String envKey = payloadRevisionKey() + "/" + appVersion();
+        if (envKey.equals(lastPreflightKey())) {
+            log("运行环境自检已通过过（环境未变），跳过以加快启动");
+        } else {
+            runPreflight(node, root, toolsDir);
+            rememberPreflightKey(envKey);
+        }
 
         // 3. 准备 DSH 配置（若不存在）
         prepareConfig(root);
 
         // 4. 启动 dsh web
         File binJs = new File(dshDir, "lib/bin.js");
+
+        // 先看**上次那个 DSH 还在不在**。
+        //
+        // 原来每次都无脑起一个新实例，而旧进程并没有随 App 退出而结束 ——
+        // 于是每启动一次就多一个 DSH，端口一路从 3080 往上爬
+        //（日志里已经出现过「3080 已被占用」）。而启动一个 DSH 要 20~60 秒，
+        // 这就是「关掉再打开要等很久」的真正原因。
+        //
+        // 复用它：直接连上去，跳过整个启动过程。
+        int live = liveDshPort();
+        if (live > 0) {
+            chosenPort = live;
+            log("复用已在运行的 DSH（端口 " + live + "），跳过启动，立即进入界面");
+            setSplashStatus("正在连接已有服务…");
+            String url = "http://127.0.0.1:" + live + "/?token=" + savedDshToken();
+            loadDshUi(url);
+            return;
+        }
+
         // 必须挑一个空闲端口：设备上可能已有别的 DSH 实例占用 3080，
         // 直接沿用会 EADDRINUSE 导致启动失败、界面空白。
         chosenPort = findFreePort(PORT, PORT + 200);
@@ -562,12 +591,168 @@ public class MainActivity extends Activity {
             }
         }
         if (url != null) {
-            log("界面就绪: " + url);
-            final String target = url;
-            statusPageLoading = false;
-            runOnUiThread(new Runnable() {
-                @Override public void run() { webView.loadUrl(target); }
-            });
+            loadDshUi(url);
+        }
+    }
+
+    /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
+    private void loadDshUi(String url) {
+        log("界面就绪: " + url);
+        rememberDsh(url);
+        final String target = url;
+        statusPageLoading = false;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                webView.loadUrl(target);
+                // 复用已有实例时，开屏要在加载完成后收起；
+                // 这里先排一个兜底，避免任何情况下被永久挡住
+                new android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed(new Runnable() {
+                    @Override public void run() { hideSplash(); }
+                }, 8000);
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- 自检缓存
+
+    /** 运行包修订号的指纹（变了说明环境可能变）。 */
+    private String payloadRevisionKey() {
+        try {
+            java.util.Set<String> set = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getStringSet("payloadRevisions", null);
+            if (set == null || set.isEmpty()) return "0";
+            java.util.List<String> l = new java.util.ArrayList<String>(set);
+            java.util.Collections.sort(l);
+            return l.toString();
+        } catch (Throwable t) {
+            return "0";
+        }
+    }
+
+    private String lastPreflightKey() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("preflightKey", "");
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private void rememberPreflightKey(String key) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString("preflightKey", key).apply();
+        } catch (Throwable ignored) { }
+    }
+
+    // ---------------------------------------------------------------- 复用运行中的实例
+    /**
+     * 探测有没有**还在运行的** DSH 实例。
+     *
+     * <p>App 退出时不会带走 DSH 进程（它是独立子进程）—— 这是有意的：
+     * 关掉 App 后 agent 还要继续跑。但这样一来，下次启动若直接再起一个，
+     * 就会同时存在两个 DSH，而且新实例要 20~60 秒才能服务。
+     *
+     * <p>所以先找有没有活着的：端口能连上、并且能认出是 DSH。
+     *
+     * @return 可用端口；没有则返回 0
+     */
+    private int liveDshPort() {
+        String token = savedDshToken();
+        if (token == null || token.length() == 0) return 0;
+        int saved = savedDshPort();
+        // 先试上次记录的那个端口，再扫常见的这一段
+        int[] candidates = new int[12];
+        candidates[0] = saved;
+        for (int i = 0; i < 11; i++) candidates[i + 1] = PORT + i;
+        for (int port : candidates) {
+            if (port <= 0) continue;
+            if (!portOpen(port)) continue;
+            // 能连上还不够：确认它真的是 DSH（而不是别的服务占了端口）。
+            // 带上 token 请求首页，拿到内容就说明可用。
+            try {
+                String body = httpGetQuick("http://127.0.0.1:" + port + "/?token=" + token, 2500);
+                if (body != null && body.length() > 200
+                        && body.indexOf("authentication required") < 0) {
+                    return port;
+                }
+            } catch (Throwable ignored) { }
+        }
+        return 0;
+    }
+
+    /** 端口是否有服务在监听（很快，只做连接）。 */
+    private boolean portOpen(int port) {
+        java.net.Socket s = null;
+        try {
+            s = new java.net.Socket();
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 250);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            if (s != null) try { s.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** 极简 GET，带超时。失败返回 null。 */
+    private String httpGetQuick(String url, int timeoutMs) {
+        java.io.InputStream in = null;
+        try {
+            java.net.HttpURLConnection c =
+                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            int code = c.getResponseCode();
+            if (code != 200) return null;
+            in = c.getInputStream();
+            byte[] buf = new byte[4096];
+            int n = in.read(buf);
+            return n > 0 ? new String(buf, 0, n, "UTF-8") : "";
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (in != null) try { in.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** 记下可用的实例地址（端口 + token），供下次启动复用。 */
+    private void rememberDsh(String url) {
+        try {
+            int port = chosenPort;
+            String token = "";
+            int t = url.indexOf("token=");
+            if (t >= 0) token = url.substring(t + 6);
+            if (port <= 0) {
+                int a = url.indexOf("127.0.0.1:");
+                if (a >= 0) {
+                    String rest = url.substring(a + 10);
+                    int slash = rest.indexOf('/');
+                    port = Integer.parseInt(slash > 0 ? rest.substring(0, slash) : rest);
+                }
+            }
+            if (port <= 0 || token.length() == 0) return;
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putInt("dshPort", port)
+                    .putString("dshToken", token)
+                    .apply();
+        } catch (Throwable ignored) { }
+    }
+
+    private int savedDshPort() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).getInt("dshPort", 0);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private String savedDshToken() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE).getString("dshToken", "");
+        } catch (Throwable t) {
+            return "";
         }
     }
 
@@ -3659,7 +3844,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.21.0\n");
+            w.write("APK 版本: 0.21.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -3895,14 +4080,52 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    /**
+     * 返回键：确认后退出应用。
+     *
+     * <p>原来的实现是「网页能后退就后退」—— 那对多页网站是对的，
+     * 但 DSH 是**单页应用**：它的网页历史里是各种界面状态，
+     * 而不是用户理解的「上一页」。按返回键会退到一个过期甚至空白的页面，
+     * 看起来就像 App 卡住或重置了。
+     *
+     * <p>对单页应用，返回键的合理语义只有一个：**退出**。
+     * 退出前确认一下，避免误触。
+     */
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
+        // 已经退到后台（用户连按两次）就直接退，不再重复弹框
+        long now = System.currentTimeMillis();
+        if (now - lastBackPressed < 2000) {
+            super.onBackPressed();
             return;
         }
-        super.onBackPressed();
+        lastBackPressed = now;
+
+        android.widget.LinearLayout box = DshUi.paddedBody(this);
+        box.addView(DshUi.title(this, "退出 DeepSeek Harness？"));
+        box.addView(DshUi.hint(this,
+                "退出后 agent 会在后台继续运行（通知栏可以看到状态），"
+                + "下次打开会立即回到当前界面。"), DshUi.fullWidth(this, 8));
+        android.widget.Button cancel = DshUi.button(this, "取消", false);
+        android.widget.Button exit = DshUi.button(this, "退出", true);
+        final android.app.Dialog d = DshUi.dialog(this, box,
+                DshUi.footer(this, cancel, exit), 360);
+        cancel.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { d.dismiss(); }
+        });
+        exit.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                d.dismiss();
+                // 退到后台而不是销毁：进程留着，agent 继续跑，
+                // 再打开时能立刻回到原界面
+                moveTaskToBack(true);
+            }
+        });
+        d.show();
     }
+
+    /** 上一次按返回键的时间（用于「再按一次退出」与防止重复弹框）。 */
+    private long lastBackPressed;
 
     @Override
     protected void onDestroy() {
