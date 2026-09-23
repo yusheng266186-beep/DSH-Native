@@ -46,18 +46,43 @@ if not d.get('assets'): print('  [--] 资产列表为空（多为 API 限流）�
 "
 fi
 
-say "2. 两条下载路径都能取到（直连 + 镜像）"
-for url in \
-    "https://github.com/${REPO}/releases/download/${TAG}/${APK}" \
-    "https://gh-proxy.com/https://github.com/${REPO}/releases/download/${TAG}/${APK}"; do
-    HOST=$(printf '%s' "$url" | cut -d/ -f3)
-    CODE=$(curl -sSL -o /dev/null -w '%{http_code}' -r 0-1023 --max-time 60 "$url" 2>/dev/null)
-    if [ "$CODE" = "206" ] || [ "$CODE" = "200" ]; then
-        ok "$HOST → HTTP $CODE"
+say "2. 远程内容与本地一致（不下载整包）"
+# 优先用 GitHub API 的 digest（服务端算好的 sha256）；
+# API 限流时退回比对 Content-Length + ETag。
+# 实测过一次事故：发布的 APK 版本号与清单不符（构建时替换失配），
+# 所以这一步不能省 —— 但也不必把 33MB 下载下来。
+LOCAL_SHA=$(sha256sum "$APK" 2>/dev/null | cut -d' ' -f1)
+LOCAL_SIZE=$(stat -c%s "$APK" 2>/dev/null)
+REMOTE_SHA=$(curl -sSL --max-time 60 -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" 2>/dev/null \
+    | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    for a in d.get('assets', []):
+        if a['name'] == '${APK}':
+            print(a.get('digest', '').replace('sha256:', ''))
+except Exception:
+    pass
+" 2>/dev/null)
+if [ -n "$REMOTE_SHA" ]; then
+    if [ "$REMOTE_SHA" = "$LOCAL_SHA" ]; then
+        ok "SHA-256 一致：${LOCAL_SHA:0:16}…"
     else
-        bad "$HOST → HTTP $CODE（应为 206/200）"
+        bad "SHA-256 不一致！本地 ${LOCAL_SHA:0:16}… / 远程 ${REMOTE_SHA:0:16}…"
     fi
-done
+else
+    REMOTE_SIZE=$(curl -sSIL --max-time 45 \
+        "https://github.com/${REPO}/releases/download/${TAG}/${APK}" 2>/dev/null \
+        | grep -i '^content-length' | tail -1 | tr -dc '0-9')
+    if [ -n "$REMOTE_SIZE" ] && [ "$REMOTE_SIZE" = "$LOCAL_SIZE" ]; then
+        ok "大小一致：$LOCAL_SIZE 字节（API 限流，未能比对 SHA）"
+    elif [ -n "$REMOTE_SIZE" ]; then
+        bad "大小不一致！本地 $LOCAL_SIZE / 远程 $REMOTE_SIZE"
+    else
+        printf '  [--] 取不到远程信息（网络或限流）\n'
+    fi
+fi
 
 say "3. 本地清单是否指向这个版本"
 if [ -f latest.json ]; then

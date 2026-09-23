@@ -179,28 +179,6 @@ public class MainActivity extends Activity {
         // 这正是之前"无法上传文件"的真正原因。
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
             /**
-             * 接管新窗口（target=_blank、window.open）。
-             *
-             * <p>不接管的话 WebView 不会自己打开任何东西 —— 点了没反应。
-             * 这里统一交给系统浏览器：既不让当前 WebView 被带走
-             *（那样返回键就失效了，用户实际遇到过），
-             * 也不用另开一个我们控制不到的 WebView。
-             */
-            @Override
-            public boolean onCreateWindow(WebView view, boolean isDialog,
-                                          boolean isUserGesture, android.os.Message resultMsg) {
-                try {
-                    android.webkit.WebView.HitTestResult r = view.getHitTestResult();
-                    String url = r == null ? null : r.getExtra();
-                    if (url != null && url.length() > 0) {
-                        handleUrl(url);
-                        return false;   // 不创建新窗口
-                    }
-                } catch (Throwable ignored) { }
-                return false;
-            }
-
-            /**
              * 网页里的 alert / confirm / prompt 必须自己弹出来。
              *
              * <p>不实现会怎样（用户实际遇到）：DSH 点「归档会话」时会走
@@ -321,17 +299,14 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 允许新窗口，并自己接管它。
+        // 关掉多窗口：target=_blank 的链接会落到同一个 WebView 上，
+        // 从而经过 shouldOverrideUrlLoading 的拦截，送去系统浏览器 ——
+        // 既不带走当前 WebView，也不需要另开一个我们控制不到的窗口。
         //
-        // 这里前后改过两次：
-        //  * 关掉多窗口 → target=_blank 会落到同一个 WebView 上，但它会被
-        //    下面的 shouldOverrideUrlLoading 送去系统浏览器，行为还算对。
-        //  * 但 DSH 内置的浏览器面板依赖子窗口/iframe 的行为，
-        //    关掉多窗口会连带影响它。
-        // 现在恢复多窗口，并在 onCreateWindow 里自己决定去哪 ——
-        // 既不会把 WebView 带走，也不影响面板。
-        webView.getSettings().setSupportMultipleWindows(true);
-        webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        // 曾试过改成「允许新窗口 + 在 onCreateWindow 里接管」，理由是担心
+        // 关掉多窗口影响 DSH 的浏览器面板。但那个改动是基于猜测的：
+        // 它把面板发出的 URL 直接送去了系统浏览器，反而更糟。已撤回。
+        webView.getSettings().setSupportMultipleWindows(false);
         webView.setWebViewClient(new WebViewClient() {
             /**
              * 尽早装上触摸适配。
@@ -4250,7 +4225,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.22.9\n");
+            w.write("APK 版本: 0.23.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
