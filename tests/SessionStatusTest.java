@@ -117,7 +117,7 @@ public class SessionStatusTest {
         // 按钮显示的是图标，文案在属性里 —— 只查 textContent 会一个都命中不了
         check("checks aria-label", js.contains("aria-label"), "只查可见文字会永远判定未知");
         // 精确匹配：用子串匹配时，对话内容里出现这几个字就会误判
-        check("exact match, not substring", js.contains("v===langs[k]") && js.contains("tx===langs[m]"),
+        check("exact match, not substring", js.contains("v===langs[k]") && js.contains("tx===langs[k]"),
                 "子串匹配会被对话正文误触发");
         check("no indexOf on whole body",
                 !js.contains("body.textContent.indexOf"), "整页子串搜索会误判");
@@ -125,6 +125,16 @@ public class SessionStatusTest {
         check("requires visibility", js.contains("getBoundingClientRect") && js.contains("function visible"),
                 "隐藏的旧面板会导致误报");
         check("uses approval button text", js.contains("允许一次"), "missing");
+        // 跨会话判据：用户点进子代理视图时，只看当前输入框会把「主任务在跑」
+        // 误判成「空闲」，通知里的时长就停住了
+        check("uses cross-session running label", js.contains("进行中") && js.contains("Running"),
+                "只看当前视图会被子代理视图误导");
+        check("detects subagents running", js.contains("个子代理运行中"), "missing");
+        check("subagent match is a regex (count varies)",
+                js.contains("SUBAGENT=") && js.contains("regexHit"), "数字会变，精确匹配用不了");
+        // 切换视图的瞬间可能读不到任何按钮，一次就下结论会让通知抖动
+        check("idle needs two consecutive readings", js.contains("idleStreak>=2"),
+                "切换视图瞬间会误报空闲");
         check("checks title", js.contains("'title'") || js.contains("\"title\""), "missing");
         check("checks placeholder", js.contains("placeholder"), "missing");
         // 心跳：状态不变时也要上报，否则通知里的时长与网络状态会僵住

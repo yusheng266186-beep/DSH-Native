@@ -182,21 +182,18 @@ final class SessionStatus {
         // 判据必须**精确匹配**，不能用子串。
         //
         // 踩过的坑：原来用 indexOf 在整页文字里找「等待审批」，
-        // 结果用户跟 agent 聊到这个功能时，**对话内容本身**就包含这四个字，
+        // 结果用户跟 agent 聊到这个功能时，对话正文本身就含这四个字，
         // 于是正常运行时也报「等待批准」。
         //
-        // 现在只认两种位置：
-        //   1. 某个元素的 aria-label / title / placeholder 完整等于该文案
-        //      —— 图标按钮的文案就在这里；
-        //   2. 某个 button / [role=button] 的可见文字完整等于该文案
-        //      —— 审批面板的「允许一次」就是按钮文字。
-        // 对话正文既不是按钮文字、也不会正好等于这几个完整短语。
+        // 第二个坑：只看**当前视图**的输入框。用户点进子代理的会话后，
+        // 看到的是子代理的输入框 —— 子代理没在跑就显示「发送消息」，
+        // 于是主任务明明还在跑，通知却变成了「空闲」，运行时长也就停住了。
         //
-        // 另外还要**可见**：已处理过的审批面板可能仍留在 DOM 里，
-        // 只是被隐藏了 —— 不判可见就会一直报「等待批准」。
+        // 现在改为**先看跨会话的状态标签**（会话列表里的「进行中」/
+        // 「{n} 个子代理运行中」），再退回看当前视图的输入框。
         return "(function(){"
              + "if(window.__dshStatusWatch)return;window.__dshStatusWatch=1;"
-             + "var last='';"
+             + "var last='';var idleStreak=0;"
              + "function visible(e){"
              + "  try{"
              + "    if(!e||!e.getBoundingClientRect)return false;"
@@ -209,37 +206,57 @@ final class SessionStatus {
              + "function exact(langs){"
              + "  try{"
              + "    var els=document.querySelectorAll('[aria-label],[title],[placeholder],[data-tooltip]');"
-             + "    var i,j;"
+             + "    var i,j,k;"
              + "    for(i=0;i<els.length;i++){"
              + "      var e=els[i];"
              + "      var attrs=['aria-label','title','placeholder','data-tooltip'];"
              + "      for(j=0;j<attrs.length;j++){"
              + "        var v=(e.getAttribute(attrs[j])||'').trim();"
-             + "        for(var k=0;k<langs.length;k++){if(v===langs[k]&&visible(e))return true;}"
+             + "        for(k=0;k<langs.length;k++){if(v===langs[k]&&visible(e))return true;}"
              + "      }"
              + "    }"
-             + "    var bs=document.querySelectorAll('button,[role=button],a');"
+             + "    var bs=document.querySelectorAll('button,[role=button],a,span,div');"
              + "    for(i=0;i<bs.length;i++){"
              + "      var tx=(bs[i].textContent||'').trim();"
-             + "      for(var m=0;m<langs.length;m++){if(tx===langs[m]&&visible(bs[i]))return true;}"
+             + "      for(k=0;k<langs.length;k++){if(tx===langs[k]&&visible(bs[i]))return true;}"
              + "    }"
              + "    return false;"
              + "  }catch(e){return false;}"
              + "}"
+             // 「{n} 个子代理运行中」带数字，精确匹配用不了，改用正则
+             + "function regexHit(re){"
+             + "  try{"
+             + "    var all=document.querySelectorAll('span,div,p,li');"
+             + "    for(var i=0;i<all.length;i++){"
+             + "      var e=all[i];"
+             + "      if(e.children&&e.children.length>2)continue;"
+             + "      var tx=(e.textContent||'').trim();"
+             + "      if(tx.length>0&&tx.length<40&&re.test(tx)&&visible(e))return true;"
+             + "    }"
+             + "    return false;"
+             + "  }catch(e){return false;}"
+             + "}"
+             + "var RUNNING=['进行中','Running'];"
+             + "var SUBAGENT=/^[0-9]+\\s*个子代理运行中$|^[0-9]+\\s+subagents? running$/i;"
+             + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
              + "var STOP=['停止生成','Stop generating'];"
              + "var SEND=['发送消息','Send message'];"
-             // 审批的判据用两个精确文案：按钮「允许一次」与面板标题「等待审批」。
-             // 在精确匹配 + 可见性双重限制下，两者都不会被对话正文误触发。
-             + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
              + "function tick(){"
              + "  try{"
              + "    if(!document.body){return;}"
-             // 审批优先：任务其实在跑，只是卡在用户这一步
              + "    var appr=exact(APPR);"
+             // 跨会话：主任务或子代理在跑，会话列表里就有状态标签
+             + "    var busy=exact(RUNNING)||regexHit(SUBAGENT);"
              + "    var stop=exact(STOP);"
              + "    var send=exact(SEND);"
-             + "    var s=(appr?'a':(stop?'r':(send?'i':'u')));"
-             // 心跳：状态没变也上报，让通知里的时长与网络状态保持刷新
+             + "    var s;"
+             + "    if(appr)s='a';"
+             + "    else if(busy||stop)s='r';"
+             // 空闲要**连续两次**才认定：切换视图的瞬间可能读不到任何按钮，
+             // 一次就下结论会让通知在"运行中/空闲"之间抖
+             + "    else if(send){idleStreak++;s=(idleStreak>=2)?'i':'r';}"
+             + "    else{s='u';}"
+             + "    if(s!=='i')idleStreak=0;"
              + "    if(s!==last){last=s;console.log('[dsh-status] '+s);}"
              + "    else{console.log('[dsh-status-keep] '+s);}"
              + "  }catch(e){}"

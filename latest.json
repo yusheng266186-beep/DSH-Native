@@ -1,7 +1,7 @@
 {
-  "version": "0.21.4",
-  "tag": "v0.21.4-bootstrap",
+  "version": "0.21.5",
+  "tag": "v0.21.5-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "外链交给系统浏览器，WebView 不再离开 DSH 页面"
+  "notes": "状态看板改用跨会话标签，修子代理视图下时长停住"
 }
