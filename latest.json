@@ -1,7 +1,7 @@
 {
-  "version": "0.22.7",
-  "tag": "v0.22.7-bootstrap",
+  "version": "0.22.8",
+  "tag": "v0.22.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修复版本号不一致导致的无限更新提示"
+  "notes": "状态改为读 DSH 自己的会话列表流量"
 }

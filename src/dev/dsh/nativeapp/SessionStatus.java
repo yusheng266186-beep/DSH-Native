@@ -186,26 +186,19 @@ final class SessionStatus {
      * <p>只上报**状态变化**，不是每次都报 —— 否则控制台会被刷爆。
      */
     static String pollScript() {
-        // 状态来源：**DSH 自己的会话列表**，而不是界面上长什么样。
+        // 只负责一件事：**检测待批准**。
         //
-        // 这一段改过七次，每次都在猜界面：按钮文案、aria-label、侧边栏标签……
-        // 猜错一次就误报一次（对话正文含「等待审批」、子代理视图、任务结束后
-        // 仍显示运行中，全是这么来的）。
+        // 运行/空闲状态不在这里判断 —— 它由 App 从 DSH 自己的
+        // /api/session/list 响应里读（那个接口是 RPC 式 POST，
+        // 注入脚本用 GET 调只会 404；实测 109 次 404 全是这么来的）。
         //
-        // 而 DSH 的 /api/session/list 直接给出 running 字段 ——
-        // 服务端的权威状态，与界面怎么渲染无关。同源 fetch 就能拿到
-        //（页面已完成认证，Cookie 直接生效）。
-        //
-        // 界面判据只留一个用途：**待批准的检测**。
         // 审批是会话的「待处理交互」，会话列表里没有这个字段，
-        // 所以仍从界面读，但用精确匹配 + 可见性双重限制。
+        // 所以仍需从界面读 —— 但用**精确匹配 + 可见性**双重限制：
+        //   * 精确匹配：避免对话正文里出现这几个字就误判
+        //   * 可见性：避免已处理的旧面板仍留在 DOM 里造成误判
         return "(function(){"
              + "if(window.__dshStatusWatch)return;window.__dshStatusWatch=1;"
              + "var last='';"
-             + "function report(s){"
-             + "  if(s!==last){last=s;console.log('[dsh-status] '+s);}"
-             + "  else{console.log('[dsh-status-keep] '+s);}"
-             + "}"
              + "function visible(e){"
              + "  try{"
              + "    if(!e||!e.getBoundingClientRect)return false;"
@@ -239,23 +232,11 @@ final class SessionStatus {
              + "function tick(){"
              + "  try{"
              + "    if(!document.body)return;"
-             + "    if(exact(APPR)){report('a');return;}"
-             + "    fetch('/api/session/list',{credentials:'same-origin'})"
-             + "      .then(function(r){return r.ok?r.json():null;})"
-             + "      .then(function(d){"
-             + "        var v=d&&d.result&&d.result.value;"
-             + "        var items=(v&&v.items)||null;"
-             + "        if(!items){report('u');return;}"
-             + "        var any=false;"
-             + "        for(var i=0;i<items.length;i++){"
-             + "          if(items[i]&&items[i].running===true)any=true;"
-             + "        }"
-             + "        report(any?'r':'i');"
-             + "      })"
-             + "      .catch(function(){report('u');});"
+             + "    var a=exact(APPR)?'a':'-';"
+             + "    if(a!==last){last=a;console.log('[dsh-appr] '+a);}"
              + "  }catch(e){}"
              + "}"
-             + "tick();setInterval(tick,3000);"
+             + "tick();setInterval(tick,2000);"
              + "})();";
     }
 
@@ -313,22 +294,11 @@ final class SessionStatus {
      */
     static int parseStatusConsole(String message) {
         if (message == null) return -1;
-        int i = message.indexOf("[dsh-status] ");
-        int skip = 13;
-        if (i < 0) {
-            // 心跳上报：状态没变，但通知需要刷新时长与网络状态
-            i = message.indexOf("[dsh-status-keep] ");
-            skip = 18;
-            if (i < 0) return -1;
-        }
-        String rest = message.substring(i + skip).trim();
+        // 只上报「待批准」——运行/空闲由 App 从会话列表响应里读
+        int i = message.indexOf("[dsh-appr] ");
+        if (i < 0) return -1;
+        String rest = message.substring(i + 11).trim();  // "[dsh-appr] " 共 11 字符
         if (rest.length() == 0) return -1;
-        switch (rest.charAt(0)) {
-            case 'r': return RUNNING;
-            case 'a': return AWAITING_APPROVAL;
-            case 'i': return IDLE;
-            case 'u': return UNKNOWN;
-            default:  return -1;
-        }
+        return rest.charAt(0) == 'a' ? AWAITING_APPROVAL : -1;
     }
 }

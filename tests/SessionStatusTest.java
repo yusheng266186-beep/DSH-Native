@@ -113,29 +113,24 @@ public class SessionStatusTest {
 
         System.out.println("=== 10. injected script ===");
         String js = SessionStatus.pollScript();
-        // **核心改变**：状态来自 DSH 自己的会话列表，而不是界面长什么样。
-        // 这一段改过七次，每次都在猜界面，猜错一次就误报一次。
-        check("reads authoritative session list",
-                js.contains("/api/session/list"), "必须用服务端数据，不能只看界面");
-        check("uses the running field", js.contains("running===true"),
-                "running 是服务端给的权威状态");
-        check("same-origin credentials", js.contains("credentials:'same-origin'"),
-                "页面已完成认证，Cookie 直接生效");
-        check("reports unknown when fetch fails",
-                js.contains(".catch(function(){report('u');})"), "取不到时应报未知而不是猜");
-        // 审批没有对应的接口字段，仍从界面读，但仍是精确匹配 + 可见性
-        check("keeps approval detection from DOM",
+        // 注入脚本只做一件事：检测待批准。
+        // 运行/空闲由 App 从 DSH 自己的 /api/session/list 响应里读 ——
+        // 那个接口是 RPC 式 POST，注入脚本用 GET 调只会 404
+        //（实测 109 次 404 全是这么来的，28 次 200 都是 DSH 自己发的）。
+        check("does NOT self-poll the API",
+                !js.contains("fetch("), "自己轮询会 404，还白耗电");
+        check("keeps approval detection",
                 js.contains("允许一次") && js.contains("等待审批"), "missing");
-        check("approval uses exact match", js.contains("v===langs[k]") && js.contains("tx===langs[k]"),
+        check("approval uses exact match",
+                js.contains("v===langs[k]") && js.contains("tx===langs[k]"),
                 "子串匹配会被对话正文误触发");
         check("no whole-body substring search",
                 !js.contains("body.textContent.indexOf"), "整页子串搜索会误判");
         check("requires visibility",
                 js.contains("getBoundingClientRect") && js.contains("function visible"),
                 "隐藏的旧面板会导致误报");
+        check("reports only on change", js.contains("a!==last"), "会刷日志");
         check("idempotent guard", js.contains("__dshStatusWatch"), "missing");
-        check("heartbeat keeps notification fresh", js.contains("[dsh-status-keep]"),
-                "状态不变时通知里的网络状态会僵住");
         check("has interval", js.contains("setInterval"), "missing");
 
         System.out.println("=== 10.1 touch menu fix ===");
@@ -147,17 +142,11 @@ public class SessionStatusTest {
         check("idempotent guard", tf.contains("__dshTouchFix"), "missing");
 
         System.out.println("=== 11. console parsing ===");
-        check("parse running", SessionStatus.parseStatusConsole("[dsh-status] r") == SessionStatus.RUNNING, "wrong");
-        check("parse approval", SessionStatus.parseStatusConsole("[dsh-status] a") == SessionStatus.AWAITING_APPROVAL, "wrong");
-        check("parse idle", SessionStatus.parseStatusConsole("[dsh-status] i") == SessionStatus.IDLE, "wrong");
-        check("parse unknown", SessionStatus.parseStatusConsole("[dsh-status] u") == SessionStatus.UNKNOWN, "wrong");
+        check("parse approval", SessionStatus.parseStatusConsole("[dsh-appr] a") == SessionStatus.AWAITING_APPROVAL, "wrong");
+        check("no approval -> ignored", SessionStatus.parseStatusConsole("[dsh-appr] -") == -1, "wrong");
         check("unrelated line ignored", SessionStatus.parseStatusConsole("[web] hello") == -1, "wrong");
         check("null safe", SessionStatus.parseStatusConsole(null) == -1, "wrong");
-        check("empty payload ignored", SessionStatus.parseStatusConsole("[dsh-status] ") == -1, "wrong");
-        check("heartbeat running parses",
-                SessionStatus.parseStatusConsole("[dsh-status-keep] r") == SessionStatus.RUNNING, "wrong");
-        check("heartbeat approval parses",
-                SessionStatus.parseStatusConsole("[dsh-status-keep] a") == SessionStatus.AWAITING_APPROVAL, "wrong");
+        check("empty payload ignored", SessionStatus.parseStatusConsole("[dsh-appr] ") == -1, "wrong");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

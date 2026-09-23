@@ -225,6 +225,15 @@ public class MainActivity extends Activity {
                         onTaskEvent(ev[0], ev[1]);
                         return true;
                     }
+                    // 会话状态：直接读 **DSH 自己**的 /api/session/list 响应。
+                    //
+                    // 为什么不再自己轮询：DSH 的这个接口是 RPC 式 POST，
+                    // 注入脚本用 GET 调它只会拿到 404（实测 109 次 404 / 28 次 200，
+                    // 后者全是 DSH 自己发的）。而 App 本来就把它记在日志里 ——
+                    // 那就直接从这份流量里读，既权威又不多发一个请求。
+                    if (m.indexOf("/session/list") >= 0 && m.indexOf("\"running\"") >= 0) {
+                        onSessionListResponse(m);
+                    }
                     // 连接丢失：DSH 的 Remote RPC（含归档等操作）走 WebSocket，
                     // 断掉之后这些操作会**静默失效** —— 界面上点了没反应。
                     // 用户实际遇到的就是「点归档没任何反应」。
@@ -1683,6 +1692,26 @@ public class MainActivity extends Activity {
 
     /** 上一次已知状态。 */
     private volatile int lastSessionStatus = SessionStatus.UNKNOWN;
+
+    /**
+     * 从 DSH 自己的会话列表响应里读出运行状态。
+     *
+     * <p>{@code running} 是服务端给的权威字段，与界面怎么渲染无关 ——
+     * 这一点比从界面上找按钮可靠得多（那段逻辑改过七次，每次都误报）。
+     *
+     * <p>只做字符串判断，不引入 JSON 解析：这里的输入是已经定型的日志行，
+     * 且我们只需要知道「有没有任何会话在跑」。
+     */
+    private void onSessionListResponse(String line) {
+        try {
+            int n = 0;
+            int i = line.indexOf("\"running\":true");
+            while (i >= 0) { n++; i = line.indexOf("\"running\":true", i + 1); }
+            onSessionStatus(n > 0 ? SessionStatus.RUNNING : SessionStatus.IDLE);
+        } catch (Throwable t) {
+            // 解析失败不该影响使用
+        }
+    }
 
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
     private void onSessionStatus(int state) {
@@ -4191,7 +4220,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.22.7\n");
+            w.write("APK 版本: 0.22.8\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
