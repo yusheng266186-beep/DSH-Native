@@ -416,6 +416,15 @@ public class MainActivity extends Activity {
         workspace = resolveWorkspace();
         log("工作区: " + (workspace != null ? workspace : root + "（回退到私有目录）"));
 
+        HarnessService.onReconnectRequested = new Runnable() {
+
+
+            @Override public void run() { reconnectDsh(); }
+
+
+        };
+
+
         startHarnessService();
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
@@ -466,6 +475,9 @@ public class MainActivity extends Activity {
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
         // 记录给插件管理用（安装时需要 node 与 npm 的路径）
+
+        registerNetworkWatcher();
+
 
         toolsDirRef = toolsDir;
 
@@ -1490,7 +1502,91 @@ public class MainActivity extends Activity {
                 if (done != null) notifyTaskDone(done);
             }
             lastSessionStatus = state;
+            pushStatus(state, false);
+        } catch (Throwable t) {
+            // 状态更新失败不该影响使用，也不该刷日志
+        }
+    }
 
+    /**
+     * 监听网络环境变化。
+     *
+     * <p>为什么要监听：切换网络（流量↔Wi-Fi、开关代理）后，DSH 到模型服务的
+     * **长连接已经断了**，但它可能一直挂在那个死连接上 —— 既不报错也不超时。
+     * 用户看到的就是「对话卡住、没反应」。
+     *
+     * <p>App 无法替 DSH 重发那个请求（那在它的进程里），但可以做两件事：
+     * 把这件事**说出来**，并给出**一键重连**的入口。
+     */
+    private void registerNetworkWatcher() {
+        try {
+            final android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null || android.os.Build.VERSION.SDK_INT < 24) return;
+            cm.registerDefaultNetworkCallback(new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(android.net.Network n) { onNetworkChanged(); }
+                @Override public void onLost(android.net.Network n) { onNetworkChanged(); }
+            });
+            log("已监听网络变化（切换网络后会提示并可一键重连）");
+        } catch (Throwable t) {
+            log("网络变化监听注册失败（不影响使用）: " + t);
+        }
+    }
+
+    /** 网络环境变了：提示用户，并把当前状态推给通知栏。 */
+    private void onNetworkChanged() {
+        try {
+            networkChangedAt = System.currentTimeMillis();
+            boolean[] net = networkState();
+            log("网络环境已变化: " + SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
+            pushStatus(lastSessionStatus, true);
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (!inForeground) return;
+                    DshUi.toast(MainActivity.this,
+                            "网络已切换。若对话没有响应，点通知栏的「重连」");
+                }
+            });
+        } catch (Throwable t) {
+            log("处理网络变化失败: " + t);
+        }
+    }
+
+    /** 网络变化的时间戳。 */
+    private volatile long networkChangedAt;
+
+    /**
+     * 重新连接：重启 DSH 服务。
+     *
+     * <p>网络切换导致的卡死无法在 App 侧「重发」—— 那个请求在 DSH 进程里。
+     * 重启是唯一可靠的恢复手段；界面上会重新走一遍启动流程
+     *（本地运行包完整时是秒级的）。
+     */
+    private void reconnectDsh() {
+        try {
+            log("收到重连请求，重启 DSH 服务 …");
+            if (nodeProcess != null) {
+                try { nodeProcess.destroy(); } catch (Throwable ignored) { }
+                nodeProcess = null;
+            }
+            try {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .remove("dshPort").remove("dshToken").apply();
+            } catch (Throwable ignored) { }
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    toast("正在重新连接…");
+                    recreate();
+                }
+            });
+        } catch (Throwable t) {
+            log("重连失败: " + t);
+        }
+    }
+
+    /** 把状态推给前台服务更新通知。 */
+    private void pushStatus(int state, boolean networkChanged) {
+        try {
             boolean[] net = networkState();
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
@@ -1499,10 +1595,10 @@ public class MainActivity extends Activity {
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL,
                     SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
             i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
+            i.putExtra(HarnessService.EXTRA_NETWORK_CHANGED,
+                    networkChanged && System.currentTimeMillis() - taskStartedAt > 3000);
             startService(i);
-        } catch (Throwable t) {
-            // 状态更新失败不该影响使用，也不该刷日志
-        }
+        } catch (Throwable ignored) { }
     }
 
     /**
@@ -3905,7 +4001,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.21.5\n");
+            w.write("APK 版本: 0.21.6\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

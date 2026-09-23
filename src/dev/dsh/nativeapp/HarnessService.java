@@ -42,6 +42,9 @@ public class HarnessService extends Service {
     public static final String ACTION_SETTINGS = "dev.dsh.nativeapp.SETTINGS";
     /** 由 MainActivity 推入新的状态，更新通知看板。 */
     public static final String ACTION_STATUS = "dev.dsh.nativeapp.STATUS";
+    /** 重新连接：网络切换后对话可能挂在死连接上，用它恢复。 */
+    public static final String ACTION_RECONNECT = "dev.dsh.nativeapp.RECONNECT";
+    public static final String EXTRA_NETWORK_CHANGED = "networkChanged";
     public static final String EXTRA_STATUS_STATE = "state";
     public static final String EXTRA_STATUS_NETWORK = "networkOk";
     public static final String EXTRA_STATUS_NETWORK_LABEL = "networkLabel";
@@ -51,6 +54,8 @@ public class HarnessService extends Service {
     public static Runnable onStopRequested;
     /** 由 MainActivity 注入：收到"设置"时如何打开设置。 */
     public static Runnable onSettingsRequested;
+    /** 由 MainActivity 注入：收到"重新连接"时如何重启服务。 */
+    public static Runnable onReconnectRequested;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -79,6 +84,13 @@ public class HarnessService extends Service {
             Log.i(TAG, "通知栏请求打开设置");
             if (onSettingsRequested != null) {
                 try { onSettingsRequested.run(); } catch (Throwable ignored) { }
+            }
+            return START_STICKY;
+        }
+        if (ACTION_RECONNECT.equals(action)) {
+            Log.i(TAG, "通知栏请求重新连接");
+            if (onReconnectRequested != null) {
+                try { onReconnectRequested.run(); } catch (Throwable ignored) { }
             }
             return START_STICKY;
         }
@@ -113,8 +125,15 @@ public class HarnessService extends Service {
             String netLabel = intent.getStringExtra(EXTRA_STATUS_NETWORK_LABEL);
             long since = intent.getLongExtra(EXTRA_STATUS_SINCE, 0L);
 
+            boolean netChanged = intent.getBooleanExtra(EXTRA_NETWORK_CHANGED, false);
             String title = SessionStatus.title(state, System.currentTimeMillis() - since);
             String text = SessionStatus.text(state, netOk, netLabel);
+            if (netChanged) {
+                // 网络切换后 DSH 到模型服务的长连接可能已经断了，
+                // 而它挂在死连接上时既不报错也不超时 —— 用户看到的就是「没反应」。
+                // 至少把这件事说出来，并给出恢复入口。
+                text = text + "　网络已切换，若无响应可点「重连」";
+            }
 
             NotificationManager nm =
                     (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -195,6 +214,9 @@ public class HarnessService extends Service {
         Intent stop = new Intent(this, HarnessService.class).setAction(ACTION_STOP);
         PendingIntent stopPi = PendingIntent.getService(this, 1, stop, flags);
 
+        Intent reconnect = new Intent(this, HarnessService.class).setAction(ACTION_RECONNECT);
+        PendingIntent reconnectPi = PendingIntent.getService(this, 4, reconnect, flags);
+
         // 「设置」直接拉起 MainActivity 并带上标记。
         // 之前走 Service + 静态回调，进程被系统重启后那个回调是 null，点击毫无反应。
         Intent settings = new Intent(this, MainActivity.class);
@@ -214,6 +236,7 @@ public class HarnessService extends Service {
          .setContentIntent(content)
          .setOngoing(true)
          .addAction(android.R.drawable.ic_menu_preferences, "设置", settingsPi)
+         .addAction(android.R.drawable.ic_menu_rotate, "重连", reconnectPi)
          .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi);
         // 展开后能看到完整状态（部分 ROM 会把正文截断）
         b.setStyle(new Notification.BigTextStyle().bigText(text));

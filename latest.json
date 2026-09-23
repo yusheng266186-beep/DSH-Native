@@ -1,7 +1,7 @@
 {
-  "version": "0.21.5",
-  "tag": "v0.21.5-bootstrap",
+  "version": "0.21.6",
+  "tag": "v0.21.6-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "状态看板改用跨会话标签，修子代理视图下时长停住"
+  "notes": "网络切换后提示 + 通知栏一键重连"
 }
