@@ -116,6 +116,15 @@ public class SessionStatusTest {
         check("reports on change", js.contains("s!==last"), "missing");
         // 按钮显示的是图标，文案在属性里 —— 只查 textContent 会一个都命中不了
         check("checks aria-label", js.contains("aria-label"), "只查可见文字会永远判定未知");
+        // 精确匹配：用子串匹配时，对话内容里出现这几个字就会误判
+        check("exact match, not substring", js.contains("v===langs[k]") && js.contains("tx===langs[m]"),
+                "子串匹配会被对话正文误触发");
+        check("no indexOf on whole body",
+                !js.contains("body.textContent.indexOf"), "整页子串搜索会误判");
+        // 已处理的审批面板可能仍在 DOM 里，只是被隐藏
+        check("requires visibility", js.contains("getBoundingClientRect") && js.contains("function visible"),
+                "隐藏的旧面板会导致误报");
+        check("uses approval button text", js.contains("允许一次"), "missing");
         check("checks title", js.contains("'title'") || js.contains("\"title\""), "missing");
         check("checks placeholder", js.contains("placeholder"), "missing");
         // 心跳：状态不变时也要上报，否则通知里的时长与网络状态会僵住

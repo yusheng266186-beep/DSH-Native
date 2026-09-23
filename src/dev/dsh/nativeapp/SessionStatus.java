@@ -179,38 +179,67 @@ final class SessionStatus {
      * <p>只上报**状态变化**，不是每次都报 —— 否则控制台会被刷爆。
      */
     static String pollScript() {
+        // 判据必须**精确匹配**，不能用子串。
+        //
+        // 踩过的坑：原来用 indexOf 在整页文字里找「等待审批」，
+        // 结果用户跟 agent 聊到这个功能时，**对话内容本身**就包含这四个字，
+        // 于是正常运行时也报「等待批准」。
+        //
+        // 现在只认两种位置：
+        //   1. 某个元素的 aria-label / title / placeholder 完整等于该文案
+        //      —— 图标按钮的文案就在这里；
+        //   2. 某个 button / [role=button] 的可见文字完整等于该文案
+        //      —— 审批面板的「允许一次」就是按钮文字。
+        // 对话正文既不是按钮文字、也不会正好等于这几个完整短语。
+        //
+        // 另外还要**可见**：已处理过的审批面板可能仍留在 DOM 里，
+        // 只是被隐藏了 —— 不判可见就会一直报「等待批准」。
         return "(function(){"
              + "if(window.__dshStatusWatch)return;window.__dshStatusWatch=1;"
              + "var last='';"
-             // 按钮上显示的是**图标**，文案在 aria-label / title 里，
-             // 所以不能只查可见文字 —— 必须连属性一起查。
-             // （之前只查 textContent，结果三个判据一个都命中不了，
-             //   通知里永远显示「状态未知」。）
-             + "function has(t){"
+             + "function visible(e){"
              + "  try{"
-             + "    if(!document.body)return false;"
-             + "    if(document.body.textContent&&document.body.textContent.indexOf(t)>=0)return true;"
-             + "    var sel='[aria-label],[title],[placeholder],[data-tooltip]';"
-             + "    var els=document.querySelectorAll(sel);"
-             + "    for(var i=0;i<els.length;i++){"
+             + "    if(!e||!e.getBoundingClientRect)return false;"
+             + "    var r=e.getBoundingClientRect();"
+             + "    if(r.width<=0||r.height<=0)return false;"
+             + "    var st=window.getComputedStyle(e);"
+             + "    return st.display!=='none'&&st.visibility!=='hidden';"
+             + "  }catch(x){return false;}"
+             + "}"
+             + "function exact(langs){"
+             + "  try{"
+             + "    var els=document.querySelectorAll('[aria-label],[title],[placeholder],[data-tooltip]');"
+             + "    var i,j;"
+             + "    for(i=0;i<els.length;i++){"
              + "      var e=els[i];"
-             + "      if((e.getAttribute('aria-label')||'').indexOf(t)>=0)return true;"
-             + "      if((e.getAttribute('title')||'').indexOf(t)>=0)return true;"
-             + "      if((e.getAttribute('placeholder')||'').indexOf(t)>=0)return true;"
-             + "      if((e.getAttribute('data-tooltip')||'').indexOf(t)>=0)return true;"
+             + "      var attrs=['aria-label','title','placeholder','data-tooltip'];"
+             + "      for(j=0;j<attrs.length;j++){"
+             + "        var v=(e.getAttribute(attrs[j])||'').trim();"
+             + "        for(var k=0;k<langs.length;k++){if(v===langs[k]&&visible(e))return true;}"
+             + "      }"
+             + "    }"
+             + "    var bs=document.querySelectorAll('button,[role=button],a');"
+             + "    for(i=0;i<bs.length;i++){"
+             + "      var tx=(bs[i].textContent||'').trim();"
+             + "      for(var m=0;m<langs.length;m++){if(tx===langs[m]&&visible(bs[i]))return true;}"
              + "    }"
              + "    return false;"
              + "  }catch(e){return false;}"
              + "}"
+             + "var STOP=['停止生成','Stop generating'];"
+             + "var SEND=['发送消息','Send message'];"
+             // 审批的判据用两个精确文案：按钮「允许一次」与面板标题「等待审批」。
+             // 在精确匹配 + 可见性双重限制下，两者都不会被对话正文误触发。
+             + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
              + "function tick(){"
              + "  try{"
              + "    if(!document.body){return;}"
-             + "    var stop=has('停止生成')||has('Stop generating');"
-             + "    var send=has('发送消息')||has('Send message');"
-             + "    var appr=has('等待审批')||has('Waiting for approval');"
+             // 审批优先：任务其实在跑，只是卡在用户这一步
+             + "    var appr=exact(APPR);"
+             + "    var stop=exact(STOP);"
+             + "    var send=exact(SEND);"
              + "    var s=(appr?'a':(stop?'r':(send?'i':'u')));"
-             // 不只是变化时上报：每轮都报一次，让通知里的**运行时长与网络状态**
-             // 保持刷新（否则状态不变时通知会一直停在几分钟前的文案）。
+             // 心跳：状态没变也上报，让通知里的时长与网络状态保持刷新
              + "    if(s!==last){last=s;console.log('[dsh-status] '+s);}"
              + "    else{console.log('[dsh-status-keep] '+s);}"
              + "  }catch(e){}"

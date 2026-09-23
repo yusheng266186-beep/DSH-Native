@@ -1,7 +1,7 @@
 {
-  "version": "0.21.2",
-  "tag": "v0.21.2-bootstrap",
+  "version": "0.21.3",
+  "tag": "v0.21.3-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修通知栏状态未知与网络误报"
+  "notes": "修等待批准误报（改为精确匹配 + 可见性判断）"
 }
