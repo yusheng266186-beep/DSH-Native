@@ -258,10 +258,20 @@ final class SessionStatus {
              + "    var send=exact(SEND);"
              + "    var s;"
              + "    if(appr)s='a';"
-             + "    else if(busy||stop)s='r';"
+             // 判据的主次很重要，两个方向都踩过：
+             //
+             //  * 只看输入框 → 用户点进子代理视图时，看到的是子代理的输入框，
+             //    子代理空闲就误判成「主任务也空闲」，时长停住。
+             //  * 只看侧边栏 → 「进行中」可能是会话历史里留下的旧状态，
+             //    任务结束后它还在 DOM 里，于是永远显示运行中。
+             //
+             // 所以：**输入框是一手证据**（它就是当前这个会话的实时状态），
+             // 侧边栏只在输入框读不出来时才兜底。
+             + "    else if(stop)s='r';"
              // 空闲要**连续两次**才认定：切换视图的瞬间可能读不到任何按钮，
-             // 一次就下结论会让通知在"运行中/空闲"之间抖
+             // 一次就下结论会让通知在“运行中/空闲”之间抖
              + "    else if(send){idleStreak++;s=(idleStreak>=2)?'i':'r';}"
+             + "    else if(busy)s='r';"
              + "    else{s='u';}"
              + "    if(s!=='i')idleStreak=0;"
              + "    if(s!==last){last=s;console.log('[dsh-status] '+s);}"

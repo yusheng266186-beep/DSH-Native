@@ -140,6 +140,17 @@ public class SessionStatusTest {
         // 切换视图的瞬间可能读不到任何按钮，一次就下结论会让通知抖动
         check("idle needs two consecutive readings", js.contains("idleStreak>=2"),
                 "切换视图瞬间会误报空闲");
+        // 判据的主次：两个方向都踩过坑 ——
+        // 只看输入框 → 子代理视图误判空闲；只看侧边栏 → 任务结束后仍显示运行中
+        check("composer is primary: stop before sidebar",
+                js.indexOf("else if(stop)") < js.indexOf("else if(busy)"),
+                "侧边栏优先会让任务结束后仍显示运行中");
+        check("composer is primary: send before sidebar",
+                js.indexOf("else if(send)") < js.indexOf("else if(busy)"),
+                "侧边栏优先会让任务结束后仍显示运行中");
+        check("sidebar is a fallback only",
+                js.contains("else if(busy)s='r';") || js.contains("else if(busy)s=\"r\";"),
+                "missing");
         check("checks title", js.contains("'title'") || js.contains("\"title\""), "missing");
         check("checks placeholder", js.contains("placeholder"), "missing");
         // 心跳：状态不变时也要上报，否则通知里的时长与网络状态会僵住

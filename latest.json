@@ -1,7 +1,7 @@
 {
-  "version": "0.21.7",
-  "tag": "v0.21.7-bootstrap",
+  "version": "0.21.8",
+  "tag": "v0.21.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "通知运行时长改用系统计时器，秒数平滑递增"
+  "notes": "状态判据改为输入框优先、侧边栏兜底"
 }
