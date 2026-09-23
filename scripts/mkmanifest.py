@@ -171,13 +171,18 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("0.19.2"))],
+              (A, "versionName", s("0.21.2"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
                     (A, "targetSdkVersion", dec(28))]),
                  E("uses-permission",
                    [(A, "name", s("android.permission.INTERNET"))]),
+                 # 读取网络状态：通知栏看板要显示「网络是否正常」。
+                 # 没有这个权限时 getActiveNetwork() 返回 null，
+                 # 看板会一直显示「网络不可用（未连接）」—— 即使手机网络正常。
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.ACCESS_NETWORK_STATE"))]),
                  # 把启动日志写到 /sdcard/DSHNative/，便于在设备内直接排查
                  E("uses-permission",
                    [(A, "name", s("android.permission.WRITE_EXTERNAL_STORAGE"))]),

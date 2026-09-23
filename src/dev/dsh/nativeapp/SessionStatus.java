@@ -182,7 +182,26 @@ final class SessionStatus {
         return "(function(){"
              + "if(window.__dshStatusWatch)return;window.__dshStatusWatch=1;"
              + "var last='';"
-             + "function has(t){try{return document.body&&document.body.textContent.indexOf(t)>=0;}catch(e){return false;}}"
+             // 按钮上显示的是**图标**，文案在 aria-label / title 里，
+             // 所以不能只查可见文字 —— 必须连属性一起查。
+             // （之前只查 textContent，结果三个判据一个都命中不了，
+             //   通知里永远显示「状态未知」。）
+             + "function has(t){"
+             + "  try{"
+             + "    if(!document.body)return false;"
+             + "    if(document.body.textContent&&document.body.textContent.indexOf(t)>=0)return true;"
+             + "    var sel='[aria-label],[title],[placeholder],[data-tooltip]';"
+             + "    var els=document.querySelectorAll(sel);"
+             + "    for(var i=0;i<els.length;i++){"
+             + "      var e=els[i];"
+             + "      if((e.getAttribute('aria-label')||'').indexOf(t)>=0)return true;"
+             + "      if((e.getAttribute('title')||'').indexOf(t)>=0)return true;"
+             + "      if((e.getAttribute('placeholder')||'').indexOf(t)>=0)return true;"
+             + "      if((e.getAttribute('data-tooltip')||'').indexOf(t)>=0)return true;"
+             + "    }"
+             + "    return false;"
+             + "  }catch(e){return false;}"
+             + "}"
              + "function tick(){"
              + "  try{"
              + "    if(!document.body){return;}"
@@ -190,7 +209,10 @@ final class SessionStatus {
              + "    var send=has('发送消息')||has('Send message');"
              + "    var appr=has('等待审批')||has('Waiting for approval');"
              + "    var s=(appr?'a':(stop?'r':(send?'i':'u')));"
+             // 不只是变化时上报：每轮都报一次，让通知里的**运行时长与网络状态**
+             // 保持刷新（否则状态不变时通知会一直停在几分钟前的文案）。
              + "    if(s!==last){last=s;console.log('[dsh-status] '+s);}"
+             + "    else{console.log('[dsh-status-keep] '+s);}"
              + "  }catch(e){}"
              + "}"
              + "tick();setInterval(tick,2000);"
@@ -205,8 +227,14 @@ final class SessionStatus {
     static int parseStatusConsole(String message) {
         if (message == null) return -1;
         int i = message.indexOf("[dsh-status] ");
-        if (i < 0) return -1;
-        String rest = message.substring(i + 13).trim();
+        int skip = 13;
+        if (i < 0) {
+            // 心跳上报：状态没变，但通知需要刷新时长与网络状态
+            i = message.indexOf("[dsh-status-keep] ");
+            skip = 18;
+            if (i < 0) return -1;
+        }
+        String rest = message.substring(i + skip).trim();
         if (rest.length() == 0) return -1;
         switch (rest.charAt(0)) {
             case 'r': return RUNNING;

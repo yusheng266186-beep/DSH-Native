@@ -53,9 +53,17 @@ PYEOF
 # 从 App 源码里取实际使用的运行包标签 —— 避免 latest.json 与代码不一致
 # （曾出现过：App 已切到 payload-v7，latest.json 里还写着 payload-v6）
 currentPayloadTag() {
-    grep -oE 'releases/download/payload-v[0-9]+/' \
-        "$ROOT/bootstrap/src/dev/dsh/nativeapp/MainActivity.java" 2>/dev/null \
-        | head -1 | sed -E 's|releases/download/([^/]+)/|\1|'
+    # 源码可能在两个位置：仓库的 src/ 或构建工作区的 bootstrap/src/
+    local f
+    for f in "src/dev/dsh/nativeapp/MainActivity.java" \
+             "bootstrap/src/dev/dsh/nativeapp/MainActivity.java" \
+             "${DSH_BUILD_DIR:-/root/build}/bootstrap/src/dev/dsh/nativeapp/MainActivity.java"; do
+        [ -f "$f" ] || continue
+        grep -oE 'releases/download/payload-v[0-9]+/' "$f" 2>/dev/null \
+            | head -1 | sed -E 's|releases/download/([^/]+)/|\1|'
+        return 0
+    done
+    echo "payload-v7"
 }
 
 

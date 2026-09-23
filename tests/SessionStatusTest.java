@@ -113,7 +113,14 @@ public class SessionStatusTest {
         check("english fallbacks present",
                 js.contains("Stop generating") && js.contains("Waiting for approval"), "missing");
         check("idempotent guard", js.contains("__dshStatusWatch"), "missing");
-        check("reports only on change", js.contains("s!==last"), "会刷爆控制台");
+        check("reports on change", js.contains("s!==last"), "missing");
+        // 按钮显示的是图标，文案在属性里 —— 只查 textContent 会一个都命中不了
+        check("checks aria-label", js.contains("aria-label"), "只查可见文字会永远判定未知");
+        check("checks title", js.contains("'title'") || js.contains("\"title\""), "missing");
+        check("checks placeholder", js.contains("placeholder"), "missing");
+        // 心跳：状态不变时也要上报，否则通知里的时长与网络状态会僵住
+        check("heartbeat keeps notification fresh", js.contains("[dsh-status-keep]"),
+                "状态不变时通知会停在几分钟前的文案");
         check("uses textContent not innerText", js.contains("textContent") && !js.contains("innerText"),
                 "innerText 每两秒触发布局计算");
         check("has interval", js.contains("setInterval"), "missing");
@@ -126,6 +133,10 @@ public class SessionStatusTest {
         check("unrelated line ignored", SessionStatus.parseStatusConsole("[web] hello") == -1, "wrong");
         check("null safe", SessionStatus.parseStatusConsole(null) == -1, "wrong");
         check("empty payload ignored", SessionStatus.parseStatusConsole("[dsh-status] ") == -1, "wrong");
+        check("heartbeat running parses",
+                SessionStatus.parseStatusConsole("[dsh-status-keep] r") == SessionStatus.RUNNING, "wrong");
+        check("heartbeat approval parses",
+                SessionStatus.parseStatusConsole("[dsh-status-keep] a") == SessionStatus.AWAITING_APPROVAL, "wrong");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

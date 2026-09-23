@@ -1,7 +1,7 @@
 {
-  "version": "0.21.1",
-  "tag": "v0.21.1-bootstrap",
+  "version": "0.21.2",
+  "tag": "v0.21.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修返回手势退到开屏、重启慢；自检结果缓存"
+  "notes": "修通知栏状态未知与网络误报"
 }
