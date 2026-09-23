@@ -95,15 +95,6 @@ public class TaskNotifierTest {
         String[] c = TaskNotifier.parseConsole("[dsh-task] done");
         check("done without id still parses", c != null && "done".equals(c[0]), "wrong");
 
-        System.out.println("=== 7. injected script ===");
-        String js = TaskNotifier.pollScript();
-        check("script non-empty", js != null && js.length() > 200, "too short");
-        check("uses same-origin credentials", js.contains("credentials:'same-origin'"), "missing");
-        check("polls session list", js.contains("/api/session/list"), "missing");
-        check("reports via console.log", js.contains("console.log('[dsh-task]"), "missing");
-        check("idempotent guard", js.contains("__dshTaskWatch"), "missing");
-        check("has interval", js.contains("setInterval"), "missing");
-
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);

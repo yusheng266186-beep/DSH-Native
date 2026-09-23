@@ -191,6 +191,12 @@ public class MainActivity extends Activity {
                         onTaskEvent(ev[0], ev[1]);
                         return true;
                     }
+                    // 状态看板上报：单独分流，不写进日志（每 2 秒一次会刷爆）
+                    int st = SessionStatus.parseStatusConsole(m);
+                    if (st >= 0) {
+                        onSessionStatus(st);
+                        return true;
+                    }
                     log("[web] " + (m.length() > 900 ? m.substring(0, 900) : m));
                 }
                 return true;
@@ -256,7 +262,7 @@ public class MainActivity extends Activity {
                 dshPageLoaded = true;
                 log("DSH 界面已加载，收起开屏");
                 installFetchDiagnostics();
-                installTaskWatcher();
+                installStatusWatcher();
                 final String act = pendingAction;
                 pendingAction = "";
                 if (pendingOpenSettings || act.length() > 0) {
@@ -1138,22 +1144,6 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- 任务完成通知
-    /**
-     * 注入会话状态轮询：观察 {@code running} 由有到无，判断任务完成。
-     *
-     * <p>为什么用注入而不是原生轮询：页面已经完成认证（会话 Cookie），
-     * 同源 {@code fetch} 直接可用，不必把 token 拿出来在原生侧另开一条请求。
-     * 回报走 {@code console.log} —— 不改动网页的安全面（不引入 JS 桥）。
-     */
-    private void installTaskWatcher() {
-        try {
-            webView.evaluateJavascript(TaskNotifier.pollScript(), null);
-            log("已注入任务状态监听（完成后会在后台通知）");
-        } catch (Throwable t) {
-            log("任务状态监听注入失败: " + t);
-        }
-    }
-
     /** 处理来自注入脚本的任务事件。 */
     private void onTaskEvent(String kind, String sessionId) {
         try {
@@ -1206,6 +1196,105 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("任务完成通知发送失败: " + t);
         }
+    }
+
+    // ---------------------------------------------------------------- 通知栏状态看板
+    /**
+     * 注入状态采集脚本。
+     *
+     * <p>读的是**页面自身的状态**，不是 HTTP 接口 ——
+     * DSH 的服务端 API 走自定义 RPC（WebSocket），没有 REST 端点，
+     * 早先轮询 {@code /api/session/list} 的版本实际上从未生效过。
+     *
+     * <p>三个判据取自 DSH 客户端插件的 locale 字典，是稳定的文案：
+     * 「停止生成」「发送消息」「等待审批」。
+     */
+    private void installStatusWatcher() {
+        try {
+            webView.evaluateJavascript(SessionStatus.pollScript(), null);
+            log("已注入状态看板（下拉通知栏可看运行状态）");
+        } catch (Throwable t) {
+            log("状态看板注入失败: " + t);
+        }
+    }
+
+    /** 任务开始时间，用于在通知里显示运行时长。 */
+    private volatile long taskStartedAt;
+
+    /** 上一次已知状态。 */
+    private volatile int lastSessionStatus = SessionStatus.UNKNOWN;
+
+    /** 收到一次页面状态上报，推给前台服务更新通知。 */
+    private void onSessionStatus(int state) {
+        try {
+            if (state == SessionStatus.RUNNING && lastSessionStatus != SessionStatus.RUNNING
+                    && lastSessionStatus != SessionStatus.AWAITING_APPROVAL) {
+                taskStartedAt = System.currentTimeMillis();
+            }
+            // 顺带驱动「任务完成」通知。
+            //
+            // 原来它轮询 /api/session/list —— 那个接口**不存在**
+            //（DSH 的服务端 API 是自定义 RPC，不是 REST），所以那条链
+            // 实际上从未生效过。现在改用同一个页面状态源。
+            if (state == SessionStatus.RUNNING || state == SessionStatus.AWAITING_APPROVAL) {
+                taskNotifier.onEvent("start", "", System.currentTimeMillis(), inForeground);
+            } else if (state == SessionStatus.IDLE) {
+                String done = taskNotifier.onEvent("done", "",
+                        System.currentTimeMillis(), inForeground);
+                if (done != null) notifyTaskDone(done);
+            }
+            lastSessionStatus = state;
+
+            boolean[] net = networkState();
+            android.content.Intent i = new android.content.Intent(this, HarnessService.class);
+            i.setAction(HarnessService.ACTION_STATUS);
+            i.putExtra(HarnessService.EXTRA_STATUS_STATE, state);
+            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK, net[0]);
+            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL,
+                    SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
+            i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
+            startService(i);
+        } catch (Throwable t) {
+            // 状态更新失败不该影响使用，也不该刷日志
+        }
+    }
+
+    /**
+     * 当前网络状态。
+     *
+     * @return {@code [是否可用, 是否Wi-Fi, 是否移动数据, 是否验证过外网]}
+     */
+    private boolean[] networkState() {
+        boolean connected = false, wifi = false, cellular = false, validated = false;
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm != null && android.os.Build.VERSION.SDK_INT >= 23) {
+                android.net.Network n = cm.getActiveNetwork();
+                if (n != null) {
+                    android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+                    if (caps != null) {
+                        connected = caps.hasCapability(
+                                android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+                        validated = caps.hasCapability(
+                                android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                        wifi = caps.hasTransport(
+                                android.net.NetworkCapabilities.TRANSPORT_WIFI);
+                        cellular = caps.hasTransport(
+                                android.net.NetworkCapabilities.TRANSPORT_CELLULAR);
+                    }
+                }
+            } else if (cm != null) {
+                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                if (ni != null && ni.isConnected()) {
+                    connected = true;
+                    validated = true;
+                    wifi = ni.getType() == android.net.ConnectivityManager.TYPE_WIFI;
+                    cellular = ni.getType() == android.net.ConnectivityManager.TYPE_MOBILE;
+                }
+            }
+        } catch (Throwable ignored) { }
+        return new boolean[]{ connected, wifi, cellular, validated };
     }
 
     // ---------------------------------------------------------------- 网络诊断
@@ -3570,7 +3659,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.20.8\n");
+            w.write("APK 版本: 0.21.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

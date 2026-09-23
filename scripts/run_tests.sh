@@ -41,7 +41,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ConfigBackup.java
      $JAVA_DIR/ShareTargets.java
      $JAVA_DIR/PluginSpecs.java
-     $JAVA_DIR/PayloadUpdate.java"
+     $JAVA_DIR/PayloadUpdate.java
+     $JAVA_DIR/SessionStatus.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -51,14 +52,15 @@ TESTS="tests/FileListingTest.java
        tests/ConfigBackupTest.java
        tests/ShareTargetsTest.java
        tests/PluginSpecsTest.java
-       tests/PayloadUpdateTest.java"
+       tests/PayloadUpdateTest.java
+       tests/SessionStatusTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
 javac -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10

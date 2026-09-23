@@ -120,9 +120,13 @@ for path in "$PRIMARY" "$MIRROR"; do
 done
 
 # 5) 全部通过后才更新版本清单
-python3 - "$VER" "$TAG" "$SHA" "$NOTES" <<'PY'
+# 运行包标签在 bash 里算好再传进去 —— 之前直接写在 Python 里调用 bash 函数，
+# 那次发布就断在这里（好在清单是最后一步，没有写坏线上状态）。
+PAYLOAD_TAG="$(currentPayloadTag)"
+python3 - "$VER" "$TAG" "$SHA" "$NOTES" "$PAYLOAD_TAG" <<'PY'
 import json, sys, pathlib
-ver, tag, sha, notes_file = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+ver, tag, sha, notes_file, payload_tag = (sys.argv[1], sys.argv[2], sys.argv[3],
+                                          sys.argv[4], sys.argv[5])
 p = pathlib.Path('latest.json')
 old = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
 
@@ -140,7 +144,7 @@ except Exception:
     pass
 
 old.update({"version": ver, "tag": tag, "apk": "DSHNative-bootstrap.apk",
-            "payload": currentPayloadTag()})
+            "payload": payload_tag})
 if summary:
     old["notes"] = summary
 p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')

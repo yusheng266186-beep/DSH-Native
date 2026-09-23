@@ -1,7 +1,7 @@
 {
-  "version": "0.20.8",
-  "tag": "v0.20.8-bootstrap",
+  "version": "0.21.0",
+  "tag": "v0.21.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "运行包瘦身 27MB（移除 Android 用不到的原生库）+ 启动路径去掉网络阻塞"
+  "notes": "通知栏实时状态看板（运行中/等待批准/已结束/网络异常）"
 }

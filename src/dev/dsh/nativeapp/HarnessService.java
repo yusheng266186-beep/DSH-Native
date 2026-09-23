@@ -25,11 +25,27 @@ import android.util.Log;
 public class HarnessService extends Service {
 
     private static final String TAG = "DSHNative";
+    /** 常驻通知渠道：状态看板，低优先级，不打扰。 */
     public static final String CHANNEL_ID = "dsh_harness";
+    /**
+     * 提醒渠道：只在「等待批准」时用，高优先级。
+     *
+     * <p>必须单独一个渠道 —— Android 不允许创建后修改渠道重要性，
+     * 而常驻看板若做成高优先级会被用户直接关掉，那就什么都看不到了。
+     */
+    public static final String ALERT_CHANNEL_ID = "dsh_alerts";
     public static final int NOTIFICATION_ID = 0x4453;   // "DS"
+    /** 提醒通知单独一个 id，避免覆盖掉常驻看板。 */
+    public static final int ALERT_NOTIFICATION_ID = 0x4454;
 
     public static final String ACTION_STOP = "dev.dsh.nativeapp.STOP";
     public static final String ACTION_SETTINGS = "dev.dsh.nativeapp.SETTINGS";
+    /** 由 MainActivity 推入新的状态，更新通知看板。 */
+    public static final String ACTION_STATUS = "dev.dsh.nativeapp.STATUS";
+    public static final String EXTRA_STATUS_STATE = "state";
+    public static final String EXTRA_STATUS_NETWORK = "networkOk";
+    public static final String EXTRA_STATUS_NETWORK_LABEL = "networkLabel";
+    public static final String EXTRA_STATUS_SINCE = "since";
 
     /** 由 MainActivity 注入：收到"停止"时如何收尾。 */
     public static Runnable onStopRequested;
@@ -66,11 +82,18 @@ public class HarnessService extends Service {
             }
             return START_STICKY;
         }
+        if (ACTION_STATUS.equals(action)) {
+            // 状态更新走 Service 的 action 而不是静态回调：
+            // 进程被系统重启后静态字段是 null，那样推送会静默失效。
+            applyStatus(intent);
+            return START_STICKY;
+        }
 
         // 常驻通知
         try {
             // 文案里点一下"展开"，因为部分 ROM 会折叠动作按钮（用户已实测遇到）
-            startForeground(NOTIFICATION_ID, buildNotification("正在运行 · 展开通知可设置"));
+            startForeground(NOTIFICATION_ID,
+                    buildNotification("正在运行 · 展开通知可设置", null, false));
 
         } catch (Throwable t) {
             Log.w(TAG, "startForeground 失败", t);
@@ -79,23 +102,84 @@ public class HarnessService extends Service {
         return START_STICKY;
     }
 
+    /** 上一次的状态，用于判断是否需要提醒（只在**进入**等待批准时打扰）。 */
+    private int lastState = SessionStatus.UNKNOWN;
+
+    /** 应用一次状态更新：常驻看板总是更新，提醒只在需要时发。 */
+    private void applyStatus(Intent intent) {
+        try {
+            int state = intent.getIntExtra(EXTRA_STATUS_STATE, SessionStatus.UNKNOWN);
+            boolean netOk = intent.getBooleanExtra(EXTRA_STATUS_NETWORK, true);
+            String netLabel = intent.getStringExtra(EXTRA_STATUS_NETWORK_LABEL);
+            long since = intent.getLongExtra(EXTRA_STATUS_SINCE, 0L);
+
+            String title = SessionStatus.title(state, System.currentTimeMillis() - since);
+            String text = SessionStatus.text(state, netOk, netLabel);
+
+            NotificationManager nm =
+                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            nm.notify(NOTIFICATION_ID, buildNotification(text, title, false));
+
+            // 进入「等待批准」时额外发一条高优先级提醒 ——
+            // 这是唯一真的需要用户动手的状态，其余变化不该打扰
+            if (SessionStatus.shouldAlert(lastState, state)) {
+                nm.notify(ALERT_NOTIFICATION_ID,
+                        buildAlert("需要你的批准", "DSH 正在等你确认后继续"));
+            }
+            lastState = state;
+        } catch (Throwable t) {
+            Log.w(TAG, "状态更新失败", t);
+        }
+    }
+
+    /** 高优先级提醒：用它自己的渠道，不会把常驻看板一起变成打扰项。 */
+    private Notification buildAlert(String title, String text) {
+        int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+        if (icon == 0) icon = android.R.drawable.stat_notify_sync;
+
+        Intent open = new Intent(this, MainActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
+        PendingIntent pi = PendingIntent.getActivity(this, 3, open, flags);
+
+        Notification.Builder b;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            b = new Notification.Builder(this, ALERT_CHANNEL_ID);
+        } else {
+            b = new Notification.Builder(this);
+        }
+        return b.setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(icon)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .setDefaults(Notification.DEFAULT_ALL)
+                .build();
+    }
+
     /** 更新通知文案（例如显示当前阶段）。 */
     public void updateText(String text) {
         try {
             NotificationManager nm =
                     (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(text));
+            if (nm != null) nm.notify(NOTIFICATION_ID, buildNotification(text, null, false));
         } catch (Throwable ignored) { }
     }
 
     private void createChannel() {
         // 与任务完成通知共用同一份实现，避免两处逻辑分叉
-        dev.dsh.nativeapp.DshUi.ensureChannel(this, CHANNEL_ID, "DeepSeek Harness",
-                "运行状态与任务完成提醒",
+        DshUi.ensureChannel(this, CHANNEL_ID, "运行状态",
+                "常驻的状态看板：是否在运行、是否结束、网络是否正常",
                 android.app.NotificationManager.IMPORTANCE_LOW);
+        // 单独一个高优先级渠道，只用于「等待批准」
+        DshUi.ensureChannel(this, ALERT_CHANNEL_ID, "需要批准",
+                "DSH 等待你确认时提醒（其余状态不会打扰）",
+                android.app.NotificationManager.IMPORTANCE_HIGH);
     }
 
-    private Notification buildNotification(String text) {
+    private Notification buildNotification(String text, String customTitle, boolean alert) {
         // 应用图标（资源 id 运行时解析，编译期没有 R 类）
         int icon = getResources().getIdentifier(
                 "ic_launcher", "mipmap", getPackageName());
@@ -124,13 +208,15 @@ public class HarnessService extends Service {
         } else {
             b = new Notification.Builder(this);
         }
-        b.setContentTitle("DeepSeek Harness")
+        b.setContentTitle(customTitle != null ? customTitle : "DeepSeek Harness")
          .setContentText(text)
          .setSmallIcon(icon)
          .setContentIntent(content)
          .setOngoing(true)
          .addAction(android.R.drawable.ic_menu_preferences, "设置", settingsPi)
          .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi);
+        // 展开后能看到完整状态（部分 ROM 会把正文截断）
+        b.setStyle(new Notification.BigTextStyle().bigText(text));
         return b.build();
     }
 }

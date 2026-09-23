@@ -6,9 +6,9 @@ package dev.dsh.nativeapp;
  * <p>要解决的问题：手机上把 App 切到后台后，**不知道 agent 什么时候做完**。
  * 长任务尤其如此 —— 回来时可能已经跑完很久，也可能还在跑。
  *
- * <p>数据来源：注入到网页里的一小段脚本轮询 {@code /api/session/list}
- * （同源、用页面已有的认证），观察 {@code running} 字段的变化，
- * 再通过控制台把这个应用能读到的通道报回来。
+ * <p>数据来源：页面状态的变化（由 {@link SessionStatus} 采集）。
+ * 早先的实现轮询 {@code /api/session/list} —— 实测该接口不存在，
+ * DSH 的服务端 API 是自定义 RPC 而非 REST，所以那条链从未生效。
  *
  * <h3>为什么判定逻辑要单独抽出来</h3>
  * 「什么时候该通知」全是判断题，而且很容易做得烦人：任务跑 2 秒也弹一条、
@@ -106,47 +106,5 @@ final class TaskNotifier {
             return new String[]{ kind, id };
         }
         return null;
-    }
-
-    /**
-     * 注入到页面的轮询脚本。
-     *
-     * <p>几个要点：
-     * <ul>
-     *   <li>用**同源** {@code fetch} —— 页面已经完成认证，不需要额外带 token；</li>
-     *   <li>只在**状态发生变化**时上报，不是每次轮询都报（否则日志会被刷爆）；</li>
-     *   <li>请求失败静默跳过 —— 页面正在重载时很常见，不该产生噪音；</li>
-     *   <li>用 {@code console.log} 而不是 JS 桥 —— 不改动网页的安全面。</li>
-     * </ul>
-     */
-    static String pollScript() {
-        return "(function(){"
-             + "if(window.__dshTaskWatch)return;window.__dshTaskWatch=1;"
-             + "var wasRunning=false,startedAt=0,lastId='';"
-             + "function tick(){"
-             + "  fetch('/api/session/list',{credentials:'same-origin'})"
-             + "   .then(function(r){return r.ok?r.json():null;})"
-             + "   .then(function(d){"
-             + "     if(!d)return;"
-             + "     var v=(d.result&&d.result.value)||d.value||d;"
-             + "     var items=(v&&v.items)||[];"
-             + "     var running=null,count=0;"
-             + "     for(var i=0;i<items.length;i++){"
-             + "       if(items[i]&&items[i].running===true){count++;"
-             + "         if(!running||(items[i].updatedAt||0)>(running.updatedAt||0))running=items[i];}"
-             + "     }"
-             + "     if(count>0&&!wasRunning){"
-             + "       wasRunning=true;startedAt=Date.now();"
-             + "       lastId=(running&&running.sessionId)||'';"
-             + "       console.log('[dsh-task] start '+lastId);"
-             + "     } else if(count===0&&wasRunning){"
-             + "       wasRunning=false;"
-             + "       console.log('[dsh-task] done '+lastId+' '+(Date.now()-startedAt));"
-             + "     }"
-             + "   })"
-             + "   .catch(function(){});"
-             + "}"
-             + "tick();setInterval(tick,4000);"
-             + "})();";
     }
 }
