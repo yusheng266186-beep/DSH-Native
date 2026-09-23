@@ -225,6 +225,14 @@ public class MainActivity extends Activity {
                         onTaskEvent(ev[0], ev[1]);
                         return true;
                     }
+                    // 连接丢失：DSH 的 Remote RPC（含归档等操作）走 WebSocket，
+                    // 断掉之后这些操作会**静默失效** —— 界面上点了没反应。
+                    // 用户实际遇到的就是「点归档没任何反应」。
+                    if (m.indexOf("connection lost") >= 0
+                            || m.indexOf("connection restored") >= 0
+                            || m.indexOf("reconnect") >= 0) {
+                        onConnectionEvent(m);
+                    }
                     // 状态看板上报：单独分流，不写进日志（每 2 秒一次会刷爆）
                     int st = SessionStatus.parseStatusConsole(m);
                     if (st >= 0) {
@@ -913,6 +921,69 @@ public class MainActivity extends Activity {
             log("网页输入框显示失败: " + t);
             result.cancel();
         }
+    }
+
+    /** 连接最近一次出问题的时间（0 表示当前正常）。 */
+    private volatile long connectionLostAt;
+
+    /** 是否已经安排过一次自动重载（避免反复刷新）。 */
+    private volatile boolean reloadScheduled;
+
+    /**
+     * 处理网页端上报的连接事件。
+     *
+     * <p>为什么需要它：DSH 的 Remote RPC（归档会话、改设置、分叉会话……）
+     * 走的是 **WebSocket**，而 App 的 API 日志只包了 `fetch` ——
+     * 所以 WebSocket 断掉时，App 这边**什么都看不到**，
+     * 用户那边则是「点归档没有任何反应」。
+     *
+     * <p>实测日志里出现过 {@code [connection] connection lost, retry #1}，
+     * 而归档请求正是走这条通道 —— 请求根本没到服务端。
+     *
+     * <p>处理办法：发现连接丢失就起一个计时器；若迟迟没有恢复，
+     * **自动刷新页面**重建连接。DSH 的会话状态在服务端，
+     * 刷新不会丢东西（只会重建一次界面）。
+     */
+    private void onConnectionEvent(String message) {
+        try {
+            if (message.indexOf("connection lost") >= 0) {
+                connectionLostAt = System.currentTimeMillis();
+                log("[连接] WebSocket 断开：" + message);
+                scheduleReloadIfStuck();
+            } else {
+                // restored / reconnect 之类：认为恢复了
+                if (connectionLostAt != 0) {
+                    log("[连接] WebSocket 已恢复");
+                }
+                connectionLostAt = 0;
+                reloadScheduled = false;
+            }
+        } catch (Throwable t) {
+            log("处理连接事件失败: " + t);
+        }
+    }
+
+    /** 若连接在若干秒内没有恢复，自动刷新页面。 */
+    private void scheduleReloadIfStuck() {
+        if (reloadScheduled) return;
+        reloadScheduled = true;
+        final long lostAt = connectionLostAt;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override public void run() {
+                try {
+                    // 期间恢复过就不动
+                    if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
+                    long sec = (System.currentTimeMillis() - lostAt) / 1000;
+                    log("[连接] 断开 " + sec + " 秒仍未恢复，自动刷新页面重建连接");
+                    statusPageLoading = false;
+                    if (webView != null) webView.reload();
+                    connectionLostAt = 0;
+                    reloadScheduled = false;
+                } catch (Throwable t) {
+                    log("自动刷新失败: " + t);
+                }
+            }
+        }, 15000);
     }
 
     /**
@@ -4105,7 +4176,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.22.0\n");
+            w.write("APK 版本: 0.22.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

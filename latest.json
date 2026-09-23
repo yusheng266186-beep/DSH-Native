@@ -1,7 +1,7 @@
 {
-  "version": "0.22.0",
-  "tag": "v0.22.0-bootstrap",
+  "version": "0.22.1",
+  "tag": "v0.22.1-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修归档确认框不弹；删掉通知栏的「重连」"
+  "notes": "检测 WebSocket 断连并自动刷新页面恢复"
 }
