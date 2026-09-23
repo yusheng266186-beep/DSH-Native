@@ -240,6 +240,16 @@ API 24 起把 `file://` 交给别的应用会抛 `FileUriExposedException`。
 曾经卡在旧版本很久。因此 App 取「多个来源里的最高版本」，
 只要有一个源更新了就能检测到。
 
+### 21.1 草稿状态的 release 对公众不可下载
+
+发布脚本在「等待下载路径生效」那一步超时被中断后，release 已经创建、
+但仍是**草稿**，资产也还没传完。手工收尾时我补传了资产并写了清单 ——
+于是两个下载源都是 404：客户端会检测到更新却下不下来。
+
+**教训**：手工收尾发布时，也要走一遍验证（现在有 `scripts/verify_release.sh`
+可以单独跑）。「验证通过才写清单」这条护栏，绕过它就会出事 ——
+而人在急着收尾时最容易绕过。
+
 ### 22. 写清单前必须验证 release 真的创建成功
 
 出过一次事故：脚本语法错误跳过了 `gh release create`，
@@ -315,4 +325,5 @@ API 24 起把 `file://` 交给别的应用会抛 `FileUriExposedException`。
 | 新 UI 必须走 `DshUi`，不能用 `AlertDialog.Builder` | 构建脚本第 3.5 步会检查 |
 | 版本号要同步改三处 | `mkmanifest.py` 的 versionName、`MainActivity` 的日志头、以及运行包标签 |
 | 发布只用 `scripts/release.sh` | 手工写清单出过事故 |
+| 手工收尾发布时先跑 `scripts/verify_release.sh` | 草稿状态/资产缺失都会导致客户端更新失败 |
 | 改动后必须跑 `scripts/run_tests.sh` | 423 项断言 |
