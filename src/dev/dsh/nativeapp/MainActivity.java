@@ -248,7 +248,32 @@ public class MainActivity extends Activity {
             }
         });
 
+        // 关掉多窗口：target=_blank 的链接会落到同一个 WebView 上，
+        // 从而经过上面的拦截，而不是另开一个我们控制不到的窗口
+        webView.getSettings().setSupportMultipleWindows(false);
         webView.setWebViewClient(new WebViewClient() {
+            /**
+             * 拦截链接跳转：**外部链接交给系统浏览器，WebView 永远停在 DSH 页面上**。
+             *
+             * <p>不拦截会怎样（用户实际遇到）：点一个外链，WebView 整页跳走，
+             * 于是 DSH 界面没了；此时返回手势走到的是「退出应用」的确认框，
+             * 点了取消什么也不会发生 —— 看起来就像返回键坏了，
+             * 只能杀掉 App 重开。
+             *
+             * <p>现在外链不在 WebView 里打开，DSH 页面始终在，
+             * 返回键的语义也始终是「退出」。
+             */
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return handleUrl(url);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view,
+                                                    android.webkit.WebResourceRequest req) {
+                return req != null && handleUrl(req.getUrl() == null ? null : req.getUrl().toString());
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 // 注意：loadDataWithBaseURL() 显示状态页时**同样会触发本回调**。
@@ -754,6 +779,42 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    /** URL 太长时截断，只用于日志与提示。 */
+    private static String briefUrl(String url) {
+        if (url == null) return "";
+        return url.length() <= 80 ? url : url.substring(0, 80) + "…";
+    }
+
+    /**
+     * 决定一个 URL 是在 WebView 里加载，还是交给系统处理。
+     *
+     * @return true 表示「已接管，WebView 不要导航」
+     */
+    private boolean handleUrl(String url) {
+        if (url == null || url.length() == 0) return false;
+        String u = url.trim().toLowerCase(java.util.Locale.ROOT);
+        // 本机地址留在 WebView 里（DSH 自己的页面、附件预览等）
+        if (u.startsWith("http://127.0.0.1") || u.startsWith("http://localhost")
+                || u.startsWith("https://127.0.0.1") || u.startsWith("https://localhost")
+                || u.startsWith("about:") || u.startsWith("data:")
+                || u.startsWith("blob:") || u.startsWith("javascript:")) {
+            return false;
+        }
+        // 其余一律交给系统：外部网页、mailto:、tel:、intent: 等
+        try {
+            android.content.Intent i = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            log("外部链接已在系统浏览器打开: " + briefUrl(url));
+        } catch (Throwable t) {
+            // 没有能处理该 scheme 的应用 —— 提示一下，别让点击看起来没反应
+            toast("无法打开该链接：" + briefUrl(url));
+            log("打开外部链接失败: " + url + " → " + t);
+        }
+        return true;
     }
 
     /** 轮询本地端口，从 stdout 抓取带 token 的地址。 */
@@ -3844,7 +3905,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.21.3\n");
+            w.write("APK 版本: 0.21.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

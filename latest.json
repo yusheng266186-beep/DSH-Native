@@ -1,7 +1,7 @@
 {
-  "version": "0.21.3",
-  "tag": "v0.21.3-bootstrap",
+  "version": "0.21.4",
+  "tag": "v0.21.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修等待批准误报（改为精确匹配 + 可见性判断）"
+  "notes": "外链交给系统浏览器，WebView 不再离开 DSH 页面"
 }
