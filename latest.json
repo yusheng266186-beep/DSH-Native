@@ -1,7 +1,7 @@
 {
-  "version": "0.21.9",
-  "tag": "v0.21.9-bootstrap",
+  "version": "0.22.0",
+  "tag": "v0.22.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "通知栏不再每 2 秒闪烁（内容没变就不重新发布）"
+  "notes": "修归档确认框不弹；删掉通知栏的「重连」"
 }

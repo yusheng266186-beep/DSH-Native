@@ -178,6 +178,40 @@ public class MainActivity extends Activity {
         // WebView 必须由宿主实现 onShowFileChooser，否则点击毫无反应 ——
         // 这正是之前"无法上传文件"的真正原因。
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
+            /**
+             * 网页里的 alert / confirm / prompt 必须自己弹出来。
+             *
+             * <p>不实现会怎样（用户实际遇到）：DSH 点「归档会话」时会走
+             * confirm() 求二次确认，而 WebView 在没有 onJsConfirm 时
+             * **直接返回 false，并且什么都不显示** ——
+             * 表现为「提示要确认，但确认框从来不出现」，操作就此卡住。
+             *
+             * <p>所以这三个回调一个都不能省：alert 只提示，confirm 返回真假，
+             * prompt 还要把输入回传。统一走 DshUi，保持界面风格一致。
+             */
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message,
+                                     final android.webkit.JsResult result) {
+                showJsDialog("提示", message, false, result);
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message,
+                                       final android.webkit.JsResult result) {
+                showJsDialog("确认", message, true, result);
+                return true;
+            }
+
+            @Override
+            public boolean onJsPrompt(WebView view, String url, String message,
+                                      String defaultValue,
+                                      final android.webkit.JsPromptResult result) {
+                showJsPrompt(message, defaultValue, result);
+                return true;
+            }
+
+
             @Override
             public boolean onConsoleMessage(android.webkit.ConsoleMessage cm) {
                 // DSH 把真实错误藏在 API 响应里、界面只显示概括信息。
@@ -415,14 +449,6 @@ public class MainActivity extends Activity {
         // （dsh-fs-local / dsh-bash-local 用 process.cwd() 解析相对路径）
         workspace = resolveWorkspace();
         log("工作区: " + (workspace != null ? workspace : root + "（回退到私有目录）"));
-
-        HarnessService.onReconnectRequested = new Runnable() {
-
-
-            @Override public void run() { reconnectDsh(); }
-
-
-        };
 
 
         startHarnessService();
@@ -797,6 +823,96 @@ public class MainActivity extends Activity {
     private static String briefUrl(String url) {
         if (url == null) return "";
         return url.length() <= 80 ? url : url.substring(0, 80) + "…";
+    }
+
+    /** 网页弹窗的通用实现：alert 与 confirm 共用。 */
+    private void showJsDialog(String title, String message, final boolean cancellable,
+                              final android.webkit.JsResult result) {
+        try {
+            android.widget.LinearLayout box = DshUi.paddedBody(this);
+            box.addView(DshUi.title(this, title));
+
+            // 网页给的文本可能很长，放进可滚动区域
+            android.widget.TextView msg = new android.widget.TextView(this);
+            msg.setText(message == null ? "" : message);
+            msg.setTextSize(12.5f);
+            msg.setTextColor(DshUi.TEXT);
+            msg.setTextIsSelectable(true);
+            android.widget.ScrollView sc = new android.widget.ScrollView(this);
+            sc.addView(msg, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+            android.widget.LinearLayout.LayoutParams slp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+            slp.topMargin = DshUi.dp(this, 10);
+            box.addView(sc, slp);
+
+            android.widget.Button ok = DshUi.button(this, "确定", true);
+            final android.app.Dialog d;
+            if (cancellable) {
+                android.widget.Button cancel = DshUi.button(this, "取消", false);
+                d = DshUi.dialogFill(this, box, DshUi.footer(this, cancel, ok), 460);
+                cancel.setOnClickListener(new android.view.View.OnClickListener() {
+                    @Override public void onClick(android.view.View v) {
+                        d.dismiss();
+                        result.cancel();
+                    }
+                });
+            } else {
+                d = DshUi.dialogFill(this, box, DshUi.footer(this, ok), 460);
+            }
+            ok.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    d.dismiss();
+                    result.confirm();
+                }
+            });
+            // 不许点外部关闭：网页的回调必须收到一个明确的答复，
+            // 否则它会一直悬着，后续操作全部卡住
+            d.setCancelable(false);
+            d.show();
+        } catch (Throwable t) {
+            log("网页弹窗显示失败: " + t);
+            // 弹不出来也必须给网页一个回应
+            if (cancellable) result.cancel(); else result.confirm();
+        }
+    }
+
+    /** 网页的 prompt：多一个输入框。 */
+    private void showJsPrompt(String message, String defaultValue,
+                              final android.webkit.JsPromptResult result) {
+        try {
+            android.widget.LinearLayout box = DshUi.paddedBody(this);
+            box.addView(DshUi.title(this, "输入"));
+            if (message != null && message.length() > 0) {
+                box.addView(DshUi.hint(this, message), DshUi.fullWidth(this, 6));
+            }
+            final android.widget.EditText input =
+                    DshUi.input(this, defaultValue == null ? "" : defaultValue, false);
+            box.addView(input, DshUi.fullWidth(this, 10));
+            android.widget.Button cancel = DshUi.button(this, "取消", false);
+            android.widget.Button ok = DshUi.button(this, "确定", true);
+            final android.app.Dialog d = DshUi.dialog(this, box,
+                    DshUi.footer(this, cancel, ok), 400);
+            cancel.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    d.dismiss();
+                    result.cancel();
+                }
+            });
+            ok.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    d.dismiss();
+                    result.confirm(input.getText() == null ? "" : input.getText().toString());
+                }
+            });
+            d.setCancelable(false);
+            d.show();
+        } catch (Throwable t) {
+            log("网页输入框显示失败: " + t);
+            result.cancel();
+        }
     }
 
     /**
@@ -1502,7 +1618,7 @@ public class MainActivity extends Activity {
                 if (done != null) notifyTaskDone(done);
             }
             lastSessionStatus = state;
-            pushStatus(state, false);
+            pushStatus(state);
         } catch (Throwable t) {
             // 状态更新失败不该影响使用，也不该刷日志
         }
@@ -1516,7 +1632,7 @@ public class MainActivity extends Activity {
      * 用户看到的就是「对话卡住、没反应」。
      *
      * <p>App 无法替 DSH 重发那个请求（那在它的进程里），但可以做两件事：
-     * 把这件事**说出来**，并给出**一键重连**的入口。
+     * 现在只记日志。曾经在这里做过「提示 + 一键重连」，见 onNetworkChanged 的说明。
      */
     private void registerNetworkWatcher() {
         try {
@@ -1527,67 +1643,40 @@ public class MainActivity extends Activity {
                 @Override public void onAvailable(android.net.Network n) { onNetworkChanged(); }
                 @Override public void onLost(android.net.Network n) { onNetworkChanged(); }
             });
-            log("已监听网络变化（切换网络后会提示并可一键重连）");
+            log("已监听网络变化（仅记录，用于排查「对话没反应」）");
         } catch (Throwable t) {
             log("网络变化监听注册失败（不影响使用）: " + t);
         }
     }
 
-    /** 网络环境变了：提示用户，并把当前状态推给通知栏。 */
+    /**
+     * 网络环境变了。
+     *
+     * <p>只记日志，**不动通知栏**。
+     *
+     * <p>曾经在这里做两件事：把「网络已切换，可点重连」写进通知、
+     * 并加一个常驻的「重连」按钮。结果那个按钮每次开机都挂在通知栏上
+     *（它是静态动作，与是否切换过网络无关），用户明确说没用、要求删掉。
+     * 而且重启 DSH 会中断正在跑的任务 —— 用户自己强停 App 也能做到，
+     * 不值得占一个常驻按钮。
+     *
+     * <p>网络切换本身仍值得记录：DSH 到模型服务的长连接可能因此失效，
+     * 排查「对话没反应」时这是第一条要看的信息。
+     */
     private void onNetworkChanged() {
         try {
-            networkChangedAt = System.currentTimeMillis();
             boolean[] net = networkState();
             log("网络环境已变化: " + SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
-            pushStatus(lastSessionStatus, true);
-            runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    if (!inForeground) return;
-                    DshUi.toast(MainActivity.this,
-                            "网络已切换。若对话没有响应，点通知栏的「重连」");
-                }
-            });
         } catch (Throwable t) {
             log("处理网络变化失败: " + t);
         }
     }
 
-    /** 网络变化的时间戳。 */
-    private volatile long networkChangedAt;
 
     /** 上一次推送给通知的状态（用于抑制重复推送）。 */
     private volatile int pushedState = -2;
     /** 是否已经推送过一次网络状态。 */
     private volatile boolean networkInited;
-
-    /**
-     * 重新连接：重启 DSH 服务。
-     *
-     * <p>网络切换导致的卡死无法在 App 侧「重发」—— 那个请求在 DSH 进程里。
-     * 重启是唯一可靠的恢复手段；界面上会重新走一遍启动流程
-     *（本地运行包完整时是秒级的）。
-     */
-    private void reconnectDsh() {
-        try {
-            log("收到重连请求，重启 DSH 服务 …");
-            if (nodeProcess != null) {
-                try { nodeProcess.destroy(); } catch (Throwable ignored) { }
-                nodeProcess = null;
-            }
-            try {
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .remove("dshPort").remove("dshToken").apply();
-            } catch (Throwable ignored) { }
-            runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    toast("正在重新连接…");
-                    recreate();
-                }
-            });
-        } catch (Throwable t) {
-            log("重连失败: " + t);
-        }
-    }
 
     /**
      * 把状态推给前台服务更新通知。
@@ -1597,12 +1686,13 @@ public class MainActivity extends Activity {
      * 每 2 秒闪一下。而现在运行时长走系统计时器、网络变化走系统回调，
      * 心跳本身已经不需要产生任何界面更新了。
      */
-    private void pushStatus(int state, boolean networkChanged) {
+    private void pushStatus(int state) {
         try {
-            // 状态没变、网络也没变 → 什么都不用做
-            if (!networkChanged && state == pushedState && networkInited) return;
+            // 状态没变 → 什么都不用做
+            if (state == pushedState && networkInited) return;
             pushedState = state;
             networkInited = true;
+
             boolean[] net = networkState();
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
@@ -1611,8 +1701,6 @@ public class MainActivity extends Activity {
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL,
                     SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
             i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
-            i.putExtra(HarnessService.EXTRA_NETWORK_CHANGED,
-                    networkChanged && System.currentTimeMillis() - taskStartedAt > 3000);
             startService(i);
         } catch (Throwable ignored) { }
     }
@@ -4017,7 +4105,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.21.9\n");
+            w.write("APK 版本: 0.22.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
