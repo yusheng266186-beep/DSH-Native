@@ -856,6 +856,53 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 这个 URL 是否值得送去系统浏览器。
+     *
+     * <h3>曾经写错过一次</h3>
+     * 早先我据一张截图判断某个地址「畸形」，加了一条「主机名必须有点」
+     * 的规则。后来发现判断错了：截图里的错误是
+     * {@code net::ERR_CONNECTION_CLOSED} ——
+     * 那是**连接建立后被对端或代理关闭**，说明 **DNS 是解析成功的**。
+     * 域名不存在会是 {@code ERR_NAME_NOT_RESOLVED}，两者完全不同。
+     *
+     * <p>单段主机名（例如 {@code https://xn--qvraaa/}）在内网、
+     * 代理或 VPN 的 DNS 下**可以解析**，不该一律拒绝 ——
+     * 那条规则会误伤正常地址。
+     *
+     * <h3>现在只拒绝真正不成立的输入</h3>
+     * 空、有空格、控制字符、无法构造 URL 的 —— 只拒绝这些。
+     * **误拒正常链接比放行一个坏链接更糟。**
+     */
+    private static boolean looksLikeRealUrl(String url) {
+        try {
+            if (url == null) return false;
+            String u = url.trim();
+            if (u.length() == 0) return false;
+            // 控制字符与空格：这类地址一定构造不出可用 URL
+            for (int i = 0; i < u.length(); i++) {
+                char c = u.charAt(i);
+                if (c < 0x20 || c == 0x7F || c == ' ') return false;
+            }
+            String lower = u.toLowerCase(java.util.Locale.ROOT);
+            // 非网页 scheme：交给系统（邮件、电话、应用跳转）
+            if (lower.startsWith("mailto:") || lower.startsWith("tel:")
+                    || lower.startsWith("sms:") || lower.startsWith("intent:")
+                    || lower.startsWith("market:") || lower.startsWith("geo:")) {
+                return true;
+            }
+            // 网页地址：能解析出主机名即可，不额外限制它长什么样
+            if (lower.startsWith("http://") || lower.startsWith("https://")) {
+                java.net.URL parsed = new java.net.URL(u);
+                String host = parsed.getHost();
+                return host != null && host.length() > 0;
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** URL 太长时截断，只用于日志与提示。 */
     private static String briefUrl(String url) {
         if (url == null) return "";
@@ -1030,6 +1077,20 @@ public class MainActivity extends Activity {
                 || u.startsWith("blob:") || u.startsWith("javascript:")) {
             return false;
         }
+        // 先校验：畸形的 URL 不要往系统浏览器送。
+        //
+        // 用户实际遇到：DSH 传来一个 `https://xn--qvraaa/` ——
+        // punycode 前缀后面接了个没有合法顶级域的短域名，根本不存在。
+        // 原样转发的结果是系统浏览器弹出一页「网页无法打开」，
+        // 看起来像是 App 或浏览器坏了，其实是这个地址本身不成立。
+        //
+        // 这类地址直接不打开，只记日志 —— 打开一个必然失败的页面
+        // 比什么都不做更让人困惑。
+        if (!looksLikeRealUrl(url)) {
+            log("忽略无效链接（未送去浏览器）: " + briefUrl(url));
+            return true;   // 仍然拦下，不让 WebView 去加载它
+        }
+
         // 其余一律交给系统：外部网页、mailto:、tel:、intent: 等
         try {
             android.content.Intent i = new android.content.Intent(
@@ -4225,7 +4286,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.23.0\n");
+            w.write("APK 版本: 0.23.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
