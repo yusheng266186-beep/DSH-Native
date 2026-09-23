@@ -186,21 +186,26 @@ final class SessionStatus {
      * <p>只上报**状态变化**，不是每次都报 —— 否则控制台会被刷爆。
      */
     static String pollScript() {
-        // 判据必须**精确匹配**，不能用子串。
+        // 状态来源：**DSH 自己的会话列表**，而不是界面上长什么样。
         //
-        // 踩过的坑：原来用 indexOf 在整页文字里找「等待审批」，
-        // 结果用户跟 agent 聊到这个功能时，对话正文本身就含这四个字，
-        // 于是正常运行时也报「等待批准」。
+        // 这一段改过七次，每次都在猜界面：按钮文案、aria-label、侧边栏标签……
+        // 猜错一次就误报一次（对话正文含「等待审批」、子代理视图、任务结束后
+        // 仍显示运行中，全是这么来的）。
         //
-        // 第二个坑：只看**当前视图**的输入框。用户点进子代理的会话后，
-        // 看到的是子代理的输入框 —— 子代理没在跑就显示「发送消息」，
-        // 于是主任务明明还在跑，通知却变成了「空闲」，运行时长也就停住了。
+        // 而 DSH 的 /api/session/list 直接给出 running 字段 ——
+        // 服务端的权威状态，与界面怎么渲染无关。同源 fetch 就能拿到
+        //（页面已完成认证，Cookie 直接生效）。
         //
-        // 现在改为**先看跨会话的状态标签**（会话列表里的「进行中」/
-        // 「{n} 个子代理运行中」），再退回看当前视图的输入框。
+        // 界面判据只留一个用途：**待批准的检测**。
+        // 审批是会话的「待处理交互」，会话列表里没有这个字段，
+        // 所以仍从界面读，但用精确匹配 + 可见性双重限制。
         return "(function(){"
              + "if(window.__dshStatusWatch)return;window.__dshStatusWatch=1;"
-             + "var last='';var idleStreak=0;"
+             + "var last='';"
+             + "function report(s){"
+             + "  if(s!==last){last=s;console.log('[dsh-status] '+s);}"
+             + "  else{console.log('[dsh-status-keep] '+s);}"
+             + "}"
              + "function visible(e){"
              + "  try{"
              + "    if(!e||!e.getBoundingClientRect)return false;"
@@ -222,7 +227,7 @@ final class SessionStatus {
              + "        for(k=0;k<langs.length;k++){if(v===langs[k]&&visible(e))return true;}"
              + "      }"
              + "    }"
-             + "    var bs=document.querySelectorAll('button,[role=button],a,span,div');"
+             + "    var bs=document.querySelectorAll('button,[role=button],a');"
              + "    for(i=0;i<bs.length;i++){"
              + "      var tx=(bs[i].textContent||'').trim();"
              + "      for(k=0;k<langs.length;k++){if(tx===langs[k]&&visible(bs[i]))return true;}"
@@ -230,55 +235,27 @@ final class SessionStatus {
              + "    return false;"
              + "  }catch(e){return false;}"
              + "}"
-             // 「{n} 个子代理运行中」带数字，精确匹配用不了，改用正则
-             + "function regexHit(re){"
-             + "  try{"
-             + "    var all=document.querySelectorAll('span,div,p,li');"
-             + "    for(var i=0;i<all.length;i++){"
-             + "      var e=all[i];"
-             + "      if(e.children&&e.children.length>2)continue;"
-             + "      var tx=(e.textContent||'').trim();"
-             + "      if(tx.length>0&&tx.length<40&&re.test(tx)&&visible(e))return true;"
-             + "    }"
-             + "    return false;"
-             + "  }catch(e){return false;}"
-             + "}"
-             + "var RUNNING=['进行中','Running'];"
-             + "var SUBAGENT=/^[0-9]+\\s*个子代理运行中$|^[0-9]+\\s+subagents? running$/i;"
              + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
-             + "var STOP=['停止生成','Stop generating'];"
-             + "var SEND=['发送消息','Send message'];"
              + "function tick(){"
              + "  try{"
-             + "    if(!document.body){return;}"
-             + "    var appr=exact(APPR);"
-             // 跨会话：主任务或子代理在跑，会话列表里就有状态标签
-             + "    var busy=exact(RUNNING)||regexHit(SUBAGENT);"
-             + "    var stop=exact(STOP);"
-             + "    var send=exact(SEND);"
-             + "    var s;"
-             + "    if(appr)s='a';"
-             // 判据的主次很重要，两个方向都踩过：
-             //
-             //  * 只看输入框 → 用户点进子代理视图时，看到的是子代理的输入框，
-             //    子代理空闲就误判成「主任务也空闲」，时长停住。
-             //  * 只看侧边栏 → 「进行中」可能是会话历史里留下的旧状态，
-             //    任务结束后它还在 DOM 里，于是永远显示运行中。
-             //
-             // 所以：**输入框是一手证据**（它就是当前这个会话的实时状态），
-             // 侧边栏只在输入框读不出来时才兜底。
-             + "    else if(stop)s='r';"
-             // 空闲要**连续两次**才认定：切换视图的瞬间可能读不到任何按钮，
-             // 一次就下结论会让通知在“运行中/空闲”之间抖
-             + "    else if(send){idleStreak++;s=(idleStreak>=2)?'i':'r';}"
-             + "    else if(busy)s='r';"
-             + "    else{s='u';}"
-             + "    if(s!=='i')idleStreak=0;"
-             + "    if(s!==last){last=s;console.log('[dsh-status] '+s);}"
-             + "    else{console.log('[dsh-status-keep] '+s);}"
+             + "    if(!document.body)return;"
+             + "    if(exact(APPR)){report('a');return;}"
+             + "    fetch('/api/session/list',{credentials:'same-origin'})"
+             + "      .then(function(r){return r.ok?r.json():null;})"
+             + "      .then(function(d){"
+             + "        var v=d&&d.result&&d.result.value;"
+             + "        var items=(v&&v.items)||null;"
+             + "        if(!items){report('u');return;}"
+             + "        var any=false;"
+             + "        for(var i=0;i<items.length;i++){"
+             + "          if(items[i]&&items[i].running===true)any=true;"
+             + "        }"
+             + "        report(any?'r':'i');"
+             + "      })"
+             + "      .catch(function(){report('u');});"
              + "  }catch(e){}"
              + "}"
-             + "tick();setInterval(tick,2000);"
+             + "tick();setInterval(tick,3000);"
              + "})();";
     }
 
@@ -301,6 +278,10 @@ final class SessionStatus {
      * 捕获阶段停掉传播，它就不会收到这个事件，菜单也就不会关。
      *
      * <p>只影响触摸后的短窗口（800ms），鼠标行为不受影响。
+     *
+     * <p><b>已验证有效</b>：装上后归档与重命名都能正常工作。
+     * 若将来 DSH 换了菜单实现，这里的拦截可能失效 —— 判断方法见
+     * docs/GOTCHAS.md 里「点了没反应」的排查步骤。
      */
     static String touchMenuFixScript() {
         return "(function(){"

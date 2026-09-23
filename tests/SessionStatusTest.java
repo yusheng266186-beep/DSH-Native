@@ -113,52 +113,38 @@ public class SessionStatusTest {
 
         System.out.println("=== 10. injected script ===");
         String js = SessionStatus.pollScript();
-        check("uses the real DSH labels", js.contains("停止生成") && js.contains("发送消息")
-                && js.contains("等待审批"), "文案必须与 DSH 一致");
-        check("english fallbacks present",
-                js.contains("Stop generating") && js.contains("Waiting for approval"), "missing");
-        check("idempotent guard", js.contains("__dshStatusWatch"), "missing");
-        check("reports on change", js.contains("s!==last"), "missing");
-        // 按钮显示的是图标，文案在属性里 —— 只查 textContent 会一个都命中不了
-        check("checks aria-label", js.contains("aria-label"), "只查可见文字会永远判定未知");
-        // 精确匹配：用子串匹配时，对话内容里出现这几个字就会误判
-        check("exact match, not substring", js.contains("v===langs[k]") && js.contains("tx===langs[k]"),
+        // **核心改变**：状态来自 DSH 自己的会话列表，而不是界面长什么样。
+        // 这一段改过七次，每次都在猜界面，猜错一次就误报一次。
+        check("reads authoritative session list",
+                js.contains("/api/session/list"), "必须用服务端数据，不能只看界面");
+        check("uses the running field", js.contains("running===true"),
+                "running 是服务端给的权威状态");
+        check("same-origin credentials", js.contains("credentials:'same-origin'"),
+                "页面已完成认证，Cookie 直接生效");
+        check("reports unknown when fetch fails",
+                js.contains(".catch(function(){report('u');})"), "取不到时应报未知而不是猜");
+        // 审批没有对应的接口字段，仍从界面读，但仍是精确匹配 + 可见性
+        check("keeps approval detection from DOM",
+                js.contains("允许一次") && js.contains("等待审批"), "missing");
+        check("approval uses exact match", js.contains("v===langs[k]") && js.contains("tx===langs[k]"),
                 "子串匹配会被对话正文误触发");
-        check("no indexOf on whole body",
+        check("no whole-body substring search",
                 !js.contains("body.textContent.indexOf"), "整页子串搜索会误判");
-        // 已处理的审批面板可能仍在 DOM 里，只是被隐藏
-        check("requires visibility", js.contains("getBoundingClientRect") && js.contains("function visible"),
+        check("requires visibility",
+                js.contains("getBoundingClientRect") && js.contains("function visible"),
                 "隐藏的旧面板会导致误报");
-        check("uses approval button text", js.contains("允许一次"), "missing");
-        // 跨会话判据：用户点进子代理视图时，只看当前输入框会把「主任务在跑」
-        // 误判成「空闲」，通知里的时长就停住了
-        check("uses cross-session running label", js.contains("进行中") && js.contains("Running"),
-                "只看当前视图会被子代理视图误导");
-        check("detects subagents running", js.contains("个子代理运行中"), "missing");
-        check("subagent match is a regex (count varies)",
-                js.contains("SUBAGENT=") && js.contains("regexHit"), "数字会变，精确匹配用不了");
-        // 切换视图的瞬间可能读不到任何按钮，一次就下结论会让通知抖动
-        check("idle needs two consecutive readings", js.contains("idleStreak>=2"),
-                "切换视图瞬间会误报空闲");
-        // 判据的主次：两个方向都踩过坑 ——
-        // 只看输入框 → 子代理视图误判空闲；只看侧边栏 → 任务结束后仍显示运行中
-        check("composer is primary: stop before sidebar",
-                js.indexOf("else if(stop)") < js.indexOf("else if(busy)"),
-                "侧边栏优先会让任务结束后仍显示运行中");
-        check("composer is primary: send before sidebar",
-                js.indexOf("else if(send)") < js.indexOf("else if(busy)"),
-                "侧边栏优先会让任务结束后仍显示运行中");
-        check("sidebar is a fallback only",
-                js.contains("else if(busy)s='r';") || js.contains("else if(busy)s=\"r\";"),
-                "missing");
-        check("checks title", js.contains("'title'") || js.contains("\"title\""), "missing");
-        check("checks placeholder", js.contains("placeholder"), "missing");
-        // 心跳：状态不变时也要上报，否则通知里的时长与网络状态会僵住
+        check("idempotent guard", js.contains("__dshStatusWatch"), "missing");
         check("heartbeat keeps notification fresh", js.contains("[dsh-status-keep]"),
-                "状态不变时通知会停在几分钟前的文案");
-        check("uses textContent not innerText", js.contains("textContent") && !js.contains("innerText"),
-                "innerText 每两秒触发布局计算");
+                "状态不变时通知里的网络状态会僵住");
         check("has interval", js.contains("setInterval"), "missing");
+
+        System.out.println("=== 10.1 touch menu fix ===");
+        String tf = SessionStatus.touchMenuFixScript();
+        check("blocks pointerleave after touch", tf.contains("pointerleave")
+                && tf.contains("stopPropagation"), "悬停菜单会被手指抬起关掉");
+        check("capture phase", tf.contains(",true)"), "必须用捕获阶段才能拦住 React 委托的事件");
+        check("limited window", tf.contains("<800"), "不能永久屏蔽，鼠标行为要保留");
+        check("idempotent guard", tf.contains("__dshTouchFix"), "missing");
 
         System.out.println("=== 11. console parsing ===");
         check("parse running", SessionStatus.parseStatusConsole("[dsh-status] r") == SessionStatus.RUNNING, "wrong");
