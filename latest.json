@@ -1,7 +1,7 @@
 {
-  "version": "0.22.8",
-  "tag": "v0.22.8-bootstrap",
+  "version": "0.22.9",
+  "tag": "v0.22.9-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "状态改为读 DSH 自己的会话列表流量"
+  "notes": "恢复多窗口并接管新窗口（修内置浏览器）"
 }
