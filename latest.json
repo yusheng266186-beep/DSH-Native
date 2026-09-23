@@ -1,7 +1,7 @@
 {
-  "version": "0.22.2",
-  "tag": "v0.22.2-bootstrap",
+  "version": "0.22.3",
+  "tag": "v0.22.3-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "加 WebSocket 探针以定位归档问题"
+  "notes": "WebSocket 探针改为全量记录，定位归档问题"
 }

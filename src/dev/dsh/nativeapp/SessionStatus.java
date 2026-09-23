@@ -293,22 +293,36 @@ final class SessionStatus {
      * 定位完问题后可以删掉这一段。
      */
     static String wsProbeScript() {
+        // 记录**所有** WebSocket 收发（截断到 200 字符）。
+        //
+        // 第一版只记录含 "archive" 字样的消息，结果什么都没看到 ——
+        // 但 RPC 载荷可能用方法号而不是名字，过滤反而把证据挡掉了。
+        // RPC 调用不频繁，全量记录不会刷爆日志。
         return "(function(){"
              + "if(window.__dshWsProbe)return;window.__dshWsProbe=1;"
              + "var Orig=window.WebSocket;if(!Orig)return;"
-             + "function interesting(d){return typeof d==='string'&&d.indexOf('archive')>=0;}"
+             + "var n=0;"
+             + "function log(dir,d){"
+             + "  try{"
+             + "    var s=(typeof d==='string')?d:('[binary '+(d&&d.byteLength)+'B]');"
+             + "    console.log('[dsh-ws] '+dir+' #'+(++n)+' '+s.slice(0,200));"
+             + "  }catch(e){}"
+             + "}"
              + "function wrap(ws){"
              + "  try{"
-             + "    ws.addEventListener('message',function(ev){"
-             + "      try{if(interesting(ev.data))console.log('[dsh-ws] recv '+String(ev.data).slice(0,500));}catch(e){}"
-             + "    });"
+             + "    ws.addEventListener('message',function(ev){log('recv',ev.data);});"
              + "    var send=ws.send;"
              + "    ws.send=function(data){"
-             + "      try{if(interesting(data))console.log('[dsh-ws] send '+String(data).slice(0,500));}catch(e){}"
-             + "      return send.apply(ws,arguments);"
+             + "      var r;"
+             + "      try{r=send.apply(ws,arguments);}catch(e){r=e;}"
+             + "      log('send',data);"
+             + "      return r;"
              + "    };"
              + "    ws.addEventListener('close',function(ev){"
              + "      try{console.log('[dsh-ws] closed code='+ev.code);}catch(e){}"
+             + "    });"
+             + "    ws.addEventListener('open',function(){"
+             + "      try{console.log('[dsh-ws] opened');}catch(e){}"
              + "    });"
              + "  }catch(e){}"
              + "  return ws;"
@@ -317,7 +331,7 @@ final class SessionStatus {
              + "Patched.prototype=Orig.prototype;"
              + "Patched.CONNECTING=0;Patched.OPEN=1;Patched.CLOSING=2;Patched.CLOSED=3;"
              + "window.WebSocket=Patched;"
-             + "console.log('[dsh-ws] 探针已安装');"
+             + "console.log('[dsh-ws] 探针已安装（记录全部收发）');"
              + "})();";
     }
 
