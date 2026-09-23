@@ -78,11 +78,18 @@ final class SessionStatus {
      * <p>标题里带上运行时长：用户下拉时最想知道的是「跑了多久了」。
      */
     static String title(int state, long runningMs) {
-        if (state == RUNNING || state == AWAITING_APPROVAL) {
-            String d = duration(runningMs);
-            return "DeepSeek Harness · " + label(state) + (d.length() == 0 ? "" : " " + d);
-        }
+        // 不再把时长拼进标题。
+        //
+        // 原来每次推送都带一个当时算出来的秒数，而推送是每 2 秒一次 ——
+        // 于是通知里的秒数两秒两秒地跳。
+        // 现在改用系统计时器（setUsesChronometer + setWhen），
+        // 由系统每秒自己走，与轮询周期完全无关。
         return "DeepSeek Harness · " + label(state);
+    }
+
+    /** 是否用系统计时器显示运行时长。 */
+    static boolean useChronometer(int state) {
+        return state == RUNNING || state == AWAITING_APPROVAL;
     }
 
     /**

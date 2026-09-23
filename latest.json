@@ -1,7 +1,7 @@
 {
-  "version": "0.21.6",
-  "tag": "v0.21.6-bootstrap",
+  "version": "0.21.7",
+  "tag": "v0.21.7-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "网络切换后提示 + 通知栏一键重连"
+  "notes": "通知运行时长改用系统计时器，秒数平滑递增"
 }

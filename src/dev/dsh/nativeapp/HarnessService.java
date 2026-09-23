@@ -138,7 +138,8 @@ public class HarnessService extends Service {
             NotificationManager nm =
                     (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
-            nm.notify(NOTIFICATION_ID, buildNotification(text, title, false));
+            nm.notify(NOTIFICATION_ID,
+                    buildNotification(text, title, SessionStatus.useChronometer(state), since));
 
             // 进入「等待批准」时额外发一条高优先级提醒 ——
             // 这是唯一真的需要用户动手的状态，其余变化不该打扰
@@ -199,6 +200,15 @@ public class HarnessService extends Service {
     }
 
     private Notification buildNotification(String text, String customTitle, boolean alert) {
+        return buildNotification(text, customTitle, alert, 0L);
+    }
+
+    /**
+     * @param chronometer 是否用系统计时器显示运行时长
+     * @param since       任务开始时间（chronometer 为 true 时使用）
+     */
+    private Notification buildNotification(String text, String customTitle,
+                                           boolean chronometer, long since) {
         // 应用图标（资源 id 运行时解析，编译期没有 R 类）
         int icon = getResources().getIdentifier(
                 "ic_launcher", "mipmap", getPackageName());
@@ -234,7 +244,16 @@ public class HarnessService extends Service {
          .setContentText(text)
          .setSmallIcon(icon)
          .setContentIntent(content)
-         .setOngoing(true)
+         .setOngoing(true);
+        // 系统计时器：由系统每秒自己走，与状态轮询周期无关。
+        // 用它之前是手工把秒数拼进标题，而推送每 2 秒一次 ——
+        // 通知里的秒数就两秒两秒地跳。
+        if (chronometer && since > 0) {
+            b.setUsesChronometer(true).setWhen(since);
+        } else {
+            b.setUsesChronometer(false).setWhen(System.currentTimeMillis());
+        }
+        b
          .addAction(android.R.drawable.ic_menu_preferences, "设置", settingsPi)
          .addAction(android.R.drawable.ic_menu_rotate, "重连", reconnectPi)
          .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi);

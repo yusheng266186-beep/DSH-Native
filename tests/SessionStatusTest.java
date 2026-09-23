@@ -49,10 +49,15 @@ public class SessionStatusTest {
         System.out.println("=== 4. title carries elapsed time ===");
         String t = SessionStatus.title(SessionStatus.RUNNING, 134_000L);
         check("title mentions running", t.contains("运行中"), t);
-        check("title mentions elapsed", t.contains("2:14"), t);
-        check("idle title has no duration",
-                !SessionStatus.title(SessionStatus.IDLE, 134_000L).contains("2:14"),
-                SessionStatus.title(SessionStatus.IDLE, 134_000L));
+        // 时长不再拼进标题 —— 改由系统计时器显示（setUsesChronometer + setWhen）。
+        // 原来每 2 秒推送一次、每次带一个算好的秒数，通知里的秒数就两秒两秒地跳。
+        check("title does NOT contain elapsed", !t.contains("2:14"), t);
+        check("chronometer used while running",
+                SessionStatus.useChronometer(SessionStatus.RUNNING), "wrong");
+        check("chronometer used while awaiting approval",
+                SessionStatus.useChronometer(SessionStatus.AWAITING_APPROVAL), "wrong");
+        check("no chronometer when idle",
+                !SessionStatus.useChronometer(SessionStatus.IDLE), "wrong");
         check("approval title shows state",
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L).contains("等待批准"),
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L));
