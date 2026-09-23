@@ -283,59 +283,6 @@ final class SessionStatus {
     }
 
     /**
-     * 注入 WebSocket 探针。
-     *
-     * <p>为什么需要：DSH 的 Remote RPC（归档会话、改设置、分叉会话……）
-     * 走 WebSocket，而 App 的 API 日志只包了 `fetch` ——
-     * 这条通道出问题时**完全不可见**，只能看到「点了没反应」。
-     *
-     * <p>只记录与 archive 相关的收发，避免把日志刷爆。
-     * 定位完问题后可以删掉这一段。
-     */
-    static String wsProbeScript() {
-        // 记录**所有** WebSocket 收发（截断到 200 字符）。
-        //
-        // 第一版只记录含 "archive" 字样的消息，结果什么都没看到 ——
-        // 但 RPC 载荷可能用方法号而不是名字，过滤反而把证据挡掉了。
-        // RPC 调用不频繁，全量记录不会刷爆日志。
-        return "(function(){"
-             + "if(window.__dshWsProbe)return;window.__dshWsProbe=1;"
-             + "var Orig=window.WebSocket;if(!Orig)return;"
-             + "var n=0;"
-             + "function log(dir,d){"
-             + "  try{"
-             + "    var s=(typeof d==='string')?d:('[binary '+(d&&d.byteLength)+'B]');"
-             + "    console.log('[dsh-ws] '+dir+' #'+(++n)+' '+s.slice(0,200));"
-             + "  }catch(e){}"
-             + "}"
-             + "function wrap(ws){"
-             + "  try{"
-             + "    ws.addEventListener('message',function(ev){log('recv',ev.data);});"
-             + "    var send=ws.send;"
-             + "    ws.send=function(data){"
-             + "      var r;"
-             + "      try{r=send.apply(ws,arguments);}catch(e){r=e;}"
-             + "      log('send',data);"
-             + "      return r;"
-             + "    };"
-             + "    ws.addEventListener('close',function(ev){"
-             + "      try{console.log('[dsh-ws] closed code='+ev.code);}catch(e){}"
-             + "    });"
-             + "    ws.addEventListener('open',function(){"
-             + "      try{console.log('[dsh-ws] opened');}catch(e){}"
-             + "    });"
-             + "  }catch(e){}"
-             + "  return ws;"
-             + "}"
-             + "var Patched=function(u,p){return wrap(p?new Orig(u,p):new Orig(u));};"
-             + "Patched.prototype=Orig.prototype;"
-             + "Patched.CONNECTING=0;Patched.OPEN=1;Patched.CLOSING=2;Patched.CLOSED=3;"
-             + "window.WebSocket=Patched;"
-             + "console.log('[dsh-ws] 探针已安装（记录全部收发）');"
-             + "})();";
-    }
-
-    /**
      * 触摸屏适配：让「悬停菜单」在手指抬起后不要立刻关闭。
      *
      * <h3>问题</h3>

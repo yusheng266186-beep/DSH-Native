@@ -1,7 +1,7 @@
 {
-  "version": "0.22.4",
-  "tag": "v0.22.4-bootstrap",
+  "version": "0.22.5",
+  "tag": "v0.22.5-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修触摸屏上的悬停菜单（归档/重命名点不动）"
+  "notes": "删掉临时探针；保留触摸菜单修复"
 }

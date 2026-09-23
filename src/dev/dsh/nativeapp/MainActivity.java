@@ -295,17 +295,16 @@ public class MainActivity extends Activity {
         webView.getSettings().setSupportMultipleWindows(false);
         webView.setWebViewClient(new WebViewClient() {
             /**
-             * 尽可能早地装上 WebSocket 探针。
+             * 尽早装上触摸适配。
              *
-             * <p>必须在 DSH 打开它的连接**之前**执行，否则包不到。
+             * <p>必须在 DSH 渲染出菜单**之前**执行，否则拦不到它的事件。
              * onPageStarted 是能拿到的最早时机（文档还没解析，
-             * 但 window 已存在，赋值有效）。
+             * 但 document 已存在，监听有效）。
              */
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 try {
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
-                    view.evaluateJavascript(SessionStatus.wsProbeScript(), null);
                 } catch (Throwable ignored) { }
             }
 
@@ -4192,7 +4191,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.22.4\n");
+            w.write("APK 版本: 0.22.5\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
