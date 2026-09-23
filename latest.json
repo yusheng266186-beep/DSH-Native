@@ -1,7 +1,7 @@
 {
-  "version": "0.21.8",
-  "tag": "v0.21.8-bootstrap",
+  "version": "0.21.9",
+  "tag": "v0.21.9-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "状态判据改为输入框优先、侧边栏兜底"
+  "notes": "通知栏不再每 2 秒闪烁（内容没变就不重新发布）"
 }

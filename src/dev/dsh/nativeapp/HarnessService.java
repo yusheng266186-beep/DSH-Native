@@ -117,6 +117,9 @@ public class HarnessService extends Service {
     /** 上一次的状态，用于判断是否需要提醒（只在**进入**等待批准时打扰）。 */
     private int lastState = SessionStatus.UNKNOWN;
 
+    /** 上一次通知的内容签名（抑制无意义的重复发布）。 */
+    private String lastNotificationSig = "";
+
     /** 应用一次状态更新：常驻看板总是更新，提醒只在需要时发。 */
     private void applyStatus(Intent intent) {
         try {
@@ -138,6 +141,16 @@ public class HarnessService extends Service {
             NotificationManager nm =
                     (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm == null) return;
+
+            // 内容没变就不重新发布 —— 每次 notify() 都会让系统重画通知，
+            // 在 MIUI 上表现为可见的闪烁。
+            // 运行时长由系统计时器自己走、网络变化由系统回调驱动，
+            // 所以「内容没变」是常态，不需要更新。
+            String sig = state + "|" + title + "|" + text
+                    + "|" + SessionStatus.useChronometer(state);
+            if (sig.equals(lastNotificationSig)) return;
+            lastNotificationSig = sig;
+
             nm.notify(NOTIFICATION_ID,
                     buildNotification(text, title, SessionStatus.useChronometer(state), since));
 

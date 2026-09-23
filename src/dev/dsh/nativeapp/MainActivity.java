@@ -1555,6 +1555,11 @@ public class MainActivity extends Activity {
     /** 网络变化的时间戳。 */
     private volatile long networkChangedAt;
 
+    /** 上一次推送给通知的状态（用于抑制重复推送）。 */
+    private volatile int pushedState = -2;
+    /** 是否已经推送过一次网络状态。 */
+    private volatile boolean networkInited;
+
     /**
      * 重新连接：重启 DSH 服务。
      *
@@ -1584,9 +1589,20 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 把状态推给前台服务更新通知。 */
+    /**
+     * 把状态推给前台服务更新通知。
+     *
+     * <p>**只在真的变化时推送**。原来每 2 秒的心跳都会推一次，
+     * 而每次推送都会让系统重新发布通知 —— 在 MIUI 上表现为通知栏
+     * 每 2 秒闪一下。而现在运行时长走系统计时器、网络变化走系统回调，
+     * 心跳本身已经不需要产生任何界面更新了。
+     */
     private void pushStatus(int state, boolean networkChanged) {
         try {
+            // 状态没变、网络也没变 → 什么都不用做
+            if (!networkChanged && state == pushedState && networkInited) return;
+            pushedState = state;
+            networkInited = true;
             boolean[] net = networkState();
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
@@ -4001,7 +4017,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.21.8\n");
+            w.write("APK 版本: 0.21.9\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
