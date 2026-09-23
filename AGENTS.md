@@ -40,13 +40,13 @@ DSH 本身是一个 Node.js 写的 CLI/Web 应用。要在 Android 上跑它，
 | 红线 | 原因 |
 |---|---|
 | **源码、脚本、注释里不能出现 emoji** | 用户明确要求过。构建脚本里有检查，违反了会构建失败。 |
-| **纯逻辑层不能 import `android.` / `androidx.`** | `FileListing` `TextCodec` `Version` `CommandCodeUsage` `TaskNotifier` `FileOps` `ConfigBackup` `ShareTargets` `PluginSpecs` `PayloadUpdate` 要在普通 JVM 上跑测试。构建脚本第 3.45 步会检查。 |
+| **纯逻辑层不能 import `android.` / `androidx.`** | `FileListing` `TextCodec` `Version` `CommandCodeUsage` `TaskNotifier` `FileOps` `ConfigBackup` `ShareTargets` `PluginSpecs` `PayloadUpdate` `SessionStatus` 要在普通 JVM 上跑测试。构建脚本第 3.45 步会检查。 |
 | **新功能必须用原生 UI，不能用 `AlertDialog.Builder`** | 构建脚本第 3.5 步会检查。统一走 `DshUi`。 |
 | **不能提交 APK 到仓库** | 仓库历史已经 2.5GB（88 次提交各带一个 34MB 的 APK）。APK 由 GitHub Releases 提供，App 也从 Releases 下载。`.gitignore` 已加。 |
 | **发布必须用 `scripts/release.sh`，不能手工写 latest.json** | 曾经因为脚本语法错误跳过了 `gh release create` 却写了清单，导致所有客户端更新失败。`release.sh` 会先验证 release 资产与两条下载路径，**最后**才写清单。 |
 | **`--patch` 必须写在 `--profile` 之前** | DSH 的命令行解析要求。 |
 | **不能启用 `dsh-mcp-client`** | 实测：没有配置任何 server 时它会让 DSH 整个启动失败。代码里有注释说明。 |
-| **改动后必须跑 `scripts/run_tests.sh`** | 423 项断言，构建期强制执行。 |
+| **改动后必须跑 `scripts/run_tests.sh`** | 476 项断言，构建期强制执行。 |
 
 ---
 
@@ -88,6 +88,7 @@ bootstrap/src/dev/dsh/nativeapp/
 ├── ShareTargets.java      分享路径编解码 + MIME 映射
 ├── PluginSpecs.java       插件规格校验（命令注入防护）+ patch YAML 生成
 ├── PayloadUpdate.java     运行包更新决策（分片修订号 + 删除清单）
+├── SessionStatus.java     通知栏状态看板的判定（状态优先级、文案、渠道）
 │
 │  ── UI 层 ──
 ├── DshUi.java             设计系统：颜色、卡片、按钮、对话框、通知渠道
@@ -122,7 +123,11 @@ bootstrap/src/dev/dsh/nativeapp/
    （sharp 的依赖），但体积小，保守起见留着了。如果要清，
    走 `DSH_REMOVE` 机制，不要直接删。
 
-3. **`latest.json` 的 `payload` 字段是信息性的** —— App 实际使用的运行包标签
+3. **状态看板依赖 DSH 的界面文案** —— 判据取自 DSH 客户端插件的 locale
+   字典（停止生成 / 发送消息 / 等待审批）。上游改了这几个词，状态会退化成
+   「未知」（而不是报错的状态）。排查时看日志里的「状态看板」相关行。
+
+4. **`latest.json` 的 `payload` 字段是信息性的** —— App 实际使用的运行包标签
    硬编码在 `MainActivity.java` 里，`release.sh` 现在会从源码推导，
    避免两者不一致（曾经不一致过）。
 
