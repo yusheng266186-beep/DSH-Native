@@ -283,6 +283,45 @@ final class SessionStatus {
     }
 
     /**
+     * 注入 WebSocket 探针。
+     *
+     * <p>为什么需要：DSH 的 Remote RPC（归档会话、改设置、分叉会话……）
+     * 走 WebSocket，而 App 的 API 日志只包了 `fetch` ——
+     * 这条通道出问题时**完全不可见**，只能看到「点了没反应」。
+     *
+     * <p>只记录与 archive 相关的收发，避免把日志刷爆。
+     * 定位完问题后可以删掉这一段。
+     */
+    static String wsProbeScript() {
+        return "(function(){"
+             + "if(window.__dshWsProbe)return;window.__dshWsProbe=1;"
+             + "var Orig=window.WebSocket;if(!Orig)return;"
+             + "function interesting(d){return typeof d==='string'&&d.indexOf('archive')>=0;}"
+             + "function wrap(ws){"
+             + "  try{"
+             + "    ws.addEventListener('message',function(ev){"
+             + "      try{if(interesting(ev.data))console.log('[dsh-ws] recv '+String(ev.data).slice(0,500));}catch(e){}"
+             + "    });"
+             + "    var send=ws.send;"
+             + "    ws.send=function(data){"
+             + "      try{if(interesting(data))console.log('[dsh-ws] send '+String(data).slice(0,500));}catch(e){}"
+             + "      return send.apply(ws,arguments);"
+             + "    };"
+             + "    ws.addEventListener('close',function(ev){"
+             + "      try{console.log('[dsh-ws] closed code='+ev.code);}catch(e){}"
+             + "    });"
+             + "  }catch(e){}"
+             + "  return ws;"
+             + "}"
+             + "var Patched=function(u,p){return wrap(p?new Orig(u,p):new Orig(u));};"
+             + "Patched.prototype=Orig.prototype;"
+             + "Patched.CONNECTING=0;Patched.OPEN=1;Patched.CLOSING=2;Patched.CLOSED=3;"
+             + "window.WebSocket=Patched;"
+             + "console.log('[dsh-ws] 探针已安装');"
+             + "})();";
+    }
+
+    /**
      * 解析注入脚本上报的状态码。
      *
      * @return 状态常量；不是状态上报时返回 -1

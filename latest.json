@@ -1,7 +1,7 @@
 {
-  "version": "0.22.1",
-  "tag": "v0.22.1-bootstrap",
+  "version": "0.22.2",
+  "tag": "v0.22.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "检测 WebSocket 断连并自动刷新页面恢复"
+  "notes": "加 WebSocket 探针以定位归档问题"
 }

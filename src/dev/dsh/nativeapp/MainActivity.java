@@ -295,6 +295,21 @@ public class MainActivity extends Activity {
         webView.getSettings().setSupportMultipleWindows(false);
         webView.setWebViewClient(new WebViewClient() {
             /**
+             * 尽可能早地装上 WebSocket 探针。
+             *
+             * <p>必须在 DSH 打开它的连接**之前**执行，否则包不到。
+             * onPageStarted 是能拿到的最早时机（文档还没解析，
+             * 但 window 已存在，赋值有效）。
+             */
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                try {
+                    view.evaluateJavascript(SessionStatus.wsProbeScript(), null);
+                } catch (Throwable ignored) { }
+            }
+
+
+            /**
              * 拦截链接跳转：**外部链接交给系统浏览器，WebView 永远停在 DSH 页面上**。
              *
              * <p>不拦截会怎样（用户实际遇到）：点一个外链，WebView 整页跳走，
@@ -4176,7 +4191,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.22.1\n");
+            w.write("APK 版本: 0.22.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
