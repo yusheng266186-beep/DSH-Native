@@ -337,8 +337,8 @@ final class PluginSpecs {
      *
      * <p>实测记录（2026-09-22）：
      * <ul>
-     *   <li>{@code dsh-about} —— 安装成功，加入 bundles 后出现在首页 ✓</li>
-     *   <li>{@code dsh-session-diff} —— 安装成功（bundle 类型）✓</li>
+     *   <li>{@code dsh-about} —— 安装成功，加入 bundles 后出现在首页 [OK]</li>
+     *   <li>{@code dsh-session-diff} —— 安装成功（bundle 类型）[OK]</li>
      *   <li>{@code dsh-workspace-menu} —— **npm 404，仓库名有误**，故不收录</li>
      * </ul>
      */

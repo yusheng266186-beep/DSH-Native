@@ -478,23 +478,56 @@ public class MainActivity extends Activity {
 
         initSharedLog();
         requestStoragePermission();
-        handleShareIntent(getIntent());
+        // 分享**不能在这里立刻处理**。
+        //
+        // 处理分享需要知道"工作区在哪"，而 workspace 要等启动流程跑到中间
+        // 才由 resolveWorkspace() 确定（见 boot()）。原来在这一行直接处理，
+        // 于是冷启动分享 100% 失败：每次都弹「工作区不可用」并把文件丢掉
+        //（只有 App 已在后台、workspace 已有值时才能成功 —— 所以表现为"时好时坏"）。
+        // 现在先记下来，等 boot() 拿到工作区之后再处理。
+        pendingShareIntent = getIntent();
         resolveLaunchIntent(getIntent());
 
         cleanupStaleUpdateApk();
         installCrashHandler();
         showPreviousCrash();
 
+        bootInBackground("启动");
+    }
+
+    /** 启动互斥：防止并发 boot（例如启动还没走完，用户又点了「重试启动」）。 */
+    private final java.util.concurrent.atomic.AtomicBoolean booting =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /**
+     * 后台跑一次启动流程。
+     *
+     * <p>三件事统一在这里做，避免每个调用点各写一遍（写两遍必然漏一处）：
+     * <ol>
+     *   <li><b>互斥</b>：同一时刻只允许一个 boot —— 并发 boot 会对同一批
+     *       运行包文件、端口、进程重复操作；</li>
+     *   <li><b>插件自愈</b>：带插件启动失败就写标记，下次不带插件；
+     *       最坏只是少一个插件，绝不会让 App 打不开；</li>
+     *   <li><b>失败出口</b>：抛异常、自检不通过、服务超时，用户看到的完全一样：
+     *       一句话原因 + 点开看日志 + 可重试。</li>
+     * </ol>
+     */
+    private void bootInBackground(final String what) {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                if (!booting.compareAndSet(false, true)) {
+                    log("已有启动正在进行，忽略本次「" + what + "」");
+                    return;
+                }
+                String reason = null;
                 try {
-                    boot();
+                    reason = boot();
                 } catch (Throwable t) {
-                    log("错误: 启动失败: " + t);
+                    log("错误: " + what + "失败: " + t);
                     Log.e(TAG, "boot failed", t);
-                    // 若本次启用了插件覆盖层，判定为插件所致并写入停用标记：
-                    // 最坏情况只是少一个插件，绝不会让 App 打不开。
+                    reason = t.getClass().getSimpleName()
+                            + (t.getMessage() != null ? ": " + t.getMessage() : "");
                     if (usedPluginPatch && appRoot != null) {
                         try {
                             writeText(new File(appRoot, ".plugins-disabled"),
@@ -503,19 +536,59 @@ public class MainActivity extends Activity {
                             log("已自动停用插件覆盖层，下次启动将不带 --patch");
                         } catch (Throwable ignored) { }
                     }
-                    setSplashStatus("启动未完成 —— 点按此处可查看详细日志");
-                    if (splashView != null) {
-                        // 失败时给出退路：点一下收起开屏，露出下方详细错误页
-                        splashView.setOnClickListener(new android.view.View.OnClickListener() {
-                            @Override public void onClick(android.view.View v) { hideSplash(); }
-                        });
-                    }
+                } finally {
+                    booting.set(false);
                 }
+                if (reason != null) showBootFailure(reason);
             }
         }).start();
     }
 
-    private void boot() throws Exception {
+    /**
+     * 启动失败的统一出口。
+     *
+     * <p>为什么必须"统一"：失败原来有两条路径，而只有"抛异常"那条挂了 UI。
+     * 另一条（例如 Node 自检返回 false）是静默 return —— 开屏既不收起、
+     * 也不可点（{@code box.setClickable(false)}），用户看到的是**永久白屏**，
+     * 连"点一下看日志"都没有。而这个自检恰恰是整个架构成立的前提。
+     */
+    private void showBootFailure(final String reason) {
+        log("启动未完成: " + reason);
+        try {
+            setSplashStatus("启动未完成：" + reason + "\n（点按此处查看日志）");
+            if (splashView != null) {
+                splashView.setOnClickListener(new android.view.View.OnClickListener() {
+                    @Override public void onClick(android.view.View v) { hideSplash(); }
+                });
+            }
+            // 开屏下方铺一张说明页：即便开屏因为任何原因没收起，
+            // 用户点一下也能看到完整原因与出路
+            showStatus("启动未完成", reason
+                    + "<br><br>可以这样处理：<br>"
+                    + "1. 点下面的「重试」再启动一次<br>"
+                    + "2. 回到通知栏 →「设置」→ 更新运行包<br>"
+                    + "3. 打开「运行日志」看具体原因<br><br>"
+                    + "<a href=\"dsh-retry://boot\">重试启动</a>");
+            // 8 秒后自动收起开屏，露出说明页 —— 不该让用户去猜"要点一下"
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                    .postDelayed(new Runnable() {
+                @Override public void run() { hideSplash(); }
+            }, 8000);
+        } catch (Throwable t) {
+            log("显示启动失败信息时出错: " + t);
+        }
+    }
+
+    /**
+     * 启动流程。
+     *
+     * @return null 表示启动成功；非 null 是一句话的失败原因。
+     *         <p><b>为什么用返回值而不是靠异常</b>：失败有两条路径 —— 抛异常，
+     *         和提前 return。原来只有前者有 UI，后者（例如 Node 自检没通过）
+     *         就是**永久白屏**：开屏既不收起也不可点，App 内没有任何入口
+     *         能看到原因。统一成返回值之后，两条路径走同一个出口。
+     */
+    private String boot() throws Exception {
         final File root = new File(getFilesDir(), "dsh");
         appRoot = root;
         log("私有目录: " + root);
@@ -525,6 +598,15 @@ public class MainActivity extends Activity {
         // （dsh-fs-local / dsh-bash-local 用 process.cwd() 解析相对路径）
         workspace = resolveWorkspace();
         log("工作区: " + (workspace != null ? workspace : root + "（回退到私有目录）"));
+
+        // 冷启动时的分享内容，等工作区确定之后才处理（原因见 onCreate 里的说明）
+        final android.content.Intent shareIntent = pendingShareIntent;
+        if (shareIntent != null) {
+            pendingShareIntent = null;
+            runOnUiThread(new Runnable() {
+                @Override public void run() { handleShareIntent(shareIntent); }
+            });
+        }
 
 
         startHarnessService();
@@ -538,7 +620,10 @@ public class MainActivity extends Activity {
         // 这一步是整个架构成立的前提（Android 10+ 对 targetSdk>=29 的 App
         // 禁止 exec 私有目录文件）。放在下载之前，可以快速失败并给出明确原因。
         if (!probeNodeExec(node)) {
-            return;
+            // 这是**非异常**路径，必须显式返回原因 ——
+            // 它曾经静默 return：用户看到的是永久白屏（开屏一直转圈、不可点），
+            // 而"报错给用户看"的代码全都写在抛异常那条分支里，根本不会执行。
+            return "内置 Node 无法执行（这是整个架构成立的前提检查失败）";
         }
         setSplashStatus("正在准备运行环境…");
         log("Node 就绪: " + runCapture(node, new String[]{"--version"}));
@@ -618,7 +703,7 @@ public class MainActivity extends Activity {
             setSplashStatus("正在连接已有服务…");
             String url = "http://127.0.0.1:" + live + "/?token=" + savedDshToken();
             loadDshUi(url);
-            return;
+            return null;
         }
 
         // 必须挑一个空闲端口：设备上可能已有别的 DSH 实例占用 3080，
@@ -731,7 +816,11 @@ public class MainActivity extends Activity {
         }
         if (url != null) {
             loadDshUi(url);
+            return null;
         }
+        // 走到这里说明服务一直没就绪：**必须返回原因**而不是默默结束。
+        // 原来这里是静默 return，用户只会看到开屏一直转圈。
+        return "DSH 服务在等待时间内没有就绪（可能是端口占用、运行包损坏或网络问题）";
     }
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
@@ -1160,6 +1249,12 @@ public class MainActivity extends Activity {
      */
     private boolean handleUrl(String url) {
         if (url == null || url.length() == 0) return false;
+        // 状态页里的「重试启动」链接（启动失败时给出的出路之一）
+        if (url.startsWith("dsh-retry:")) {
+            log("用户点击「重试启动」");
+            restartAgent();
+            return true;
+        }
         String u = url.trim().toLowerCase(java.util.Locale.ROOT);
         // 本机地址留在 WebView 里（DSH 自己的页面、附件预览等）
         if (u.startsWith("http://127.0.0.1") || u.startsWith("http://localhost")
@@ -1266,6 +1361,13 @@ public class MainActivity extends Activity {
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
     /** 待处理的设置请求（界面未就绪时先记下，加载完成后打开）。 */
     private volatile boolean pendingOpenSettings;
+    /**
+     * 冷启动时的分享意图，等到工作区确定之后再处理。
+     *
+     * <p>不能一进 onCreate 就处理：那时 workspace 还是 null，
+     * 会直接弹「工作区不可用」并把文件丢掉（冷启动分享必失败）。
+     */
+    private volatile android.content.Intent pendingShareIntent;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
     private volatile String pendingAction = "";
     /**
@@ -1936,17 +2038,17 @@ public class MainActivity extends Activity {
             lastStatusLogAt = now;
             lastLoggedState = derived;
             log("[状态] 会话列表=" + SessionStatus.label(sessSignalState)
-                    + "（" + ageSec(now, sessSignalAt) + "s 前）"
+                    + "（" + ageSec(now, sessSignalAt) + "）"
                     + "  页面=" + SessionStatus.label(domSignalState)
-                    + "（" + ageSec(now, domSignalAt) + "s 前）"
+                    + "（" + ageSec(now, domSignalAt) + "）"
                     + " → 通知栏=" + (derived < 0 ? "（保持不变）" : SessionStatus.label(derived)));
         }
         if (derived >= 0) onSessionStatus(derived);
     }
 
-    /** 信号距今多少秒（用于诊断日志）。 */
+    /** 信号距今多久（用于诊断日志）。单位一起返回，避免拼出「从未s 前」这种文案。 */
     private static String ageSec(long now, long at) {
-        return at <= 0 ? "从未" : String.valueOf((now - at) / 1000);
+        return at <= 0 ? "从未收到" : ((now - at) / 1000) + "s 前";
     }
 
     /**
@@ -2699,7 +2801,14 @@ public class MainActivity extends Activity {
                     // 若本地包比远端旧，说明期间又发了新版，应当重新下载，
                     // 否则会装上一个过时的版本。
                     String cachedVer = apkVersionOf(apk);
-                    if (cachedVer != null && !isNewer(rel[0], cachedVer)) {
+                    // 除了版本号，还必须校验**签名与已安装版本一致**。
+                    //
+                    // 只看版本号会踩这个坑：同一个版本号重发（例如换了签名后重发），
+                    // 缓存里那个装不上的包会被反复复用 —— 用户每次点更新都失败，
+                    // 而日志只写「使用已下载的 X 安装包」，完全看不出问题在哪。
+                    // （实测踩过：0.23.4 重发时是我手工删掉缓存才通的。）
+                    if (cachedVer != null && !isNewer(rel[0], cachedVer)
+                            && cachedApkInstallable(apk)) {
                         log("本地已有最新安装包 " + cachedVer
                                 + "（此前下载后未安装），直接调起安装，跳过下载");
                         setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
@@ -2708,8 +2817,8 @@ public class MainActivity extends Activity {
                         return;
                     }
                     if (apk.exists()) {
-                        log("本地安装包 " + cachedVer + " 旧于远端 " + rel[0]
-                                + "，重新下载");
+                        log("本地安装包 " + cachedVer + " 不能直接安装（版本旧于远端 "
+                                + rel[0] + "，或签名与已安装版本不一致），重新下载");
                         apk.delete();
                     }
 
@@ -2786,6 +2895,42 @@ public class MainActivity extends Activity {
             return pi.versionName;
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    /**
+     * 缓存里的安装包能否覆盖安装到当前应用上。
+     *
+     * <p>判据是**签名必须与已安装版本一致** —— Android 只允许同签名的包覆盖安装，
+     * 签名不同会直接「安装失败(-7)：与已安装应用签名不同」。
+     *
+     * <p>缓存复用如果只看版本号，遇到「同版本号重发」（例如换签名后重发）
+     * 就会反复复用一个装不上的包：用户每次点更新都失败，而日志里
+     * 只写着「使用已下载的 X 安装包」，看不出问题在哪。
+     *
+     * @return true 表示可以放心直接调起安装
+     */
+    private boolean cachedApkInstallable(File apk) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            android.content.pm.PackageInfo installed = pm.getPackageInfo(
+                    getPackageName(), android.content.pm.PackageManager.GET_SIGNATURES);
+            android.content.pm.PackageInfo archive = pm.getPackageArchiveInfo(
+                    apk.getAbsolutePath(), android.content.pm.PackageManager.GET_SIGNATURES);
+            if (installed == null || archive == null
+                    || installed.signatures == null || archive.signatures == null
+                    || installed.signatures.length == 0
+                    || archive.signatures.length != installed.signatures.length) {
+                return false;
+            }
+            for (int i = 0; i < installed.signatures.length; i++) {
+                if (!installed.signatures[i].equals(archive.signatures[i])) return false;
+            }
+            return true;
+        } catch (Throwable t) {
+            // 取不到就当"不能复用"：宁可重新下一次，也不要把装不上的包推给用户
+            log("无法校验缓存安装包的签名（将重新下载）: " + t);
+            return false;
         }
     }
 
@@ -3353,12 +3498,7 @@ public class MainActivity extends Activity {
                 if (splashStatus != null) splashStatus.setText("正在重启服务…");
             }
         });
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try { boot(); }
-                catch (Throwable t) { log("错误: 重启失败: " + t); }
-            }
-        }).start();
+        bootInBackground("重启");
     }
 
     /** 轻提示。 */
@@ -4463,7 +4603,14 @@ public class MainActivity extends Activity {
 
     /** 在 WebView 中显示状态，避免出现无从判断的空白区域。 */
     private void showStatus(final String title, final String detail) {
-        if (statusPageLoading) return;
+        // 不再"只允许画一次"。
+        //
+        // 原来第一行是 `if (statusPageLoading) return;`，而这个标志永不复位 ——
+        // 启动流程最早调用它时写的是「正在启动 DSH …」，顺手把门闩锁死，
+        // 之后所有更新（「DSH 启动失败」「已等待 N 秒」「启动超时」）
+        // 全被这一个 return 丢掉，页面永远停在最开始那句「正在启动…」上，
+        // 而开屏又盖着它 —— 用户就是"一直转圈、永远没变化"。
+        // 状态页本来就是"最新情况优先"，允许覆盖更新。
         statusPageLoading = true;
         final String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -4760,9 +4907,20 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            final File ws = workspace;
+            File ws = workspace;
             if (ws == null) {
-                toast("工作区不可用，无法接收分享内容");
+                // 兜底：工作区不可用（共享存储没挂上、权限被拒）时，
+                // 落到应用私有目录，而不是把用户分享过来的文件直接丢掉。
+                // 用户至少还能在「设置 → 文件」里找到它，agent 也能读到。
+                ws = new File(getFilesDir(), "workspace");
+                //noinspection ResultOfMethodCallIgnored
+                ws.mkdirs();
+                log("工作区不可用，分享内容改落到私有目录: " + ws);
+                toast("工作区不可用，已存到应用私有目录");
+            }
+            if (!ws.isDirectory()) {
+                toast("无法创建接收目录，分享内容未保存");
+                log("错误: 接收目录不可用: " + ws);
                 return;
             }
             String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
@@ -4776,17 +4934,31 @@ public class MainActivity extends Activity {
             if (stream != null) {
                 String name = queryDisplayName(stream);
                 if (name == null || name.length() == 0) name = "分享文件-" + stamp;
-                File out = new File(ws, name);
-                java.io.InputStream in = getContentResolver().openInputStream(stream);
-                if (in == null) throw new IOException("无法读取分享的文件");
-                java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
-                byte[] buf = new byte[65536];
-                int k;
-                while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
-                fo.close();
-                in.close();
-                log("已接收分享文件: " + out.getAbsolutePath());
-                toast("已放入工作区：" + name);
+                // 拷贝放到后台线程：分享过来的可能是几百 MB 的视频，
+                // 在 UI 线程里拷会直接 ANR（这也是原来就存在的隐患）。
+                final File wsFinal = ws;
+                final File out = new File(wsFinal, name);
+                final android.net.Uri src = stream;
+                final String finalName = name;
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            java.io.InputStream in = getContentResolver().openInputStream(src);
+                            if (in == null) throw new IOException("无法读取分享的文件");
+                            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+                            byte[] buf = new byte[65536];
+                            int k;
+                            while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
+                            fo.close();
+                            in.close();
+                            log("已接收分享文件: " + out.getAbsolutePath());
+                            toast("已放入工作区：" + finalName);
+                        } catch (Throwable t) {
+                            log("错误: 保存分享文件失败: " + t);
+                            toast("接收分享文件失败");
+                        }
+                    }
+                }).start();
                 return;
             }
 

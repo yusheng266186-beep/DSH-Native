@@ -40,7 +40,7 @@ t = open(a, encoding='utf-8').read()
 assert f'APK 版本: {cur}' in t, "MainActivity.java 里未找到当前版本"
 t = t.replace(f'APK 版本: {cur}', f'APK 版本: {new}', 1)
 open(a, 'w', encoding='utf-8').write(t)
-print(f"  ✅ 已写入 {new}（versionCode {code}）")
+print(f"  [OK] 已写入 {new}（versionCode {code}）")
 PY
 grep -oE 's\("[0-9.]+"\)|integer\([0-9]+\)' "$M" | head -2 | sed 's/^/  /'
 grep -oE 'APK 版本: [0-9.]+' "$A" | head -1 | sed 's/^/  /'
