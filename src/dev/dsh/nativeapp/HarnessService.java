@@ -91,9 +91,14 @@ public class HarnessService extends Service {
 
         // 常驻通知
         try {
-            // 文案里点一下"展开"，因为部分 ROM 会折叠动作按钮（用户已实测遇到）
+            // 文案里点一下"展开"，因为部分 ROM 会折叠动作按钮（用户已实测遇到）。
+            //
+            // **不要写「正在运行」**：这是 Activity 推送第一条真实状态之前的占位文案，
+            // 而此时 App 根本不知道有没有任务在跑。写「正在运行」会直接骗人 ——
+            // 实测踩过：App 更新后服务被重建，这条占位通知一直挂着，
+            // 而用户看到的正是「对话早就结束了，通知栏还显示运行中」。
             startForeground(NOTIFICATION_ID,
-                    buildNotification("正在运行 · 展开通知可设置", null, false));
+                    buildNotification("正在获取状态 · 展开可设置", null, false));
 
         } catch (Throwable t) {
             Log.w(TAG, "startForeground 失败", t);

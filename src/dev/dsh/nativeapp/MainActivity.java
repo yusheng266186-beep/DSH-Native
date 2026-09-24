@@ -385,6 +385,13 @@ public class MainActivity extends Activity {
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
                 installStatusWatcher();
+                // 注入完成后立刻推一次「正在获取状态」。
+                //
+                // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
+                // 实测过一次：App 更新后服务被重建，占位文案「正在运行」就那么
+                // 一直显示着，而对话早已结束。
+                // 第一条真实状态最多 5 秒后到达（脚本会定时重放会话列表请求）。
+                pushStatus(SessionStatus.UNKNOWN);
                 if (dshPageLoaded) {
                     log("DSH 界面已重新加载，状态采集脚本已重新注入");
                     return;
@@ -1900,27 +1907,21 @@ public class MainActivity extends Activity {
 
     /** 证据有效期。超过它就不再采信该来源（避免用几分钟前的状态误导用户）。 */
     private static final long SIGNAL_TTL_MS = 20000;
+    /** 运行状态证据过期多久后，不再沿用它、改报「未知」。 */
+    private static final long RUNSTATE_STALE_MS = 90000;
 
     private volatile int sessSignalState = SessionStatus.UNKNOWN;
     private volatile long sessSignalAt;
     private volatile int domSignalState = SessionStatus.UNKNOWN;
     private volatile long domSignalAt;
 
-    /**
-     * 最近一次「有来源报告在跑」的时刻。
-     *
-     * <p>用途：DOM 单独报告「空闲」时不能立刻采信 —— 如果刚刚还看到过运行中，
-     * 任务很可能仍在跑（DOM 的文案匹配一旦失败，就会退化成「只看得见发送按钮」）。
-     * 会话列表报告的「空闲」不受此限，它是全量 JSON，最可信。
-     */
-    private volatile long lastRunningSeenAt;
-    /** 见过「运行中」之后，多久内不接受「仅凭 DOM 得出的空闲」。 */
-    private static final long RUNNING_MEMORY_MS = 60000;
+    /** 诊断日志的限流字段。 */
+    private long lastStatusLogAt;
+    private int lastLoggedState = -2;
 
     /** 收到一个状态信号：记录来源与时间，再重新推导对外状态。 */
     private void onStatusSignal(int state, int source) {
         long now = System.currentTimeMillis();
-        if (state == SessionStatus.RUNNING) lastRunningSeenAt = now;
         if (source == SRC_SESS) {
             sessSignalState = state;
             sessSignalAt = now;
@@ -1929,7 +1930,23 @@ public class MainActivity extends Activity {
             domSignalAt = now;
         }
         int derived = deriveStatus(now);
+        // 诊断日志：状态一旦算错，没有这行就只能靠猜（本次就吃过这个亏）。
+        // 限流为「状态变化时」或「每分钟一次」，不会刷爆日志。
+        if (derived != lastLoggedState || now - lastStatusLogAt > 60000) {
+            lastStatusLogAt = now;
+            lastLoggedState = derived;
+            log("[状态] 会话列表=" + SessionStatus.label(sessSignalState)
+                    + "（" + ageSec(now, sessSignalAt) + "s 前）"
+                    + "  页面=" + SessionStatus.label(domSignalState)
+                    + "（" + ageSec(now, domSignalAt) + "s 前）"
+                    + " → 通知栏=" + (derived < 0 ? "（保持不变）" : SessionStatus.label(derived)));
+        }
         if (derived >= 0) onSessionStatus(derived);
+    }
+
+    /** 信号距今多少秒（用于诊断日志）。 */
+    private static String ageSec(long now, long at) {
+        return at <= 0 ? "从未" : String.valueOf((now - at) / 1000);
     }
 
     /**
@@ -1950,33 +1967,34 @@ public class MainActivity extends Activity {
      * @return 推导出的状态；无新鲜证据时返回 -1
      */
     private int deriveStatus(long now) {
-        boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
         boolean domFresh = domSignalAt > 0 && now - domSignalAt <= SIGNAL_TTL_MS;
+        boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
 
-        // 1) 等待批准优先级最高：任务卡在用户这一步，必须显眼
+        // 1) 等待批准优先级最高 —— 这是唯一仍然读页面的状态
         if (domFresh && domSignalState == SessionStatus.AWAITING_APPROVAL) {
             return SessionStatus.AWAITING_APPROVAL;
         }
-        // 2) 任何一方说「在跑」就是在跑 —— 绝不被另一方的「空闲」覆盖
-        if (sessFresh && sessSignalState == SessionStatus.RUNNING) return SessionStatus.RUNNING;
-        if (domFresh && domSignalState == SessionStatus.RUNNING) return SessionStatus.RUNNING;
-        // 3) 空闲：全量会话列表是最可信的证据
-        if (sessFresh && sessSignalState == SessionStatus.IDLE) return SessionStatus.IDLE;
-        // 4) DOM 明确空闲也算 —— 但**刚见过运行中就不认**。
-        //    会话列表可能长时间不刷新，需要 DOM 兜底才能从「运行中」恢复；
-        //    可 DOM 的文案匹配一旦失败（按钮换成图标、文案改字），
-        //    它会退化成「只看得见发送按钮」而误报空闲 —— 那正是要修的 bug。
-        //    所以给「运行中」留一分钟的记忆：这段时间内只信会话列表。
-        if (domFresh && domSignalState == SessionStatus.IDLE
-                && now - lastRunningSeenAt > RUNNING_MEMORY_MS) {
-            return SessionStatus.IDLE;
+        // 2) 运行 / 空闲**只认会话列表**（页面侧解析的完整 JSON）。
+        //
+        //    不再用页面上的「停止生成 / 发送消息」按钮推断运行状态：
+        //    那两个按钮的文案匹配一旦失效（换成图标、文案改字），就解析成
+        //    「无依据」；更糟的是**误命中时会把状态钉死** —— 实测过一次：
+        //    对话早已结束，通知栏却一直停在「运行中」。
+        //    按钮从此只保留一个用途：识别「等待批准」（见上一步）。
+        if (sessFresh) {
+            return sessSignalState == SessionStatus.RUNNING
+                    ? SessionStatus.RUNNING : SessionStatus.IDLE;
         }
-        // 5) 批准态只能由新的 DOM 证据解除，否则会永久卡在「等待批准」
-        if (domFresh && lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-            return domSignalState == SessionStatus.UNKNOWN
-                    ? SessionStatus.IDLE : domSignalState;
+        // 3) 刚过期不久：保持上一次状态，避免无谓抖动
+        if (sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS) {
+            return -1;
         }
-        // 6) 没有新鲜证据：保持原状态
+        // 4) 长时间拿不到权威数据：宁可报「未知」，也不要把旧状态一直挂着。
+        //    「通知里显示错误的状态比不显示更糟」是项目的既有约定。
+        if (lastSessionStatus == SessionStatus.RUNNING
+                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+            return SessionStatus.UNKNOWN;
+        }
         return -1;
     }
 
@@ -2151,12 +2169,20 @@ public class MainActivity extends Activity {
             "(function(){"
           + "if(window.__dshDiag)return;window.__dshDiag=1;"
           + "var of=window.fetch;"
+          + "var sessReq=null,sessLogged=0;"
           + "function isAsset(u){return /\\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map)(\\?|$)/i.test(u);}"
           + "window.fetch=function(){"
           + "  var a=arguments[0];"
           + "  var u='';"
           + "  try{u=(typeof a==='string')?a:(a&&a.url?a.url:String(a));}catch(x){}"
           + "  var p=of.apply(this,arguments);"
+          + "  try{"
+          + "    var ini=arguments[1];"
+          + "    if(u.indexOf('/api/session/list')>=0&&ini&&ini.body){"
+          + "      sessReq={m:(ini.method||'POST'),h:ini.headers,b:String(ini.body)};"
+          + "      if(!sessLogged){sessLogged=1;console.log('[dsh-sess-src] captured len='+sessReq.b.length);}"
+          + "    }"
+          + "  }catch(x){}"
           + "  try{"
           + "    p.then(function(r){"
           + "      try{"
@@ -2185,6 +2211,40 @@ public class MainActivity extends Activity {
           + "  }catch(e){}"
           + "  return p;"
           + "};"
+          // 定时重放会话列表请求。
+          //
+          // 为什么必须自己重放：`running` 是判断「有没有任务在跑」的**唯一权威依据**，
+          // 而 DSH 自己请求 /api/session/list 的频率极低（实测一次启动只请求一两次）。
+          // 结果就是证据过期 —— 任务早就结束了，App 却还拿着几分钟前的旧值。
+          //
+          // 这里记下 DSH 发过的那个请求（方法/头/体），每 5 秒用新的 rpcId 重放一次。
+          // 它是只读的本地 RPC，不会改变任何状态；响应由我们自己的 promise 接收，
+          // DSH 的客户端拿不到、也不受影响。
+          + "setInterval(function(){"
+          + "  if(!sessReq)return;"
+          + "  try{"
+          + "    var o=JSON.parse(sessReq.b);"
+          + "    o.rpcId='probe-'+Date.now()+'-'+Math.floor(Math.random()*1e6);"
+          + "    var hh={};"
+          + "    try{"
+          + "      if(sessReq.h&&typeof sessReq.h.forEach==='function'){sessReq.h.forEach(function(v,k){hh[k]=v;});}"
+          + "      else if(sessReq.h){for(var k in sessReq.h){hh[k]=sessReq.h[k];}}"
+          + "    }catch(x){}"
+          + "    if(!hh['Content-Type']&&!hh['content-type'])hh['Content-Type']='application/json';"
+          + "    of.call(window,'/api/session/list',{method:sessReq.m,headers:hh,"
+          + "      body:JSON.stringify(o),credentials:'same-origin'})"
+          + "      .then(function(r){return r.text();})"
+          + "      .then(function(t){"
+          + "        try{"
+          + "          var j=JSON.parse(t);"
+          + "          var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
+          + "          var n=0,q;"
+          + "          for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)n++;}"
+          + "          console.log('[dsh-sess] r='+n);"
+          + "        }catch(x){}"
+          + "      }).catch(function(){});"
+          + "  }catch(x){}"
+          + "},5000);"
           + "})();"
           // 客户端异常捕获：这是我此前一直缺的一块。
           // fetch 包装只能看到「已发出的请求」，而纯客户端抛错（例如
