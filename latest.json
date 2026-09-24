@@ -1,7 +1,7 @@
 {
-  "version": "0.24.1",
-  "tag": "v0.24.1-bootstrap",
+  "version": "0.25.0",
+  "tag": "v0.25.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "v0.24.1 —— 0.24.0 的收尾修正"
+  "notes": "v0.25.0 —— 深色模式（配色取自 DSH 网页自己的深色值）"
 }
