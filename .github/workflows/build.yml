@@ -24,6 +24,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      # ci_stage.sh 用它查"上一个发布版"来取内置负载；未认证 API 会被限流
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 

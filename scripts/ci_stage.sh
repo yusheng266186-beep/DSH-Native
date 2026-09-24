@@ -18,12 +18,24 @@ REPO="${REPO:-yusheng266186-beep/DSH-Native}"
 # 写死之后一旦升级，构建会继续用旧二进制而**毫无提示** ——
 # 正是这个项目反复出现的那类静默失败。
 PREV_TAG="${PREV_TAG:-}"
+# 优先走带 token 的 gh。
+#
+# 原来只用未认证的 api.github.com —— 而 GitHub 对未认证请求限流 60 次/小时
+# 且**按 IP 计**，GitHub runner 是共享 IP，于是这个查询会间歇性失败，
+# 整个构建跟着挂掉（实测踩过一次：同一份代码前一天能过、第二天失败）。
+# 构建路径上不该有这种"看运气"的步骤。
+if [ -z "$PREV_TAG" ] && command -v gh >/dev/null 2>&1; then
+    PREV_TAG="$(gh release list --repo "$REPO" --limit 1 --json tagName \
+        --jq '.[0].tagName' 2>/dev/null || true)"
+fi
 if [ -z "$PREV_TAG" ]; then
+    echo "  [i] gh 不可用（缺 GH_TOKEN？），退回未认证 API"
     PREV_TAG="$(curl -sSL --max-time 30 \
         "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
         | python3 -c "import json,sys;print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)"
 fi
-[ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag（可用 PREV_TAG=vX.Y.Z-bootstrap 指定）"; exit 1; }
+[ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag。给构建步骤加 GH_TOKEN，或显式指定 PREV_TAG=vX.Y.Z-bootstrap"; exit 1; }
+echo "  参考版本: $PREV_TAG"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 [ -n "$ANDROID_HOME" ] || { echo "[FAIL] 缺少 ANDROID_HOME"; exit 1; }
