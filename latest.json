@@ -1,7 +1,7 @@
 {
-  "version": "0.23.5",
-  "tag": "v0.23.5-bootstrap",
+  "version": "0.23.6",
+  "tag": "v0.23.6-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "v0.23.5 —— 修「任务早结束了，通知栏还显示运行中」"
+  "notes": "v0.23.6 —— 收尾：三个\"静默失败\"和两处小毛病"
 }
