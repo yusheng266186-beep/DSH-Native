@@ -219,9 +219,29 @@ cd "$BUILD"
 say "7. 签名"
 KS=$BOOT/release.keystore
 if [ ! -f "$KS" ]; then
-  keytool -genkeypair -v -keystore "$KS" -storepass dshnative -keypass dshnative \
-    -alias dshnative -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=DeepSeek Harness, OU=Android, O=DSH, L=NA, ST=NA, C=CN" 2>&1 | tail -1
+  # 绝不默默生成新密钥。
+  #
+  # 「找不到就生成一把」这个分支造成过一次真实事故：构建容器里没有仓库
+  # 那份密钥，于是历次发布都用了自动生成的这把签名（CN=DeepSeek Harness,
+  # OU=Android）；而 CI 用的是仓库里那把（CN=DSH Native, OU=POC）——
+  # 两把不同，用户点更新时被系统拒绝：「安装失败(-7) 与已安装应用签名不同」，
+  # 只能卸载重装（会丢掉会话与密钥）。
+  #
+  # 签名密钥是**应用身份**，不是构建参数。缺失时必须停下来喊清楚，
+  # 而不是悄悄换一个身份继续出包。
+  if [ "${DSH_ALLOW_NEW_KEYSTORE:-}" = "1" ]; then
+    echo "  [警告] DSH_ALLOW_NEW_KEYSTORE=1 —— 正在生成新密钥。"
+    echo "         用它签出的包无法覆盖安装在任何已有版本上，只适合全新安装。"
+    keytool -genkeypair -v -keystore "$KS" -storepass dshnative -keypass dshnative \
+      -alias dshnative -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=DeepSeek Harness, OU=Android, O=DSH, L=NA, ST=NA, C=CN" 2>&1 | tail -1
+  else
+    die "找不到签名密钥：$KS
+       发布包必须用固定密钥签名 —— 换一把，已安装的用户全都装不上
+       （系统报「与已安装应用签名不同」，只能卸载重装，会丢会话与密钥）。
+       请把仓库里的 scripts/release.keystore 复制到 $BOOT/ 后重新构建。
+       只有明确要做「全新安装包」时才允许新密钥：DSH_ALLOW_NEW_KEYSTORE=1"
+  fi
 fi
 java -jar "$APKSIGNER_JAR" sign \
   --ks "$KS" --ks-pass pass:dshnative --key-pass pass:dshnative \
