@@ -1,7 +1,7 @@
 {
-  "version": "0.25.3",
-  "tag": "v0.25.3-bootstrap",
+  "version": "0.25.4",
+  "tag": "v0.25.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "无功能改动，仅版本号（用于覆盖安装）"
+  "notes": "修深色模式导致的无限重启（统一主题来源 + 死循环自救）"
 }

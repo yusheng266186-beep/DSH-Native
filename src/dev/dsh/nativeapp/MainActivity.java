@@ -3675,13 +3675,50 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 try {
-                    if (!isFinishing()) recreate();
+                    if (!isFinishing() && shouldAllowRecreate()) recreate();
                 } catch (Throwable t) {
                     log("主题切换重建失败: " + t);
                 }
             }
         });
     }
+
+    /**
+     * 重建节流 + 死循环自救。
+     *
+     * <p>主题切换需要重建界面，而重建本身又会带来配置变化 ——
+     * 只要两者对「应该是什么主题」的判断不一致，就会无限循环。
+     * 用户实际遇到过：界面在深浅之间反复横跳、应用不停重启，
+     * 而且**重装无效**（触发它的设置存在应用数据里，不随安装包改变）。
+     *
+     * <p>这里做两件事：
+     * <ol>
+     *   <li>短时间内重建太多次 → <b>拒绝重建</b>，先让界面停下来；</li>
+     *   <li>启动本身也太频繁（说明重启循环已经形成）→
+     *       <b>清掉主题偏好</b>，回到跟随系统 —— 给用户一条自救路径。</li>
+     * </ol>
+     */
+    private boolean shouldAllowRecreate() {
+        long now = System.currentTimeMillis();
+        recreateTimes.add(now);
+        // 只保留最近 30 秒
+        while (!recreateTimes.isEmpty() && now - recreateTimes.peekFirst() > 30000) {
+            recreateTimes.pollFirst();
+        }
+        if (recreateTimes.size() <= 4) return true;
+        log("30 秒内已重建 " + recreateTimes.size() + " 次，停止重建以避免死循环");
+        // 直接把主题偏好清掉：下次启动会跟随系统，循环就断了
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .remove("webDark").apply();
+            log("已清除主题偏好（webDark），下次启动跟随系统深色设置");
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
+    /** 最近的重建时刻（用于识别死循环）。 */
+    private final java.util.ArrayDeque<Long> recreateTimes =
+            new java.util.ArrayDeque<Long>();
 
     /** 轻提示。 */
     private void toast(final String msg) {
@@ -5024,7 +5061,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.25.3\n");
+            w.write("APK 版本: 0.25.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
@@ -5149,11 +5186,30 @@ public class MainActivity extends Activity {
         // 但个别 ROM 会把 uiMode 塞进一次「已声明由应用处理」的配置变化里一起下发，
         // 那时这里不纠正就会停在旧主题 —— DshUi 的颜色是在建视图时取走的，
         // 改标志位对已有视图无效，只能重建。
+        // 主题来源必须和 onCreate 保持一致 —— 否则会死循环。
+        //
+        // 踩过的坑（用户实际遇到：界面在深浅之间反复横跳、不停重启）：
+        //   onCreate            → 有 webDark 就用【网页主题】
+        //   onConfigurationChanged → 无条件用【系统主题】覆盖
+        // 而 recreate() 本身会带来一次配置变化，于是：
+        //   重建 → 配置变化 → 系统主题覆盖网页主题 → 不一致 → 再重建 → …
+        // 无限循环。
+        //
+        // 现在两边同一套规则：网页上报过主题就只认它。
         boolean wasDark = DshUi.isDark();
-        DshUi.applyTheme(this);
+        android.content.SharedPreferences tp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (tp.contains("webDark")) {
+            DshUi.setDark(tp.getBoolean("webDark", false));
+        } else {
+            DshUi.applyTheme(this);
+        }
         if (DshUi.isDark() != wasDark) {
             log("深色模式变化：重建界面以应用新主题");
-            recreate();
+            if (shouldAllowRecreate()) {
+                recreate();
+            } else {
+                log("重建过于频繁，已跳过（防止深浅色死循环）");
+            }
             return;
         }
         try {
