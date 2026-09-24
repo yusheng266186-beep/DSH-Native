@@ -32,19 +32,29 @@ if [ -n "${APKSIGNER_JAR:-}" ]; then
     apksigner() { java -jar "$APKSIGNER_JAR" "$@"; }
 fi
 
-norm() { tr 'A-Z' 'a-z' | tr -d ' :'; }
-
-APK_CERT="$(apksigner verify --print-certs "$TMP/ref.apk" 2>/dev/null \
-            | grep -i 'certificate SHA-256 digest' | head -1 \
-            | awk -F': *' '{print $2}' | norm)"
-KS_CERT="$(keytool -list -v -keystore "$KS" -storepass dshnative 2>/dev/null \
-            | grep -iE '^[[:space:]]*SHA256:' | head -1 \
-            | awk -F': *' '{print $2}' | norm)"
+# 提取指纹时**不要**用 awk 按 ": " 切分字段：
+# -F': *' 里的 " *" 是"零个或多个空格"，于是它会按**每个冒号**切分，
+# 指纹 "9B:F1:9E:…" 会被切成 "9B"，取到的是垃圾（实测踩过）。
+# 直接按前缀定位、去掉冒号、统一小写，最稳。
+APK_RAW="$(apksigner verify --print-certs "$TMP/ref.apk" 2>/dev/null \
+           | grep -i 'certificate SHA-256 digest' | head -1)"
+KS_RAW="$(keytool -list -v -keystore "$KS" -storepass dshnative 2>/dev/null \
+           | grep -i 'SHA256:' | head -1)"
+APK_CERT="$(printf '%s' "$APK_RAW" | sed -E 's/.*[Dd]igest:[[:space:]]*//' \
+            | tr -d ':' | tr 'A-Z' 'a-z' | tr -d '[:space:]')"
+KS_CERT="$(printf '%s' "$KS_RAW" | sed -E 's/.*SHA256:[[:space:]]*//' \
+            | tr -d ':' | tr 'A-Z' 'a-z' | tr -d '[:space:]')"
 
 echo "  已发布 APK 的签名证书 : $APK_CERT"
 echo "  仓库密钥的证书        : $KS_CERT"
-[ -n "$APK_CERT" ] || { echo "[FAIL] 读不到 APK 的签名证书"; exit 1; }
-[ -n "$KS_CERT" ]  || { echo "[FAIL] 读不到密钥的证书（口令不是 dshnative？）"; exit 1; }
+for v in "$APK_CERT" "$KS_CERT"; do
+    printf '%s' "$v" | grep -qE '^[0-9a-f]{64}$' || {
+        echo "[FAIL] 指纹格式不对（应为 64 位十六进制）；原始行："
+        echo "       APK: $APK_RAW"
+        echo "       KEY: $KS_RAW"
+        exit 1
+    }
+done
 
 if [ "$APK_CERT" = "$KS_CERT" ]; then
     echo "  [OK] 同一把密钥 —— 用它签出的包可以覆盖安装"
