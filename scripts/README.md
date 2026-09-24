@@ -4,9 +4,11 @@
 
 | 脚本 | 克隆里能跑吗 | 说明 |
 |---|---|---|
-| `run_tests.sh` | **能** | 423 项纯逻辑断言，只依赖 java/javac。接手第一步就跑这个 |
+| `run_tests.sh` | **能** | 476 项纯逻辑断言，只依赖 java/javac。接手第一步就跑这个 |
 | `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
-| `release.sh` | 需要构建工作区 + gh 已登录 | 发布用 |
+| `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
+| `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
+| `bump_version.sh` | 能 | 提升版本号（从源码读当前值，不失配）|
 | `mkmanifest.py` | 需要构建工作区 | 手写二进制 AndroidManifest.xml |
 | `mkzip.py` | 需要构建工作区的产物 | 组装 APK |
 | `make_payload_parts.py` | 需要工具链目录 | 重建运行包分片 |
@@ -71,6 +73,32 @@ DSH_BUILD_DIR=~/dsh-build bash scripts/build_bootstrap.sh
 ```
 
 产物：`bootstrap/out/DSHNative-bootstrap.apk`
+
+### `bump_version.sh`
+
+```bash
+bash scripts/bump_version.sh 0.23.4
+```
+
+提升版本号。它**从源码里读当前值再递增**，不硬编码旧值 ——
+并同时改好 `mkmanifest.py` 的 versionName/versionCode 与 `MainActivity`
+的日志头。
+
+**为什么要有这个工具**：手动替换版本号出过事故 —— 源码已经是 0.22.5，
+替换却写的是 `0.22.4 → 0.22.6`，静默失配，于是构建出来的仍是 0.22.5，
+而清单写成了 0.22.6，客户端陷入无限更新提示。
+
+### `verify_release.sh`
+
+独立验证某个版本的发布是否可用：release 不是草稿、
+远程 SHA-256 与本地一致、两条下载路径都能取到。
+
+**不下载整包** —— 优先用 GitHub API 的 digest（服务端算好的 sha256），
+API 限流时退回比对 `Content-Length`。
+
+`release.sh` 内部也做这些检查，但它中途失败需要手工收尾时
+（补传资产、改草稿状态），人容易跳过验证直接写清单 ——
+出过一次：release 还是草稿，两个下载源都是 404，而清单已经写了出去。
 
 ### `release.sh`
 

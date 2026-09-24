@@ -58,7 +58,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 1.   收集 APK 内置负载（node + lib/*.so + 引导脚本）
 2.   aapt2 compile/link 编译资源，导出资源 id
 3.   mkmanifest.py 手写二进制 AndroidManifest.xml（注入资源 id）
-3.4  run_tests.sh —— 423 项纯逻辑测试           ← 失败则中止
+3.4  run_tests.sh —— 476 项纯逻辑测试           ← 失败则中止
 3.45 架构约束检查：纯逻辑层不得 import android.  ← 失败则中止
 3.5  UI 规范检查：不得使用 AlertDialog.Builder   ← 失败则中止
 4.   javac --release 8 编译
@@ -84,7 +84,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 
 | 步骤 | 检查什么 | 为什么 |
 |---|---|---|
-| 3.4 | 423 项测试 | 没有真机调试回路，测试是唯一验证手段 |
+| 3.4 | 476 项测试 | 没有真机调试回路，测试是唯一验证手段 |
 | 3.45 | 纯逻辑层无 Android 依赖 | 否则测试跑不起来，「纯逻辑层」会慢慢失效 |
 | 3.5 | 不用系统 AlertDialog | 保证 UI 风格统一（走 `DshUi`） |
 
@@ -94,10 +94,10 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 
 ```python
 # 1. scripts/mkmanifest.py —— 清单里的 versionName / versionCode
-(A, "versionName", s("0.20.8")), (A, "versionCode", integer(2008)),
+(A, "versionName", s("0.23.3")), (A, "versionCode", integer(2008)),
 
 # 2. MainActivity.java —— 日志头部显示的版本
-w.write("APK 版本: 0.20.8\n");
+w.write("APK 版本: 0.23.3\n");
 ```
 
 第三处是运行包标签（`payload-v<N>`），App 里硬编码了 URL；

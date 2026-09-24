@@ -31,7 +31,9 @@
 | [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明：当前状态、已实现功能、待办、验证手段 |
 | [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
 
-**测试**：`bash scripts/run_tests.sh` —— 423 项纯逻辑断言，构建期强制执行。
+**测试**：`bash scripts/run_tests.sh` —— 476 项纯逻辑断言，构建期强制执行。
+
+**当前版本：0.23.3**（运行包 payload-v7）
 
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
 
@@ -209,8 +211,8 @@ Termux 的 `nodejs` 包是用 NDK r28 编译的 bionic 版本，解释器指向 
 
 ```
 .
-├── DSHNative-bootstrap.apk              # v0.2.0 引导式 APK（34MB）
-├── DSHNative-poc.apk                    # v0.1.0 自检 PoC（34MB）
+├── DSHNative-bootstrap.apk              # 引导式 APK（34MB，由 Releases 提供）
+├── DSHNative-poc.apk                    # v0.1.0 自检 PoC（历史产物）
 ├── src/dev/dsh/nativeapp/
 │   └── MainActivity.java                # 引导逻辑：解压 → 下载 → 解包 → 启动 → WebView
 ├── payload/
