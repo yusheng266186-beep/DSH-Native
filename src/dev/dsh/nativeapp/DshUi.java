@@ -72,6 +72,17 @@ public final class DshUi {
         dark = d;
     }
 
+    /**
+     * 直接指定主题（由宿主根据**网页实际主题**决定）。
+     *
+     * <p>为什么不能只看系统深色模式：DSH 有它自己的主题设置
+     * （设置里的 `ui-theme.preference` = light / dark / system），
+     * 与 Android 系统深色**相互独立**。实测出现过「DSH 设为深色、系统仍是浅色」
+     * —— 于是网页黑、原生白卡片，比不做深色更难看。
+     * 真正说了算的是网页当前渲染成什么样，宿主从页面读出来再设进来。
+     */
+    public static void setDark(boolean d) { dark = d; }
+
     // 深色值直接取自 DSH 前端的深色设计令牌（@deepseek-ai/dsh-client-ui-theme），
     // 不是照着浅色值调出来的近似色；浅色值保持原有取值不变。
     public static int BG()          { return dark ? 0xFF151517 : 0xFFF7F8FA; }  // --dsw-alias-bg-base

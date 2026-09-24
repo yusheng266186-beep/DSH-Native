@@ -134,9 +134,23 @@ public class MainActivity extends Activity {
 
         // 主题必须**最先**解析：DshUi 的颜色是在创建视图时一次性取走的，
         // 晚一步就会有一批组件停在旧主题上（深浅混杂比全浅色更难看）。
-        // 清单里 configChanges 不含 uiMode，所以系统切深浅色会重建 Activity ——
-        // 这里重新解析即可，无需重启进程。
-        DshUi.applyTheme(this);
+        //
+        // **跟谁走**：DSH 的主题是它自己的设置（ui-theme.preference =
+        // light/dark/system），与 Android 系统深色**相互独立**。
+        // 实测出现过"DSH 设深色、系统仍是浅色" —— 网页黑、原生白卡片。
+        // 所以：观察过网页主题就一律以它为准（缓存在 prefs），
+        // 还没观察过才退回系统深色作初值。
+        try {
+            android.content.SharedPreferences prefs =
+                    getSharedPreferences(PREFS, MODE_PRIVATE);
+            if (prefs.contains("webDark")) {
+                DshUi.setDark(prefs.getBoolean("webDark", false));
+            } else {
+                DshUi.applyTheme(this);
+            }
+        } catch (Throwable t) {
+            DshUi.applyTheme(this);
+        }
 
         // 双保险：即使主题未被 ROM 正确解析，也确保没有标题栏、
         // 且窗口底色与页面底色一致（否则默认主题会露出黑色，形成顶部黑边）。
@@ -250,6 +264,12 @@ public class MainActivity extends Activity {
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
                         log("手势：长按顶部 → 打开设置");
                         showSettings();
+                        return true;
+                    }
+                    // 网页主题上报：原生跟着 DSH 自己的主题走，
+                    // 而不是跟 Android 系统深色（两者相互独立）
+                    if (m.indexOf("[dsh-theme] dark=") >= 0) {
+                        onWebTheme(m.indexOf("dark=1") >= 0);
                         return true;
                     }
                     // 任务事件单独分流：不写进日志（每 4 秒一次的轮询若都记，
@@ -2440,6 +2460,28 @@ public class MainActivity extends Activity {
           + "  }catch(x){}"
           + "},true);"
           + "})();"
+          // 网页主题上报。
+          //
+          // DSH 的主题是它**自己的设置**（ui-theme.preference = light/dark/system），
+          // 与 Android 系统深色相互独立。原生若只跟系统，就会出现
+          // 「网页黑、原生白卡片」的同屏割裂（用户实测反馈过）。
+          // 属性名取自 DSH 前端：body[data-ds-dark-theme]。
+          + ";(function(){"
+          + "if(window.__dshTheme)return;window.__dshTheme=1;"
+          + "var last='';"
+          + "function report(){"
+          + "  try{"
+          + "    var d=document.body&&document.body.hasAttribute('data-ds-dark-theme');"
+          + "    var v=d?'1':'0';"
+          + "    if(v!==last){last=v;console.log('[dsh-theme] dark='+v);}"
+          + "  }catch(e){}"
+          + "}"
+          + "report();"
+          + "try{new MutationObserver(report).observe(document.documentElement,"
+          + "  {attributes:true,subtree:true,attributeFilter:['data-ds-dark-theme']});}"
+          + "catch(e){}"
+          + "setInterval(report,3000);"
+          + "})();"
           // 客户端异常捕获：这是我此前一直缺的一块。
           // fetch 包装只能看到「已发出的请求」，而纯客户端抛错（例如
           // 文件 MIME 不在允许列表里而抛 UnsupportedImageMediaTypeError）
@@ -3608,6 +3650,37 @@ public class MainActivity extends Activity {
             }
         });
         bootInBackground("重启");
+    }
+
+    /**
+     * 网页主题变化 → 原生跟随。
+     *
+     * <p>DSH 的主题是它自己的设置（`ui-theme.preference` = light / dark / system），
+     * 与 Android 系统深色**相互独立** —— 只跟系统就会出现「网页黑、原生白」
+     * 的同屏割裂（用户实测反馈：「你的深色模式设置了寂寞」）。
+     *
+     * <p>缓存到 prefs：下次启动时先用上次观察到的主题，避免开屏与界面
+     * 在页面加载完成前闪一下另一种配色。
+     */
+    private void onWebTheme(final boolean dark) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("webDark", dark).apply();
+        } catch (Throwable ignored) { }
+        if (DshUi.isDark() == dark) return;
+        log("网页主题变化 → 原生跟随：" + (dark ? "深色" : "浅色"));
+        DshUi.setDark(dark);
+        // 颜色是方法、在创建视图时取走，所以必须重建界面才生效。
+        // 重建后页面会重新上报同一主题，此时 isDark() 已一致 —— 不会循环。
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (!isFinishing()) recreate();
+                } catch (Throwable t) {
+                    log("主题切换重建失败: " + t);
+                }
+            }
+        });
     }
 
     /** 轻提示。 */
