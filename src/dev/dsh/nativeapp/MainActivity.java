@@ -1906,9 +1906,21 @@ public class MainActivity extends Activity {
     private volatile int domSignalState = SessionStatus.UNKNOWN;
     private volatile long domSignalAt;
 
+    /**
+     * 最近一次「有来源报告在跑」的时刻。
+     *
+     * <p>用途：DOM 单独报告「空闲」时不能立刻采信 —— 如果刚刚还看到过运行中，
+     * 任务很可能仍在跑（DOM 的文案匹配一旦失败，就会退化成「只看得见发送按钮」）。
+     * 会话列表报告的「空闲」不受此限，它是全量 JSON，最可信。
+     */
+    private volatile long lastRunningSeenAt;
+    /** 见过「运行中」之后，多久内不接受「仅凭 DOM 得出的空闲」。 */
+    private static final long RUNNING_MEMORY_MS = 60000;
+
     /** 收到一个状态信号：记录来源与时间，再重新推导对外状态。 */
     private void onStatusSignal(int state, int source) {
         long now = System.currentTimeMillis();
+        if (state == SessionStatus.RUNNING) lastRunningSeenAt = now;
         if (source == SRC_SESS) {
             sessSignalState = state;
             sessSignalAt = now;
@@ -1950,8 +1962,15 @@ public class MainActivity extends Activity {
         if (domFresh && domSignalState == SessionStatus.RUNNING) return SessionStatus.RUNNING;
         // 3) 空闲：全量会话列表是最可信的证据
         if (sessFresh && sessSignalState == SessionStatus.IDLE) return SessionStatus.IDLE;
-        // 4) DOM 明确空闲也算（会话列表可能长时间不刷新，靠它从「运行中」恢复）
-        if (domFresh && domSignalState == SessionStatus.IDLE) return SessionStatus.IDLE;
+        // 4) DOM 明确空闲也算 —— 但**刚见过运行中就不认**。
+        //    会话列表可能长时间不刷新，需要 DOM 兜底才能从「运行中」恢复；
+        //    可 DOM 的文案匹配一旦失败（按钮换成图标、文案改字），
+        //    它会退化成「只看得见发送按钮」而误报空闲 —— 那正是要修的 bug。
+        //    所以给「运行中」留一分钟的记忆：这段时间内只信会话列表。
+        if (domFresh && domSignalState == SessionStatus.IDLE
+                && now - lastRunningSeenAt > RUNNING_MEMORY_MS) {
+            return SessionStatus.IDLE;
+        }
         // 5) 批准态只能由新的 DOM 证据解除，否则会永久卡在「等待批准」
         if (domFresh && lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
             return domSignalState == SessionStatus.UNKNOWN
