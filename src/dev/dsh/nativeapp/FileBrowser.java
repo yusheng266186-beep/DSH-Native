@@ -83,10 +83,15 @@ public final class FileBrowser {
     /**
      * 超过这个行数就不做逐行入场动画。
      *
-     * <p>{@link LayoutAnimationController} 是**逐行错开**的（0.04 ≈ 一行一帧多），
-     * 800 行等于把首屏拉长到十几秒；小目录才值得用它换一次"列表长出来"的观感。
+     * <p>延时间隔 0.04 是「动画时长的百分比」：配合 {@code ANIM_DURATION_MS}
+     * 就是每行错开约 8ms（120Hz 的一帧）。800 行意味着最后一行要等好几秒
+     * 才开始出现 —— 逐行动画本身比渲染还慢。小目录才值得用它换一次
+     * "列表长出来"的观感。
      */
     private static final int ANIM_ROW_LIMIT = 60;
+
+    /** 列表入场淡入的单行动画时长（ms）。见 renderList 里关于"默认时长是 0"的说明。 */
+    private static final int ANIM_DURATION_MS = 200;
 
     /** 触摸目标下限（dp）。低于它单手操作容易点到相邻行。 */
     private static final int ROW_MIN_HEIGHT = 44;
@@ -182,18 +187,11 @@ public final class FileBrowser {
             listBox = new LinearLayout(act);
             // 文案与空目录提示保持一致：提示让用户点「隐藏文件」，
             // 按钮就必须真的叫「隐藏文件」——否则提示的是一个不存在的按钮。
+            // 字号与内边距的微调放在 footer 构建之后做（见 show()），
+            // 因为 DshUi.footer 会把每个按钮的样式统一覆盖一遍。
             hiddenToggle = DshUi.toggleButton(act, "隐藏文件", false);
             sortToggle = DshUi.toggleButton(act, "排序", false);
             rowRadius = DshUi.dp(act, 8);
-            // 「隐藏文件」比其它底部按钮多两个字，而 footer 是等权重平分宽度：
-            // 窄屏上 4 个汉字会被省略成「隐藏文…」，提示里点名的按钮就找不到了。
-            // 自动缩放让它在放不下时缩字号而不是丢字（API 26+，低版本保持原样）。
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
-                try {
-                    hiddenToggle.setAutoSizeTextTypeUniformWithConfiguration(
-                            9, 13, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-                } catch (Throwable ignored) { }
-            }
         }
 
         /** 导航到目录。读取放后台，避免大目录阻塞界面。 */
@@ -629,7 +627,7 @@ public final class FileBrowser {
             // 统计结果（0 = 还没算出来）。删除完成后用它给出「已删除 N 个条目」的反馈。
             final int[] counted = { 0 };
             if (e.dir) {
-                io.execute(new Runnable() {
+                submit(new Runnable() {
                     @Override public void run() {
                         final int n = FileOps.countEntries(e.file);
                         ui.post(new Runnable() {
@@ -675,7 +673,7 @@ public final class FileBrowser {
             final Dialog progress = progressDialog("正在删除…",
                     e.dir ? "正在删除 " + e.name + " 及其中的内容" : "正在删除 " + e.name);
             progress.show();
-            io.execute(new Runnable() {
+            boolean started = submit(new Runnable() {
                 @Override public void run() {
                     final String err = FileOps.delete(e.file, writeRoots);
                     ui.post(new Runnable() {
@@ -695,6 +693,8 @@ public final class FileBrowser {
                     });
                 }
             });
+            // 任务没能提交（面板已关）：别留一个永远转圈的进度框在屏幕上
+            if (!started) dismissQuietly(progress);
         }
 
         /**
@@ -765,8 +765,13 @@ public final class FileBrowser {
             // 光等动画就比渲染本身还慢。必须在 addView 之前设，否则本轮子 View
             // 拿不到动画参数。
             if (listing.entries.size() <= ANIM_ROW_LIMIT) {
-                listBox.setLayoutAnimation(new LayoutAnimationController(
-                        new AlphaAnimation(0f, 1f), 0.04f));
+                // 必须显式 setDuration：程序创建的 Animation 时长默认是 **0**
+                // （Animation.mDuration 没有初值），时长 0 的动画会立刻结束 ——
+                // 于是"逐行淡入"退化成一次纯粹的瞬切，等于什么都没做。
+                // 200ms 配合 0.04 的间隔 ≈ 每行错开 8ms，正好是 120Hz 的一帧。
+                AlphaAnimation fade = new AlphaAnimation(0f, 1f);
+                fade.setDuration(ANIM_DURATION_MS);
+                listBox.setLayoutAnimation(new LayoutAnimationController(fade, 0.04f));
             }
             meta.setText(FileListing.summaryOf(listing));
 
@@ -1157,6 +1162,21 @@ public final class FileBrowser {
 
         final Dialog dlg = DshUi.dialogFill(act, body,
                 DshUi.footer(act, newBtn, b.hiddenToggle, b.sortToggle, refreshBtn, close), 820);
+        // 必须在 footer 之后调：DshUi.footer 会把每个按钮的样式（内边距、单行、
+        // 省略方式、等权重）统一覆盖一遍，在构造函数里设会被它冲掉。
+        //
+        // 「隐藏文件」比其它底部按钮多两个字，而 footer 是**等权重平分**宽度：
+        // 400dp 宽的屏（本机 1200px / 480dpi）上每个按钮约分到 63dp，
+        // 4 个汉字按 13sp 算需要 64dp —— 正好差一点，会被省略成「隐藏文…」，
+        // 提示里点名的按钮又找不到了。这里留出余量：字号 13sp → 12sp（4 字 48dp），
+        // 左右内边距 6dp → 3dp，合计 54dp，360dp 的窄屏也放得下。
+        //
+        // 不用系统自带的文字自动缩放：footer 给按钮设了 singleLine，
+        // 而 singleLine 会打开 horizontalScrolling，TextView.autoSizeText
+        // 遇到它就把可用宽度当作**无限**，永远选最大字号 —— 等于没生效。
+        b.hiddenToggle.setTextSize(12f);
+        b.hiddenToggle.setPadding(DshUi.dp(act, 3), DshUi.dp(act, 10),
+                DshUi.dp(act, 3), DshUi.dp(act, 10));
         close.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { dlg.dismiss(); }
         });
