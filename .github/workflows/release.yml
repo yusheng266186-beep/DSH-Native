@@ -128,6 +128,12 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "发布 ${{ inputs.version }}：版本号、清单与 README [skip ci]"
-          git push origin HEAD:main
-          echo "[OK] 清单已推送，App 现在可以检测到更新"
+          # 版本号可能已经是目标版本（例如重发同一个版本以更换签名），
+          # 此时没有可提交的内容 —— git commit 会以非零退出，不该因此判定失败。
+          if git diff --cached --quiet; then
+            echo "[i] 没有需要提交的改动（版本号与清单均已是目标状态）"
+          else
+            git commit -m "发布 ${{ inputs.version }}：版本号、清单与 README [skip ci]"
+            git push origin HEAD:main
+            echo "[OK] 清单已推送，App 现在可以检测到更新"
+          fi
