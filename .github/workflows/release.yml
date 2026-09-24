@@ -1,0 +1,112 @@
+# 发版：升版本号 → 构建 → 上传 Release → 验证两条下载路径 → 更新清单 → 提交。
+#
+# 为什么要在 CI 里发版：
+#   APK 只能在 CI 上构建（本机没有 JDK/aapt2/d8/apksigner），
+#   而 release.sh 需要那个 APK 文件。若在工作机发版，就必须把 34MB
+#   产物下载回手机 —— 而 CI 自己就有 gh、有 token、有构建产物，
+#   这一步纯属多余。现在整条链路都在 CI 上闭环，工作机只需看 SHA。
+#
+# 注意：GitHub 用 GITHUB_TOKEN 推送的提交**不会**再触发其它工作流，
+#       所以这次提交里的版本号变更不会引起重复构建（另加了 [skip ci] 兜底）。
+name: 发版
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 0.23.5）'
+        required: true
+      notes_file:
+        description: '发布说明文件（可选；默认 release-notes/v<版本>.md，再退回 git log）'
+        required: false
+        default: ''
+      dry_run:
+        description: '演练：只升版本号 + 构建 + 检查推送权限，不发布、不提交'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 生成发布说明需要历史与 tag
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 升版本号
+        run: |
+          set -euo pipefail
+          bash scripts/bump_version.sh "${{ inputs.version }}"
+          git --no-pager diff --stat
+
+      - name: 构建
+        run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
+
+      - name: 准备发布说明
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          OUT="$RUNNER_TEMP/notes.md"
+          if [ -n "${{ inputs.notes_file }}" ] && [ -f "${{ inputs.notes_file }}" ]; then
+            cp "${{ inputs.notes_file }}" "$OUT"
+          elif [ -f "release-notes/v${V}.md" ]; then
+            cp "release-notes/v${V}.md" "$OUT"
+          else
+            PREV="$(git tag --list 'v*-bootstrap' --sort=-v:refname | head -1 || true)"
+            {
+              echo "## v${V}"
+              echo
+              if [ -n "$PREV" ]; then
+                echo "自 ${PREV} 以来的改动："
+                echo
+                git log --no-merges --pretty='- %s' "${PREV}..HEAD"
+              else
+                git log --no-merges -n 20 --pretty='- %s'
+              fi
+            } > "$OUT"
+          fi
+          echo "--- 发布说明 ---"
+          cat "$OUT"
+
+      - name: 演练模式检查
+        if: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          echo "[演练] 构建成功；下面验证 GitHub 推送权限（--dry-run 不会真的推送）"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "演练：版本号 ${{ inputs.version }} [skip ci]"
+          git push --dry-run origin HEAD:main
+          echo "[演练] 通过。真实发布时同样这一步会真正推送。"
+
+      - name: 发布（上传 → 验证两条下载路径 → 最后写清单）
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash scripts/release.sh "${{ inputs.version }}" \
+               "$RUNNER_TEMP/dsh-build" "$RUNNER_TEMP/notes.md"
+
+      - name: 提交版本号与清单
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "发布 ${{ inputs.version }}：版本号、清单与 README [skip ci]"
+          git push origin HEAD:main
+          echo "[OK] 清单已推送，App 现在可以检测到更新"

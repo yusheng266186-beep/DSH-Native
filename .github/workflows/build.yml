@@ -1,16 +1,11 @@
-# 构建 APK。
+# 每次提交构建 APK（验证用，不发布）。
 #
-# 为什么必须有 CI：项目的构建链依赖 JDK / aapt2 / d8 / apksigner，
+# 为什么必须有 CI：构建链依赖 JDK / aapt2 / d8 / apksigner，
 # 这些在开发机（Android App 沙箱）里都没有 —— 没有 CI 就只能靠
 # 「在设备上手工跑一遍」，也拿不到「每个提交都跑全部断言」的保障。
 #
-# 这里只替换两处与设备不同的东西，其余完全走 scripts/build_bootstrap.sh：
-#   * aapt2 / d8 / apksigner / android.jar → 官方 Linux build-tools
-#   * node 与 10 个 .so → 从上一个已发布 APK 里取（不在仓库里，93MB）
-#
-# 不用 android-actions/setup-android：它内部执行 `sdkmanager tools`，
-# 而 SDK 仓库里已经没有 `tools` 这个包，会直接失败（实测 exit 1）。
-# GitHub 的 ubuntu runner 已预装 SDK，直接用它即可。
+# 构建步骤全部在 scripts/ci_build.sh 里，与发版工作流共用一份 ——
+# 各写一份必然漂移，而漂移之后「CI 绿了」就不代表「发出去的包是这样构建的」。
 name: 构建 APK
 
 on:
@@ -38,52 +33,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 安装 SDK 部件
-        run: |
-          set -euo pipefail
-          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
-          echo "[i] SDK=$SDK"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          SM="$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1)"
-          [ -n "$SM" ] || { echo "[FAIL] 找不到 sdkmanager"; ls -R "$SDK/cmdline-tools" | head -20; exit 1; }
-          echo "[i] sdkmanager=$SM"
-          yes | "$SM" --sdk_root="$SDK" --install \
-              "platforms;android-28" "platforms;android-34" "build-tools;34.0.0" \
-              > /dev/null 2>&1 || true
-          for p in "$SDK/platforms/android-28/android.jar" "$SDK/platforms/android-34/android.jar"; do
-            [ -f "$p" ] || { echo "[FAIL] 缺少 $p"; exit 1; }
-            echo "[OK] $p"
-          done
-          BT="$SDK/build-tools/34.0.0"
-          [ -d "$BT" ] || BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
-          for j in "$BT/lib/d8.jar" "$BT/lib/apksigner.jar" "$BT/aapt2"; do
-            [ -e "$j" ] || { echo "[FAIL] 缺少 $j"; exit 1; }
-            echo "[OK] $j"
-          done
-          echo "BT=$BT" >> "$GITHUB_ENV"
-
-      - name: 准备构建工作区
-        run: bash scripts/ci_stage.sh "$RUNNER_TEMP/dsh-build"
-
-      - name: 构建（测试 + 三道闸门 + 编译 + 打包 + 签名）
-        run: |
-          set -euo pipefail
-          # 注意：build_bootstrap.sh 本身在仓库的 scripts/ 下，
-          # 构建工作区里只有它依赖的 mkmanifest.py / mkzip.py / run_tests.sh。
-          # 脚本内部会自己 cd "$DSH_BUILD_DIR"。
-          DSH_BUILD_DIR="$RUNNER_TEMP/dsh-build" \
-          DSH_AAPT2_LIB="$BT/lib64" \
-            bash scripts/build_bootstrap.sh
+      - name: 构建
+        run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
 
       - name: 校验签名与清单
         run: |
           set -euo pipefail
           APK="$RUNNER_TEMP/dsh-build/bootstrap/DSHNative-bootstrap.apk"
+          BT="${ANDROID_SDK_ROOT}/build-tools/34.0.0"
           java -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 24 --print-certs "$APK" | head -6
           "$BT/aapt2" dump badging "$APK" | head -3
-          ls -l "$APK"
-          sha256sum "$APK"
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
