@@ -55,7 +55,8 @@ jobs:
             [ -f "$p" ] || { echo "[FAIL] 缺少 $p"; exit 1; }
             echo "[OK] $p"
           done
-          BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
+          BT="$SDK/build-tools/34.0.0"
+          [ -d "$BT" ] || BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
           for j in "$BT/lib/d8.jar" "$BT/lib/apksigner.jar" "$BT/aapt2"; do
             [ -e "$j" ] || { echo "[FAIL] 缺少 $j"; exit 1; }
             echo "[OK] $j"
@@ -68,9 +69,12 @@ jobs:
       - name: 构建（测试 + 三道闸门 + 编译 + 打包 + 签名）
         run: |
           set -euo pipefail
+          # 注意：build_bootstrap.sh 本身在仓库的 scripts/ 下，
+          # 构建工作区里只有它依赖的 mkmanifest.py / mkzip.py / run_tests.sh。
+          # 脚本内部会自己 cd "$DSH_BUILD_DIR"。
           DSH_BUILD_DIR="$RUNNER_TEMP/dsh-build" \
           DSH_AAPT2_LIB="$BT/lib64" \
-            bash "$RUNNER_TEMP/dsh-build/build_bootstrap.sh"
+            bash scripts/build_bootstrap.sh
 
       - name: 校验签名与清单
         run: |

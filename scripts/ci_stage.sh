@@ -34,8 +34,13 @@ cp -r "$ROOT/icon/res" "$BUILD/icon/res"
 echo "  源码 $(find "$BUILD/bootstrap/src" -name '*.java' | wc -l) 个 java 文件"
 
 say "3. Android SDK 部件（官方 Linux 版）"
-BT="$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)"
-[ -n "$BT" ] || { echo "[FAIL] 找不到 build-tools"; exit 1; }
+# 优先用调用方指定的 build-tools（CI 上固定 34.0.0，避免选到 runner 预装的更新版本）
+if [ -n "${BT:-}" ] && [ -d "${BT:-}" ]; then
+    :
+else
+    BT="$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)"
+fi
+[ -n "$BT" ] && [ -d "$BT" ] || { echo "[FAIL] 找不到 build-tools"; exit 1; }
 echo "  build-tools: $BT"
 [ -f "$ANDROID_HOME/platforms/android-28/android.jar" ] || { echo "[FAIL] 缺 platforms;android-28"; exit 1; }
 [ -f "$ANDROID_HOME/platforms/android-34/android.jar" ] || { echo "[FAIL] 缺 platforms;android-34"; exit 1; }
