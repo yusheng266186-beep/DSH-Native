@@ -28,7 +28,7 @@
 | [AGENTS.md](AGENTS.md) | **接手先读这份**。项目是什么、红线、常用命令、代码结构 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与设计：两段式结构、运行包机制、运行时补丁、插件机制 |
 | [docs/GOTCHAS.md](docs/GOTCHAS.md) | 踩过的坑：静默失败、环境陷阱、Android 特有、布局、发布 |
-| [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明：当前状态、已实现功能、待办、验证手段 |
+| [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明。**第八节是最新事实**：CI 构建与发布、签名事故与防护、新增红线、已知陷阱、未验证事项 |
 | [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
 
 **测试**：`bash scripts/run_tests.sh` —— 476 项纯逻辑断言，构建期强制执行。
