@@ -1,7 +1,7 @@
 {
-  "version": "0.23.6",
-  "tag": "v0.23.6-bootstrap",
+  "version": "0.24.0",
+  "tag": "v0.24.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "v0.23.6 —— 收尾：三个\"静默失败\"和两处小毛病"
+  "notes": "v0.24.0 —— 看得见的动画、看得见的进度、不再丢的改动"
 }
