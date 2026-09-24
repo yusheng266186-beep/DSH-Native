@@ -492,10 +492,10 @@ public final class FileBrowser {
             share.setEnabled(shareable);
             rename.setEnabled(writable);
             del.setEnabled(writable);
-            if (!shareable) share.setTextColor(DshUi.TEXT_3);
+            if (!shareable) share.setTextColor(DshUi.TEXT_3());
             if (!writable) {
-                rename.setTextColor(DshUi.TEXT_3);
-                del.setTextColor(DshUi.TEXT_3);
+                rename.setTextColor(DshUi.TEXT_3());
+                del.setTextColor(DshUi.TEXT_3());
             }
 
             final Dialog menu = DshUi.dialog(act, box,
@@ -866,7 +866,7 @@ public final class FileBrowser {
             TextView name = new TextView(act);
             name.setText(e.name);
             name.setTextSize(12.5f);
-            name.setTextColor(e.dir ? DshUi.TEXT : DshUi.TEXT_2);
+            name.setTextColor(e.dir ? DshUi.TEXT() : DshUi.TEXT_2());
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             // 名称与说明是行内容的视觉拆分，无障碍上已由行的 contentDescription
@@ -876,7 +876,7 @@ public final class FileBrowser {
             TextView info = new TextView(act);
             info.setText(FileListing.infoText(e));
             info.setTextSize(10.5f);
-            info.setTextColor(DshUi.TEXT_3);
+            info.setTextColor(DshUi.TEXT_3());
             info.setSingleLine(true);
             info.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             info.setGravity(Gravity.END);
@@ -945,12 +945,15 @@ public final class FileBrowser {
         private static final Paint PAINT = new Paint(Paint.ANTI_ALIAS_FLAG);
         private static final RectF BOX = new RectF();
 
-        static { PAINT.setColor(DshUi.BTN_PRESS); }
-
         private final float radius;
 
         RowBgDrawable(float radiusPx) {
             radius = radiusPx;
+            // 颜色必须在这里取，**不能**放 static 初始化块：
+            // static 块整个进程只跑一次，而深浅色切换会重建界面却不会卸载类 ——
+            // 放那里的话，切到深色后按下行仍是浅色高亮，闪一块白。
+            // 每行一个实例，构造时取值即可跟上当前主题。
+            PAINT.setColor(DshUi.BTN_PRESS());
         }
 
         @Override public void draw(Canvas cv) {
@@ -1004,7 +1007,7 @@ public final class FileBrowser {
         try {
             Drawable ind = pb.getIndeterminateDrawable();
             if (ind != null) {
-                ind.setColorFilter(DshUi.ACCENT, android.graphics.PorterDuff.Mode.SRC_IN);
+                ind.setColorFilter(DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
             }
         } catch (Throwable ignored) { }
     }
@@ -1042,7 +1045,7 @@ public final class FileBrowser {
         // 路径：单行 + 中间省略。深路径换行会把列表往下挤。
         b.pathView.setTextSize(11f);
         b.pathView.setTypeface(Typeface.MONOSPACE);
-        b.pathView.setTextColor(DshUi.TEXT_2);
+        b.pathView.setTextColor(DshUi.TEXT_2());
         b.pathView.setSingleLine(true);
         b.pathView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         body.addView(b.pathView, DshUi.fullWidth(act, GAP_TITLE));

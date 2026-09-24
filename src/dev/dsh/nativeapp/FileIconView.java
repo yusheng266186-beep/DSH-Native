@@ -21,7 +21,7 @@ import android.view.View;
  * 本项目的资源 id 是构建时注入的，少一个资源就少一处可能失配的地方。
  *
  * <p>三种形态：目录、普通文件、符号链接。线条统一 1.4dp、圆角端点，
- * 颜色取自 {@link DshUi#TEXT_3}（弱化），目录用 {@link DshUi#TEXT_2} 稍重，
+ * 颜色取自 {@link DshUi#TEXT_3()}（弱化），目录用 {@link DshUi#TEXT_2()} 稍重，
  * 形成层级但不喧宾夺主。
  */
 public final class FileIconView extends View {
@@ -31,7 +31,7 @@ public final class FileIconView extends View {
     public static final int LINK = 2;
 
     private int type = FILE;
-    private int color = DshUi.TEXT_3;
+    private int color = DshUi.TEXT_3();
 
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
@@ -49,7 +49,7 @@ public final class FileIconView extends View {
     /** 设置图标形态（{@link #FOLDER} / {@link #FILE} / {@link #LINK}）。 */
     public void setType(int t) {
         this.type = t;
-        this.color = t == FOLDER ? DshUi.TEXT_2 : DshUi.TEXT_3;
+        this.color = t == FOLDER ? DshUi.TEXT_2() : DshUi.TEXT_3();
         stroke.setColor(color);
         invalidate();
     }
@@ -132,9 +132,10 @@ public final class FileIconView extends View {
         float x = b.right - s * 0.55f;
         float y = b.bottom - s * 0.55f;
 
-        // 用底色盖掉原图右下角，让角标清晰
+        // 用卡片底色盖掉原图右下角，让角标清晰。
+        // 必须取 DshUi.CARD() 而不是写死白色 —— 深色下白色圆点会变成一块突兀的白斑。
         Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-        bg.setColor(0xFFFFFFFF);
+        bg.setColor(DshUi.CARD());
         cv.drawCircle(x - s * 0.15f, y - s * 0.15f, s * 0.72f, bg);
 
         Paint arrow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -142,7 +143,7 @@ public final class FileIconView extends View {
         arrow.setStrokeCap(Paint.Cap.ROUND);
         arrow.setStrokeJoin(Paint.Join.ROUND);
         arrow.setStrokeWidth(stroke.getStrokeWidth());
-        arrow.setColor(DshUi.ACCENT);
+        arrow.setColor(DshUi.ACCENT());
 
         path.reset();
         path.moveTo(x - s * 0.5f, y + s * 0.5f);      // 从左下

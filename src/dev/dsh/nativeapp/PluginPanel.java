@@ -320,7 +320,7 @@ public final class PluginPanel {
             TextView t = new TextView(act);
             t.setText(r.title);
             t.setTextSize(12.5f);
-            t.setTextColor(DshUi.TEXT);
+            t.setTextColor(DshUi.TEXT());
             t.setSingleLine(true);
             text.addView(t, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -367,7 +367,7 @@ public final class PluginPanel {
         TextView n = new TextView(act);
         n.setText(name.contains("/") ? name.substring(name.indexOf('/') + 1) : name);
         n.setTextSize(12.5f);
-        n.setTextColor(present ? DshUi.TEXT : DshUi.TEXT_3);
+        n.setTextColor(present ? DshUi.TEXT() : DshUi.TEXT_3());
         n.setSingleLine(true);
         n.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         text.addView(n, new LinearLayout.LayoutParams(

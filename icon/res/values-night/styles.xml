@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      深色主题。
+
+      为什么不只是"把颜色改深"：WebView 上报给网页的 prefers-color-scheme
+      跟随 **Activity 主题**。若主题固定为 Light，网页会一直认为自己在浅色环境里，
+      于是出现"原生深色对话框 + 网页满屏白"的同屏割裂 —— 比不做深色更难看。
+      这里把父主题换成非 Light 版本，网页才会跟着切到 DSH 自己的深色方案。
+
+      同一件事还解决启动瞬间的白闪：windowBackground 在 onCreate 之前就已生效，
+      而那时 DshUi.applyTheme() 还没跑。
+    -->
+    <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

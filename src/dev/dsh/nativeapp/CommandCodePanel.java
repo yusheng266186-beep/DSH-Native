@@ -209,7 +209,7 @@ public final class CommandCodePanel {
             TextView plan = new TextView(act);
             plan.setText(CommandCodeUsage.planLabel(u.planId));
             plan.setTextSize(17f);
-            plan.setTextColor(DshUi.TEXT);
+            plan.setTextColor(DshUi.TEXT());
             plan.setSingleLine(true);
             head.addView(plan, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -244,7 +244,7 @@ public final class CommandCodePanel {
 
             // 月度余额：服务端只给余额，分母由「余额 + 已用」推出
             row(act, card, "月度余额",
-                    CommandCodeUsage.money(u.monthlyBalance), DshUi.TEXT, 14f);
+                    CommandCodeUsage.money(u.monthlyBalance), DshUi.TEXT(), 14f);
             if (u.hasUsage) {
                 bar(act, card, u.monthlyRemainPercent(),
                         "已用 " + CommandCodeUsage.percentText(u.monthlyUsedPercent())
@@ -254,7 +254,7 @@ public final class CommandCodePanel {
             if (u.purchasedCredits > 0 || u.freeCredits > 0) {
                 row(act, card, "额外额度",
                         CommandCodeUsage.money(u.purchasedCredits + u.freeCredits),
-                        DshUi.TEXT_2, 11f);
+                        DshUi.TEXT_2(), 11f);
             }
 
             // 两个滚动窗口
@@ -274,18 +274,18 @@ public final class CommandCodePanel {
         if (u.hasUsage) {
             LinearLayout card = card(act);
             row(act, card, "请求数", String.format(Locale.ROOT, "%,d", u.requestCount),
-                    DshUi.TEXT, 13f);
+                    DshUi.TEXT(), 13f);
             row(act, card, "成功率",
                     CommandCodeUsage.successText(u.successRate, u.requestCount, u.failedCount),
-                    u.failedCount > 0 ? WARN : DshUi.TEXT, 13f);
+                    u.failedCount > 0 ? WARN : DshUi.TEXT(), 13f);
             if (u.failedCount > 0) {
                 row(act, card, "失败", String.valueOf(u.failedCount), WARN, 13f);
             }
-            row(act, card, "成本", CommandCodeUsage.money(u.totalCost), DshUi.TEXT, 13f);
-            row(act, card, "Token 总量", CommandCodeUsage.tokens(u.tokensTotal), DshUi.TEXT, 13f);
+            row(act, card, "成本", CommandCodeUsage.money(u.totalCost), DshUi.TEXT(), 13f);
+            row(act, card, "Token 总量", CommandCodeUsage.tokens(u.tokensTotal), DshUi.TEXT(), 13f);
             row(act, card, "　输入 / 输出",
                     CommandCodeUsage.tokens(u.tokensIn) + " / " + CommandCodeUsage.tokens(u.tokensOut),
-                    DshUi.TEXT_3, 11f);
+                    DshUi.TEXT_3(), 11f);
             box.addView(card, DshUi.fullWidth(act, 8));
         } else {
             box.addView(DshUi.hint(act, "用量不可用"
@@ -365,7 +365,7 @@ public final class CommandCodePanel {
         TextView l = new TextView(act);
         l.setText(label);
         l.setTextSize(12.5f);
-        l.setTextColor(DshUi.TEXT_2);
+        l.setTextColor(DshUi.TEXT_2());
         l.setSingleLine(true);
         l.setEllipsize(android.text.TextUtils.TruncateAt.END);
         r.addView(l, new LinearLayout.LayoutParams(
@@ -401,7 +401,7 @@ public final class CommandCodePanel {
         TextView l = new TextView(act);
         l.setText(title);
         l.setTextSize(12.5f);
-        l.setTextColor(DshUi.TEXT_2);
+        l.setTextColor(DshUi.TEXT_2());
         l.setSingleLine(true);
         r.addView(l, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -410,7 +410,7 @@ public final class CommandCodePanel {
         v.setText(CommandCodeUsage.money(used) + " / " + CommandCodeUsage.money(cap)
                 + "　" + CommandCodeUsage.percentText(pct));
         v.setTextSize(11.5f);
-        v.setTextColor(exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.TEXT));
+        v.setTextColor(exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.TEXT()));
         v.setTypeface(android.graphics.Typeface.MONOSPACE);
         v.setSingleLine(true);
         v.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -423,7 +423,7 @@ public final class CommandCodePanel {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // 进度条
-        Bar bar = new Bar(act, pct, exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.ACCENT));
+        Bar bar = new Bar(act, pct, exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.ACCENT()));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, DshUi.dp(act, 5));
         blp.topMargin = DshUi.dp(act, 6);
@@ -444,7 +444,7 @@ public final class CommandCodePanel {
     /** 进度条 + 下方说明（月度余额那块用）。 */
     private static void bar(Activity act, LinearLayout parent, double pct,
                             String caption, int level) {
-        Bar b = new Bar(act, pct, level == 2 ? DANGER : (level == 1 ? WARN : DshUi.ACCENT));
+        Bar b = new Bar(act, pct, level == 2 ? DANGER : (level == 1 ? WARN : DshUi.ACCENT()));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, DshUi.dp(act, 5));
         blp.topMargin = DshUi.dp(act, 2);
@@ -474,7 +474,9 @@ public final class CommandCodePanel {
         @Override protected void onDraw(Canvas cv) {
             float r = getHeight() / 2f;
             rect.set(0, 0, getWidth(), getHeight());
-            paint.setColor(0xFFEDEFF3);
+            // 进度条底槽：原来写死的是浅色 FIELD_FOCUS（#EDEFF3），
+            // 深色下会是一条横贯卡片的亮白条 —— 走 DshUi 才能跟着主题走。
+            paint.setColor(DshUi.FIELD_FOCUS());
             cv.drawRoundRect(rect, r, r, paint);
             if (pct <= 0) return;
             // 极小比例也留一小段可见宽度，否则看起来像没画出来

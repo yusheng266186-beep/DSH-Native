@@ -169,7 +169,7 @@ public final class LogViewer {
         // ── 内容 ──
         final TextView view = new TextView(act);
         view.setTextSize(10.5f);
-        view.setTextColor(DshUi.TEXT);
+        view.setTextColor(DshUi.TEXT());
         view.setTypeface(Typeface.MONOSPACE);
         view.setTextIsSelectable(true);
         view.setLineSpacing(DshUi.dp(act, 1.5f), 1f);

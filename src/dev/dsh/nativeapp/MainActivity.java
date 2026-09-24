@@ -132,23 +132,29 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 主题必须**最先**解析：DshUi 的颜色是在创建视图时一次性取走的，
+        // 晚一步就会有一批组件停在旧主题上（深浅混杂比全浅色更难看）。
+        // 清单里 configChanges 不含 uiMode，所以系统切深浅色会重建 Activity ——
+        // 这里重新解析即可，无需重启进程。
+        DshUi.applyTheme(this);
+
         // 双保险：即使主题未被 ROM 正确解析，也确保没有标题栏、
-        // 且窗口底色为白（否则默认主题会露出黑色，形成顶部黑边）。
+        // 且窗口底色与页面底色一致（否则默认主题会露出黑色，形成顶部黑边）。
         try {
             requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             getWindow().setBackgroundDrawable(
-                    new android.graphics.drawable.ColorDrawable(0xFFFFFFFF));
+                    new android.graphics.drawable.ColorDrawable(DshUi.BG()));
         } catch (Throwable t) {
             log("窗口设置失败（不影响运行）: " + t);
         }
 
-        // 状态栏透明 + 内容延伸上去 + 深色图标。
+        // 状态栏透明 + 内容延伸上去 + 与主题相配的图标明暗。
         applySystemBars();
 
         rootView = new android.widget.FrameLayout(this);
-        rootView.setBackgroundColor(0xFFFFFFFF);
+        rootView.setBackgroundColor(DshUi.BG());
         // 内容延伸到状态栏之后，用等高内边距把内容推下来 ——
-        // 状态栏区域露出的是白色背景，配深色图标，视觉上连成一片。
+        // 状态栏区域露出的是页面底色，与下方的 DSH 界面连成一片。
         rootView.setPadding(0, statusBarHeight(), 0, 0);
         installImeInsetHandler();
         android.widget.FrameLayout root = rootView;
@@ -159,6 +165,9 @@ public class MainActivity extends Activity {
         logView.setTextSize(10);
 
         webView = new WebView(this);
+        // 页面首帧之前的底色。WebView 默认是白的 —— 深色下从开屏页
+        // 到页面渲染之间会闪一下全白，比"什么都不做"更刺眼。
+        webView.setBackgroundColor(DshUi.BG());
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -473,7 +482,7 @@ public class MainActivity extends Activity {
                 android.R.attr.progressBarStyleHorizontal);
         try {
             topProgress.getProgressDrawable().setColorFilter(
-                    DshUi.ACCENT, android.graphics.PorterDuff.Mode.SRC_IN);
+                    DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
         } catch (Throwable ignored) { }
         topProgress.setMax(100);
         topProgress.setAlpha(0f);               // 空闲时完全不可见
@@ -1091,7 +1100,7 @@ public class MainActivity extends Activity {
             android.widget.TextView msg = new android.widget.TextView(this);
             msg.setText(message == null ? "" : message);
             msg.setTextSize(12.5f);
-            msg.setTextColor(DshUi.TEXT);
+            msg.setTextColor(DshUi.TEXT());
             msg.setTextIsSelectable(true);
             android.widget.ScrollView sc = new android.widget.ScrollView(this);
             sc.addView(msg, new android.widget.FrameLayout.LayoutParams(
@@ -3513,7 +3522,7 @@ public class MainActivity extends Activity {
                     int start = pr.length();
                     pr.append(text).append('\n');
                     pr.setSpan(new android.text.style.ForegroundColorSpan(
-                                    warn ? 0xFFB26A00 : DshUi.TEXT_2),
+                                    warn ? 0xFFB26A00 : DshUi.TEXT_2()),
                             start, pr.length(),
                             android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
@@ -3521,7 +3530,7 @@ public class MainActivity extends Activity {
             int tail = pr.length();
             pr.append("App ").append(appVersion())
               .append("　运行包 ").append(payloadSummary());
-            pr.setSpan(new android.text.style.ForegroundColorSpan(DshUi.TEXT_3),
+            pr.setSpan(new android.text.style.ForegroundColorSpan(DshUi.TEXT_3()),
                     tail, pr.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             // hint() 只接受 String，这里需要富文本（逐行着色）
             android.widget.TextView prView = DshUi.hint(this, "");
@@ -3678,18 +3687,31 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- 系统栏
-    /** 状态栏透明 + 内容延伸上去 + 深色系统图标（消除顶部黑边）。 */
+    /**
+     * 状态栏透明 + 内容延伸上去 + **与当前主题相配**的系统栏图标（消除顶部黑边）。
+     *
+     * <p>图标明暗必须跟着主题走：浅色下用深色图标（LIGHT_* 标志），
+     * 深色下用浅色图标 —— 否则 #151517 的深色页面上会压一排黑色图标，
+     * 等于把状态栏和导航栏一起「吃掉」。
+     */
     private void applySystemBars() {
         try {
             android.view.Window w = getWindow();
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
             w.setStatusBarColor(0x00000000);
-            w.setNavigationBarColor(0xFFFFFFFF);
-            w.getDecorView().setSystemUiVisibility(
-                    android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                  | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                  | android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+            w.setNavigationBarColor(DshUi.BG());
+            int vis = android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+            if (!DshUi.isDark()) {
+                vis |= android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                // 导航栏图标的明暗开关是 API 26 才有的；主题里
+                // windowLightNavigationBar=true，深色下必须靠「不再置位」把它去掉。
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    vis |= android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                }
+            }
+            w.getDecorView().setSystemUiVisibility(vis);
         } catch (Throwable t) {
             log("系统栏设置失败（不影响运行）: " + t);
         }
@@ -3815,7 +3837,8 @@ public class MainActivity extends Activity {
         float d = getResources().getDisplayMetrics().density;
 
         android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        box.setBackgroundColor(0xFFFFFFFF);
+        // 开屏页铺满整屏，用页面底色而不是写死的白 —— 深色下白屏一闪很刺眼。
+        box.setBackgroundColor(DshUi.BG());
 
         android.widget.LinearLayout col = new android.widget.LinearLayout(this);
         col.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -3852,7 +3875,7 @@ public class MainActivity extends Activity {
         android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
         try {
             spin.getIndeterminateDrawable().setColorFilter(
-                    0xFF4D6BFE, android.graphics.PorterDuff.Mode.SRC_IN);
+                    DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
         } catch (Throwable ignored) { }
         android.widget.LinearLayout.LayoutParams slp =
                 new android.widget.LinearLayout.LayoutParams(
@@ -3863,7 +3886,7 @@ public class MainActivity extends Activity {
         // 文案
         splashStatus = new android.widget.TextView(this);
         splashStatus.setText("正在启动 DeepSeek Harness");
-        splashStatus.setTextColor(0xFF6B7280);
+        splashStatus.setTextColor(DshUi.TEXT_2());
         splashStatus.setTextSize(13.5f);
         // 启动进度对读屏用户必须能听到（"正在下载运行包 40%"这类变化），
         // 否则整个启动过程对他们是一片沉默。
@@ -4958,6 +4981,17 @@ public class MainActivity extends Activity {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration cfg) {
         super.onConfigurationChanged(cfg);
+        // 系统切深浅色本就会重建 Activity（清单的 configChanges 不含 uiMode）。
+        // 但个别 ROM 会把 uiMode 塞进一次「已声明由应用处理」的配置变化里一起下发，
+        // 那时这里不纠正就会停在旧主题 —— DshUi 的颜色是在建视图时取走的，
+        // 改标志位对已有视图无效，只能重建。
+        boolean wasDark = DshUi.isDark();
+        DshUi.applyTheme(this);
+        if (DshUi.isDark() != wasDark) {
+            log("深色模式变化：重建界面以应用新主题");
+            recreate();
+            return;
+        }
         try {
             int want = viewportWidthFor(cfg);
             File dir = dshDirRef;

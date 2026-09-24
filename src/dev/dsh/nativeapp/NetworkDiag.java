@@ -265,7 +265,7 @@ public final class NetworkDiag {
                             @Override public void run() {
                                 summary.setText(verdict);
                                 TextView v = DshUi.hint(act, "结论：" + verdict);
-                                v.setTextColor(DshUi.TEXT);
+                                v.setTextColor(DshUi.TEXT());
                                 v.setPadding(0, DshUi.dp(act, 14), 0, 0);
                                 results.addView(v);
                                 // 只有最新一轮能恢复按钮：被取代的那一轮，
@@ -474,7 +474,7 @@ public final class NetworkDiag {
         TextView n = new TextView(act);
         n.setText(name);
         n.setTextSize(11.5f);
-        n.setTextColor(DshUi.TEXT_2);
+        n.setTextColor(DshUi.TEXT_2());
         n.setSingleLine(true);
         n.setEllipsize(android.text.TextUtils.TruncateAt.END);
         r.addView(n, new LinearLayout.LayoutParams(0,
@@ -485,7 +485,7 @@ public final class NetworkDiag {
         val.setTextSize(11.5f);
         val.setTypeface(android.graphics.Typeface.MONOSPACE);
         // 失败用橙色标出：这是整页里唯一需要一眼找到的信息
-        val.setTextColor(value.contains("失败") ? 0xFFB26A00 : DshUi.TEXT);
+        val.setTextColor(value.contains("失败") ? 0xFFB26A00 : DshUi.TEXT());
         val.setSingleLine(true);
         val.setEllipsize(android.text.TextUtils.TruncateAt.END);
         val.setGravity(Gravity.END);

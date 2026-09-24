@@ -157,7 +157,7 @@ public final class TextEditor {
             // 是整屏唯一的异色元素。ProgressBar 没有公开的换色接口，
             // 只能给不确定进度的那张 Drawable 上色。
             if (bar.getIndeterminateDrawable() != null) {
-                bar.getIndeterminateDrawable().setColorFilter(DshUi.ACCENT, PorterDuff.Mode.SRC_IN);
+                bar.getIndeterminateDrawable().setColorFilter(DshUi.ACCENT(), PorterDuff.Mode.SRC_IN);
             }
         } catch (Throwable ignored) { }
         body.addView(bar, DshUi.fullWidth(act, 14));
@@ -223,7 +223,7 @@ public final class TextEditor {
         ed.setText(initial);
         ed.setTextSize(12f);
         ed.setTypeface(Typeface.MONOSPACE);
-        ed.setTextColor(DshUi.TEXT);
+        ed.setTextColor(DshUi.TEXT());
         ed.setBackground(DshUi.fieldBg(act));
         ed.setGravity(Gravity.TOP | Gravity.START);
         ed.setHorizontallyScrolling(false);      // 自动换行，手机上更易读

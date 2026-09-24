@@ -21,31 +21,72 @@ import android.widget.TextView;
  * 系统默认的 Material 风格（下划线输入框、水波纹按钮、灰色对话框）
  * 与 DSH 的浅色卡片风格放在一起会明显割裂。
  *
- * <p>视觉参数取自 DSH 前端实际使用的设计变量：
+ * <p>视觉参数取自 DSH 前端实际使用的设计变量，**浅色与深色各取一套**：
  * <ul>
- *   <li>卡片：白底、圆角 16dp、极细边框 #00000014</li>
- *   <li>输入框：浅灰底 #F5F6F8、圆角 10dp、无下划线</li>
- *   <li>按钮：圆角 10dp；主按钮品牌蓝 #4D6BFE，次按钮浅灰 #F3F4F6</li>
- *   <li>文字层级：#1F2329 / #6B7280 / #9CA3AF</li>
+ *   <li>卡片：圆角 16dp、极细描边（浅 #00000014 / 深 #ffffff0f）</li>
+ *   <li>输入框：浅灰底、圆角 10dp、无下划线</li>
+ *   <li>按钮：圆角 10dp；主按钮品牌蓝，次按钮浅灰</li>
+ *   <li>文字三级层级：#1F2329 / #6B7280 / #9CA3AF（深色 #F9FAFB / #CFD3D6 / #ADB2B8）</li>
  * </ul>
+ *
+ * <p>深色取值来自 DSH 前端深色主题的别名令牌（{@code --dsw-alias-*}，
+ * 见各颜色方法后的注释），不是照着浅色值调出来的近似色 ——
+ * 自己配的深色与本机 Web 界面同屏时很容易看出不是一套。
+ *
+ * <p><b>主题在 {@link #applyTheme} 里一次性确定，颜色方法只读它。</b>
+ * 因此切换深浅色只需要重建界面，不必重启进程。
  */
 public final class DshUi {
 
     // ---------------------------------------------------------------- 设计变量
-    public static final int BG          = 0xFFF7F8FA;   // 页面底色
-    public static final int CARD        = 0xFFFFFFFF;   // 卡片
-    public static final int BORDER      = 0x14000000;   // 8% 黑，极细描边
-    public static final int FIELD       = 0xFFF5F6F8;   // 输入框底
-    public static final int FIELD_FOCUS = 0xFFEDEFF3;
-    public static final int BTN         = 0xFFF3F4F6;   // 次按钮底
-    public static final int BTN_PRESS   = 0xFFE8EAEE;
-    public static final int ACCENT      = 0xFF4D6BFE;   // 品牌蓝
-    public static final int ACCENT_DARK = 0xFF3D59E8;
+    /**
+     * 当前是否深色模式。
+     *
+     * <p><b>颜色为什么是方法而不是常量：</b>{@code public static final int} 是
+     * **编译期常量**，javac 会把值直接内联进每一处调用点 —— 运行时改这个字段
+     * 对已编译的代码完全无效（切主题后界面仍是旧配色）。改成方法后取值发生在
+     * 运行时，**重新创建界面即可切换主题，不必重启进程**。
+     *
+     * <p>用 {@code volatile}：主题在 {@code onCreate} 里定下，
+     * 后台线程也可能构建视图，需要保证可见性。
+     */
+    private static volatile boolean dark;
 
-    public static final int TEXT        = 0xFF1F2329;   // 主文字
-    public static final int TEXT_2      = 0xFF6B7280;   // 次要
-    public static final int TEXT_3      = 0xFF9CA3AF;   // 弱化
-    public static final int ON_ACCENT   = 0xFFFFFFFF;
+    /** 当前是否深色模式（供宿主决定系统栏图标明暗等）。 */
+    public static boolean isDark() { return dark; }
+
+    /**
+     * 从系统深色模式解析主题。
+     *
+     * <p><b>必须在任何 DshUi 组件创建之前调用。</b>视图在创建时就把颜色取走了，
+     * 调用晚了会有一部分组件停留在旧主题上（深浅混杂比全浅色更难看）。
+     */
+    public static void applyTheme(Context c) {
+        if (c == null) return;
+        boolean d = false;
+        try {
+            int mode = c.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            d = (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES);
+        } catch (Throwable ignored) { }
+        dark = d;
+    }
+
+    // 深色值直接取自 DSH 前端的深色设计令牌（@deepseek-ai/dsh-client-ui-theme），
+    // 不是照着浅色值调出来的近似色；浅色值保持原有取值不变。
+    public static int BG()          { return dark ? 0xFF151517 : 0xFFF7F8FA; }  // --dsw-alias-bg-base
+    public static int CARD()        { return dark ? 0xFF232324 : 0xFFFFFFFF; }  // --dsw-alias-bg-layer-1
+    public static int BORDER()      { return dark ? 0x0FFFFFFF : 0x14000000; }  // --dsw-alias-border-l1
+    public static int FIELD()       { return dark ? 0xFF2C2C2E : 0xFFF5F6F8; }  // --dsw-alias-bg-layer-2
+    public static int FIELD_FOCUS() { return dark ? 0xFF353638 : 0xFFEDEFF3; }  // --dsw-alias-bg-layer-3
+    public static int BTN()         { return dark ? 0xFF2C2C2E : 0xFFF3F4F6; }  // --dsw-alias-bg-layer-2
+    public static int BTN_PRESS()   { return dark ? 0xFF353638 : 0xFFE8EAEE; }  // --dsw-alias-bg-layer-3
+    public static int ACCENT()      { return dark ? 0xFF6B85FF : 0xFF4D6BFE; }  // 品牌蓝（深色下提亮）
+    public static int ACCENT_DARK() { return dark ? 0xFF5A73F0 : 0xFF3D59E8; }  // 品牌蓝按下
+    public static int TEXT()        { return dark ? 0xFFF9FAFB : 0xFF1F2329; }  // --dsw-alias-label-primary
+    public static int TEXT_2()      { return dark ? 0xFFCFD3D6 : 0xFF6B7280; }  // --dsw-alias-label-secondary
+    public static int TEXT_3()      { return dark ? 0xFFADB2B8 : 0xFF9CA3AF; }  // --dsw-alias-label-tertiary
+    public static int ON_ACCENT()   { return 0xFFFFFFFF; }   // 品牌蓝底上的白字，两套主题一致
 
     private DshUi() { }
 
@@ -63,18 +104,30 @@ public final class DshUi {
         return d;
     }
 
-    /** 卡片背景：白底 + 极细描边 + 大圆角。 */
+    /** 卡片背景：卡片底色 + 极细描边 + 大圆角（深浅色各自取令牌）。 */
     public static GradientDrawable cardBg(Context c) {
-        return round(CARD, BORDER, dp(c, 16), dp(c, 1));
+        return round(CARD(), BORDER(), dp(c, 16), dp(c, 1));
     }
 
     /** 输入框背景（含按下态）。 */
     public static StateListDrawable fieldBg(Context c) {
         StateListDrawable s = new StateListDrawable();
         s.addState(new int[]{android.R.attr.state_focused},
-                round(FIELD_FOCUS, BORDER, dp(c, 10), dp(c, 1)));
-        s.addState(new int[]{}, round(FIELD, BORDER, dp(c, 10), dp(c, 1)));
+                round(FIELD_FOCUS(), BORDER(), dp(c, 10), dp(c, 1)));
+        s.addState(new int[]{}, round(FIELD(), BORDER(), dp(c, 10), dp(c, 1)));
         return s;
+    }
+
+    /**
+     * 主按钮禁用态的填充色。
+     *
+     * <p>浅色沿用原有取值（改动浅色是回归风险，且本次任务只要求深色）；
+     * 深色取 DSH 的 {@code --dsw-alias-button-primary-dimmed}（#43454A）。
+     * 不这么做的后果很具体：深色下禁用按钮会是「浅底 + 白字」，
+     * 而 {@code setBusy} 在下载/安装/保存期间正是靠禁用态表达「正在忙」。
+     */
+    private static int disabledFill() {
+        return dark ? 0xFF43454A : 0xFFBAC5F7;
     }
 
     /** 按钮背景（主/次 + 按下态 + **禁用态**）。 */
@@ -84,16 +137,18 @@ public final class DshUi {
         // 原来这里只有 pressed / 默认两态，setEnabled(false) 与可用状态
         // **像素级完全相同** —— 用户点了没反应只会以为卡死。
         // 这也是项目里几乎没人用「忙碌期禁用」这种写法的原因。
+        // 次按钮的禁用底用页面底色令牌：浅色下与原值 0xFFF7F8FA 完全相同，
+        // 深色下比卡片更暗，天然读作「凹陷/不可用」。
         s.addState(new int[]{-android.R.attr.state_enabled},
-                round(primary ? 0xFFBAC5F7 : 0xFFF7F8FA, 0, dp(c, 10), 0));
+                round(primary ? disabledFill() : BG(), 0, dp(c, 10), 0));
         if (primary) {
             s.addState(new int[]{android.R.attr.state_pressed},
-                    round(ACCENT_DARK, 0, dp(c, 10), 0));
-            s.addState(new int[]{}, round(ACCENT, 0, dp(c, 10), 0));
+                    round(ACCENT_DARK(), 0, dp(c, 10), 0));
+            s.addState(new int[]{}, round(ACCENT(), 0, dp(c, 10), 0));
         } else {
             s.addState(new int[]{android.R.attr.state_pressed},
-                    round(BTN_PRESS, 0, dp(c, 10), 0));
-            s.addState(new int[]{}, round(BTN, 0, dp(c, 10), 0));
+                    round(BTN_PRESS(), 0, dp(c, 10), 0));
+            s.addState(new int[]{}, round(BTN(), 0, dp(c, 10), 0));
         }
         return s;
     }
@@ -104,7 +159,7 @@ public final class DshUi {
         TextView tv = new TextView(c);
         tv.setText(text);
         tv.setTextSize(17f);
-        tv.setTextColor(TEXT);
+        tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         return tv;
     }
@@ -114,7 +169,7 @@ public final class DshUi {
         TextView tv = new TextView(c);
         tv.setText(text);
         tv.setTextSize(13f);
-        tv.setTextColor(TEXT);
+        tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         return tv;
     }
@@ -124,7 +179,7 @@ public final class DshUi {
         TextView tv = new TextView(c);
         tv.setText(text);
         tv.setTextSize(12.5f);
-        tv.setTextColor(TEXT_2);
+        tv.setTextColor(TEXT_2());
         return tv;
     }
 
@@ -133,7 +188,7 @@ public final class DshUi {
         TextView tv = new TextView(c);
         tv.setText(text);
         tv.setTextSize(11.5f);
-        tv.setTextColor(TEXT_3);
+        tv.setTextColor(TEXT_3());
         tv.setLineSpacing(dp(c, 2), 1f);
         return tv;
     }
@@ -143,22 +198,22 @@ public final class DshUi {
         TextView tv = new TextView(c);
         tv.setText(text);
         tv.setTextSize(11.5f);
-        tv.setTextColor(TEXT_2);
+        tv.setTextColor(TEXT_2());
         tv.setLineSpacing(dp(c, 2), 1f);
         return tv;
     }
 
-    /** 输入框：浅灰圆角底、无下划线、内边距舒适。 */
+    /** 输入框：浅灰圆角底、无下划线、内边距舒适（配色随主题）。 */
     public static EditText input(Context c, String value, boolean secret) {
         EditText et = new EditText(c);
         et.setText(value == null ? "" : value);
         et.setTextSize(14f);
-        et.setTextColor(TEXT);
+        et.setTextColor(TEXT());
         et.setSingleLine(true);
         et.setBackground(fieldBg(c));
         int ph = dp(c, 12), pv = dp(c, 10);
         et.setPadding(ph, pv, ph, pv);
-        et.setHintTextColor(TEXT_3);
+        et.setHintTextColor(TEXT_3());
         if (secret) {
             et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                     | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
@@ -172,7 +227,7 @@ public final class DshUi {
         b.setText(text);
         b.setTextSize(13.5f);
         b.setAllCaps(false);
-        b.setTextColor(primary ? ON_ACCENT : TEXT);
+        b.setTextColor(primary ? ON_ACCENT() : TEXT());
         b.setBackground(buttonBg(c, primary));
         // 清掉主题可能附加的背景着色（backgroundTint）——
         // 否则 setBackground 设的颜色会被 tint 覆盖，
@@ -201,7 +256,7 @@ public final class DshUi {
     public static void setButtonActive(Button b, boolean primary) {
         if (b == null) return;
         b.setBackground(buttonBg(b.getContext(), primary));
-        b.setTextColor(primary ? ON_ACCENT : TEXT);
+        b.setTextColor(primary ? ON_ACCENT() : TEXT());
     }
 
     /**
@@ -233,7 +288,7 @@ public final class DshUi {
      */
     public static GradientDrawable surfaceBg(Context c) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(FIELD);
+        d.setColor(FIELD());
         d.setCornerRadius(dp(c, 10));
         return d;
     }
@@ -250,7 +305,7 @@ public final class DshUi {
         android.graphics.drawable.ShapeDrawable line =
                 new android.graphics.drawable.ShapeDrawable(
                         new android.graphics.drawable.shapes.RectShape());
-        line.getPaint().setColor(BORDER);
+        line.getPaint().setColor(BORDER());
         line.setIntrinsicHeight(Math.max(1, dp(c, 1)));
         int inset = dp(c, 14);
         return new android.graphics.drawable.InsetDrawable(line, inset, 0, inset, 0);
@@ -264,7 +319,7 @@ public final class DshUi {
     public static StateListDrawable rowBg(Context c) {
         StateListDrawable d = new StateListDrawable();
         GradientDrawable press = new GradientDrawable();
-        press.setColor(BTN_PRESS);
+        press.setColor(BTN_PRESS());
         press.setCornerRadius(dp(c, 8));
         GradientDrawable normal = new GradientDrawable();
         normal.setColor(0x00000000);

@@ -180,7 +180,7 @@ public final class ConfigBackupPanel {
         TextView name = new TextView(act);
         name.setText(f.getName().replace("dsh-config-", "").replace(".zip", ""));
         name.setTextSize(12.5f);
-        name.setTextColor(DshUi.TEXT);
+        name.setTextColor(DshUi.TEXT());
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         row.addView(name, new LinearLayout.LayoutParams(
@@ -189,7 +189,7 @@ public final class ConfigBackupPanel {
         TextView meta = new TextView(act);
         meta.setText(ConfigBackup.describe(f));
         meta.setTextSize(10.5f);
-        meta.setTextColor(DshUi.TEXT_3);
+        meta.setTextColor(DshUi.TEXT_3());
         meta.setSingleLine(true);
         meta.setGravity(Gravity.END);
         row.addView(meta, new LinearLayout.LayoutParams(
