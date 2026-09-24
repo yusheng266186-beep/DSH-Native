@@ -11,8 +11,19 @@
 set -euo pipefail
 
 BUILD="${1:?用法: ci_stage.sh <构建目录>}"
-PREV_TAG="${PREV_TAG:-v0.23.3-bootstrap}"
 REPO="${REPO:-yusheng266186-beep/DSH-Native}"
+
+# 内置负载从**最新一个已发布版本**的 APK 里取。
+# 不写死某个 tag：node 与那 10 个 .so 会随运行包一起升级，
+# 写死之后一旦升级，构建会继续用旧二进制而**毫无提示** ——
+# 正是这个项目反复出现的那类静默失败。
+PREV_TAG="${PREV_TAG:-}"
+if [ -z "$PREV_TAG" ]; then
+    PREV_TAG="$(curl -sSL --max-time 30 \
+        "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+        | python3 -c "import json,sys;print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)"
+fi
+[ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag（可用 PREV_TAG=vX.Y.Z-bootstrap 指定）"; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 [ -n "$ANDROID_HOME" ] || { echo "[FAIL] 缺少 ANDROID_HOME"; exit 1; }
