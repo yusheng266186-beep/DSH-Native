@@ -1,7 +1,7 @@
 {
-  "version": "0.23.2",
-  "tag": "v0.23.2-bootstrap",
+  "version": "0.23.3",
+  "tag": "v0.23.3-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "撤回对外链的过度拦截（误判 ERR_CONNECTION_CLOSED）"
+  "notes": "修国内网络下卡在准备运行环境（本地完整性判断路径写错）"
 }

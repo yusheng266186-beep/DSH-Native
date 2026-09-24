@@ -1548,8 +1548,18 @@ public class MainActivity extends Activity {
      */
     private boolean payloadLocallyComplete(File dshDir, File toolsDir) {
         try {
+            // node 来自 **APK 内置资源**，解压到 <root>/node —— 不在 tools 载荷里。
+            //
+            // 这里曾经写成 tools/bin/node，那个路径**永远不存在**，
+            // 于是这个判断永远返回 false，每次启动都走阻塞的网络检查。
+            // 网络好时看不出来；国内网络下拉清单会挂住，
+            // 表现为「一直卡在正在准备运行环境」。
+            if (!new File(appRoot, "node").isFile()) return false;
+            // DSH 本体在运行包里
             if (!new File(dshDir, "lib/bin.js").isFile()) return false;
-            if (!new File(toolsDir, "bin/node").isFile()) return false;
+            // 工具链：随便挑一个必然存在的（git 在 base 分片里）
+            if (!new File(toolsDir, "bin/git").exists()
+                    && !new File(toolsDir, "bin/bash").exists()) return false;
             return true;
         } catch (Throwable t) {
             return false;
@@ -2598,8 +2608,28 @@ public class MainActivity extends Activity {
     private boolean ensurePayload(File node, File root, File dshDir, File toolsDir)
             throws Exception {
         File mf = new File(root, "manifest.json");
+        // 清单下载放在后台线程里，设一个**总时限**。
+        // 国内网络下拉 GitHub 可能长时间无响应，而这一步在启动路径上 ——
+        // 不设限就会一直卡在「正在准备运行环境」。
+        // 超时后走「用上次缓存的清单」这条既有分支。
+        final java.util.concurrent.atomic.AtomicReference<Throwable> dlErr =
+                new java.util.concurrent.atomic.AtomicReference<Throwable>();
         try {
-            download("manifest.json", mf);
+        Thread dl = new Thread(new Runnable() {
+            @Override public void run() {
+                try { download("manifest.json", mf); }
+                catch (Throwable t) { dlErr.set(t); }
+            }
+        }, "manifest-fetch");
+        dl.setDaemon(true);
+        dl.start();
+        try { dl.join(20000); } catch (InterruptedException ie) { }
+        if (dl.isAlive()) {
+            dl.interrupt();
+            log("清单下载超时（20 秒），改用本地缓存");
+            throw new IOException("清单下载超时");
+        }
+        if (dlErr.get() != null) throw dlErr.get();
         } catch (Throwable t) {
             // 离线也要能启动：用上次缓存的清单
             if (!mf.exists()) {
@@ -4286,7 +4316,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.23.2\n");
+            w.write("APK 版本: 0.23.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
