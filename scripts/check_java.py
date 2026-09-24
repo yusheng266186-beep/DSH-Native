@@ -47,7 +47,7 @@ def main(argv):
         print("[FAIL] 找不到要检查的 java 文件")
         return 1
 
-    section(f"1/3 语法解析（{len(files)} 个文件）")
+    section(f"1/4 语法解析（{len(files)} 个文件）")
     try:
         import javalang
     except ImportError:
@@ -66,7 +66,7 @@ def main(argv):
         else:
             print(f"  [OK] {len(files)} 个文件解析通过")
 
-    section("2/3 跨类方法引用")
+    section("2/4 跨类方法引用")
     if not javalang:
         print("  [--] 需要 javalang，跳过")
     else:
@@ -88,7 +88,11 @@ def main(argv):
         else:
             print("  [OK] 全部跨类引用都能找到定义")
 
-    section("3/3 构建期闸门")
+    section("3/4 资源 XML")
+    if not check_resources():
+        failed.append("资源 XML 不合法")
+
+    section("4/4 构建期闸门")
     hits = []
     for name in PURE:
         p = os.path.join(SOURCES, name + ".java")
@@ -119,6 +123,30 @@ def main(argv):
     print("[OK] 全部本地核验通过（注意：这只覆盖语法与引用，"
           "类型层面的错误仍需 CI 的 javac）")
     return 0
+
+
+def check_resources():
+    """资源 XML 合法性。
+
+    加这一步的直接原因：values-night/colors.xml 的注释里写了 `--dsw-alias-...`，
+    而 XML 注释**不允许出现连续两个减号** —— aapt2 报 "not well-formed"，
+    构建直接失败。Java 检查完全覆盖不到资源，于是这个错误只能等 CI 发现。
+    """
+    import xml.dom.minidom
+    bad = 0
+    files = []
+    for root, _dirs, names in os.walk(os.path.join(ROOT, "icon", "res")):
+        files += [os.path.join(root, n) for n in names if n.endswith(".xml")]
+    for f in sorted(files):
+        try:
+            xml.dom.minidom.parse(f)
+        except Exception as e:
+            bad += 1
+            print(f"  [FAIL] {os.path.relpath(f, ROOT)}: {e}")
+    if bad:
+        return False
+    print(f"  [OK] {len(files)} 个资源 XML 合法")
+    return True
 
 
 if __name__ == "__main__":

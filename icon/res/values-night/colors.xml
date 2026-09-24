@@ -3,8 +3,10 @@
     <!--
       深色下的窗口底色。
 
-      值取自 DSH 网页自己的深色令牌 --dsw-alias-bg-base = #151517，
+      值取自 DSH 网页自己的深色令牌（dsw-alias-bg-base）= #151517，
       与 DshUi 的 BG() 保持一致 —— 否则启动窗口与界面之间会闪一下异色。
+
+      注意：XML 注释里不能出现连续两个减号，令牌名前缀已在注释中去掉。
     -->
     <color name="surface">#FF151517</color>
 </resources>
