@@ -40,6 +40,18 @@ import java.util.concurrent.Executors;
  *
  * <p>检测用 {@link HttpURLConnection}，与更新功能**同一条代码路径**，
  * 因此结果能直接反映更新是否可用。
+ *
+ * <h3>两轮检测不能混在一起</h3>
+ * 结果是一条条 append 到同一个容器的，而每轮开始时都会清屏。上一轮若还在跑
+ * （它的 {@code post} 会陆续到达消息队列），旧行就会在新一轮清屏之后追加进来，
+ * 两段结论也会互相覆盖 —— 显示哪一条取决于到达顺序。因此每轮取一个代际号，
+ * 投递时对比，旧轮的结果一律丢弃。
+ *
+ * <h3>关闭面板之后</h3>
+ * onDismiss 置 {@code closed} 标记并改用 {@code io.shutdown()}：
+ * {@code removeCallbacksAndMessages} 只能清掉当时已入队的消息，
+ * 清不掉后台线程此后新 post 的那个；而 {@code shutdownNow} 会排空
+ * 尚未开始的那一轮，让「重新检测」看起来毫无反应。
  */
 public final class NetworkDiag {
 
@@ -117,7 +129,7 @@ public final class NetworkDiag {
         slp.topMargin = DshUi.dp(act, 10);
         body.addView(scroll, slp);
 
-        Button rerun = DshUi.button(act, "重新检测", false);
+        final Button rerun = DshUi.button(act, "重新检测", false);
         Button close = DshUi.button(act, "关闭", true);
         final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, rerun, close), 820);
         close.setOnClickListener(new View.OnClickListener() {
@@ -126,9 +138,22 @@ public final class NetworkDiag {
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
+
+        // 关闭标记：面板关掉后，后台仍在跑的检测不该再往已经消失的视图里加行
+        final boolean[] closed = {false};
+
+        // 轮次代号：每轮检测开始时自增。旧的轮次可能还在同一个单线程池里跑，
+        // 它的 post 会与新的一轮交错到达 —— 不过滤就会出现「两轮结果同时渲染、
+        // 结论互相覆盖」。每个 post 回调都拿自己的代号和当前值比一下。
+        final int[] gen = {0};
+
         dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
             @Override public void onDismiss(android.content.DialogInterface d) {
-                io.shutdownNow();
+                closed[0] = true;
+                // shutdown 而不是 shutdownNow：shutdownNow 会**排空尚未开始**的任务，
+                // 用户在点下「重新检测」后立刻关掉面板时，那一轮就凭空消失了。
+                // shutdown 只停止接收新任务，已入队的照常跑完（结果因 closed 不上屏）。
+                io.shutdown();
                 ui.removeCallbacksAndMessages(null);
             }
         });
@@ -136,22 +161,30 @@ public final class NetworkDiag {
         final Runnable[] run = new Runnable[1];
         run[0] = new Runnable() {
             @Override public void run() {
+                final int my = ++gen[0];
                 results.removeAllViews();
                 summary.setText("正在检测…");
+                // 一轮检测有十几项网络请求（每项最长 8 秒），期间必须禁用并换文案：
+                // 能连点的话会排出好几轮，它们共用同一个结果容器，必然互相污染。
+                DshUi.setBusy(rerun, "重新检测", "检测中…", true);
                 DshUi.log("网络诊断开始");
                 io.execute(new Runnable() {
                     @Override public void run() {
+                        // 本轮所有界面更新都经它投递：把「面板是否已关」与
+                        // 「是否已被新一轮取代」两道判断收在一处，避免漏判
+                        final Round rd = new Round(ui, results, closed, gen, my);
                         final boolean[] state = new boolean[]{ false, false };  // 直连 / 镜像
                         final List<String> lines = new ArrayList<String>();
 
                         // ── DNS ──
-                        post(ui, results, sectionTitle(act, "DNS 解析"));
+                        rd.add(sectionTitle(act, "DNS 解析"));
                         for (String h : new String[]{ "cdn.jsdelivr.net", "fastly.jsdelivr.net",
                                 "raw.githubusercontent.com", "gh-proxy.com", "ghfast.top",
                                 "github.com" }) {
+                            if (stale(closed, gen, my)) return;
                             final String line = checkDns(h);
                             lines.add("DNS " + h + ": " + line);
-                            post(ui, results, row(act, h, line));
+                            rd.add(row(act, h, line));
                         }
 
                         // ── 版本清单源 ──
@@ -160,10 +193,12 @@ public final class NetworkDiag {
                         // 实测 jsDelivr 的 @main 分支缓存会停在几十个版本之前：
                         // 连通性完全正常（200），但数据是旧的。
                         // 只报「可用」会让人以为更新检测没问题，实际可能永远发现不了新版本。
-                        post(ui, results, sectionTitle(act, "版本清单源（含数据新鲜度）"));
+                        if (stale(closed, gen, my)) return;
+                        rd.add(sectionTitle(act, "版本清单源（含数据新鲜度）"));
                         int manifestOk = 0;
                         String bestVersion = null;
                         for (Target t : manifestTargets()) {
+                            if (stale(closed, gen, my)) return;
                             String fetched = fetchVersion(t.url);
                             final String line;
                             if (fetched == null) {
@@ -174,14 +209,16 @@ public final class NetworkDiag {
                                 line = "返回 " + fetched;
                             }
                             lines.add("清单 " + t.label + ": " + line);
-                            post(ui, results, row(act, t.label, line));
+                            rd.add(row(act, t.label, line));
                         }
 
                         // ── 下载源（含测速）──
-                        post(ui, results, sectionTitle(act, "下载源（测速 512 KB）"));
+                        if (stale(closed, gen, my)) return;
+                        rd.add(sectionTitle(act, "下载源（测速 512 KB）"));
                         int dlOk = 0;
                         final Target[] dls = downloadTargets(apkUrl);
                         for (int i = 0; i < dls.length; i++) {
+                            if (stale(closed, gen, my)) return;
                             final Target t = dls[i];
                             final boolean[] speed = new boolean[]{ true };
                             final String line = checkHttp(t, true, speed);
@@ -191,13 +228,14 @@ public final class NetworkDiag {
                                 else state[1] = true;              // 镜像
                             }
                             lines.add("下载 " + t.label + ": " + line);
-                            post(ui, results, row(act, t.label, line));
+                            rd.add(row(act, t.label, line));
                         }
 
                         // ── 环境变量 ──
-                        post(ui, results, sectionTitle(act, "代理环境变量"));
+                        if (stale(closed, gen, my)) return;
+                        rd.add(sectionTitle(act, "代理环境变量"));
                         final String proxy = describeProxy();
-                        post(ui, results, row(act, "http_proxy / https_proxy", proxy));
+                        rd.add(row(act, "http_proxy / https_proxy", proxy));
                         lines.add("代理: " + proxy);
 
                         // ── 结论 ──
@@ -210,7 +248,7 @@ public final class NetworkDiag {
                             if (best != null) {
                                 final String tip = "提醒：各源返回的最高版本为 " + best
                                         + "。更新逻辑取所有源中的最高值，因此不受单个源缓存陈旧影响。";
-                                ui.post(new Runnable() {
+                                rd.post(new Runnable() {
                                     @Override public void run() {
                                         results.addView(DshUi.hint(act, tip));
                                     }
@@ -223,13 +261,16 @@ public final class NetworkDiag {
                         } else {
                             verdict = "网络不可用：请检查 WiFi / 移动数据 / VPN";
                         }
-                        ui.post(new Runnable() {
+                        rd.post(new Runnable() {
                             @Override public void run() {
                                 summary.setText(verdict);
                                 TextView v = DshUi.hint(act, "结论：" + verdict);
                                 v.setTextColor(DshUi.TEXT);
                                 v.setPadding(0, DshUi.dp(act, 14), 0, 0);
                                 results.addView(v);
+                                // 只有最新一轮能恢复按钮：被取代的那一轮，
+                                // 它的这条回调在 Round 里就已经被丢掉了
+                                DshUi.setBusy(rerun, "重新检测", "检测中…", false);
                             }
                         });
                         for (String l : lines) DshUi.log("  " + l);
@@ -366,10 +407,56 @@ public final class NetworkDiag {
 
     // ---------------------------------------------------------------- 界面小件
 
-    private static void post(Handler ui, final LinearLayout box, final View v) {
-        ui.post(new Runnable() {
-            @Override public void run() { box.addView(v); }
-        });
+    /**
+     * 本轮是否已经作废（面板已关 / 已被新一轮取代）。
+     *
+     * <p>后台线程读这两个标记属于「尽力而为」：它们没有同步，可能晚一点才可见。
+     * 正确性由 {@link Round#post} 在**主线程**上的判断保证 ——
+     * 这里只是提前收工，省掉后面几项各带 8 秒超时的无用请求。
+     */
+    private static boolean stale(boolean[] closed, int[] gen, int my) {
+        return closed[0] || my != gen[0];
+    }
+
+    /**
+     * 一轮检测的投递器。
+     *
+     * <p>把「面板是否已关」与「是否已被新一轮取代」这两道判断收在一处：
+     * 原先每个调用点各自 {@code ui.post}，判断散落（等于没有），
+     * 漏一处就会继续往已经清空、甚至已经消失的容器里加行。
+     */
+    private static final class Round {
+        private final Handler ui;
+        private final LinearLayout box;
+        private final boolean[] closed;
+        private final int[] gen;
+        private final int my;
+
+        Round(Handler ui, LinearLayout box, boolean[] closed, int[] gen, int my) {
+            this.ui = ui;
+            this.box = box;
+            this.closed = closed;
+            this.gen = gen;
+            this.my = my;
+        }
+
+        /** 本轮仍有效时，把这一行追加到结果区。 */
+        void add(final View v) {
+            post(new Runnable() {
+                @Override public void run() { box.addView(v); }
+            });
+        }
+
+        /** 本轮仍有效时，执行一段界面更新（结论区用）。 */
+        void post(final Runnable job) {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    if (closed[0]) return;      // 面板已关：视图已不存在
+                    if (my != gen[0]) return;   // 已被新一轮取代：旧轮结果一律丢弃
+                    job.run();
+                }
+            });
+        }
     }
 
     private static View sectionTitle(Activity act, String text) {

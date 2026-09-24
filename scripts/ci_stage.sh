@@ -40,6 +40,9 @@ cp -r "$ROOT/src" "$BUILD/bootstrap/src"
 cp -r "$ROOT/payload" "$BUILD/bootstrap/payload"
 cp "$ROOT/scripts/release.keystore" "$BUILD/bootstrap/release.keystore"
 cp -r "$ROOT/tests" "$BUILD/tests"
+# scripts/ 也带上一份：构建期 3.46 的 emoji 红线检查要扫它
+# （那条红线此前只写在文档里、没有闸门，违例就出在 scripts/bump_version.sh）
+cp -r "$ROOT/scripts" "$BUILD/bootstrap/scripts"
 cp "$ROOT/scripts/mkmanifest.py" "$ROOT/scripts/mkzip.py" "$ROOT/scripts/run_tests.sh" "$BUILD/"
 cp -r "$ROOT/icon/res" "$BUILD/icon/res"
 echo "  源码 $(find "$BUILD/bootstrap/src" -name '*.java' | wc -l) 个 java 文件"

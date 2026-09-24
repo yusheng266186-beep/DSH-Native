@@ -43,6 +43,16 @@ import java.util.concurrent.Executors;
  *   <li><b>数值全部单行 + 末尾省略</b>，并把「$0.41 / $14」这种
  *       带分隔符的字符串交给等宽字体，避免数字宽度跳动。</li>
  * </ul>
+ *
+ * <h3>失败也要说清是什么失败</h3>
+ * 401/403（密钥失效）、429（限流）、超时、DNS 失败的处置方式完全不同，
+ * 因此 {@code get} 把 HTTP 状态码与错误类别一路带到界面上，
+ * 而不是把状态码只写进日志、界面上统一显示「读取失败」。
+ *
+ * <h3>关闭面板之后</h3>
+ * onDismiss 置 {@code closed} 标记并改用 {@code io.shutdown()} ——
+ * {@code removeCallbacksAndMessages} 只能清掉当时已入队的消息，
+ * 清不掉后台线程此后新 post 的那个。
  */
 public final class CommandCodePanel {
 
@@ -89,7 +99,7 @@ public final class CommandCodePanel {
         slp.topMargin = DshUi.dp(act, 8);
         body.addView(scroll, slp);
 
-        Button refresh = DshUi.button(act, "刷新", false);
+        final Button refresh = DshUi.button(act, "刷新", false);
         Button close = DshUi.button(act, "关闭", true);
 
         final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, refresh, close), 820);
@@ -99,9 +109,24 @@ public final class CommandCodePanel {
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
+
+        // 关闭标记。onDismiss 里的 removeCallbacksAndMessages 只能清掉**当时已入队**
+        // 的消息，清不掉后台线程此后新 post 的那个 —— 那会继续往已经消失的
+        // 容器里 addView。所以每个 post 回调都要自己看这个标记。
+        final boolean[] closed = {false};
+
+        // 读取代际。刷新按钮在读取期间被禁用，正常点不出第二轮；
+        // 但只要有第二轮开始，它的 removeAllViews() 就可能夹在上一轮
+        // 尚未执行的渲染回调之前 —— 旧数据会重新出现在清空后的容器里。
+        final int[] gen = {0};
+
         dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
             @Override public void onDismiss(android.content.DialogInterface d) {
-                io.shutdownNow();
+                closed[0] = true;
+                // shutdown 而不是 shutdownNow：shutdownNow 会**排空尚未开始**的任务 ——
+                // 那正是「点了刷新却什么都没发生」的来源。shutdown 只停止收新任务，
+                // 已入队的照常跑完（结果因 closed 不再上屏）。
+                io.shutdown();
                 ui.removeCallbacksAndMessages(null);
             }
         });
@@ -109,7 +134,11 @@ public final class CommandCodePanel {
         final Runnable[] load = new Runnable[1];
         load[0] = new Runnable() {
             @Override public void run() {
+                final int my = ++gen[0];
                 content.removeAllViews();
+                // 读取期间禁用并换文案：三个端点串行请求，最坏情况要等几十秒，
+                // 期间连点会把同一份读取排好几次队。
+                DshUi.setBusy(refresh, "刷新", "刷新中…", true);
                 final TextView loading = DshUi.hint(act, "正在读取…");
                 content.addView(loading, DshUi.fullWidth(act, 0));
 
@@ -119,29 +148,35 @@ public final class CommandCodePanel {
                         String creditsErr = null, subErr = null, usageErr = null;
 
                         // 三个端点各自独立：任何一个失败都不影响其它两块
-                        String creditsBody = get("/alpha/billing/credits", apiKey);
-                        String subBody = get("/alpha/billing/subscriptions", apiKey);
-                        String usageBody = get("/alpha/usage/summary", apiKey);
+                        final Fetch credits = get("/alpha/billing/credits", apiKey);
+                        final Fetch sub = get("/alpha/billing/subscriptions", apiKey);
+                        final Fetch usage = get("/alpha/usage/summary", apiKey);
 
-                        if (creditsBody == null) creditsErr = "读取失败";
+                        // 失败原因（HTTP 状态 / 超时 / DNS）一路带到界面上：
+                        // 401 是密钥失效、429 是限流、超时是网络 —— 处置方式完全不同，
+                        // 全压成一句「读取失败」等于把用户唯一能自助排查的线索丢掉。
+                        if (!credits.ok()) creditsErr = credits.error;
                         else {
-                            try { parseCredits(creditsBody, u); u.hasCredits = true; }
-                            catch (Throwable t) { creditsErr = "解析失败"; }
+                            try { parseCredits(credits.body, u); u.hasCredits = true; }
+                            catch (Throwable t) { creditsErr = "响应无法解析（API 可能已变更）"; }
                         }
-                        if (subBody == null) subErr = "读取失败";
+                        if (!sub.ok()) subErr = sub.error;
                         else {
-                            try { parseSubscription(subBody, u); u.hasSubscription = true; }
-                            catch (Throwable t) { subErr = "解析失败"; }
+                            try { parseSubscription(sub.body, u); u.hasSubscription = true; }
+                            catch (Throwable t) { subErr = "响应无法解析（API 可能已变更）"; }
                         }
-                        if (usageBody == null) usageErr = "读取失败";
+                        if (!usage.ok()) usageErr = usage.error;
                         else {
-                            try { parseUsage(usageBody, u); u.hasUsage = true; }
-                            catch (Throwable t) { usageErr = "解析失败"; }
+                            try { parseUsage(usage.body, u); u.hasUsage = true; }
+                            catch (Throwable t) { usageErr = "响应无法解析（API 可能已变更）"; }
                         }
 
                         final String e1 = creditsErr, e2 = subErr, e3 = usageErr;
                         ui.post(new Runnable() {
                             @Override public void run() {
+                                if (closed[0]) return;      // 面板已关：视图已不存在
+                                if (my != gen[0]) return;   // 已被新一轮取代：旧数据不上屏
+                                DshUi.setBusy(refresh, "刷新", "刷新中…", false);
                                 render(act, content, u, e1, e2, e3);
                             }
                         });
@@ -258,7 +293,7 @@ public final class CommandCodePanel {
         }
 
         if (allFailed) {
-            body_failHint(act, box);
+            body_failHint(act, box, mergeReason(creditsErr, subErr, usageErr));
         }
 
         DshUi.log("Command Code 用量: 套餐=" + u.planId + " 状态=" + u.status
@@ -268,14 +303,41 @@ public final class CommandCodePanel {
                 + " 请求=" + u.requestCount);
     }
 
-    /** 四个端点全失败时，给一个统一的原因判断（而不是四行一样的「失败」）。 */
-    private static void body_failHint(Activity act, LinearLayout box) {
-        box.addView(DshUi.hint(act,
-                "四个端点都不可用。可能原因：\n"
-              + "　· 密钥无效或已失效\n"
-              + "　· 服务端临时故障\n"
-              + "　· 网络不通（可先用「网络诊断」确认）"),
-                DshUi.fullWidth(act, 14));
+    /**
+     * 三个端点全失败时，给出统一的原因判断。
+     *
+     * <p>不再是三行一样的「读取失败」，而是**实际拿到的原因**加上按状态码
+     * 分类的排查方向 —— 用户能据此判断该换密钥、该等一会儿、还是该去查网络。
+     */
+    private static void body_failHint(Activity act, LinearLayout box, String reason) {
+        StringBuilder sb = new StringBuilder("三个端点都不可用。");
+        if (reason != null && reason.length() > 0) {
+            sb.append("实际原因：").append(reason).append("。");
+        }
+        sb.append("\n　· HTTP 401 / 403：密钥无效或已失效")
+          .append("\n　· HTTP 429：请求过于频繁，稍后再试")
+          .append("\n　· HTTP 5xx：服务端临时故障")
+          .append("\n　· 超时 / 域名解析失败：网络不通（可先用「网络诊断」确认）");
+        box.addView(DshUi.hint(act, sb.toString()), DshUi.fullWidth(act, 14));
+    }
+
+    /**
+     * 把三个端点的失败原因合成一句话。
+     *
+     * <p>同一原因只报一次：密钥失效时三个端点会返回一模一样的 401，
+     * 逐条列出来只会让这一行变成三遍重复。
+     */
+    private static String mergeReason(String e1, String e2, String e3) {
+        String[] all = new String[]{ e1, e2, e3 };
+        String[] label = new String[]{ "套餐", "额度", "用量" };
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < all.length; i++) {
+            if (all[i] == null || all[i].length() == 0) continue;
+            if (sb.indexOf(all[i]) >= 0) continue;
+            if (sb.length() > 0) sb.append("；");
+            sb.append(label[i]).append(" ").append(all[i]);
+        }
+        return sb.toString();
     }
 
     private static LinearLayout card(Activity act) {
@@ -425,8 +487,22 @@ public final class CommandCodePanel {
 
     // ================================================================ 网络与解析
 
-    /** 取一个端点；失败返回 null（由调用方降级，不抛异常）。 */
-    private static String get(String path, String key) {
+    /** 一次请求的结果：成功带正文，失败带**能直接展示给用户的原因**。 */
+    private static final class Fetch {
+        final String body;    // 成功时的响应正文；失败为 null
+        final String error;   // 失败原因（如「HTTP 401 · 密钥无效」）；成功为 null
+        Fetch(String body, String error) { this.body = body; this.error = error; }
+        boolean ok() { return body != null; }
+    }
+
+    /**
+     * 取一个端点。
+     *
+     * <p>失败不再只返回 null：调用方需要把**原因**带上界面。此前状态码只写进
+     * 日志，界面上只有一句没有信息量的「读取失败」—— 而密钥失效（401）、
+     * 限流（429）、网络超时对用户来说是完全不同的三件事，处置方式也不同。
+     */
+    private static Fetch get(String path, String key) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(API + path).openConnection();
@@ -435,9 +511,11 @@ public final class CommandCodePanel {
             c.setRequestProperty("Authorization", "Bearer " + key);
             c.setRequestProperty("Accept", "application/json");
             c.setRequestProperty("User-Agent", "DSH-Native");
-            if (c.getResponseCode() != 200) {
-                DshUi.log("Command Code " + path + " → HTTP " + c.getResponseCode());
-                return null;
+            int code = c.getResponseCode();
+            if (code != 200) {
+                String why = httpReason(code);
+                DshUi.log("Command Code " + path + " → HTTP " + code);
+                return new Fetch(null, why);
             }
             InputStream in = c.getInputStream();
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -445,14 +523,46 @@ public final class CommandCodePanel {
             int r;
             while ((r = in.read(buf)) > 0 && bos.size() < 262144) bos.write(buf, 0, r);
             in.close();
-            return bos.toString("UTF-8");
+            return new Fetch(bos.toString("UTF-8"), null);
         } catch (Throwable t) {
-            DshUi.log("Command Code " + path + " 失败: " + t.getClass().getSimpleName()
-                    + (t.getMessage() == null ? "" : " " + t.getMessage()));
-            return null;
+            String why = netReason(t);
+            DshUi.log("Command Code " + path + " 失败: " + why + " / " + t);
+            return new Fetch(null, why);
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    /** HTTP 状态码 → 用户能理解的原因（把可自助排查的信息留在界面上）。 */
+    private static String httpReason(int code) {
+        if (code == 401) return "HTTP 401 · 密钥无效";
+        if (code == 403) return "HTTP 403 · 无权访问该端点";
+        if (code == 404) return "HTTP 404 · 端点不存在（API 可能已变更）";
+        if (code == 429) return "HTTP 429 · 请求过于频繁，稍后再试";
+        if (code >= 500) return "HTTP " + code + " · 服务端故障";
+        return "HTTP " + code;
+    }
+
+    /**
+     * 网络异常 → 原因。
+     *
+     * <p>只取第一行并截断：异常文案可能很长（甚至带堆栈），
+     * 而它要显示在只有一行宽的说明区里。
+     */
+    private static String netReason(Throwable t) {
+        if (t instanceof java.net.SocketTimeoutException) {
+            return "超时（" + (TIMEOUT / 1000) + " 秒无响应）";
+        }
+        if (t instanceof java.net.UnknownHostException) return "域名解析失败";
+        if (t instanceof javax.net.ssl.SSLException) return "TLS 握手失败（可能被代理拦截）";
+        if (t instanceof java.net.ConnectException) return "连接被拒绝";
+        String m = t.getClass().getSimpleName();
+        String msg = t.getMessage();
+        if (msg != null && msg.length() > 0) {
+            int nl = msg.indexOf('\n');
+            m += " · " + (nl > 0 ? msg.substring(0, nl) : msg);
+        }
+        return m.length() > 60 ? m.substring(0, 60) + "…" : m;
     }
 
     static void parseCredits(String json, CommandCodeUsage u) throws Exception {

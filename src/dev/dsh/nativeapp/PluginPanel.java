@@ -20,6 +20,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 插件管理面板：查看、启用、安装。
@@ -43,8 +46,27 @@ import java.util.concurrent.Executors;
  *   <li>启用前必须确认插件**真的解析得到** —— 引用不存在的插件
  *       会让 DSH 整个启动失败。</li>
  * </ol>
+ *
+ * <h3>安装 = 在本机执行第三方代码，必须先问一句</h3>
+ * {@code npm install} 会执行包自带的 install / postinstall 脚本，
+ * 那是与本应用同权限的本机代码。因此安装前用 {@link DshUi#confirm} 让用户
+ * 看清「装的是什么、从哪来」，而不是点一下就静默执行。
+ *
+ * <h3>关掉面板 = 终止任务</h3>
+ * 面板关闭时依次做三件事：置 {@code closed} 标记（此后所有 {@code ui.post}
+ * 回调自行放弃，不再改已经消失的视图、也不再弹归属不明的提示）→
+ * 杀掉 npm 进程（否则它会带着 postinstall 继续联网、继续写 node_modules）→
+ * {@code io.shutdown()}（**不能**用 {@code shutdownNow}，它会排空尚未开始的任务）。
  */
 public final class PluginPanel {
+
+    /**
+     * npm 安装的总时限。
+     *
+     * <p>3 分钟：够慢速网络装完一个小插件，又能挡住「卡住不输出也不退出」的
+     * postinstall —— 没有时限时它会一直挂着，用户永远等不到结果。
+     */
+    private static final long INSTALL_TIMEOUT_MS = 180000L;
 
     private PluginPanel() { }
 
@@ -74,7 +96,8 @@ public final class PluginPanel {
         body.addView(DshUi.title(act, "插件"));
 
         final TextView hint = DshUi.hint(act,
-                "支持 npm 包名、GitHub 简写（owner/repo）与绝对路径。启用后需重启 App 生效。");
+                "支持 npm 包名、GitHub 简写（owner/repo）与绝对路径。"
+                + "安装会在本机执行该包的安装脚本，请只安装可信来源。启用后需重启 App 生效。");
         body.addView(hint, DshUi.fullWidth(act, 6));
 
         // ── 推荐（只放实测装得上的）──
@@ -93,8 +116,14 @@ public final class PluginPanel {
         spec.setSingleLine(true);
         body.addView(spec, DshUi.fullWidth(act, 10));
 
-        Button install = DshUi.button(act, "安装", false);
+        final Button install = DshUi.button(act, "安装", false);
         body.addView(install, DshUi.fullWidth(act, 6));
+
+        // 主按钮与推荐列表里的每个「安装」都要一起进入忙碌态：
+        // 之前只有主按钮被 setEnabled(false)，推荐项的按钮毫无变化 ——
+        // 第一个 npm 还在跑时点第二个，两次安装会并发写同一个 node_modules。
+        final List<Button> installButtons = new ArrayList<Button>();
+        installButtons.add(install);
 
         final LinearLayout listBox = new LinearLayout(act);
         listBox.setOrientation(LinearLayout.VERTICAL);
@@ -119,9 +148,32 @@ public final class PluginPanel {
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
+
+        // 关闭标记。onDismiss 里的 removeCallbacksAndMessages 只能清掉**当时已入队**
+        // 的消息，后台线程此后新 post 的回调照样会执行 —— 那会继续 setText/addView，
+        // 甚至在面板消失几秒后弹出「安装失败：null」。所以每个回调都要自己看这个标记。
+        final boolean[] closed = {false};
+
+        // npm 进程句柄。用 AtomicReference 而不是普通数组：它由后台线程写入、
+        // 由主线程（onDismiss）读取，两者之间没有 happens-before 边缘 ——
+        // 普通字段有可能读到 null，于是「关面板就杀进程」会静默失效。
+        final AtomicReference<Process> procRef = new AtomicReference<Process>();
+
         dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
             @Override public void onDismiss(android.content.DialogInterface d) {
-                io.shutdownNow();
+                closed[0] = true;
+                Process p = procRef.get();
+                if (p != null) {
+                    // 必须杀进程，而不只是中断线程：线程几乎总是阻塞在管道的
+                    // readLine() 上，而管道读**不可中断**。只关面板的话，
+                    // npm 与它的 postinstall 会继续联网下载、继续写 node_modules。
+                    killQuietly(p);
+                    DshUi.log("插件面板已关闭，已终止 npm 进程");
+                }
+                // shutdown 而不是 shutdownNow：shutdownNow 会**排空尚未开始**的任务，
+                // 用户看到的就是「点了没反应 —— 没提示、没日志、没异常」。
+                // shutdown 只停止接收新任务，已入队的照常跑完。
+                io.shutdown();
                 ui.removeCallbacksAndMessages(null);
             }
         });
@@ -168,36 +220,53 @@ public final class PluginPanel {
             }
         };
 
-        doInstall[0] = new Runnable() {
+        // 已校验、待确认的安装规格。校验放在确认**之前**：
+        // 确认框里要写清「解析后的包名与来源」，非法输入根本走不到确认这一步。
+        final String[] pending = new String[1];
+        final Runnable[] installNow = new Runnable[1];
+
+        // 真正执行安装（只在用户确认之后调用）
+        installNow[0] = new Runnable() {
             @Override public void run() {
-                String raw = spec.getText() == null ? "" : spec.getText().toString().trim();
-                String bad = PluginSpecs.validateSpec(raw);
-                if (bad != null) {
-                    DshUi.toast(act, bad);
-                    return;
+                final String name = pending[0];
+                // 面板已关或执行器已停：不再启动后台任务。
+                // 这里必须自己判 —— DshUi.confirm 会吞掉 onConfirm 的异常，
+                // 已 shutdown 的池提交任务抛 RejectedExecutionException，
+                // 表现就又回到「点了没反应」。
+                if (name == null || closed[0] || io.isShutdown()) return;
+
+                for (int i = 0; i < installButtons.size(); i++) {
+                    DshUi.setBusy(installButtons.get(i), "安装", "安装中…", true);
                 }
-                hint.setText("正在安装 " + raw + " …（可能需要一会儿）");
-                install.setEnabled(false);
-                final String name = raw;
+                hint.setText("正在安装 " + name + " …（可能需要一会儿）");
+
                 io.execute(new Runnable() {
                     @Override public void run() {
                         String m;
                         boolean ok = false;
                         try {
-                            String out = runNpmInstall(host, profileDir, name);
+                            String out = runNpmInstall(host, profileDir, name, procRef);
                             ok = true;
                             m = "已安装 " + name;
                             DshUi.log("插件安装成功: " + name + "\n" + out);
                         } catch (Throwable t) {
-                            m = "安装失败：" + t.getMessage();
+                            // getMessage() 可能是 null（线程被中断、进程被销毁等），
+                            // 直接拼接就会出现「安装失败：null」——
+                            // 那是用户唯一能看到的错误信息，必须有内容。
+                            m = "安装失败：" + errText(t);
                             DshUi.log("插件安装失败: " + name + " → " + t);
                         }
                         final String msg = m;
                         final boolean good = ok;
                         ui.post(new Runnable() {
                             @Override public void run() {
+                                // 面板已关：不再改它的视图，也不再弹归属不明的提示。
+                                // 日志在上面那段里已经记过，排查不受影响。
+                                if (closed[0]) return;
+                                for (int i = 0; i < installButtons.size(); i++) {
+                                    DshUi.setBusy(installButtons.get(i), "安装", "安装中…", false);
+                                }
                                 hint.setText(msg + (good ? "　请在下方列表中勾选启用" : ""));
-                                install.setEnabled(true);
                                 if (good) {
                                     spec.setText("");
                                     refresh[0].run();
@@ -206,6 +275,31 @@ public final class PluginPanel {
                             }
                         });
                     }
+                });
+            }
+        };
+
+        doInstall[0] = new Runnable() {
+            @Override public void run() {
+                final String raw = spec.getText() == null ? "" : spec.getText().toString().trim();
+                String bad = PluginSpecs.validateSpec(raw);
+                if (bad != null) {
+                    DshUi.toast(act, bad);
+                    return;
+                }
+                pending[0] = raw;
+                // npm install 会执行该包自带的 install / postinstall 脚本 ——
+                // 那是与本应用同权限的本机代码。装之前必须让用户看清装的是什么、
+                // 从哪来；推荐列表里的「安装」也走这里，不能因为「是我们推荐的」
+                // 就跳过确认（推荐项同样来自第三方仓库）。
+                String resolved = PluginSpecs.baseName(raw);
+                String body = "安装规格：" + raw + "\n"
+                        + "来源：" + describeSource(raw) + "\n"
+                        + (resolved.equals(raw) ? "" : "解析后的包名：" + resolved + "\n")
+                        + "安装过程会在本机执行该包自带的 install / postinstall 脚本，"
+                        + "脚本拥有与本应用相同的权限。请只安装可信来源。";
+                DshUi.confirm(act, "安装插件？", body, "安装", new Runnable() {
+                    @Override public void run() { installNow[0].run(); }
                 });
             }
         };
@@ -240,6 +334,7 @@ public final class PluginPanel {
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             final Button b = DshUi.toggleButton(act, "安装", false);
+            installButtons.add(b);
             b.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     spec.setText(r.spec);
@@ -310,9 +405,11 @@ public final class PluginPanel {
      *
      * <p>命令用**数组形式**传入（不经过 shell），参数已经过
      * {@link PluginSpecs#validateSpec} 校验。
+     *
+     * @param procRef 出参，回传进程句柄 —— 面板关闭时要能杀掉它
      */
-    private static String runNpmInstall(Host host, File profileDir, String spec)
-            throws Exception {
+    private static String runNpmInstall(Host host, File profileDir, String spec,
+                                       AtomicReference<Process> procRef) throws Exception {
         // 防御性检查：宿主引用可能尚未就绪（启动未完成）。
         // 明确抛出比 NPE 好 —— NPE 的信息对用户毫无意义。
         if (host.node() == null || host.toolsDir() == null || host.root() == null) {
@@ -348,20 +445,121 @@ public final class PluginPanel {
         pb.environment().put("npm_config_prefix", host.toolsDir().getAbsolutePath());
         pb.environment().put("LC_ALL", "C");
 
-        Process proc = pb.start();
-        StringBuilder out = new StringBuilder();
-        java.io.BufferedReader r = new java.io.BufferedReader(
-                new java.io.InputStreamReader(proc.getInputStream(), "UTF-8"));
-        String line;
-        while ((line = r.readLine()) != null) {
-            if (out.length() < 20000) out.append(line).append('\n');
+        final Process proc = pb.start();
+        // 立刻交给调用方：面板随时可能被关掉，句柄必须在那之前就可见
+        procRef.set(proc);
+
+        // 超时看门狗。
+        //
+        // 为什么不能只给 waitFor 加时限：线程绝大多数时间阻塞在 r.readLine() 上，
+        // 而管道读不可中断。npm 一旦卡在下载或 postinstall（既不再输出、也不退出），
+        // 读循环永远不会返回，waitFor 的时限根本轮不到执行。
+        // 所以从启动时刻起算，到点直接杀进程 —— 流一关，读循环自然退出。
+        final AtomicBoolean done = new AtomicBoolean(false);
+        final AtomicBoolean timedOut = new AtomicBoolean(false);
+        Thread watchdog = new Thread(new Runnable() {
+            @Override public void run() {
+                try { Thread.sleep(INSTALL_TIMEOUT_MS); }
+                catch (InterruptedException e) { return; }   // 正常结束时会打断它
+                if (done.get()) return;
+                timedOut.set(true);
+                DshUi.log("npm 安装超过 " + (INSTALL_TIMEOUT_MS / 1000) + " 秒，强制终止");
+                killQuietly(proc);
+            }
+        });
+        watchdog.setDaemon(true);
+        watchdog.start();
+
+        try {
+            StringBuilder out = new StringBuilder();
+            java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream(), "UTF-8"));
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (out.length() < 20000) out.append(line).append('\n');
+            }
+            r.close();
+
+            // 看门狗已经杀过的话这里会立刻返回；这一层时限只是兜底
+            // （例如孙进程仍持有管道，导致进程退出了但流没关）。
+            boolean exited;
+            try {
+                exited = proc.waitFor(30, TimeUnit.SECONDS);
+            } catch (Throwable t) {
+                // API 26 以下没有带时限的重载；此时读循环已退出，
+                // 且看门狗保证进程最迟在 INSTALL_TIMEOUT_MS 时被杀，不会真等死
+                proc.waitFor();
+                exited = true;
+            }
+            if (timedOut.get()) {
+                throw new Exception("npm 在 " + (INSTALL_TIMEOUT_MS / 1000)
+                        + " 秒内没有结束，已强制终止（可能是网络过慢或安装脚本卡住）\n"
+                        + tail(out.toString(), 300));
+            }
+            if (!exited) {
+                killQuietly(proc);
+                throw new Exception("输出已结束但 npm 进程 30 秒内未退出，已强制终止\n"
+                        + tail(out.toString(), 300));
+            }
+            int code = proc.exitValue();
+            if (code != 0) {
+                throw new Exception("npm 退出码 " + code + "\n" + tail(out.toString(), 300));
+            }
+            return tail(out.toString(), 200);
+        } finally {
+            done.set(true);
+            watchdog.interrupt();
+            // 句柄清空：安装已结束，面板再关闭时不必（也不该）去杀一个旧进程
+            procRef.compareAndSet(proc, null);
         }
-        r.close();
-        int code = proc.waitFor();
-        if (code != 0) {
-            throw new Exception("npm 退出码 " + code + "\n" + tail(out.toString(), 300));
+    }
+
+    /**
+     * 尽力终止进程。
+     *
+     * <p>{@code destroyForcibly()} 从 API 26 才有，低版本上会抛
+     * {@code NoSuchMethodError} —— 那是 Error，不接住就会把整个后台线程带走，
+     * 用户只看到「安装中…」永远停在那里。回退到 {@code destroy()}。
+     */
+    private static void killQuietly(Process p) {
+        if (p == null) return;
+        try {
+            p.destroyForcibly();
+        } catch (Throwable t) {
+            try { p.destroy(); } catch (Throwable ignored) { }
         }
-        return tail(out.toString(), 200);
+    }
+
+    /**
+     * 异常文案。
+     *
+     * <p>{@code getMessage()} 为 null 时退化到异常类名：中断、进程被销毁这类
+     * 情况下 message 就是 null，直接拼接只会得到「安装失败：null」。
+     */
+    private static String errText(Throwable t) {
+        if (t == null) return "未知错误";
+        String msg = t.getMessage();
+        if (msg == null || msg.trim().length() == 0) return t.getClass().getSimpleName();
+        return msg;
+    }
+
+    /**
+     * 这个规格会从哪里取包 —— 二次确认的正文必须写清来源。
+     *
+     * <p>只写「将执行安装脚本」而不写来源，用户无从判断是否可信；
+     * 而「npm 包名」与「GitHub 仓库」的可信度判断方式完全不同。
+     */
+    private static String describeSource(String spec) {
+        if (spec.startsWith("/")) return "本地路径（不联网，但脚本照常执行）";
+        if (spec.startsWith("http://") || spec.startsWith("https://")
+                || spec.startsWith("git+") || spec.startsWith("git://")
+                || spec.startsWith("ssh://") || spec.startsWith("github:")
+                || spec.startsWith("gitlab:") || spec.startsWith("bitbucket:")) {
+            return "远程 git 仓库（" + spec + "）";
+        }
+        // owner/repo 简写。npm 包名不含 /，除非是 @scope/name（以 @ 开头）
+        if (spec.indexOf('/') > 0 && !spec.startsWith("@")) return "GitHub 仓库 " + spec;
+        return "npm registry（registry.npmjs.org）";
     }
 
     private static String tail(String s, int n) {

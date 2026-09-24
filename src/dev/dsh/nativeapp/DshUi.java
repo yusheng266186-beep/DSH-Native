@@ -77,9 +77,15 @@ public final class DshUi {
         return s;
     }
 
-    /** 按钮背景（主/次 + 按下态）。 */
+    /** 按钮背景（主/次 + 按下态 + **禁用态**）。 */
     public static StateListDrawable buttonBg(Context c, boolean primary) {
         StateListDrawable s = new StateListDrawable();
+        // 禁用态必须放最前面，否则永远轮不到它。
+        // 原来这里只有 pressed / 默认两态，setEnabled(false) 与可用状态
+        // **像素级完全相同** —— 用户点了没反应只会以为卡死。
+        // 这也是项目里几乎没人用「忙碌期禁用」这种写法的原因。
+        s.addState(new int[]{-android.R.attr.state_enabled},
+                round(primary ? 0xFFBAC5F7 : 0xFFF7F8FA, 0, dp(c, 10), 0));
         if (primary) {
             s.addState(new int[]{android.R.attr.state_pressed},
                     round(ACCENT_DARK, 0, dp(c, 10), 0));
@@ -173,7 +179,11 @@ public final class DshUi {
         // 导致「切回次按钮样式却仍显示主按钮色」这类不一致。
         try { b.setBackgroundTintList(null); } catch (Throwable ignored) { }
         b.setPadding(dp(c, 16), dp(c, 11), dp(c, 16), dp(c, 11));
-        b.setMinimumHeight(0);
+        // 触摸目标下限。原来 setMinimumHeight(0) 之后按钮实际高约 38dp，
+        // 低于 Android 无障碍建议的 48dp；6.8 寸屏单手操作容易点错。
+        // （setMinimumHeight(0) 的作用是清掉 Material 主题的默认值，必须保留，
+        //   但清完要设回一个合理的下限，而不是放任成 0。）
+        b.setMinimumHeight(dp(c, 44));
         b.setMinimumWidth(0);
         try {
             b.setStateListAnimator(null);      // 去掉 Material 的抬升动画
@@ -409,6 +419,15 @@ public final class DshUi {
         Window w = d.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0x00000000));
+            // 对话框出现/消失的过渡。
+            //
+            // 全项目的对话框都从 buildDialog 出来，所以**改这一处 = 全站生效**。
+            // 原来完全没有动画：卡片是"啪"地出现又"啪"地消失。
+            // 这是 App 里最高频的原生交互（设置页每次都要开），
+            // 零过渡正是"原生层显得生硬"的主要来源。
+            try {
+                w.getAttributes().windowAnimations = android.R.style.Animation_Dialog;
+            } catch (Throwable ignored) { }
             int screenW = c.getResources().getDisplayMetrics().widthPixels;
             int screenH = c.getResources().getDisplayMetrics().heightPixels;
             // 宽度：两侧各留 24dp，上限放宽到 720dp。
@@ -482,5 +501,55 @@ public final class DshUi {
         int pad = dp(c, 20);
         col.setPadding(pad, dp(c, 20), pad, dp(c, 8));
         return col;
+    }
+
+    // ---------------------------------------------------------------- 交互辅助
+    /**
+     * 危险操作的二次确认。
+     *
+     * <p>为什么要有统一入口：项目里破坏性操作的确认标准并不一致 ——
+     * 恢复配置有二次确认，而「安装插件」（会在本机执行该包的安装脚本）、
+     * 「清空日志」（一次点击就删掉跨会话的历史）、「重启服务」（会中断
+     * 正在跑的任务）都没有。标准不统一，用户就不知道哪些操作要小心。
+     *
+     * @param dangerLabel 确认按钮文案，用动词（如"删除""清空""重启"）
+     * @param onConfirm   用户确认后执行
+     */
+    public static void confirm(final Context c, String title, String body,
+                               String dangerLabel, final Runnable onConfirm) {
+        if (c == null) return;
+        LinearLayout box = paddedBody(c);
+        box.addView(DshUi.title(c, title));
+        if (body != null && body.length() > 0) {
+            box.addView(DshUi.hint(c, body), fullWidth(c, 8));
+        }
+        Button cancel = button(c, "取消", false);
+        Button ok = button(c, dangerLabel == null ? "确定" : dangerLabel, true);
+        final android.app.Dialog d = dialog(c, box, footer(c, cancel, ok), 400);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { d.dismiss(); }
+        });
+        ok.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                d.dismiss();
+                if (onConfirm != null) {
+                    try { onConfirm.run(); } catch (Throwable ignored) { }
+                }
+            }
+        });
+        d.show();
+    }
+
+    /**
+     * 把按钮切成「忙碌」外观：禁用 + 换文案，结束后恢复。
+     *
+     * <p>配合 {@link #buttonBg} 新增的禁用态才有意义 —— 否则禁用是不可见的。
+     * 没有这个的话，长任务（下载、安装插件、检测网络）期间按钮可以连点，
+     * 重复提交会排队跑好几遍。
+     */
+    public static void setBusy(Button b, CharSequence idle, CharSequence busy, boolean on) {
+        if (b == null) return;
+        b.setEnabled(!on);
+        b.setText(on ? busy : idle);
     }
 }

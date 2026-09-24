@@ -179,6 +179,25 @@ public class MainActivity extends Activity {
         // 这正是之前"无法上传文件"的真正原因。
         webView.setWebChromeClient(new android.webkit.WebChromeClient() {
             /**
+             * 顶部加载进度条。
+             *
+             * <p>WebView 没有原生 chrome，页面导航（旋转后重载、断连自动刷新、
+             * DSH 内部路由切换）本来**全程没有任何反馈** —— 用户无法区分
+             * "正在加载"和"已经卡死"。页面内的导航进度对"感知速度"的提升
+             * 通常是最大的一笔。
+             */
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                final android.widget.ProgressBar pb = topProgress;
+                if (pb == null) return;
+                pb.setAlpha(1f);
+                pb.setProgress(newProgress);
+                if (newProgress >= 100) {
+                    pb.animate().alpha(0f).setDuration(260).start();
+                }
+            }
+
+            /**
              * 网页里的 alert / confirm / prompt 必须自己弹出来。
              *
              * <p>不实现会怎样（用户实际遇到）：DSH 点「归档会话」时会走
@@ -218,6 +237,12 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
+                    if (m.indexOf("[dsh-native] open-settings") >= 0) {
+                        log("手势：长按顶部 → 打开设置");
+                        showSettings();
+                        return true;
+                    }
                     // 任务事件单独分流：不写进日志（每 4 秒一次的轮询若都记，
                     // 日志会被刷爆），只用于通知判定
                     String[] ev = TaskNotifier.parseConsole(m);
@@ -441,6 +466,24 @@ public class MainActivity extends Activity {
         root.addView(webView, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 顶部加载进度条（2dp、品牌蓝）：WebView 唯一的加载反馈，见
+        // WebChromeClient.onProgressChanged 的说明。
+        topProgress = new android.widget.ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        try {
+            topProgress.getProgressDrawable().setColorFilter(
+                    DshUi.ACCENT, android.graphics.PorterDuff.Mode.SRC_IN);
+        } catch (Throwable ignored) { }
+        topProgress.setMax(100);
+        topProgress.setAlpha(0f);               // 空闲时完全不可见
+        android.widget.FrameLayout.LayoutParams progressLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        Math.max(2, DshUi.dp(this, 2)));
+        progressLp.gravity = android.view.Gravity.TOP;
+        progressLp.topMargin = statusBarHeight();   // 状态栏透明，内容延伸上去
+        root.addView(topProgress, progressLp);
 
 
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
@@ -1356,6 +1399,8 @@ public class MainActivity extends Activity {
     private volatile File workspace;
     private android.view.View splashView;
     private android.widget.TextView splashStatus;
+    /** 顶部 WebView 加载进度条（2dp）。 */
+    private android.widget.ProgressBar topProgress;
     private volatile boolean splashHidden;
     /** 通知栏「设置」动作带的标记。 */
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
@@ -1870,13 +1915,23 @@ public class MainActivity extends Activity {
         // 混在一起，根本分不清哪条是当前的。
         LogViewer.show(this, sharedLog, new Runnable() {
             @Override public void run() {
-                try {
-                    if (sharedLog != null && sharedLog.exists()) {
-                        writeText(sharedLog, "=== DSH Native 启动日志 ===\n");
+                // 清空日志是不可撤销的破坏性操作：这个文件跨多次启动累积，
+                // 而排查"应用内更新到底成功没有"这类跨会话问题全靠它。
+                // 一次误触就没了，所以先问一句。
+                DshUi.confirm(MainActivity.this, "清空运行日志？",
+                        "日志跨多次启动累积，清空后无法恢复。\n"
+                      + "排查跨会话的问题时会用到它。",
+                        "清空", new Runnable() {
+                    @Override public void run() {
+                        try {
+                            if (sharedLog != null && sharedLog.exists()) {
+                                writeText(sharedLog, "=== DSH Native 启动日志 ===\n");
+                            }
+                        } catch (Throwable t) {
+                            log("清空日志失败: " + t);
+                        }
                     }
-                } catch (Throwable t) {
-                    log("清空日志失败: " + t);
-                }
+                });
             }
         });
     }
@@ -2347,6 +2402,33 @@ public class MainActivity extends Activity {
           + "      }).catch(function(){});"
           + "  }catch(x){}"
           + "},5000);"
+          + "})();"
+          // 应用内设置入口：长按顶部区域 1.2 秒。
+          //
+          // 为什么需要：全屏 WebView 上**没有任何原生按钮**，设置页只能靠
+          // 通知栏动作或桌面图标长按快捷方式进入。而 MIUI 上"通知被关"很常见，
+          // 那时设置、日志、更新、插件、备份**全部不可达**。
+          // 用长按手势而不是放按钮：不会遮挡 DSH 自己的顶栏，也不会改变观感。
+          + ";(function(){"
+          + "if(window.__dshSettings)return;window.__dshSettings=1;"
+          + "var sx=0,sy=0,st=0;"
+          + "document.addEventListener('touchstart',function(e){"
+          + "  try{"
+          + "    var t=e.touches&&e.touches[0];if(!t)return;"
+          + "    sx=t.clientX;sy=t.clientY;st=Date.now();"
+          + "  }catch(x){}"
+          + "},true);"
+          + "document.addEventListener('touchend',function(e){"
+          + "  try{"
+          + "    if(!st)return;"
+          + "    var dt=Date.now()-st;st=0;"
+          + "    var t=(e.changedTouches&&e.changedTouches[0])||null;if(!t)return;"
+          + "    var moved=Math.abs(t.clientX-sx)+Math.abs(t.clientY-sy);"
+          // 顶部 56dp 内、按住超过 1.2 秒、手指基本没移动 —— 三个条件都要满足，
+          // 否则会和页面自己的滚动/长按操作打架
+          + "    if(sy<56&&dt>1200&&moved<20)console.log('[dsh-native] open-settings');"
+          + "  }catch(x){}"
+          + "},true);"
           + "})();"
           // 客户端异常捕获：这是我此前一直缺的一块。
           // fetch 包装只能看到「已发出的请求」，而纯客户端抛错（例如
@@ -3462,8 +3544,25 @@ public class MainActivity extends Activity {
                         String m = modelField.getText().toString().trim();
                         if (m.length() > 0) setScalar(settings, "model", m);
                         dlg.dismiss();
-                        toast("已保存，正在重启服务…");
-                        restartAgent();
+                        if (lastSessionStatus == SessionStatus.RUNNING
+                                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+                            // 正在跑任务时重启会**直接中断它** —— 必须问一句。
+                            // 原来这个按钮一点就走（nodeProcess.destroy()），
+                            // 正在生成的回答、正在跑的 shell 调用全丢。
+                            // 而 App 本来是知道运行状态的（lastSessionStatus）。
+                            DshUi.confirm(MainActivity.this,
+                                    "有任务正在运行",
+                                    "重启会中断当前正在执行的任务，确定要重启吗？",
+                                    "重启", new Runnable() {
+                                @Override public void run() {
+                                    toast("正在重启服务…");
+                                    restartAgent();
+                                }
+                            });
+                        } else {
+                            toast("已保存，正在重启服务…");
+                            restartAgent();
+                        }
                     } catch (Throwable t) {
                         toast("保存失败: " + t.getMessage());
                     }
@@ -3727,6 +3826,9 @@ public class MainActivity extends Activity {
         int id = getResources().getIdentifier(
                 "ic_launcher_foreground", "mipmap", getPackageName());
         if (id > 0) logo.setImageResource(id);
+        // 鲸鱼是纯装饰：让读屏跳过它，而不是念出一个无意义的图标名
+        logo.setImportantForAccessibility(
+                android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int boxSize = (int) (196 * d);          // 前景里鲸鱼约占 58%，故视图取得大些
         col.addView(logo, new android.widget.LinearLayout.LayoutParams(boxSize, boxSize));
 
@@ -3763,6 +3865,10 @@ public class MainActivity extends Activity {
         splashStatus.setText("正在启动 DeepSeek Harness");
         splashStatus.setTextColor(0xFF6B7280);
         splashStatus.setTextSize(13.5f);
+        // 启动进度对读屏用户必须能听到（"正在下载运行包 40%"这类变化），
+        // 否则整个启动过程对他们是一片沉默。
+        splashStatus.setAccessibilityLiveRegion(
+                android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE);
         android.widget.LinearLayout.LayoutParams tlp =
                 new android.widget.LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT,

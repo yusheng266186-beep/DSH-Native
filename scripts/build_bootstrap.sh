@@ -160,6 +160,20 @@ for f in $PURE_FILES; do
 done
 echo "  [OK] 纯逻辑层无 Android 依赖（$(basename -a $PURE_FILES | tr '\n' ' '))"
 
+# ---------------------------------------------------------------- 3.46 emoji 红线
+# AGENTS.md 把「源码、脚本、注释里不能出现 emoji」列为红线，并声称
+# 「构建脚本里有检查」—— 但实际上那个检查**从未存在**，
+# 于是这条红线挂了三天、两处违例没人发现（PluginSpecs.java / bump_version.sh）。
+# 现在把它真正接上：命中即构建失败。
+say "3.46 emoji 红线检查"
+emoji_hits=$(grep -rnP '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}]' \
+    "$BOOT/src" "$BOOT/payload" "$BOOT/scripts" 2>/dev/null | head -5 || true)
+if [ -n "$emoji_hits" ]; then
+  echo "$emoji_hits" | sed 's/^/    /'
+  die "源码/脚本里不允许出现 emoji（见 AGENTS.md 红线）"
+fi
+echo "  [OK] 无 emoji"
+
 # ---------------------------------------------------------------- 3.5 UI 规范
 # 强制检查：原生界面必须走 DshUi 组件层，禁止系统默认样式
 # （见 docs/DESIGN.md —— 用户要求原生 UI 与 DSH 视觉统一，此约束长期有效）
