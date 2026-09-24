@@ -63,9 +63,20 @@ unzip -q -o "$TMP/prev.apk" 'assets/payload/*' -d "$TMP/x"
 [ -f "$TMP/x/assets/payload/node" ] || { echo "[FAIL] APK 里没有 assets/payload/node"; exit 1; }
 cp "$TMP/x/assets/payload/node" "$BUILD/staging/data/data/com.termux/files/usr/bin/node"
 chmod +x "$BUILD/staging/data/data/com.termux/files/usr/bin/node"
-cp "$TMP/x/assets/payload/lib/"*.so "$BUILD/staging/lib/"
+# 注意：不能写 cp lib/*.so —— 这 10 个库的命名并不统一，
+# 有 libz.so.1 / libcrypto.so.3 / libicudata.so.78 这种带版本后缀的，
+# 用 *.so 通配只会匹配到 4 个，构建会在「缺少必需库」处失败（实测踩过）。
+cp -a "$TMP/x/assets/payload/lib/." "$BUILD/staging/lib/"
 echo "  node: $(du -h "$BUILD/staging/data/data/com.termux/files/usr/bin/node" | cut -f1)"
 echo "  共享库: $(ls "$BUILD/staging/lib" | wc -l) 个"
+
+# 早失败：把「缺库」暴露在这里，而不是等构建跑到一半才报
+REQUIRED="libz.so.1 libcares.so libsqlite3.so libffi.so libcrypto.so.3 libssl.so.3 \
+          libicui18n.so.78 libicuuc.so.78 libicudata.so.78 libc++_shared.so"
+for so in $REQUIRED; do
+    [ -e "$BUILD/staging/lib/$so" ] || { echo "[FAIL] 上个 APK 里缺少 $so"; ls -la "$BUILD/staging/lib"; exit 1; }
+done
+echo "  [OK] 10 个必需库齐全"
 
 say "5. 工作区就绪"
 echo "  BUILD=$BUILD"
