@@ -2,7 +2,7 @@
 
 > ## ⬇直接下载
 >
-> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.25.2-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
+> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.25.3-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
 >
 > 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
 > 然后经 **GitHub 镜像**分块下载约 54MB 运行包（视网络而定）。
@@ -16,7 +16,7 @@
 > 首次启动会请求**存储权限**，请点「允许」——
 > 日志会写入 `/sdcard/DSHNative/launch.log`，便于排查问题（可随时删除）。
 >
-> SHA-256：`cfc1735e47e3eab7a5cb994d585aa44290d5ddf6da1599b36f78f8013ffc9053`
+> SHA-256：`89c187b2c3584bec743d73cca20489aa74f452aa3e8c9900337d6f0afb6aecad`
 
 
 ---
@@ -43,7 +43,7 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.25.2 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.2-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 54MB |
+| **[v0.25.3 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.3-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 54MB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
 ### 使用步骤
