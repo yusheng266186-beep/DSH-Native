@@ -1,7 +1,7 @@
 {
-  "version": "0.25.1",
-  "tag": "v0.25.1-bootstrap",
+  "version": "0.25.2",
+  "tag": "v0.25.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "v0.25.1 —— 修「窗口卡死」，并让这类问题下次有据可查"
+  "notes": "v0.25.2 —— 深色模式跟错了对象"
 }
