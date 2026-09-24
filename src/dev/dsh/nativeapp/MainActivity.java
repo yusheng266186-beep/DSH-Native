@@ -3667,21 +3667,50 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putBoolean("webDark", dark).apply();
         } catch (Throwable ignored) { }
-        if (DshUi.isDark() == dark) return;
-        log("网页主题变化 → 原生跟随：" + (dark ? "深色" : "浅色"));
-        DshUi.setDark(dark);
-        // 颜色是方法、在创建视图时取走，所以必须重建界面才生效。
-        // 重建后页面会重新上报同一主题，此时 isDark() 已一致 —— 不会循环。
-        runOnUiThread(new Runnable() {
+
+        // 去抖：页面重载时会**先报一次旧主题、再报新主题**。
+        // 每收到一次就重建，就会形成：
+        //   重载 → 报浅色 → 重建 → 重载 → 报深色 → 重建 → …（无限）
+        // 用户遇到的「深浅反复横跳、不停重启」就是这么来的。
+        //
+        // 注意：主题观察者**只在变化时上报**，所以不能用「连续两次相同」
+        // 来判断稳定 —— 那样永远不会触发。正确做法是**延时复核**：
+        // 记下这次的值与时刻，等一会儿再看它有没有被新的上报取代。
+        pendingWebDark = dark;
+        final long stamp = ++webDarkStamp;
+        pendingWebDarkAt = System.currentTimeMillis();
+        if (DshUi.isDark() == dark) return;   // 已经一致，不必安排
+
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override public void run() {
                 try {
-                    if (!isFinishing() && shouldAllowRecreate()) recreate();
+                    // 期间又变了 → 说明页面还在晃动，这次不处理
+                    if (stamp != webDarkStamp) return;
+                    if (pendingWebDark != dark) return;
+                    if (DshUi.isDark() == dark) return;
+                    if (isFinishing()) return;
+                    log("网页主题稳定为：" + (dark ? "深色" : "浅色") + " → 重建界面");
+                    DshUi.setDark(dark);
+                    if (shouldAllowRecreate()) recreate();
                 } catch (Throwable t) {
                     log("主题切换重建失败: " + t);
                 }
             }
-        });
+        }, 1200);
     }
+
+    /** 最近上报的网页主题（延时复核用）。 */
+    /** 上报序号：新上报会让旧的延时任务失效。 */
+    private long webDarkStamp;
+    /** 最近一次上报的时刻。 */
+    private long pendingWebDarkAt;
+
+
+    /** 最近上报的网页主题（去抖用）。 */
+    private boolean pendingWebDark;
+    /** 同一主题连续上报了几次。 */
+    private int webDarkStableCount;
+
 
     /**
      * 重建节流 + 死循环自救。
@@ -3700,25 +3729,31 @@ public class MainActivity extends Activity {
      */
     private boolean shouldAllowRecreate() {
         long now = System.currentTimeMillis();
-        recreateTimes.add(now);
-        // 只保留最近 30 秒
-        while (!recreateTimes.isEmpty() && now - recreateTimes.peekFirst() > 30000) {
-            recreateTimes.pollFirst();
-        }
-        if (recreateTimes.size() <= 4) return true;
-        log("30 秒内已重建 " + recreateTimes.size() + " 次，停止重建以避免死循环");
-        // 直接把主题偏好清掉：下次启动会跟随系统，循环就断了
         try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .remove("webDark").apply();
-            log("已清除主题偏好（webDark），下次启动跟随系统深色设置");
-        } catch (Throwable ignored) { }
-        return false;
+            android.content.SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            // 用「上一个重建时刻 + 这一窗口内的次数」记在 prefs 里 ——
+            // 实例字段每次重建都会被重置，起不到限流作用（踩过）。
+            long windowStart = p.getLong("recreateWindowStart", 0L);
+            int count = p.getInt("recreateCount", 0);
+            if (now - windowStart > 30000L) {
+                windowStart = now;
+                count = 0;
+            }
+            count++;
+            p.edit().putLong("recreateWindowStart", windowStart)
+                    .putInt("recreateCount", count).apply();
+
+            if (count <= 4) return true;
+            log("30 秒内已重建 " + count + " 次，停止重建以避免死循环");
+            // 不再清除 webDark —— 之前那样做反而让循环继续：
+            // 清掉后 onCreate 改用系统主题，页面仍会报它自己的主题，
+            // 两者不一致 → 继续重建。
+            return false;
+        } catch (Throwable t) {
+            return true;
+        }
     }
 
-    /** 最近的重建时刻（用于识别死循环）。 */
-    private final java.util.ArrayDeque<Long> recreateTimes =
-            new java.util.ArrayDeque<Long>();
 
     /** 轻提示。 */
     private void toast(final String msg) {
@@ -5061,7 +5096,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.25.4\n");
+            w.write("APK 版本: 0.25.5\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();
