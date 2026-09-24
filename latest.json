@@ -1,7 +1,7 @@
 {
-  "version": "0.23.3",
-  "tag": "v0.23.3-bootstrap",
+  "version": "0.23.4",
+  "tag": "v0.23.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v7",
-  "notes": "修国内网络下卡在准备运行环境（本地完整性判断路径写错）"
+  "notes": "v0.23.4 —— 状态栏不再误报「空闲」，页面不再自己刷新闪烁"
 }
