@@ -1,0 +1,38 @@
+# 核对仓库里的签名密钥与某个已发布版本的签名是否一致。
+#
+# 这不是可选的美化项：密钥不一致 = 所有已安装用户点更新都会被系统拒绝
+# （安装失败 -7），只能卸载重装，而卸载会清掉会话与密钥。
+# 发版前跑一次，比让用户装一次失败便宜得多。
+name: 校验签名密钥
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '参考版本 tag（默认 v0.23.3-bootstrap，即用户当前已安装的版本）'
+        required: false
+        default: 'v0.23.3-bootstrap'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 核对签名
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
+          URL="https://github.com/yusheng266186-beep/DSH-Native/releases/download/${{ inputs.ref }}/DSHNative-bootstrap.apk"
+          APKSIGNER_JAR="$BT/lib/apksigner.jar" bash scripts/check_signer.sh "$URL"

@@ -25,6 +25,10 @@ on:
         type: boolean
         required: false
         default: false
+      signer_ref:
+        description: '签名比对参考 tag（可选；默认取最新发布版）'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -43,6 +47,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: 核对签名密钥与已发布版本一致
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REF="${{ inputs.signer_ref }}"
+          if [ -z "$REF" ]; then
+            REF="$(gh release list --limit 1 --json tagName --jq '.[0].tagName')"
+          fi
+          [ -n "$REF" ] || { echo "[FAIL] 取不到参考版本；可用 signer_ref 指定"; exit 1; }
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
+          URL="https://github.com/yusheng266186-beep/DSH-Native/releases/download/${REF}/DSHNative-bootstrap.apk"
+          APKSIGNER_JAR="$BT/lib/apksigner.jar" bash scripts/check_signer.sh "$URL"
+          echo "[OK] 与 $REF 的签名一致 —— 用它签出的包可以覆盖安装"
 
       - name: 升版本号
         run: |
