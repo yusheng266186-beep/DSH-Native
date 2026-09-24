@@ -210,7 +210,7 @@ public final class FileBrowser {
 
             final boolean hidden = showHidden;
             final int sort = sortMode;
-            io.execute(new Runnable() {
+            submit(new Runnable() {
                 @Override public void run() {
                     final FileListing.Listing listing =
                             FileListing.listDirectory(dir, hidden, sort, links);
@@ -248,6 +248,27 @@ public final class FileBrowser {
         }
 
         void refresh() { navigate(cwd); }
+
+        /**
+         * 提交一个后台任务。
+         *
+         * <p>不能直接 {@code io.execute}：执行器在面板关闭时被
+         * {@code shutdownNow()} 过，之后再提交会抛 {@code RejectedExecutionException}。
+         * 而"面板关了还有任务要提交"是真实存在的路径 —— 例如编辑器保存完回调
+         * {@code refresh()} 时，文件浏览器可能已经被关掉了。
+         *
+         * @return 已提交返回 true；面板已关、任务被丢弃返回 false
+         */
+        private boolean submit(Runnable task) {
+            if (closed) return false;
+            try {
+                io.execute(task);
+                return true;
+            } catch (Throwable ignored) {
+                // 执行器已经停了：任务丢掉即可，界面已经没了
+                return false;
+            }
+        }
 
         /**
          * 布局自检：把关键尺寸写进日志。
