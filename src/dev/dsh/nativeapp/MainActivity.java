@@ -231,8 +231,27 @@ public class MainActivity extends Activity {
                     // 注入脚本用 GET 调它只会拿到 404（实测 109 次 404 / 28 次 200，
                     // 后者全是 DSH 自己发的）。而 App 本来就把它记在日志里 ——
                     // 那就直接从这份流量里读，既权威又不多发一个请求。
+                    // 会话列表：页面侧已经把**完整 JSON**（截断之前）解析成计数上报。
+                    //
+                    // 这是「正在跑却显示空闲」的根因修复：旧实现直接在这条已经
+                    // slice(0,700) 的文本里数 "running":true，而运行中的会话只要
+                    // 不是列表第一项，它的 "running":true 就落在 700 字符之外被截掉，
+                    // 计数为 0 → 判定空闲。
+                    int sess = SessionStatus.parseSessionConsole(m);
+                    if (sess >= 0) {
+                        onStatusSignal(sess, SRC_SESS);
+                        return true;
+                    }
+                    // 页面 DOM 的按钮状态：第二个独立证据源（停止生成 / 发送消息 / 等待审批）
+                    int dom = SessionStatus.parseDomConsole(m);
+                    if (dom >= 0) {
+                        onStatusSignal(dom, SRC_DOM);
+                        return true;
+                    }
+                    // 兜底：旧版嗅探。只在能证明「在跑」时才采纳 ——
+                    // 截断会让证据消失，但不会让证据凭空出现。
                     if (m.indexOf("/session/list") >= 0 && m.indexOf("\"running\"") >= 0) {
-                        onSessionListResponse(m);
+                        if (onSessionListResponse(m)) return true;
                     }
                     // 连接丢失：DSH 的 Remote RPC（含归档等操作）走 WebSocket，
                     // 断掉之后这些操作会**静默失效** —— 界面上点了没反应。
@@ -245,7 +264,7 @@ public class MainActivity extends Activity {
                     // 状态看板上报：单独分流，不写进日志（每 2 秒一次会刷爆）
                     int st = SessionStatus.parseStatusConsole(m);
                     if (st >= 0) {
-                        onSessionStatus(st);
+                        onStatusSignal(st, SRC_DOM);
                         return true;
                     }
                     log("[web] " + (m.length() > 900 ? m.substring(0, 900) : m));
@@ -354,11 +373,24 @@ public class MainActivity extends Activity {
                 if (url == null || url.indexOf("127.0.0.1") < 0) {
                     return;
                 }
-                if (dshPageLoaded) return;
-                dshPageLoaded = true;
-                log("DSH 界面已加载，收起开屏");
+                // 注入必须**每次页面加载都做**，不能只做一次。
+                //
+                // 之前这里是 `if (dshPageLoaded) return;`。而 reload（断连自动刷新、
+                // 屏幕旋转、手动刷新）会把页面里的注入脚本全部清空，`dshPageLoaded`
+                // 却仍是 true —— 于是刷新之后**状态看板、任务完成通知、接口诊断
+                // 全部静默失效**，通知栏永远停在刷新前的那一刻。
+                // 这正是「任务在跑、状态栏却显示空闲」的第二个原因。
+                //
+                // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
+                // 重复注入没有副作用。
                 installFetchDiagnostics();
                 installStatusWatcher();
+                if (dshPageLoaded) {
+                    log("DSH 界面已重新加载，状态采集脚本已重新注入");
+                    return;
+                }
+                dshPageLoaded = true;
+                log("DSH 界面已加载，收起开屏");
                 final String act = pendingAction;
                 pendingAction = "";
                 if (pendingOpenSettings || act.length() > 0) {
@@ -1020,16 +1052,44 @@ public class MainActivity extends Activity {
      * **自动刷新页面**重建连接。DSH 的会话状态在服务端，
      * 刷新不会丢东西（只会重建一次界面）。
      */
+    /**
+     * 自己触发页面刷新的时刻。
+     *
+     * <p>刷新会**主动拆掉**页面上正在重连的 WebSocket，DSH 随即打印
+     * {@code connection lost}。若不区分「谁引起的断开」，看门狗就会
+     * 把这次断开当成新的故障，15 秒后再刷新一次 ——
+     * 形成自我维持的循环。真机日志里实测到 13 次连续自动刷新，
+     * 用户看到的就是「窗口一遍遍白一下、闪一下，而任务其实一直在正常跑」。
+     */
+    private volatile long selfReloadAt;
+    /** 连续自动刷新的次数。达到上限就停下来，改为提示用户手动处理。 */
+    private int autoReloadCount;
+
+    /** 自己刷新之后，这段时间内的连接事件不算「新故障」。 */
+    private static final long RELOAD_SUPPRESS_MS = 30000;
+    /** 连续自动刷新的上限。超过它说明刷新解决不了问题，再刷只会更糟。 */
+    private static final int MAX_AUTO_RELOADS = 2;
+    /** 断开多久后才考虑自动刷新。DSH 自己会重连，给它足够时间。 */
+    private static final long RELOAD_AFTER_MS = 30000;
+
     private void onConnectionEvent(String message) {
         try {
             if (message.indexOf("connection lost") >= 0) {
-                connectionLostAt = System.currentTimeMillis();
+                long now = System.currentTimeMillis();
+                // 刚才是我们自己刷新的 → 这次断开是刷新的后果，不是新故障
+                if (now - selfReloadAt < RELOAD_SUPPRESS_MS) {
+                    log("[连接] WebSocket 断开（本次刷新引起，已忽略）：" + message);
+                    return;
+                }
+                connectionLostAt = now;
                 log("[连接] WebSocket 断开：" + message);
                 scheduleReloadIfStuck();
             } else {
                 // restored / reconnect 之类：认为恢复了
                 if (connectionLostAt != 0) {
                     log("[连接] WebSocket 已恢复");
+                    // 真的恢复过，说明刷新策略有效，计数归零重新开始
+                    autoReloadCount = 0;
                 }
                 connectionLostAt = 0;
                 reloadScheduled = false;
@@ -1050,7 +1110,31 @@ public class MainActivity extends Activity {
                     // 期间恢复过就不动
                     if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
                     long sec = (System.currentTimeMillis() - lostAt) / 1000;
-                    log("[连接] 断开 " + sec + " 秒仍未恢复，自动刷新页面重建连接");
+
+                    // 任务正在跑时**绝不刷新**。
+                    // 刷新会丢掉滚动位置、输入框内容和展开的面板，而 agent
+                    // 在 node 进程里照常干活 —— 用户看到的就是「窗口自己重启/闪烁，
+                    // 但任务其实正常进行」。DSH 自身的重连足以应付这种情况。
+                    if (lastSessionStatus == SessionStatus.RUNNING
+                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+                        log("[连接] 断开 " + sec + " 秒，但任务正在运行 —— 不刷新页面"
+                                + "（避免打断界面；DSH 会自行重连）");
+                        connectionLostAt = 0;
+                        reloadScheduled = false;
+                        return;
+                    }
+                    // 刷新解决不了问题时就停止刷新，别再让界面一遍遍闪
+                    if (autoReloadCount >= MAX_AUTO_RELOADS) {
+                        log("[连接] 已自动刷新 " + autoReloadCount + " 次仍不稳定 —— "
+                                + "停止自动刷新，请下拉通知栏或在设置里手动处理");
+                        connectionLostAt = 0;
+                        reloadScheduled = false;
+                        return;
+                    }
+                    autoReloadCount++;
+                    selfReloadAt = System.currentTimeMillis();
+                    log("[连接] 断开 " + sec + " 秒仍未恢复，自动刷新页面重建连接"
+                            + "（第 " + autoReloadCount + "/" + MAX_AUTO_RELOADS + " 次）");
                     statusPageLoading = false;
                     if (webView != null) webView.reload();
                     connectionLostAt = 0;
@@ -1059,7 +1143,7 @@ public class MainActivity extends Activity {
                     log("自动刷新失败: " + t);
                 }
             }
-        }, 15000);
+        }, RELOAD_AFTER_MS);
     }
 
     /**
@@ -1778,15 +1862,103 @@ public class MainActivity extends Activity {
      * <p>只做字符串判断，不引入 JSON 解析：这里的输入是已经定型的日志行，
      * 且我们只需要知道「有没有任何会话在跑」。
      */
-    private void onSessionListResponse(String line) {
+    /**
+     * 兜底嗅探：从被截断的会话列表响应里找 {@code "running":true}。
+     *
+     * <p>只在页面侧的完整解析（{@code [dsh-sess]}）没送到时才用得上。
+     * <b>只上报「在跑」，永远不上报「空闲」</b> —— 这条文本是被
+     * {@code slice(0,700)} 截断过的，证据消失是常态，不能当反证。
+     *
+     * @return true 表示本次确实发现了「在跑」的证据
+     */
+    private boolean onSessionListResponse(String line) {
         try {
-            int n = 0;
             int i = line.indexOf("\"running\":true");
-            while (i >= 0) { n++; i = line.indexOf("\"running\":true", i + 1); }
-            onSessionStatus(n > 0 ? SessionStatus.RUNNING : SessionStatus.IDLE);
+            if (i >= 0) {
+                onStatusSignal(SessionStatus.RUNNING, SRC_SESS);
+                return true;
+            }
         } catch (Throwable t) {
             // 解析失败不该影响使用
         }
+        return false;
+    }
+
+    // ------------------------------------------------------------ 状态证据源
+    //
+    // 状态由两个**独立来源**共同决定，各自带时间戳：
+    //   SRC_SESS：页面上报的会话列表计数（页面侧解析完整 JSON，最可信）
+    //   SRC_DOM ：页面 DOM 上的按钮（停止生成 / 发送消息 / 等待审批）
+    //
+    // 为什么要两个：单一来源一旦失效（页面刷新、接口改版、文案变化），
+    // 通知栏就会静默停在过期状态。两个来源互相兜底，且都对「新鲜度」敏感。
+
+    /** 证据源：页面侧解析的会话列表计数。 */
+    private static final int SRC_SESS = 0;
+    /** 证据源：页面 DOM 按钮。 */
+    private static final int SRC_DOM = 1;
+
+    /** 证据有效期。超过它就不再采信该来源（避免用几分钟前的状态误导用户）。 */
+    private static final long SIGNAL_TTL_MS = 20000;
+
+    private volatile int sessSignalState = SessionStatus.UNKNOWN;
+    private volatile long sessSignalAt;
+    private volatile int domSignalState = SessionStatus.UNKNOWN;
+    private volatile long domSignalAt;
+
+    /** 收到一个状态信号：记录来源与时间，再重新推导对外状态。 */
+    private void onStatusSignal(int state, int source) {
+        long now = System.currentTimeMillis();
+        if (source == SRC_SESS) {
+            sessSignalState = state;
+            sessSignalAt = now;
+        } else {
+            domSignalState = state;
+            domSignalAt = now;
+        }
+        int derived = deriveStatus(now);
+        if (derived >= 0) onSessionStatus(derived);
+    }
+
+    /**
+     * 由两个证据源推导对外状态。
+     *
+     * <p><b>核心原则：读不到证据 ≠ 空闲。</b>
+     * 旧实现是 {@code n > 0 ? RUNNING : IDLE}，而 n 来自被截断到 700 字符的
+     * 响应体 —— 运行中的会话只要不是列表第一项，它的 {@code "running":true}
+     * 就被截掉、计数为 0，于是**正在跑的任务被判成「空闲」**。
+     *
+     * <p>现在的规则：
+     * <ol>
+     *   <li>任何一方说「在跑」就是在跑；</li>
+     *   <li>「空闲」必须有明确证据（全量会话列表，或 DOM 上确实只有发送按钮）；</li>
+     *   <li>完全没有新鲜证据时返回 -1 —— 保持上一次状态，不猜、也不降级。</li>
+     * </ol>
+     *
+     * @return 推导出的状态；无新鲜证据时返回 -1
+     */
+    private int deriveStatus(long now) {
+        boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
+        boolean domFresh = domSignalAt > 0 && now - domSignalAt <= SIGNAL_TTL_MS;
+
+        // 1) 等待批准优先级最高：任务卡在用户这一步，必须显眼
+        if (domFresh && domSignalState == SessionStatus.AWAITING_APPROVAL) {
+            return SessionStatus.AWAITING_APPROVAL;
+        }
+        // 2) 任何一方说「在跑」就是在跑 —— 绝不被另一方的「空闲」覆盖
+        if (sessFresh && sessSignalState == SessionStatus.RUNNING) return SessionStatus.RUNNING;
+        if (domFresh && domSignalState == SessionStatus.RUNNING) return SessionStatus.RUNNING;
+        // 3) 空闲：全量会话列表是最可信的证据
+        if (sessFresh && sessSignalState == SessionStatus.IDLE) return SessionStatus.IDLE;
+        // 4) DOM 明确空闲也算（会话列表可能长时间不刷新，靠它从「运行中」恢复）
+        if (domFresh && domSignalState == SessionStatus.IDLE) return SessionStatus.IDLE;
+        // 5) 批准态只能由新的 DOM 证据解除，否则会永久卡在「等待批准」
+        if (domFresh && lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+            return domSignalState == SessionStatus.UNKNOWN
+                    ? SessionStatus.IDLE : domSignalState;
+        }
+        // 6) 没有新鲜证据：保持原状态
+        return -1;
     }
 
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
@@ -1881,8 +2053,6 @@ public class MainActivity extends Activity {
         try {
             // 状态没变 → 什么都不用做
             if (state == pushedState && networkInited) return;
-            pushedState = state;
-            networkInited = true;
 
             boolean[] net = networkState();
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
@@ -1893,7 +2063,17 @@ public class MainActivity extends Activity {
                     SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
             i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
             startService(i);
-        } catch (Throwable ignored) { }
+            // **推送成功之后**才记下状态。
+            //
+            // 之前是先记后推：一旦 startService 抛异常（Android 8+ 的后台服务
+            // 启动限制、服务处于 stopped 状态等），这里就认为「已经推过了」，
+            // 通知栏会永久停在旧状态 —— 而用户正是据此判断 agent 还在不在干活。
+            // 这个 catch 之前是空的，连日志都没有。
+            pushedState = state;
+            networkInited = true;
+        } catch (Throwable t) {
+            log("警告: 状态推送失败（通知栏将停在旧状态）: " + t);
+        }
     }
 
     /**
@@ -1968,6 +2148,15 @@ public class MainActivity extends Activity {
           + "          console.log('[dsh-api] '+r.status+' '+u+' ('+ct.split(';')[0]+')');return;"
           + "        }"
           + "        r.clone().text().then(function(t){"
+          + "          try{"
+          + "            if(u.indexOf('/api/session/list')>=0){"
+          + "              var j=JSON.parse(t);"
+          + "              var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
+          + "              var rn=0,q;"
+          + "              for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)rn++;}"
+          + "              console.log('[dsh-sess] r='+rn);"
+          + "            }"
+          + "          }catch(e2){}"
           + "          console.log('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,700));"
           + "        }).catch(function(){});"
           + "      }catch(e){}"
@@ -4316,7 +4505,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.23.3\n");
+            w.write("APK 版本: 0.23.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
             w.close();

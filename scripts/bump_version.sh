@@ -4,8 +4,21 @@
 # 结果版本没变、清单却写了新号 —— 客户端无限提示更新。
 set -euo pipefail
 NEW="${1:?用法: bump_version.sh <新版本号，如 0.22.7>}"
-M=/root/build/mkmanifest.py
-A=/root/build/bootstrap/src/dev/dsh/nativeapp/MainActivity.java
+
+# 同时支持两种布局，不再写死 /root/build：
+#   * 仓库克隆：scripts/mkmanifest.py + src/dev/dsh/nativeapp/
+#   * 构建工作区：mkmanifest.py + bootstrap/src/dev/dsh/nativeapp/
+here="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$here/.." && pwd)"
+if [ -f "$ROOT/scripts/mkmanifest.py" ]; then
+    M="$ROOT/scripts/mkmanifest.py"
+    A="$ROOT/src/dev/dsh/nativeapp/MainActivity.java"
+else
+    M="$ROOT/mkmanifest.py"
+    A="$ROOT/bootstrap/src/dev/dsh/nativeapp/MainActivity.java"
+fi
+[ -f "$M" ] || { echo "找不到 mkmanifest.py（找过 $ROOT/scripts/ 与 $ROOT/）" >&2; exit 1; }
+[ -f "$A" ] || { echo "找不到 MainActivity.java（找过 $ROOT/src/ 与 $ROOT/bootstrap/src/）" >&2; exit 1; }
 
 CUR=$(grep -oE 's\("[0-9]+\.[0-9]+\.[0-9]+"\)' "$M" | head -1 | sed 's/s("//;s/")//')
 [ -n "$CUR" ] || { echo "读不到当前版本" >&2; exit 1; }

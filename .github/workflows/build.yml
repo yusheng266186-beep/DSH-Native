@@ -1,0 +1,71 @@
+# 构建 APK。
+#
+# 为什么必须有 CI：项目的构建链依赖 aapt2 / d8 / apksigner / JDK，
+# 而这些在开发机（Android App 沙箱）里都没有 —— 没有 CI 就只能靠
+# 「在设备上手工跑一遍」，也拿不到「每个提交都跑 476 项断言」的保障。
+#
+# 这里只替换两处与设备不同的东西，其余完全走 scripts/build_bootstrap.sh：
+#   * aapt2 / d8 / apksigner / android.jar → 官方 Linux build-tools
+#   * node 与 10 个 .so → 从上一个已发布 APK 里取（不在仓库里，93MB）
+name: 构建 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'payload/**'
+      - 'icon/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Android 命令行工具
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 SDK 部件
+        run: |
+          sdkmanager --install "platforms;android-28" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: 准备构建工作区
+        run: bash scripts/ci_stage.sh "$RUNNER_TEMP/dsh-build"
+
+      - name: 构建（测试 + 三道闸门 + 编译 + 打包 + 签名）
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          DSH_BUILD_DIR="$RUNNER_TEMP/dsh-build" \
+          DSH_AAPT2_LIB="$BT/lib64" \
+            bash "$RUNNER_TEMP/dsh-build/build_bootstrap.sh"
+
+      - name: 校验签名与清单
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/dsh-build/bootstrap/DSHNative-bootstrap.apk"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          java -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 24 --print-certs "$APK" | head -5
+          "$BT/aapt2" dump badging "$APK" | head -3
+          ls -l "$APK"
+          sha256sum "$APK"
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSHNative-bootstrap
+          path: ${{ runner.temp }}/dsh-build/bootstrap/DSHNative-bootstrap.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -229,11 +229,23 @@ final class SessionStatus {
              + "  }catch(e){return false;}"
              + "}"
              + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
+             + "var STOP=['停止生成','Stop generating'];"
+             + "var SEND=['发送消息','Send message'];"
+             + "var lastDom='';var lastDomAt=0;"
              + "function tick(){"
              + "  try{"
              + "    if(!document.body)return;"
-             + "    var a=exact(APPR)?'a':'-';"
+             + "    var ap=exact(APPR)?1:0;"
+             + "    var a=ap?'a':'-';"
              + "    if(a!==last){last=a;console.log('[dsh-appr] '+a);}"
+             + "    var st=exact(STOP)?1:0;"
+             + "    var sn=exact(SEND)?1:0;"
+             + "    var tag=st+''+sn+''+ap;"
+             + "    var now=Date.now();"
+             + "    if(tag!==lastDom||now-lastDomAt>30000){"
+             + "      lastDom=tag;lastDomAt=now;"
+             + "      console.log('[dsh-dom] s='+st+' n='+sn+' p='+ap);"
+             + "    }"
              + "  }catch(e){}"
              + "}"
              + "tick();setInterval(tick,2000);"
@@ -300,5 +312,64 @@ final class SessionStatus {
         String rest = message.substring(i + 11).trim();  // "[dsh-appr] " 共 11 字符
         if (rest.length() == 0) return -1;
         return rest.charAt(0) == 'a' ? AWAITING_APPROVAL : -1;
+    }
+
+    /** 页面侧上报的会话列表计数前缀。 */
+    static final String SESS_MARK = "[dsh-sess] ";
+    /** 页面侧上报的 DOM 按钮状态前缀。 */
+    static final String DOM_MARK = "[dsh-dom] ";
+
+    /**
+     * 解析页面侧上报的会话列表计数：{@code [dsh-sess] r=<运行中会话数>}。
+     *
+     * <h3>为什么要有这个信号</h3>
+     * 原来是 App 直接在控制台文本里数 {@code "running":true}，而那段文本被
+     * {@code slice(0,700)} 截断过 —— 运行中的会话只要不是列表第一项，
+     * 它的 {@code "running":true} 就落在 700 字符之外被截掉，计数为 0，
+     * 于是**正在跑的任务被判成「空闲」**。
+     *
+     * <p>现在改由页面在**截断之前**解析完整 JSON 并上报计数。因此
+     * {@code r=0} 是「确实没有会话在跑」的**可信证据**，而不是「没读到」。
+     *
+     * @return RUNNING / IDLE；不是该信号时返回 -1
+     */
+    static int parseSessionConsole(String message) {
+        if (message == null) return -1;
+        int i = message.indexOf(SESS_MARK);
+        if (i < 0) return -1;
+        String rest = message.substring(i + SESS_MARK.length()).trim();
+        int eq = rest.indexOf("r=");
+        if (eq < 0) return -1;
+        int n = -1;
+        for (int k = eq + 2; k < rest.length(); k++) {
+            char ch = rest.charAt(k);
+            if (ch < '0' || ch > '9') break;
+            int d = ch - '0';
+            n = Math.min(999, (n < 0 ? 0 : n) * 10 + d);   // 饱和：脏输入不该影响判定
+        }
+        if (n < 0) return -1;
+        return n > 0 ? RUNNING : IDLE;
+    }
+
+    /**
+     * 解析页面侧上报的 DOM 按钮状态：
+     * {@code [dsh-dom] s=<停止生成> n=<发送消息> p=<等待审批>}。
+     *
+     * <p>这是**第二个独立证据源**。会话列表信号只在 DSH 自己请求时才有，
+     * 而 DOM 每 2 秒就看一次 —— 它让状态在会话列表长时间不刷新时
+     * 仍能从「运行中」正确恢复，也让「等待批准」有独立的确认来源。
+     *
+     * @return 对应状态；三个标志全为 0（页面正在切换）时返回 UNKNOWN；不是该信号时返回 -1
+     */
+    static int parseDomConsole(String message) {
+        if (message == null) return -1;
+        int i = message.indexOf(DOM_MARK);
+        if (i < 0) return -1;
+        String rest = message.substring(i + DOM_MARK.length()).trim();
+        boolean s = rest.indexOf("s=1") >= 0;
+        boolean n = rest.indexOf("n=1") >= 0;
+        boolean p = rest.indexOf("p=1") >= 0;
+        if (!s && !n && !p) return UNKNOWN;
+        return fromDom(s, n, p, true);
     }
 }

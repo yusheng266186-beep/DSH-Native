@@ -148,6 +148,29 @@ public class SessionStatusTest {
         check("null safe", SessionStatus.parseStatusConsole(null) == -1, "wrong");
         check("empty payload ignored", SessionStatus.parseStatusConsole("[dsh-appr] ") == -1, "wrong");
 
+        System.out.println("=== 12. session/dom signals ===");
+        // 会话列表计数信号：这是「正在跑却显示空闲」的根因修复点。
+        // 旧实现在被截断到 700 字符的控制台文本里数 "running":true，
+        // 运行中的会话只要不是列表第一项，证据就被截掉、计数为 0 → 误判空闲。
+        // 现在由页面在截断之前解析完整 JSON 并上报计数，r=0 才是可信的「确实没在跑」。
+        check("session running", SessionStatus.parseSessionConsole("[dsh-sess] r=1") == SessionStatus.RUNNING, "wrong");
+        check("session idle on zero", SessionStatus.parseSessionConsole("[dsh-sess] r=0") == SessionStatus.IDLE, "wrong");
+        check("session counts many", SessionStatus.parseSessionConsole("[dsh-sess] r=3") == SessionStatus.RUNNING, "wrong");
+        check("session ignores other lines", SessionStatus.parseSessionConsole("[dsh-api] 200 x") == -1, "wrong");
+        check("session null safe", SessionStatus.parseSessionConsole(null) == -1, "wrong");
+        check("session garbage safe", SessionStatus.parseSessionConsole("[dsh-sess] r=x") == -1, "wrong");
+        check("session saturates on dirty input",
+                SessionStatus.parseSessionConsole("[dsh-sess] r=999999999999") == SessionStatus.RUNNING, "wrong");
+        check("session trailing junk ok",
+                SessionStatus.parseSessionConsole("[dsh-sess] r=2\n") == SessionStatus.RUNNING, "wrong");
+        // DOM 信号：第二个独立证据源（会话列表长时间不刷新时靠它恢复）
+        check("dom running", SessionStatus.parseDomConsole("[dsh-dom] s=1 n=0 p=0") == SessionStatus.RUNNING, "wrong");
+        check("dom idle", SessionStatus.parseDomConsole("[dsh-dom] s=0 n=1 p=0") == SessionStatus.IDLE, "wrong");
+        check("dom approval wins", SessionStatus.parseDomConsole("[dsh-dom] s=1 n=0 p=1") == SessionStatus.AWAITING_APPROVAL, "wrong");
+        check("dom indeterminate", SessionStatus.parseDomConsole("[dsh-dom] s=0 n=0 p=0") == SessionStatus.UNKNOWN, "wrong");
+        check("dom ignores other lines", SessionStatus.parseDomConsole("[web] hi") == -1, "wrong");
+        check("dom null safe", SessionStatus.parseDomConsole(null) == -1, "wrong");
+
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);

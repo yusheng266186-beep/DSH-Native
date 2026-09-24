@@ -10,7 +10,9 @@
 #   资源 id 由 aapt2 导出后经环境变量传给 mkmanifest.py，确保两侧永远一致。
 set -euo pipefail
 
-BUILD=/root/build
+# 构建工作区根目录。DSH_BUILD_DIR 是可覆盖的 —— scripts/README.md 一直
+# 宣传这个变量，但脚本此前写死了 /root/build，换机器或换目录就用不了。
+BUILD="${DSH_BUILD_DIR:-/root/build}"
 BOOT=$BUILD/bootstrap
 STAGING=$BUILD/staging
 OUT=$BOOT/out
@@ -20,7 +22,10 @@ TOOLS=$BUILD/tools
 TERMUX_NODE="$STAGING/data/data/com.termux/files/usr/bin/node"
 TERMUX_LIB="$STAGING/data/data/com.termux/files/usr/lib"
 AAPT2="$STAGING/data/data/com.termux/files/usr/bin/aapt2"
-AAPT2_LIB="$TERMUX_LIB"
+# aapt2 的库搜索路径。设备上（Termux 的 bionic 二进制）指向 Termux 的 lib；
+# CI 上用官方 Linux build-tools 的 aapt2，需要它自己的 lib64 ——
+# 两者不通用，所以做成可覆盖。
+AAPT2_LIB="${DSH_AAPT2_LIB:-$TERMUX_LIB}"
 RESDIR="$BUILD/icon/res"
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -42,6 +47,12 @@ APKSIGNER_JAR=$(find "$TOOLS" -name 'apksigner.jar' | head -1)
 ANDROID_JAR_COMPILE="$SDK/android-modern.jar"
 [ -f "$ANDROID_JAR_COMPILE" ] || ANDROID_JAR_COMPILE="$SDK/android.jar"
 echo "  编译用 JAR: $ANDROID_JAR_COMPILE"
+
+# 后面几步用的是**相对路径**（bash run_tests.sh、bootstrap/src/…），
+# 所以必须先进入构建工作区。此前依赖调用者自己 cd 过去，
+# 而 scripts/README.md 写的用法是 `DSH_BUILD_DIR=… bash scripts/build_bootstrap.sh`
+# —— 那样 cwd 是仓库根，3.4/3.45/3.5 三道闸门会直接找不到文件。
+cd "$BUILD"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/apk/assets/payload/lib"

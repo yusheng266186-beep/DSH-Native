@@ -27,6 +27,15 @@ set -euo pipefail
 update_readme() {
     local ver="$1" sha="$2" readme="$3"
     [ -f "$readme" ] || return 0
+    # SHA 为空时必须拒绝改写，而不是把 README 里的校验值清空。
+    #
+    # 曾经这里传的是未定义的变量（$APK_OUT，脚本里的真名是 $APK）。
+    # 因为它在**命令替换**里，set -u 只让子 shell 报错、外层脚本照常跑完，
+    # 于是每次发版都把 README 的 SHA-256 静默替换成空值，还打印「已同步」。
+    if [ -z "$sha" ]; then
+        echo "[FAIL] SHA-256 为空，拒绝改写 README（请检查 APK 路径变量）"
+        exit 1
+    fi
     python3 - "$ver" "$sha" "$readme" <<'PYEOF'
 import re, sys
 ver, sha, path = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -162,8 +171,11 @@ PY
 # 6) 同步 README 的下载链接与 SHA-256。
 #    这两个数字每次发版都会变，手工维护出过两次错：
 #    下载链接曾长期指向 v0.9.0；SHA-256 因为一次批量替换被拼成了两个哈希。
-update_readme "$VER" "$(sha256sum "$APK_OUT" | cut -d' ' -f1)" \
-              "${REPO_DIR:-/root/dsh-native}/README.md"
+# README 默认就用仓库根（脚本开头已 cd 到那里）——
+# 原来默认写死 /root/dsh-native，从克隆里跑时那个路径不存在，
+# update_readme 会因为 [ -f ] 不成立而**静默跳过** README 同步。
+update_readme "$VER" "$(sha256sum "$APK" | cut -d' ' -f1)" \
+              "${REPO_DIR:-$(pwd)}/README.md"
 
 echo
 echo "  发布完成。清单已更新，App 现在可以检测到 v${VER}。"
