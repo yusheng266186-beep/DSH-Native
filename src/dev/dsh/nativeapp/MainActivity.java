@@ -542,6 +542,7 @@ public class MainActivity extends Activity {
 
         cleanupStaleUpdateApk();
         installCrashHandler();
+        startUiWatchdog();
         showPreviousCrash();
 
         bootInBackground("启动");
@@ -4806,14 +4807,104 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 日志队列：写盘由一条专门的消费者线程做，调用方只入队。
+     *
+     * <p><b>为什么必须这样</b>：原来 {@code log()} 在**调用线程**里直接
+     * open/write/close 文件。而 {@code onConsoleMessage} 是 **UI 线程回调**，
+     * 每一条 {@code [dsh-api]} 响应都要写一次 —— 实测日志里 72% 的字节
+     * 来自这类行。也就是说：网页每发一个请求，主线程就要去 /sdcard 上
+     * 做一次同步文件写。会话一忙，主线程就被这些慢速 I/O 切碎，
+     * 表现出来正是"窗口卡住、点什么都没反应"。
+     *
+     * <p>有界队列：满了就丢日志。日志丢几条无所谓，卡住主线程不行。
+     */
+    private final java.util.concurrent.BlockingQueue<String> logQueue =
+            new java.util.concurrent.LinkedBlockingQueue<String>(4000);
+    private volatile boolean logWorkerStarted;
+    private final java.util.concurrent.atomic.AtomicInteger droppedLogLines =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     private void log(final String msg) {
         Log.i(TAG, msg);
-        appendSharedLog(msg);
-        // 界面已改为全屏 WebView，日志不再上屏；如需在屏幕上查看，
-        // 取消下面注释即可（会占用屏幕空间）。
-        // runOnUiThread(new Runnable() {
-        //     @Override public void run() { logView.append(msg + "\n"); }
-        // });
+        if (msg == null) return;
+        if (!logWorkerStarted) startLogWorker();
+        // offer 而非 put：队列满时立即返回，绝不阻塞调用方（尤其是 UI 线程）
+        if (!logQueue.offer(msg)) {
+            droppedLogLines.incrementAndGet();
+        }
+    }
+
+    /**
+     * 主线程卡顿看门狗。
+     *
+     * <p><b>为什么需要它</b>：用户报「窗口完全卡死，点什么都没反应」，
+     * 而现有日志里既没有崩溃、也没有 ANR 记录、更没有时间戳 ——
+     * 完全无法判断卡了多久、卡在哪一步，只能靠猜。这次就是如此。
+     *
+     * <p>做法：每秒往主线程 post 一个 ping，若 5 秒收不回来，
+     * 就记一条带时长的日志；恢复后等一分钟再继续，避免刷屏。
+     * 下次再卡，日志里会有「[卡顿] 主线程已阻塞 N 秒」这条硬证据。
+     */
+    private void startUiWatchdog() {
+        final android.os.Handler ui =
+                new android.os.Handler(android.os.Looper.getMainLooper());
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                while (true) {
+                    final long sent = System.currentTimeMillis();
+                    final java.util.concurrent.CountDownLatch done =
+                            new java.util.concurrent.CountDownLatch(1);
+                    if (!ui.post(new Runnable() {
+                        @Override public void run() { done.countDown(); }
+                    })) {
+                        return;   // 主线程已退出
+                    }
+                    try {
+                        if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                            long ms = System.currentTimeMillis() - sent;
+                            log("[卡顿] 主线程已阻塞 " + (ms / 1000) + " 秒（看门狗）");
+                            // 等它恢复，避免卡顿时刷屏；最多等一分钟
+                            done.await(60, java.util.concurrent.TimeUnit.SECONDS);
+                        }
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }, "dsh-ui-watchdog");
+        t.setDaemon(true);
+        t.start();
+        log("已启动主线程卡顿看门狗（阻塞超过 5 秒会记日志）");
+    }
+
+    private synchronized void startLogWorker() {
+        if (logWorkerStarted) return;
+        logWorkerStarted = true;
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                while (true) {
+                    String m;
+                    try {
+                        m = logQueue.take();
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    try {
+                        int dropped = droppedLogLines.getAndSet(0);
+                        if (dropped > 0) {
+                            appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
+                        }
+                        appendSharedLog(m);
+                    } catch (Throwable ignored) {
+                        // 日志写失败不能反过来影响功能
+                    }
+                }
+            }
+        }, "dsh-log-writer");
+        t.setDaemon(true);
+        t.start();
     }
 
     /**
