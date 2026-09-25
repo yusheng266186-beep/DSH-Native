@@ -196,8 +196,10 @@ jobs:
             python3 scripts/make_payload_parts.py
 
           printf '%s\n' "DSH_VERSION=$DSH_VERSION" > "$out/BUILD-INFO.txt"
-          printf '%s\n' "DSH_ROOT_PACKAGE=$(node -p \"require('$dsh/package.json').version\")" >> "$out/BUILD-INFO.txt"
-          printf '%s\n' "ATTACHMENT_PACKAGE=$(node -p \"require('$dsh/node_modules/@deepseek-ai/dsh-attachment-local/package.json').version\")" >> "$out/BUILD-INFO.txt"
+          ROOT_VERSION="$(node -p 'require(process.argv[1]).version' "$dsh/package.json")"
+          ATTACHMENT_VERSION="$(node -p 'require(process.argv[1]).version' "$dsh/node_modules/@deepseek-ai/dsh-attachment-local/package.json")"
+          printf '%s\n' "DSH_ROOT_PACKAGE=$ROOT_VERSION" >> "$out/BUILD-INFO.txt"
+          printf '%s\n' "ATTACHMENT_PACKAGE=$ATTACHMENT_VERSION" >> "$out/BUILD-INFO.txt"
           sha256sum "$out"/*.tar.zst "$out/manifest.json" | tee "$out/SHA256SUMS.txt"
           du -sh "$dsh" "$tools" "$out" || true
 
