@@ -47,13 +47,13 @@ jobs:
           java -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 24 --print-certs "$APK" | head -6
           "$BT/aapt2" dump badging "$APK" | head -3
 
-  - name: 上传 APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: DSHNative-bootstrap
-      path: ${{ runner.temp }}/dsh-build/bootstrap/DSHNative-bootstrap.apk
-      if-no-files-found: error
-      retention-days: 30
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSHNative-bootstrap
+          path: ${{ runner.temp }}/dsh-build/bootstrap/DSHNative-bootstrap.apk
+          if-no-files-found: error
+          retention-days: 30
 
   # 临时生成新 DSH 内核的 payload；发布完成后移除该 job。
   payload:
@@ -133,15 +133,19 @@ jobs:
                   1,
               )
               if "const pkgPlatform = platform === 'android' ? 'linux' : platform;" not in text:
-                  old = """    const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`)
-    binding = require(join(dirname(manifest), 'bin', filename))"""
-                  new = """    const pkgPlatform = platform === 'android' ? 'linux' : platform
-    try {
-        const manifest = require.resolve(`@deepseek-ai/node-addon-system-${pkgPlatform}-${arch}/package.json`)
-        binding = require(join(dirname(manifest), 'bin', filename))
-    } catch (error) {
-        binding = { tryLock: (_fd, done) => done(0) }
-    }"""
+                  old = (
+                      '    const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`)\n'
+                      "    binding = require(join(dirname(manifest), 'bin', filename))"
+                  )
+                  new = (
+                      "    const pkgPlatform = platform === 'android' ? 'linux' : platform\n"
+                      '    try {\n'
+                      '        const manifest = require.resolve(`@deepseek-ai/node-addon-system-${pkgPlatform}-${arch}/package.json`)\n'
+                      "        binding = require(join(dirname(manifest), 'bin', filename))\n"
+                      '    } catch (error) {\n'
+                      '        binding = { tryLock: (_fd, done) => done(0) }\n'
+                      '    }'
+                  )
                   if old in text:
                       text = text.replace(old, new, 1)
                   else:
@@ -182,10 +186,13 @@ jobs:
                                       'await rename(tmp, finalPath)\n      published = true', 1)
                   text = text.replace('if (!linked) await rm(tmp, { force: true })',
                                       'if (!published) await rm(tmp, { force: true })', 1)
-                  text = text.replace('''    try {
-      await rm(tmp, { force: true })
-    } catch {}
-''', '', 1)
+                  text = text.replace(
+                      '    try {\n'
+                      '      await rm(tmp, { force: true })\n'
+                      '    } catch {}\n'
+                      "",
+                      1,
+                  )
               write(session, text)
 
           for rel in (
