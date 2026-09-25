@@ -97,10 +97,18 @@ jobs:
           test -f "$dsh/lib/bin.js"
           test -f "$dsh/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js"
 
+          echo "== 下载并替换 DSH CLI 根包 =="
+          dsh_tgz_name="$(npm pack --silent "@deepseek-ai/dsh@${DSH_VERSION}" --pack-destination "$work")"
+          dsh_tgz="$dsh_tgz_name"
+          [ -f "$dsh_tgz" ] || dsh_tgz="$work/$(basename "$dsh_tgz_name")"
+          test -f "$dsh_tgz"
+          new_dsh="$work/new-dsh"
+          mkdir -p "$new_dsh"
+          tar -xzf "$dsh_tgz" -C "$new_dsh"
+          cp -a "$new_dsh/package/." "$dsh/"
           npm install --prefix "$dsh" \
             --omit=dev --ignore-scripts --no-audit --no-fund \
-            --install-strategy=hoisted \
-            "@deepseek-ai/dsh@${DSH_VERSION}"
+            --install-strategy=hoisted --package-lock=false
 
           npm install --prefix "$dsh" \
             --force --ignore-scripts --no-audit --no-fund --no-save \
