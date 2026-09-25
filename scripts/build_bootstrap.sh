@@ -150,7 +150,7 @@ bash run_tests.sh
 # 纯逻辑层必须保持无 Android 依赖 —— 否则就无法在普通 JVM 上测试，
 # 「构建期跑测试」这个保证会静默失效。这是架构约束，不是风格偏好。
 say "3.45 架构约束检查"
-PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java bootstrap/src/dev/dsh/nativeapp/Version.java bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java bootstrap/src/dev/dsh/nativeapp/TaskNotifier.java bootstrap/src/dev/dsh/nativeapp/FileOps.java bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java bootstrap/src/dev/dsh/nativeapp/ShareTargets.java bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java bootstrap/src/dev/dsh/nativeapp/SessionStatus.java"
+PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java bootstrap/src/dev/dsh/nativeapp/Version.java bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java bootstrap/src/dev/dsh/nativeapp/TaskNotifier.java bootstrap/src/dev/dsh/nativeapp/FileOps.java bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java bootstrap/src/dev/dsh/nativeapp/ShareTargets.java bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java bootstrap/src/dev/dsh/nativeapp/SessionStatus.java bootstrap/src/dev/dsh/nativeapp/SessionRecovery.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

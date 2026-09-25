@@ -28,7 +28,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PURE = ["FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier",
         "FileOps", "ConfigBackup", "ShareTargets", "PluginSpecs", "PayloadUpdate",
-        "SessionStatus"]
+        "SessionStatus", "SessionRecovery"]
 EMOJI = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
 SOURCES = os.path.join(ROOT, "src", "dev", "dsh", "nativeapp")
 

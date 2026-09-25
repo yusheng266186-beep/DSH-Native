@@ -260,6 +260,19 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    if (SessionRecovery.isFailure(m)) {
+                        onSessionRecoveryFailure(m);
+                        return true;
+                    }
+                    if (m.indexOf("[dsh-native] new-session-not-found") >= 0) {
+                        log("会话恢复：未找到新建会话按钮");
+                        toast("未找到新建会话入口，请从侧栏手动新建");
+                        return true;
+                    }
+                    if (m.indexOf("[dsh-native] new-session-clicked") >= 0) {
+                        log("会话恢复：已点击新建会话");
+                        return true;
+                    }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
                         log("手势：长按顶部 → 打开设置");
@@ -438,6 +451,7 @@ public class MainActivity extends Activity {
                 // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
+                installSessionRecoveryWatcher();
                 installStatusWatcher();
                 // 注入完成后立刻推一次「正在获取状态」。
                 //
@@ -628,7 +642,11 @@ public class MainActivity extends Activity {
     private void showBootFailure(final String reason) {
         log("启动未完成: " + reason);
         try {
-            setSplashStatus("启动未完成：" + reason + "\n（点按此处查看日志）");
+            final boolean payloadFailure = isPayloadFailure(reason);
+            String shown = reason == null ? "未知原因" : reason;
+            if (shown.length() > 220) shown = shown.substring(0, 220) + "…";
+            setSplashStatus((payloadFailure ? "运行包准备失败：" : "启动未完成：")
+                    + shown + "\n（点按此处查看日志）");
             if (splashView != null) {
                 splashView.setOnClickListener(new android.view.View.OnClickListener() {
                     @Override public void onClick(android.view.View v) { hideSplash(); }
@@ -636,12 +654,23 @@ public class MainActivity extends Activity {
             }
             // 开屏下方铺一张说明页：即便开屏因为任何原因没收起，
             // 用户点一下也能看到完整原因与出路
-            showStatus("启动未完成", reason
-                    + "<br><br>可以这样处理：<br>"
-                    + "1. 点下面的「重试」再启动一次<br>"
-                    + "2. 回到通知栏 →「设置」→ 更新运行包<br>"
-                    + "3. 打开「运行日志」看具体原因<br><br>"
-                    + "<a href=\"dsh-retry://boot\">重试启动</a>");
+            String safeReason = htmlEscape(reason == null ? "未知原因" : reason);
+            String actions;
+            if (payloadFailure) {
+                actions = "运行包下载或校验没有完成。可以重新尝试下载，已存在的配置不会被删除。<br><br>"
+                        + "<a href=\"dsh-retry://payload\">重新下载运行包</a>　"
+                        + "<a href=\"dsh-retry://log\">打开运行日志</a><br><br>"
+                        + "<a href=\"dsh-retry://boot\">重试启动</a>";
+            } else {
+                actions = "可以这样处理：<br>"
+                        + "1. 点下面的「重试」再启动一次<br>"
+                        + "2. 回到通知栏 →「设置」→ 更新运行包<br>"
+                        + "3. 打开「运行日志」看具体原因<br><br>"
+                        + "<a href=\"dsh-retry://boot\">重试启动</a>　"
+                        + "<a href=\"dsh-retry://log\">打开运行日志</a>";
+            }
+            showStatus(payloadFailure ? "运行包准备失败" : "启动未完成",
+                    "<code>" + safeReason + "</code><br><br>" + actions);
             // 8 秒后自动收起开屏，露出说明页 —— 不该让用户去猜"要点一下"
             new android.os.Handler(android.os.Looper.getMainLooper())
                     .postDelayed(new Runnable() {
@@ -650,6 +679,26 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("显示启动失败信息时出错: " + t);
         }
+    }
+
+    /** 启动失败是否发生在运行包清单、下载、校验或解压阶段。 */
+    private boolean isPayloadFailure(String reason) {
+        if (reason == null) return false;
+        String s = reason.toLowerCase(java.util.Locale.ROOT);
+        return s.indexOf("运行包") >= 0 || s.indexOf("清单") >= 0
+                || s.indexOf("下载失败") >= 0 || s.indexOf("manifest") >= 0
+                || s.indexOf("sha-256") >= 0 || s.indexOf("解压") >= 0
+                || s.indexOf("payload") >= 0;
+    }
+
+    /** 把启动失败原因放进状态页 HTML 前先编码，避免异常文本破坏页面。 */
+    private String htmlEscape(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**
@@ -1322,13 +1371,52 @@ public class MainActivity extends Activity {
      */
     private boolean handleUrl(String url) {
         if (url == null || url.length() == 0) return false;
+        String trimmed = url.trim();
+        String lower = trimmed.toLowerCase(java.util.Locale.ROOT);
+        if (lower.startsWith("dsh-recovery://retry")) {
+            log("用户点击「重试恢复」");
+            dismissRecoveryBanner();
+            lastRecoveryAt = 0;
+            statusPageLoading = false;
+            if (webView != null) webView.reload();
+            toast("正在重试会话恢复");
+            return true;
+        }
+        if (lower.startsWith("dsh-recovery://new")) {
+            log("用户点击「新建会话」");
+            dismissRecoveryBanner();
+            if (webView != null) {
+                try {
+                    webView.evaluateJavascript(SessionRecovery.newSessionScript(), null);
+                } catch (Throwable t) {
+                    log("会话恢复：调用新建会话入口失败: " + t);
+                    toast("无法打开新建会话入口，请从侧栏手动新建");
+                }
+            }
+            return true;
+        }
+        if (lower.startsWith("dsh-recovery://logs")) {
+            log("用户点击「导出诊断」");
+            dismissRecoveryBanner();
+            exportDiagnostics();
+            return true;
+        }
         // 状态页里的「重试启动」链接（启动失败时给出的出路之一）
-        if (url.startsWith("dsh-retry:")) {
-            log("用户点击「重试启动」");
+        if (lower.startsWith("dsh-retry:")) {
+            if (lower.startsWith("dsh-retry://payload")) {
+                log("用户点击「重新下载运行包」");
+            } else if (lower.startsWith("dsh-retry://log")) {
+                log("用户点击「打开运行日志」");
+                hideSplash();
+                showLog();
+                return true;
+            } else {
+                log("用户点击「重试启动」");
+            }
             restartAgent();
             return true;
         }
-        String u = url.trim().toLowerCase(java.util.Locale.ROOT);
+        String u = lower;
         // 本机地址留在 WebView 里（DSH 自己的页面、附件预览等）
         if (u.startsWith("http://127.0.0.1") || u.startsWith("http://localhost")
                 || u.startsWith("https://127.0.0.1") || u.startsWith("https://localhost")
@@ -1422,6 +1510,15 @@ public class MainActivity extends Activity {
     /** 工具链目录与 node 可执行文件（插件安装需要）。 */
     private volatile File toolsDirRef;
     private volatile File nodeRef;
+
+    /** 最近一次会话恢复失败的原始文本，供诊断导出使用。 */
+    private volatile String lastRecoveryRaw = "";
+    /** 会话恢复提示的去抖时间，避免同一个网页异常重复插入提示。 */
+    private volatile long lastRecoveryAt;
+    /** 页面顶部的原生恢复提示卡片。 */
+    private android.view.View recoveryBannerView;
+    /** 最近一次运行包更新失败，供设置页与诊断包说明现场。 */
+    private volatile String payloadLastError = "";
 
     /** DSH 安装目录，供屏幕方向变化时重新适配 viewport。 */
     private volatile File dshDirRef;
@@ -1966,6 +2063,181 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** 记录会话恢复失败，并在网页上方放一个不遮住输入区的原生提示卡片。 */
+    private void onSessionRecoveryFailure(String raw) {
+        String s = raw == null ? "" : raw;
+        if (s.length() > 4000) s = s.substring(0, 4000) + "…";
+        lastRecoveryRaw = s;
+        long now = System.currentTimeMillis();
+        log("[会话恢复] " + s);
+        if (now - lastRecoveryAt < 5000 && recoveryBannerView != null) return;
+        lastRecoveryAt = now;
+        showSessionRecoveryBanner();
+    }
+
+    /** 创建可重复使用的原生恢复卡片；卡片以外的 WebView 仍可继续操作。 */
+    private void showSessionRecoveryBanner() {
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (rootView == null) return;
+                    dismissRecoveryBannerNow();
+                    android.widget.LinearLayout card = DshUi.paddedBody(MainActivity.this);
+                    card.setBackground(DshUi.cardBg(MainActivity.this));
+                    try { card.setElevation(DshUi.dp(MainActivity.this, 6)); }
+                    catch (Throwable ignored) { }
+                    card.addView(DshUi.title(MainActivity.this, SessionRecovery.title()));
+                    card.addView(DshUi.hint(MainActivity.this, SessionRecovery.detail()),
+                            DshUi.fullWidth(MainActivity.this, 8));
+
+                    android.widget.Button retry =
+                            DshUi.button(MainActivity.this, "重试恢复", true);
+                    android.widget.Button fresh =
+                            DshUi.button(MainActivity.this, "新建会话", false);
+                    android.widget.Button logs =
+                            DshUi.button(MainActivity.this, "导出诊断", false);
+                    android.widget.Button close =
+                            DshUi.button(MainActivity.this, "关闭提示", false);
+                    retry.setOnClickListener(new android.view.View.OnClickListener() {
+                        @Override public void onClick(android.view.View v) {
+                            dismissRecoveryBanner();
+                            lastRecoveryAt = 0;
+                            statusPageLoading = false;
+                            if (webView != null) webView.reload();
+                            toast("正在重试会话恢复");
+                        }
+                    });
+                    fresh.setOnClickListener(new android.view.View.OnClickListener() {
+                        @Override public void onClick(android.view.View v) {
+                            dismissRecoveryBanner();
+                            if (webView == null) return;
+                            try {
+                                webView.evaluateJavascript(
+                                        SessionRecovery.newSessionScript(), null);
+                            } catch (Throwable t) {
+                                log("会话恢复：调用新建会话入口失败: " + t);
+                                toast("无法打开新建会话入口，请从侧栏手动新建");
+                            }
+                        }
+                    });
+                    logs.setOnClickListener(new android.view.View.OnClickListener() {
+                        @Override public void onClick(android.view.View v) {
+                            dismissRecoveryBanner();
+                            exportDiagnostics();
+                        }
+                    });
+                    close.setOnClickListener(new android.view.View.OnClickListener() {
+                        @Override public void onClick(android.view.View v) {
+                            dismissRecoveryBanner();
+                        }
+                    });
+                    card.addView(DshUi.footer(MainActivity.this, retry, fresh),
+                            DshUi.fullWidth(MainActivity.this, 2));
+                    card.addView(DshUi.footer(MainActivity.this, logs, close),
+                            DshUi.fullWidth(MainActivity.this, 2));
+
+                    android.widget.FrameLayout.LayoutParams lp =
+                            new android.widget.FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.WRAP_CONTENT);
+                    int margin = DshUi.dp(MainActivity.this, 10);
+                    lp.leftMargin = margin;
+                    lp.rightMargin = margin;
+                    lp.topMargin = DshUi.dp(MainActivity.this, 10);
+                    lp.gravity = Gravity.TOP;
+                    recoveryBannerView = card;
+                    rootView.addView(card, lp);
+                } catch (Throwable t) {
+                    log("显示会话恢复提示失败: " + t);
+                }
+            }
+        });
+    }
+
+    /** 从根布局移除恢复提示，调用方不需要判断当前是否已显示。 */
+    private void dismissRecoveryBanner() {
+        runOnUiThread(new Runnable() {
+            @Override public void run() { dismissRecoveryBannerNow(); }
+        });
+    }
+
+    private void dismissRecoveryBannerNow() {
+        if (recoveryBannerView == null) return;
+        try {
+            android.view.ViewParent p = recoveryBannerView.getParent();
+            if (p instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) p).removeView(recoveryBannerView);
+            }
+        } catch (Throwable t) {
+            log("移除会话恢复提示失败: " + t);
+        }
+        recoveryBannerView = null;
+    }
+
+    /** 导出最近一段启动日志与恢复现场，便于用户直接从手机提交诊断。 */
+    private void exportDiagnostics() {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    java.util.List<File> dirs = new java.util.ArrayList<File>();
+                    if (sharedLog != null && sharedLog.getParentFile() != null) {
+                        dirs.add(sharedLog.getParentFile());
+                    }
+                    dirs.add(new File("/sdcard/DSHNative"));
+                    dirs.add(new File("/sdcard/Download/DSHNative"));
+                    dirs.add(new File("/storage/emulated/0/DSHNative"));
+
+                    File out = null;
+                    String stamp = new java.text.SimpleDateFormat(
+                            "yyyyMMdd-HHmmss", java.util.Locale.ROOT)
+                            .format(new java.util.Date());
+                    for (File dir : dirs) {
+                        if (dir == null) continue;
+                        try {
+                            if (!dir.exists() && !dir.mkdirs()) continue;
+                            File candidate = new File(dir, "diagnostics-" + stamp + ".txt");
+                            writeText(candidate, "");
+                            out = candidate;
+                            break;
+                        } catch (Throwable ignored) { }
+                    }
+                    if (out == null) throw new IOException("没有可写的共享存储目录");
+
+                    String tail = "";
+                    if (sharedLog != null && sharedLog.exists()) {
+                        tail = readText(sharedLog);
+                        int max = 480 * 1024;
+                        if (tail.length() > max) tail = tail.substring(tail.length() - max);
+                    }
+                    StringBuilder body = new StringBuilder();
+                    body.append("DSH Native diagnostics\n");
+                    body.append("App: ").append(appVersion()).append('\n');
+                    body.append("Payload: ").append(payloadSummary()).append('\n');
+                    if (payloadLastError.length() > 0) {
+                        body.append("Last payload update error: ")
+                                .append(payloadLastError).append('\n');
+                    }
+                    if (lastRecoveryRaw.length() > 0) {
+                        body.append("Last session recovery error:\n")
+                                .append(lastRecoveryRaw).append('\n');
+                    }
+                    body.append("\n--- launch.log tail ---\n").append(tail);
+                    writeText(out, body.toString());
+                    final String path = out.getAbsolutePath();
+                    log("诊断已导出: " + path);
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            toast("诊断已导出到 " + path);
+                        }
+                    });
+                } catch (Throwable t) {
+                    log("导出诊断失败: " + t);
+                    toast("导出诊断失败，请打开运行日志后复制");
+                }
+            }
+        }, "dsh-diagnostics").start();
+    }
+
     // ---------------------------------------------------------------- 任务完成通知
     /** 处理来自注入脚本的任务事件。 */
     private void onTaskEvent(String kind, String sessionId) {
@@ -2508,6 +2780,15 @@ public class MainActivity extends Activity {
             log("已注入接口捕获 + 客户端异常捕获");
         } catch (Throwable t) {
             log("警告: 注入接口捕获失败: " + t);
+        }
+    }
+
+    /** 监听页面可见的恢复错误，处理没有走 fetch 或控制台的页面失败。 */
+    private void installSessionRecoveryWatcher() {
+        try {
+            webView.evaluateJavascript(SessionRecovery.domWatcherScript(), null);
+        } catch (Throwable t) {
+            log("警告: 注入会话恢复监听失败: " + t);
         }
     }
 
@@ -3125,6 +3406,7 @@ public class MainActivity extends Activity {
     private void updatePayloadNow(final android.widget.TextView status) {
         new Thread(new Runnable() {
             @Override public void run() {
+                payloadLastError = "";
                 setStatus(status, "正在检查运行包…");
                 try {
                     File root = appRoot;
@@ -3139,7 +3421,8 @@ public class MainActivity extends Activity {
                     }
                 } catch (Throwable t) {
                     log("错误: 更新运行包失败: " + t);
-                    setStatus(status, "更新失败：" + shorten(t));
+                    payloadLastError = shorten(t);
+                    setStatus(status, "运行包更新失败，可再次点击重试：" + payloadLastError);
                 }
             }
         }).start();
@@ -3465,6 +3748,16 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) { showLog(); }
             });
             body.addView(btnLog, DshUi.fullWidth(this, 8));
+
+            android.widget.Button btnDiagnostics =
+                    DshUi.button(this, "导出诊断包", false);
+            btnDiagnostics.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    log("用户点击: 导出诊断包");
+                    exportDiagnostics();
+                }
+            });
+            body.addView(btnDiagnostics, DshUi.fullWidth(this, 8));
 
             // ── 插件 ──
             body.addView(DshUi.sectionLabel(this, "插件"), DshUi.fullWidth(this, 22));
