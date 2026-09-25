@@ -1,7 +1,7 @@
 {
-  "version": "0.25.7",
-  "tag": "v0.25.7-bootstrap",
+  "version": "0.25.8",
+  "tag": "v0.25.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v9",
-  "notes": "v0.25.7"
+  "notes": "v0.25.8"
 }
