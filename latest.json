@@ -1,7 +1,7 @@
 {
-  "version": "0.25.5",
-  "tag": "v0.25.5-bootstrap",
+  "version": "0.25.6",
+  "tag": "v0.25.6-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
-  "payload": "payload-v7",
-  "notes": "深色模式死循环：加去抖 + 持久化限流"
+  "payload": "payload-v8",
+  "notes": "v0.25.6"
 }
