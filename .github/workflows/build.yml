@@ -170,8 +170,8 @@ jobs:
                       1,
                   )
                   pattern = re.compile(
-                      r"try\s*\{\s*await internals\.fs\.link\(staged, currentPath\)\s*\}\s*"
-                      r"catch \(error\)\s*\{.*?\}\s*await syncDirectory\(dirname\(currentPath\), internals\)",
+                      r"try\s*\{\s*await internals\.fs\.link\(staged, currentPath\);?\s*\}\s*"
+                      r"catch \(error\)\s*\{.*?\}\s*await syncDirectory\(dirname\(currentPath\), internals\);?",
                       re.S,
                   )
                   replacement = (
@@ -190,14 +190,16 @@ jobs:
 
               if 'await link(tmp, finalPath)' in text and 'await rename(tmp, finalPath)' not in text:
                   text = text.replace('let linked = false', 'let published = false', 1)
+                  text = text.replace('await link(tmp, finalPath);', 'await rename(tmp, finalPath);', 1)
                   text = text.replace('await link(tmp, finalPath)\n      linked = true',
                                       'await rename(tmp, finalPath)\n      published = true', 1)
+                  text = text.replace('linked = true;', 'published = true;', 1)
                   text = text.replace('if (!linked) await rm(tmp, { force: true })',
                                       'if (!published) await rm(tmp, { force: true })', 1)
                   text = text.replace(
                       '    try {\n'
                       '      await rm(tmp, { force: true })\n'
-                      '    } catch {}\n'
+                      '    } catch {}\n',
                       "",
                       1,
                   )
