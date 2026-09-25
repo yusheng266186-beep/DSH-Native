@@ -3,6 +3,7 @@ name: 构建 DSH payload v8 beta
 on:
   push:
     branches:
+      - main
       - codex/dsh-0.1.7-rc2
   workflow_dispatch:
     inputs:
