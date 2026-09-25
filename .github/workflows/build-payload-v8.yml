@@ -1,0 +1,202 @@
+name: 构建 DSH payload v8 beta
+
+on:
+  push:
+    branches:
+      - codex/dsh-0.1.7-rc2
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: "上游 DSH npm 版本"
+        required: true
+        default: "0.1.7-rc.2"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DSH_VERSION: ${{ inputs.dsh_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26.4.0"
+
+      - name: Install zstd
+        run: sudo apt-get update -qq && sudo apt-get install -y zstd
+
+      - name: Build payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/dsh-payload-v8"
+          base="$work/base"
+          pkg="$work/pkg"
+          out="$work/payload-v8"
+          dsh="$pkg/dsh"
+          tools="$pkg/tools_v3"
+          mkdir -p "$base" "$dsh" "$tools" "$out"
+
+          gh release download payload-v7 \
+            --repo yusheng266186-beep/DSH-Native \
+            --pattern '*.tar.zst' \
+            --dir "$base"
+
+          tar --use-compress-program=unzstd -xf "$base/dsh.tar.zst" -C "$dsh"
+          for archive in tools-base.tar.zst tools-libs.tar.zst tools-python.tar.zst tools-npm.tar.zst; do
+            tar --use-compress-program=unzstd -xf "$base/$archive" -C "$tools"
+          done
+          test -f "$dsh/lib/bin.js"
+          test -f "$dsh/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js"
+
+          echo "== 更新 DSH 包 =="
+          npm install --prefix "$dsh" \
+            --omit=dev --ignore-scripts --no-audit --no-fund \
+            --install-strategy=hoisted \
+            "@deepseek-ai/dsh@${DSH_VERSION}"
+
+          echo "== 安装 Android PTY 包并保留兼容入口 =="
+          npm install --prefix "$dsh" \
+            --ignore-scripts --no-audit --no-fund --no-save \
+            "@mmmbuto/node-pty-android-arm64@1.1.2"
+          mkdir -p "$dsh/node_modules/node-pty"
+          cat > "$dsh/node_modules/node-pty/index.js" <<'EOF'
+          module.exports = require('@mmmbuto/node-pty-android-arm64');
+          EOF
+
+          echo "== 安装 Android 专项补丁 =="
+          install -D patch/01-require-builtin-shim/node-addon-require-builtin.js \
+            "$dsh/node_modules/node-addon-require-builtin/lib/index.js"
+
+          python3 - "$dsh" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+
+          def write(path, text):
+              path.write_text(text, encoding='utf-8')
+
+          # Android bionic has no prebuilt node-addon-system binding. Keep the
+          # existing Linux implementation as an optional fallback and make the
+          # Android platform resolve it without aborting startup.
+          flock = root / 'node_modules/@deepseek-ai/node-addon-system/lib/flock.js'
+          if flock.exists():
+              text = flock.read_text(encoding='utf-8')
+              text = text.replace(
+                  "if (platform !== 'linux' && platform !== 'darwin') {",
+                  "if (platform !== 'linux' && platform !== 'darwin' && platform !== 'android') {",
+                  1,
+              )
+              if "const pkgPlatform = platform === 'android' ? 'linux' : platform;" not in text:
+                  old = """    const manifest = require.resolve(`@deepseek-ai/node-addon-system-${platform}-${arch}/package.json`)
+    binding = require(join(dirname(manifest), 'bin', filename))"""
+                  new = """    const pkgPlatform = platform === 'android' ? 'linux' : platform
+    try {
+        const manifest = require.resolve(`@deepseek-ai/node-addon-system-${pkgPlatform}-${arch}/package.json`)
+        binding = require(join(dirname(manifest), 'bin', filename))
+    } catch (error) {
+        binding = { tryLock: (_fd, done) => done(0) }
+    }"""
+                  old2 = old.replace('\n', '\r\n')
+                  if old in text:
+                      text = text.replace(old, new, 1)
+                  elif old2 in text:
+                      text = text.replace(old2, new.replace('\n', '\r\n'), 1)
+                  else:
+                      raise SystemExit('flock source shape not recognized')
+              write(flock, text)
+
+          # Android does not permit hard-link publication in the session log.
+          # The source has changed formatting between DSH releases, so apply the
+          # equivalent transformation by structure instead of one fixed diff.
+          session = root / 'node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js'
+          if session.exists():
+              text = session.read_text(encoding='utf-8')
+              if 'internals.fs.link(staged, currentPath)' in text and 'internals.fs.rename(staged, currentPath)' not in text:
+                  text = text.replace(
+                      'readFile, readdir, realpath, rm, stat, truncate',
+                      'readFile, readdir, realpath, rename, rm, stat, truncate',
+                      1,
+                  )
+                  pattern = re.compile(
+                      r"try\s*\{\s*await internals\.fs\.link\(staged, currentPath\)\s*\}\s*"
+                      r"catch \(error\)\s*\{.*?\}\s*await syncDirectory\(dirname\(currentPath\), internals\)",
+                      re.S,
+                  )
+                  replacement = (
+                      'try {\n'
+                      '    await internals.fs.lstat(currentPath)\n'
+                      '    return false\n'
+                      '  } catch (error) {\n'
+                      "    if (error?.code !== 'ENOENT') throw error\n"
+                      '  }\n'
+                      '  await internals.fs.rename(staged, currentPath)\n'
+                      '  await syncDirectory(dirname(currentPath), internals)'
+                  )
+                  text, count = pattern.subn(replacement, text, count=1)
+                  if count != 1:
+                      raise SystemExit('session publishCurrentExclusive shape not recognized')
+
+              if 'await link(tmp, finalPath)' in text and 'await rename(tmp, finalPath)' not in text:
+                  text = text.replace(
+                      'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, '
+                      'rename, rm, stat, truncate }',
+                      'import { link, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, '
+                      'rename, rm, stat, truncate }',
+                      1,
+                  )
+                  text = text.replace('let linked = false', 'let published = false', 1)
+                  text = text.replace('await link(tmp, finalPath)\n      linked = true',
+                                      'await rename(tmp, finalPath)\n      published = true', 1)
+                  text = text.replace('if (!linked) await rm(tmp, { force: true })',
+                                      'if (!published) await rm(tmp, { force: true })', 1)
+                  text = text.replace('''    try {
+      await rm(tmp, { force: true })
+    } catch {}
+''', '', 1)
+              write(session, text)
+
+          for rel in (
+              'node_modules/@img/sharp-linux-arm64',
+              'node_modules/@img/sharp-libvips-linux-arm64',
+              'node_modules/@img/sharp-wasm32',
+          ):
+              victim = root / rel
+              if victim.exists():
+                  import shutil
+                  shutil.rmtree(victim)
+          PY
+
+          echo "== 打包 DSH =="
+          tar --exclude='./node_modules/@img/sharp-linux-arm64' \
+              --exclude='./node_modules/@img/sharp-libvips-linux-arm64' \
+              --exclude='./node_modules/@img/sharp-wasm32' \
+              -cf - -C "$dsh" . | zstd -19 -T0 -q -o "$pkg/dsh.tar.zst"
+
+          echo "== 生成五个 payload 分片 =="
+          DSH_PKG_DIR="$pkg" DSH_TOOLS_DIR="$tools" DSH_PAYLOAD_OUT="$out" \
+            python3 scripts/make_payload_parts.py
+
+          printf '%s\n' "DSH_VERSION=$DSH_VERSION" > "$out/BUILD-INFO.txt"
+          printf '%s\n' "DSH_ROOT_PACKAGE=$(node -p \"require('$dsh/package.json').version\")" >> "$out/BUILD-INFO.txt"
+          printf '%s\n' "ATTACHMENT_PACKAGE=$(node -p \"require('$dsh/node_modules/@deepseek-ai/dsh-attachment-local/package.json').version\")" >> "$out/BUILD-INFO.txt"
+          sha256sum "$out"/*.tar.zst "$out/manifest.json" | tee "$out/SHA256SUMS.txt"
+          du -sh "$dsh" "$tools" "$out" || true
+
+      - name: Upload payload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload-v8
+          path: ${{ runner.temp }}/dsh-payload-v8/payload-v8
+          if-no-files-found: error
+          retention-days: 7
