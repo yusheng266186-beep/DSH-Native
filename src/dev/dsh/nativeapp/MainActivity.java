@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v8/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v9/";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 

@@ -27,7 +27,7 @@
 -		throw error;
 +		if (error?.code !== "ENOENT") throw error;
  	}
-+	await internals.fs.rename(staged, currentPath);
++	await rename(staged, currentPath);
  	await syncDirectory(dirname(currentPath), internals);
  	return true;
  }

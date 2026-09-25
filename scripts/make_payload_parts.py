@@ -59,7 +59,7 @@ DSH_REMOVE = [
 # tools 侧也有约 3.7MB 可删（npm 文档、补全脚本等），
 # 但改动会牵连整个分片重下（tools-base 13.7MB），得不偿失，故不动。
 PART_REVISION = {
-    'dsh.tar.zst': 3,
+    'dsh.tar.zst': 4,
 }
 
 PARTS = [
