@@ -66,7 +66,7 @@ jobs:
 
           echo "== 安装 Android PTY 包并保留兼容入口 =="
           npm install --prefix "$dsh" \
-            --ignore-scripts --no-audit --no-fund --no-save \
+            --force --ignore-scripts --no-audit --no-fund --no-save \
             "@mmmbuto/node-pty-android-arm64@1.1.2"
           mkdir -p "$dsh/node_modules/node-pty"
           cat > "$dsh/node_modules/node-pty/index.js" <<'EOF'
