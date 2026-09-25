@@ -25,14 +25,18 @@ PREV_TAG="${PREV_TAG:-}"
 # 整个构建跟着挂掉（实测踩过一次：同一份代码前一天能过、第二天失败）。
 # 构建路径上不该有这种"看运气"的步骤。
 if [ -z "$PREV_TAG" ] && command -v gh >/dev/null 2>&1; then
-    PREV_TAG="$(gh release list --repo "$REPO" --limit 1 --json tagName \
-        --jq '.[0].tagName' 2>/dev/null || true)"
+    # payload-vN releases are deliberately separate from APK releases.  A
+    # payload release can therefore be newer than the last bootstrap APK and
+    # must not be selected as the source of node/lib*.so.
+    PREV_TAG="$(gh release list --repo "$REPO" --limit 50 --json tagName \
+        --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-bootstrap$"))][0].tagName' \
+        2>/dev/null || true)"
 fi
 if [ -z "$PREV_TAG" ]; then
     echo "  [i] gh 不可用（缺 GH_TOKEN？），退回未认证 API"
     PREV_TAG="$(curl -sSL --max-time 30 \
-        "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-        | python3 -c "import json,sys;print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)"
+        "https://api.github.com/repos/${REPO}/releases?per_page=50" 2>/dev/null \
+        | python3 -c "import json,sys; rs=json.load(sys.stdin); print(next((r.get('tag_name','') for r in rs if __import__('re').match(r'^v[0-9]+\\.[0-9]+\\.[0-9]+-bootstrap$', r.get('tag_name',''))),'')" 2>/dev/null || true)"
 fi
 [ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag。给构建步骤加 GH_TOKEN，或显式指定 PREV_TAG=vX.Y.Z-bootstrap"; exit 1; }
 echo "  参考版本: $PREV_TAG"

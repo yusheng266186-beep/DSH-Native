@@ -3,6 +3,7 @@ name: 构建 DSH payload v8 beta
 on:
   push:
     branches:
+      - main
       - codex/dsh-0.1.7-rc2
   workflow_dispatch:
     inputs:
@@ -20,7 +21,7 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      DSH_VERSION: ${{ inputs.dsh_version }}
+      DSH_VERSION: ${{ inputs.dsh_version || '0.1.7-rc.2' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

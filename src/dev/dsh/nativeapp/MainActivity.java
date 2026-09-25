@@ -2631,7 +2631,6 @@ public class MainActivity extends Activity {
         out = out.replace("await link(source, target);", "await __androidLink(source, target);");
         out = out.replace("await link(source, target)", "await __androidLink(source, target)");
 
-        int replaced = 0;
         String marker = "throw new AttachmentError(\"Unable to persist attachment.\", "
                 + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
         String singleMarker = "throw new AttachmentError('Unable to persist attachment.', "
@@ -2646,10 +2645,8 @@ public class MainActivity extends Activity {
               + " + String(error.cause.message)) : ''), 'ATTACHMENT_WRITE_FAILED', { cause: error })";
         if (out.contains(marker)) {
             out = out.replace(marker, detail + ";");
-            replaced = 1;
         } else if (out.contains(singleMarker)) {
             out = out.replace(singleMarker, detail);
-            replaced = 1;
         }
 
         String helper = tag + "\n"
