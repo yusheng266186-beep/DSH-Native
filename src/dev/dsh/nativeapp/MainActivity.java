@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v7/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v8/";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -2545,24 +2545,25 @@ public class MainActivity extends Activity {
             // 因此不能靠「文件里是否已有补丁」判断幂等：那样补丁升级永远进不去
             // （实测：v0.16.2 的新补丁因 v0.16.0 已改过文件而被整体跳过）。
             // 方案：保留一份**剥离过补丁的原文件**，之后每次都从它重新生成。
-            if (!orig.exists()) {
-                String raw = readText(f);
-                String base = stripAndroidPatch(raw);
-                if (base.indexOf("await syncDirectory(") < 0) {
-                    recordPatch("附件落盘", false, "DSH 代码已变化，补丁未应用（图片可能失效）");
-                    log("  [警告] 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
-                    return;
-                }
-                writeText(orig, base);
-                log("  已保存附件模块原文件（供补丁重新生成）");
-            }
-
             String cur = readText(f);
             if (cur.contains(PATCH_TAG)) {
                 recordPatch("附件落盘", true, "已是最新");
                 log("  附件补丁已是最新（v3）");
                 return;
             }
+
+            // payload 更新后，旧版本留下的 .dshorig 不能继续作为新版本的基线。
+            // 只要当前文件没有本次补丁标记，就先从当前文件剥出干净源码并覆盖备份；
+            // 否则新内核会被旧内核的备份重新生成，表现为升级后功能仍停在旧版。
+            String base = stripAndroidPatch(cur);
+            if (base.indexOf("await syncDirectory(") < 0) {
+                recordPatch("附件落盘", false, "DSH 代码已变化，补丁未应用（图片可能失效）");
+                log("  [警告] 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
+                return;
+            }
+            writeText(orig, base);
+            log("  已保存当前 DSH 版本的附件原文件（供补丁重新生成）");
+
             String out = buildPatchedAttachment(readText(orig), PATCH_TAG);
             if (out == null) {
                 recordPatch("附件落盘", false, "自检未通过，已放弃");
@@ -2623,22 +2624,31 @@ public class MainActivity extends Activity {
         // 必须先替换调用点、再前置包装函数 —— 反过来会把包装函数自身的调用
         // 也替换掉，造成自我递归（实测 RangeError: Maximum call stack size exceeded）。
         String out = src.replace("await syncDirectory(", "await __androidSyncDirectory(");
+        // DSH 的构建格式在版本间会切换是否保留分号；两种写法都要覆盖，
+        // 否则内核升级后目录持久化补丁会生效，但附件硬链接回退会静默失效。
         out = out.replace("await link(staged.path, target);", "await __androidLink(staged.path, target);");
+        out = out.replace("await link(staged.path, target)", "await __androidLink(staged.path, target)");
         out = out.replace("await link(source, target);", "await __androidLink(source, target);");
+        out = out.replace("await link(source, target)", "await __androidLink(source, target)");
 
         int replaced = 0;
         String marker = "throw new AttachmentError(\"Unable to persist attachment.\", "
                 + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
-        if (out.contains(marker)) {
-            out = out.replace(marker,
-                "console.error('[dsh-attach] persist failed: ' + String(error && error.code)"
+        String singleMarker = "throw new AttachmentError('Unable to persist attachment.', "
+                + "'ATTACHMENT_WRITE_FAILED', { cause: error })";
+        String detail = "console.error('[dsh-attach] persist failed: ' + String(error && error.code)"
               + " + ' ' + String(error && error.message)"
               + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
               + " + String(error.cause.message)) : ''));\n\t\t\t"
-              + "throw new AttachmentError(\"Unable to persist attachment. [\""
+              + "throw new AttachmentError('Unable to persist attachment. ['"
               + " + String(error && error.code) + '] ' + String(error && error.message)"
               + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
-              + " + String(error.cause.message)) : ''), \"ATTACHMENT_WRITE_FAILED\", { cause: error });");
+              + " + String(error.cause.message)) : ''), 'ATTACHMENT_WRITE_FAILED', { cause: error })";
+        if (out.contains(marker)) {
+            out = out.replace(marker, detail + ";");
+            replaced = 1;
+        } else if (out.contains(singleMarker)) {
+            out = out.replace(singleMarker, detail);
             replaced = 1;
         }
 
@@ -2651,7 +2661,8 @@ public class MainActivity extends Activity {
               + "if(c==='EPERM'||c==='EXDEV'||c==='ENOSYS'||c==='EACCES'||c==='EMLINK'"
               + "||c==='EOPNOTSUPP'){"
               + "console.error('[dsh-attach] link unsupported (' + c + '), copy instead');"
-              + "const b=await readFile(from);await writeFile(to,b,{mode:384});return;}"
+              + "const b=await readFile(from);const fs=await import('node:fs/promises');"
+              + "await fs.writeFile(to,b,{mode:384});return;}"
               + "throw e;}}\n";
         out = helper + out;
 
