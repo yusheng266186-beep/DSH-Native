@@ -47,6 +47,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: 检查发布元数据
+        run: python3 scripts/sync_project_metadata.py --check
+
       - name: 构建
         run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
 

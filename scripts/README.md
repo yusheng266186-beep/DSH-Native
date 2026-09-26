@@ -4,11 +4,12 @@
 
 | 脚本 | 克隆里能跑吗 | 说明 |
 |---|---|---|
-| `run_tests.sh` | **能** | 580 项纯逻辑断言，只依赖 java/javac。接手第一步就跑这个 |
+| `run_tests.sh` | **能** | 593 项纯逻辑断言，只依赖 JDK。接手第一步就跑这个 |
 | `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
 | `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
 | `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
 | `bump_version.sh` | 能 | 提升版本号（从源码读当前值，不失配）|
+| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步 README / latest.json 的版本、大小和摘要 |
 | `mkmanifest.py` | 需要构建工作区 | 手写二进制 AndroidManifest.xml |
 | `mkzip.py` | 需要构建工作区的产物 | 组装 APK |
 | `make_payload_parts.py` | 需要工具链目录 | 重建运行包分片 |
@@ -54,7 +55,7 @@ DSH_BUILD_DIR=~/dsh-build bash scripts/build_bootstrap.sh
 
 ### `run_tests.sh`
 
-编译并运行 10 个纯逻辑测试类。这些类不依赖 Android，
+编译并运行 16 个纯逻辑测试类。这些类不依赖 Android，
 所以能在普通 JVM 上跑。构建流程的第 3.4 步会调用它，**失败即中止构建**。
 
 ### `build_bootstrap.sh`

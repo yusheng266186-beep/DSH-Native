@@ -46,7 +46,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
-     $JAVA_DIR/SecretMasker.java"
+     $JAVA_DIR/SecretMasker.java
+     $JAVA_DIR/UiText.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -61,14 +62,25 @@ TESTS="tests/FileListingTest.java
        tests/SessionRecoveryTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
-       tests/SecretMaskerTest.java"
+       tests/SecretMaskerTest.java
+       tests/UiTextTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
-javac -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
+# Some slim JDK images expose the compiler module but omit the javac launcher.
+# Use the module directly in that environment so local verification does not
+# become weaker than CI merely because one small binary is absent.
+if command -v javac >/dev/null 2>&1; then
+    JAVAC=(javac)
+else
+    java --list-modules 2>/dev/null | grep -q '^jdk.compiler@' \
+        || { echo "找不到 javac 或 jdk.compiler 模块" >&2; exit 1; }
+    JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main)
+fi
+"${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10

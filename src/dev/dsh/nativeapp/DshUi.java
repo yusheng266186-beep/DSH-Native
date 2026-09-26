@@ -38,6 +38,32 @@ import android.widget.TextView;
  */
 public final class DshUi {
 
+    /**
+     * DshUi 创建的文本控件会在每次 setText 时经过双语层。
+     *
+     * <p>这样异步状态（例如“正在检测…”）和按钮忙碌态也能跟随语言，调用方
+     * 不需要在几十个面板里各自重复判断。富文本保留原对象，避免破坏颜色 span。</p>
+     */
+    private static final class LocalizedTextView extends TextView {
+        LocalizedTextView(Context c) { super(c); }
+
+        @Override public void setText(CharSequence text, BufferType type) {
+            CharSequence shown = text instanceof String
+                    ? UiText.text((String) text) : text;
+            super.setText(shown, type);
+        }
+    }
+
+    private static final class LocalizedButton extends Button {
+        LocalizedButton(Context c) { super(c); }
+
+        @Override public void setText(CharSequence text, BufferType type) {
+            CharSequence shown = text instanceof String
+                    ? UiText.text((String) text) : text;
+            super.setText(shown, type);
+        }
+    }
+
     // ---------------------------------------------------------------- 设计变量
     /**
      * 当前是否深色模式。
@@ -168,7 +194,7 @@ public final class DshUi {
     // ---------------------------------------------------------------- 组件
     /** 对话框标题。 */
     public static TextView title(Context c, String text) {
-        TextView tv = new TextView(c);
+        TextView tv = new LocalizedTextView(c);
         tv.setText(text);
         tv.setTextSize(17f);
         tv.setTextColor(TEXT());
@@ -178,7 +204,7 @@ public final class DshUi {
 
     /** 区块小标题（如「更新」）。 */
     public static TextView sectionLabel(Context c, String text) {
-        TextView tv = new TextView(c);
+        TextView tv = new LocalizedTextView(c);
         tv.setText(text);
         tv.setTextSize(13f);
         tv.setTextColor(TEXT());
@@ -188,7 +214,7 @@ public final class DshUi {
 
     /** 字段标签。 */
     public static TextView label(Context c, String text) {
-        TextView tv = new TextView(c);
+        TextView tv = new LocalizedTextView(c);
         tv.setText(text);
         tv.setTextSize(12.5f);
         tv.setTextColor(TEXT_2());
@@ -197,7 +223,7 @@ public final class DshUi {
 
     /** 说明/次要文字。 */
     public static TextView hint(Context c, String text) {
-        TextView tv = new TextView(c);
+        TextView tv = new LocalizedTextView(c);
         tv.setText(text);
         tv.setTextSize(11.5f);
         tv.setTextColor(TEXT_3());
@@ -207,7 +233,7 @@ public final class DshUi {
 
     /** 状态文字（可被异步更新）。 */
     public static TextView status(Context c, String text) {
-        TextView tv = new TextView(c);
+        TextView tv = new LocalizedTextView(c);
         tv.setText(text);
         tv.setTextSize(11.5f);
         tv.setTextColor(TEXT_2());
@@ -235,7 +261,7 @@ public final class DshUi {
 
     /** 按钮：圆角矩形，去 Material 阴影与水波纹。 */
     public static Button button(Context c, String text, boolean primary) {
-        Button b = new Button(c);
+        Button b = new LocalizedButton(c);
         b.setText(text);
         b.setTextSize(13.5f);
         b.setAllCaps(false);
@@ -400,8 +426,10 @@ public final class DshUi {
     public static void toast(Context c, CharSequence msg) {
         if (c == null || msg == null) return;
         try {
+            CharSequence shown = msg instanceof String
+                    ? UiText.text((String) msg) : msg;
             android.widget.Toast t = android.widget.Toast.makeText(
-                    c, msg, android.widget.Toast.LENGTH_SHORT);
+                    c, shown, android.widget.Toast.LENGTH_SHORT);
             int y = (int) (48 * c.getResources().getDisplayMetrics().density);
             t.setGravity(android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL, 0, y);
             t.show();

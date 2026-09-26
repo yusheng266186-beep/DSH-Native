@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sc_settings_short">Settings</string>
+    <string name="sc_settings_long">Open DeepSeek Harness settings</string>
+    <string name="sc_log_short">Runtime log</string>
+    <string name="sc_log_long">View the DeepSeek Harness runtime log</string>
+    <string name="sc_update_short">Check updates</string>
+    <string name="sc_update_long">Check app and runtime updates</string>
+</resources>

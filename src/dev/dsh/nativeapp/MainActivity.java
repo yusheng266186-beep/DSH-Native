@@ -156,6 +156,10 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // 原生外壳语言必须在创建任何 DshUi 组件前确定。
+        // DSH 网页有自己的语言设置，两者互不覆盖。
+        configureUiLanguage();
+
         // 主题必须**最先**解析：DshUi 的颜色是在创建视图时一次性取走的，
         // 晚一步就会有一批组件停在旧主题上（深浅混杂比全浅色更难看）。
         //
@@ -499,6 +503,8 @@ public class MainActivity extends Activity {
                         @Override public void run() {
                             if ("log".equals(act)) {
                                 showLog();
+                            } else if ("account".equals(act)) {
+                                showAccountSettings();
                             } else {
                                 showSettings();
                                 if ("update".equals(act)) checkAppUpdate(true, null);
@@ -552,6 +558,25 @@ public class MainActivity extends Activity {
         progressLp.topMargin = statusBarHeight();   // 状态栏透明，内容延伸上去
         root.addView(topProgress, progressLp);
 
+        // 全屏 WebView 原来只有“长按顶部”和通知栏两个隐藏入口。
+        // 通知被关闭后，设置、日志、更新、文件和备份会全部不可达。
+        // 这个小型悬浮入口始终可见，但只占右上角一小块，不改变网页布局。
+        quickToolsButton = DshUi.button(this, "工具", false);
+        quickToolsButton.setSingleLine(true);
+        quickToolsButton.setContentDescription(UiText.t("打开工具与设置", "Open tools and settings"));
+        quickToolsButton.setAlpha(0.92f);
+        try { quickToolsButton.setElevation(DshUi.dp(this, 3)); } catch (Throwable ignored) { }
+        quickToolsButton.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { showSettings(); }
+        });
+        android.widget.FrameLayout.LayoutParams toolsLp =
+                new android.widget.FrameLayout.LayoutParams(
+                        DshUi.dp(this, 76), DshUi.dp(this, 44));
+        toolsLp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        toolsLp.topMargin = DshUi.dp(this, 8);
+        toolsLp.rightMargin = DshUi.dp(this, 8);
+        root.addView(quickToolsButton, toolsLp);
+
 
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
         // 而不是滚动的日志行。加载完成后淡出。
@@ -587,7 +612,6 @@ public class MainActivity extends Activity {
         setContentView(root);
 
         initSharedLog();
-        requestStoragePermission();
         // 分享**不能在这里立刻处理**。
         //
         // 处理分享需要知道"工作区在哪"，而 workspace 要等启动流程跑到中间
@@ -603,7 +627,149 @@ public class MainActivity extends Activity {
         startUiWatchdog();
         showPreviousCrash();
 
-        bootInBackground("启动");
+        // 新安装先解释下载量、权限和配置入口，再开始百兆级运行包下载。
+        // 升级用户若已有 .dsh 数据则直接进入，绝不会被补弹“首次使用”。
+        if (shouldShowFirstRunGuide()) {
+            showFirstRunGuide();
+        } else {
+            requestStoragePermission();
+            bootInBackground("启动");
+        }
+    }
+
+    /** Resolve the native-shell language before any views are created. */
+    private void configureUiLanguage() {
+        String preference = UiText.AUTO;
+        try {
+            preference = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("uiLanguage", UiText.AUTO);
+        } catch (Throwable ignored) { }
+        UiText.configure(preference, java.util.Locale.getDefault().getLanguage());
+    }
+
+    private String uiLanguagePreference() {
+        try {
+            return UiText.normalize(getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("uiLanguage", UiText.AUTO));
+        } catch (Throwable ignored) {
+            return UiText.AUTO;
+        }
+    }
+
+    private void applyUiLanguage(String preference) {
+        String normalized = UiText.normalize(preference);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("uiLanguage", normalized).apply();
+        UiText.configure(normalized, java.util.Locale.getDefault().getLanguage());
+        if (quickToolsButton != null) {
+            quickToolsButton.setText("工具");
+            quickToolsButton.setContentDescription(
+                    UiText.t("打开工具与设置", "Open tools and settings"));
+        }
+    }
+
+    /** Do not show a new onboarding screen to people upgrading an existing install. */
+    private boolean shouldShowFirstRunGuide() {
+        android.content.SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        boolean completed = p.getBoolean("firstRunGuideCompleted", false);
+        File existingHome = new File(new File(getFilesDir(), "dsh"), ".dsh");
+        boolean existing = existingHome.isDirectory();
+        boolean show = UiText.shouldShowFirstRun(completed, existing);
+        if (!show && !completed && existing) {
+            p.edit().putBoolean("firstRunGuideCompleted", true).apply();
+        }
+        return show;
+    }
+
+    /**
+     * First-run guide shown before the large runtime download begins.
+     * Language changes rebuild only this dialog; the agent process is not started or restarted.
+     */
+    private void showFirstRunGuide() {
+        final android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this,
+                UiText.t("欢迎使用 DeepSeek Harness", "Welcome to DeepSeek Harness")));
+        body.addView(DshUi.hint(this,
+                UiText.t("首次使用只需完成三步", "Get started in three steps")),
+                DshUi.fullWidth(this, 5));
+
+        addFirstRunStep(body, "1",
+                UiText.t("准备运行环境", "Prepare the runtime"),
+                UiText.t("首次启动会下载约 117 MiB 的 DSH 与工具链，建议预留至少 550 MiB 空间并连接 Wi-Fi。",
+                        "The first launch downloads about 117 MiB of DSH and tools. Keep at least 550 MiB free and use Wi-Fi when possible."));
+        addFirstRunStep(body, "2",
+                UiText.t("选择权限", "Choose permissions"),
+                UiText.t("共享存储用于工作区、导入和诊断导出；通知用于显示后台任务状态。拒绝后仍可使用私有工作区。",
+                        "Shared storage enables the workspace, imports, and diagnostic exports. Notifications show background task status. Private storage still works if you decline."));
+        addFirstRunStep(body, "3",
+                UiText.t("填写账号", "Add your account"),
+                UiText.t("运行环境就绪后会自动打开“账号与模型”，保存密钥即可开始使用。",
+                        "When the runtime is ready, Account & model opens automatically so you can save a key and start."));
+
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("选择界面语言", "Choose interface language")),
+                DshUi.fullWidth(this, 22));
+        android.widget.LinearLayout languageRow = new android.widget.LinearLayout(this);
+        languageRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        final String currentPreference = uiLanguagePreference();
+        final android.widget.Button auto = DshUi.toggleButton(this,
+                UiText.t("跟随系统", "System"), UiText.AUTO.equals(currentPreference));
+        final android.widget.Button zh = DshUi.toggleButton(this,
+                "中文", UiText.ZH.equals(currentPreference));
+        final android.widget.Button en = DshUi.toggleButton(this,
+                "English", UiText.EN.equals(currentPreference));
+        addEqualButton(languageRow, auto, 0);
+        addEqualButton(languageRow, zh, 6);
+        addEqualButton(languageRow, en, 6);
+        body.addView(languageRow, DshUi.fullWidth(this, 8));
+
+        final android.widget.Button start = DshUi.button(this,
+                UiText.t("开始配置", "Start setup"), true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, start), 680);
+        dialog.setCancelable(false);
+        auto.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); applyUiLanguage(UiText.AUTO); showFirstRunGuide();
+            }
+        });
+        zh.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); applyUiLanguage(UiText.ZH); showFirstRunGuide();
+            }
+        });
+        en.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); applyUiLanguage(UiText.EN); showFirstRunGuide();
+            }
+        });
+        start.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putBoolean("firstRunGuideCompleted", true).apply();
+                pendingAction = "account";
+                dialog.dismiss();
+                requestStoragePermission();
+                bootInBackground("首次配置");
+            }
+        });
+        dialog.show();
+    }
+
+    private void addFirstRunStep(android.widget.LinearLayout body, String number,
+                                 String title, String detail) {
+        body.addView(DshUi.sectionLabel(this, number + ". " + title),
+                DshUi.fullWidth(this, 18));
+        body.addView(DshUi.hint(this, detail), DshUi.fullWidth(this, 5));
+    }
+
+    private void addEqualButton(android.widget.LinearLayout row,
+                                android.widget.Button button, int leftMarginDp) {
+        android.widget.LinearLayout.LayoutParams lp =
+                new android.widget.LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.leftMargin = DshUi.dp(this, leftMarginDp);
+        row.addView(button, lp);
     }
 
     /** 启动互斥：防止并发 boot（例如启动还没走完，用户又点了「重试启动」）。 */
@@ -1588,6 +1754,8 @@ public class MainActivity extends Activity {
     private android.widget.TextView splashStatus;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
+    /** 全屏 WebView 上始终可见的工具入口。 */
+    private android.widget.Button quickToolsButton;
     private volatile boolean splashHidden;
     /** 通知栏「设置」动作带的标记。 */
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
@@ -3873,238 +4041,398 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Compact top-level hub; each category opens a focused page. */
     private void showSettings() {
-        log("打开设置页");
+        log("打开工具与设置");
         try {
-            final File dshHome = new File(appRoot, ".dsh");
-            final File creds = new File(dshHome, ".credentials.yaml");
-            final File settings = new File(dshHome, "settings.yaml");
-
-            String cc = readRef(creds, "COMMANDCODE_API_KEY");
-            String ds = readRef(creds, "DEEPSEEK_API_KEY");
-            String model = readScalar(settings, "model");
-
             android.widget.LinearLayout body = DshUi.paddedBody(this);
-            body.addView(DshUi.title(this, "设置"));
-            body.addView(DshUi.hint(this, "密钥仅保存在 App 私有目录，不会外传。"),
-                    DshUi.fullWidth(this, 4));
+            body.addView(DshUi.title(this,
+                    UiText.t("工具与设置", "Tools & settings")));
+            body.addView(DshUi.hint(this,
+                    UiText.t("常用入口集中在这里；每页只保留一类任务，减少滚动和误触。",
+                            "Common actions are grouped here. Each page contains one type of task.")),
+                    DshUi.fullWidth(this, 5));
 
-            final android.widget.EditText ccField =
-                    addField(body, "Command Code API Key", cc, true);
-            final android.widget.EditText dsField =
-                    addField(body, "DeepSeek API Key", ds, true);
-            final android.widget.EditText modelField =
-                    addField(body, "默认模型", model, false);
+            final android.widget.Button account = addSettingsAction(body,
+                    UiText.t("账号与模型", "Account & model"),
+                    UiText.t("API Key、默认模型与 Command Code 用量",
+                            "API keys, default model, and Command Code usage"));
+            final android.widget.Button display = addSettingsAction(body,
+                    UiText.t("显示与语言", "Display & language"),
+                    UiText.t("中文 / English 与文字缩放",
+                            "Chinese / English and text scaling"));
+            final android.widget.Button updates = addSettingsAction(body,
+                    UiText.t("更新与维护", "Updates & maintenance"),
+                    UiText.t("App、DSH 运行包与补丁状态",
+                            "App, DSH runtime, and patch status"));
+            final android.widget.Button data = addSettingsAction(body,
+                    UiText.t("数据与扩展", "Data & extensions"),
+                    UiText.t("文件、加密备份与插件",
+                            "Files, encrypted backups, and plugins"));
+            final android.widget.Button diagnostics = addSettingsAction(body,
+                    UiText.t("诊断与日志", "Diagnostics & logs"),
+                    UiText.t("运行日志、诊断导出与网络检测",
+                            "Runtime logs, diagnostic export, and network checks"));
 
-            // ── 更新区 ──
-            body.addView(DshUi.sectionLabel(this, "更新"), DshUi.fullWidth(this, 22));
-            final android.widget.TextView upStatus =
-                    DshUi.status(this, "当前 App 版本 " + appVersion());
-            body.addView(upStatus, DshUi.fullWidth(this, 6));
-
-            android.widget.Button btnPayload =
-                    DshUi.button(this, "更新运行包（DSH / 工具链）", false);
-            btnPayload.setOnClickListener(new android.view.View.OnClickListener() {
+            android.widget.Button close = DshUi.button(this, "关闭", true);
+            final android.app.Dialog dialog = DshUi.dialog(this,
+                    DshUi.scroll(this, body), DshUi.footer(this, close), 650);
+            close.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) { dialog.dismiss(); }
+            });
+            account.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    log("用户点击: 更新运行包");
-                    updatePayloadNow(upStatus);
+                    dialog.dismiss(); showAccountSettings();
                 }
             });
-            body.addView(btnPayload, DshUi.fullWidth(this, 12));
-
-            android.widget.Button btnApp =
-                    DshUi.button(this, "检查 App 更新并安装", false);
-            btnApp.setOnClickListener(new android.view.View.OnClickListener() {
+            display.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    log("用户点击: 检查 App 更新");
-                    checkAppUpdate(true, upStatus);
+                    dialog.dismiss(); showDisplaySettings();
                 }
             });
-            body.addView(btnApp, DshUi.fullWidth(this, 8));
-
-            android.widget.Button btnLog = DshUi.button(this, "查看运行日志", false);
-            btnLog.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) { showLog(); }
-            });
-            body.addView(btnLog, DshUi.fullWidth(this, 8));
-
-            android.widget.Button btnDiagnostics =
-                    DshUi.button(this, "导出诊断包", false);
-            btnDiagnostics.setOnClickListener(new android.view.View.OnClickListener() {
+            updates.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    log("用户点击: 导出诊断包");
-                    exportDiagnostics();
+                    dialog.dismiss(); showUpdateSettings();
                 }
             });
-            body.addView(btnDiagnostics, DshUi.fullWidth(this, 8));
+            data.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    dialog.dismiss(); showDataSettings();
+                }
+            });
+            diagnostics.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    dialog.dismiss(); showDiagnosticsSettings();
+                }
+            });
+            dialog.show();
+        } catch (Throwable t) {
+            log("错误: 打开工具与设置失败: " + t);
+            toast(UiText.t("打开设置失败: ", "Could not open settings: ") + shorten(t));
+        }
+    }
 
-            // ── 插件 ──
-            body.addView(DshUi.sectionLabel(this, "插件"), DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "启用内置插件，或从 npm 安装社区插件（重启后生效）"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.Button btnPlugins = DshUi.button(this, "管理插件", false);
-            {
-                final File pluginDshDir = dshDirRef;
-                btnPlugins.setOnClickListener(new android.view.View.OnClickListener() {
-                    @Override public void onClick(android.view.View v) {
-                        // toolsDirRef / nodeRef 在启动流程中才赋值。
-                        // 不检查的话，启动未完成时安装插件会在后台线程 NPE，
-                        // 而被 catch 吞掉、只显示「安装失败」，看不到原因。
-                        if (pluginDshDir == null || toolsDirRef == null || nodeRef == null) {
-                            toast("运行环境尚未就绪，请稍后再试");
-                            return;
-                        }
-                        PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
-                            @Override public File dshDir() { return pluginDshDir; }
-                            @Override public File root() { return appRoot; }
-                            @Override public File toolsDir() { return toolsDirRef; }
-                            @Override public File node() { return nodeRef; }
-                            @Override public java.util.Set<String> selection() {
-                                return savedPluginSelection();
-                            }
-                            @Override public void saveSelection(java.util.Set<String> names) {
-                                setEnabledPlugins(names);
+    private android.widget.Button addSettingsAction(android.widget.LinearLayout body,
+                                                    String title, String detail) {
+        android.widget.Button button = DshUi.button(this, title, false);
+        body.addView(button, DshUi.fullWidth(this, 14));
+        body.addView(DshUi.hint(this, detail), DshUi.fullWidth(this, 4));
+        return button;
+    }
+
+    private void showAccountSettings() {
+        final File dshHome = new File(appRoot, ".dsh");
+        final File creds = new File(dshHome, ".credentials.yaml");
+        final File settings = new File(dshHome, "settings.yaml");
+        final String oldCc = readRef(creds, "COMMANDCODE_API_KEY");
+        final String oldDs = readRef(creds, "DEEPSEEK_API_KEY");
+        final String oldModel = readScalar(settings, "model");
+
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, UiText.t("账号与模型", "Account & model")));
+        body.addView(DshUi.hint(this, "密钥仅保存在 App 私有目录，不会外传。"),
+                DshUi.fullWidth(this, 4));
+        final android.widget.EditText ccField =
+                addField(body, "Command Code API Key", oldCc, true);
+        final android.widget.EditText dsField =
+                addField(body, "DeepSeek API Key", oldDs, true);
+        final android.widget.EditText modelField =
+                addField(body, "默认模型", oldModel, false);
+
+        body.addView(DshUi.sectionLabel(this, "订阅"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, "查看 Command Code 账户余额、滚动窗口与本期用量"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button usage = DshUi.button(this, "Command Code 用量", false);
+        usage.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                CommandCodePanel.show(MainActivity.this,
+                        ccField.getText().toString().trim());
+            }
+        });
+        body.addView(usage, DshUi.fullWidth(this, 8));
+
+        android.widget.Button back = DshUi.button(this, "返回", false);
+        android.widget.Button save = DshUi.button(this, "保存并重启", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back, save), 660);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showSettings();
+            }
+        });
+        save.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                try {
+                    String cc = ccField.getText().toString().trim();
+                    String ds = dsField.getText().toString().trim();
+                    String model = modelField.getText().toString().trim();
+                    if (cc.equals(oldCc) && ds.equals(oldDs) && model.equals(oldModel)) {
+                        dialog.dismiss();
+                        toast(UiText.t("没有需要保存的改动", "No changes to save"));
+                        showSettings();
+                        return;
+                    }
+                    writeRefs(creds, cc, ds);
+                    if (model.length() > 0) setScalar(settings, "model", model);
+                    dialog.dismiss();
+                    if (lastSessionStatus == SessionStatus.RUNNING
+                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+                        DshUi.confirm(MainActivity.this,
+                                "有任务正在运行",
+                                "重启会中断当前正在执行的任务，确定要重启吗？",
+                                "重启", new Runnable() {
+                            @Override public void run() {
+                                toast("正在重启服务…"); restartAgent();
                             }
                         });
+                    } else {
+                        toast("已保存，正在重启服务…");
+                        restartAgent();
+                    }
+                } catch (Throwable t) {
+                    toast("保存失败: " + t.getMessage());
+                }
+            }
+        });
+        dialog.show();
+    }
+
+    private void showDisplaySettings() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this,
+                UiText.t("显示与语言", "Display & language")));
+        body.addView(DshUi.sectionLabel(this, "界面语言"), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this,
+                "原生工具界面使用此语言；DSH 网页语言可在网页设置中单独调整。"),
+                DshUi.fullWidth(this, 5));
+
+        final String[] choice = { uiLanguagePreference() };
+        final android.widget.LinearLayout languageRow = new android.widget.LinearLayout(this);
+        languageRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        fillLanguageRow(languageRow, choice);
+        body.addView(languageRow, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "显示缩放"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this,
+                "界面布局已固定为桌面宽度，文字偏小可在此放大（立即生效）"),
+                DshUi.fullWidth(this, 6));
+        android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
+        zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        fillZoomRow(zoomRow);
+        body.addView(zoomRow, DshUi.fullWidth(this, 8));
+
+        android.widget.Button back = DshUi.button(this, "返回", false);
+        android.widget.Button apply = DshUi.button(this, "应用", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back, apply), 560);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showSettings();
+            }
+        });
+        apply.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                applyUiLanguage(choice[0]);
+                dialog.dismiss();
+                toast(UiText.t("语言已切换", "Language changed"));
+                showSettings();
+            }
+        });
+        dialog.show();
+    }
+
+    private void fillLanguageRow(final android.widget.LinearLayout row,
+                                 final String[] choice) {
+        row.removeAllViews();
+        String[] values = { UiText.AUTO, UiText.ZH, UiText.EN };
+        String[] labels = { UiText.t("跟随系统", "System"), "中文", "English" };
+        for (int i = 0; i < values.length; i++) {
+            final String value = values[i];
+            android.widget.Button b = DshUi.toggleButton(this, labels[i],
+                    value.equals(choice[0]));
+            b.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    choice[0] = value;
+                    fillLanguageRow(row, choice);
+                }
+            });
+            addEqualButton(row, b, i == 0 ? 0 : 6);
+        }
+    }
+
+    private void showUpdateSettings() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this,
+                UiText.t("更新与维护", "Updates & maintenance")));
+        final android.widget.TextView status =
+                DshUi.status(this, "当前 App 版本 " + appVersion());
+        body.addView(status, DshUi.fullWidth(this, 6));
+
+        android.widget.Button payload =
+                DshUi.button(this, "更新运行包（DSH / 工具链）", false);
+        payload.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                log("用户点击: 更新运行包"); updatePayloadNow(status);
+            }
+        });
+        body.addView(payload, DshUi.fullWidth(this, 12));
+        android.widget.Button app =
+                DshUi.button(this, "检查 App 更新并安装", false);
+        app.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                log("用户点击: 检查 App 更新"); checkAppUpdate(true, status);
+            }
+        });
+        body.addView(app, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
+        android.widget.TextView patch = DshUi.hint(this, "");
+        patch.setText(buildPatchReport());
+        body.addView(patch, DshUi.fullWidth(this, 6));
+
+        android.widget.Button back = DshUi.button(this, "返回", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back), 620);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showSettings();
+            }
+        });
+        dialog.show();
+    }
+
+    private android.text.SpannableStringBuilder buildPatchReport() {
+        android.text.SpannableStringBuilder report = new android.text.SpannableStringBuilder();
+        if (patchReport.isEmpty()) {
+            report.append(UiText.text("（暂无补丁记录）"));
+        } else {
+            for (String line : patchReport.values()) {
+                boolean warn = line.startsWith("\u0001");
+                String text = line.length() > 0 ? line.substring(1) : line;
+                int start = report.length();
+                report.append(text).append('\n');
+                report.setSpan(new android.text.style.ForegroundColorSpan(
+                                warn ? DshUi.WARN() : DshUi.TEXT_2()),
+                        start, report.length(),
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        int tail = report.length();
+        report.append("App ").append(appVersion()).append("  ")
+                .append(UiText.t("运行包 ", "Runtime ")).append(payloadSummary());
+        report.setSpan(new android.text.style.ForegroundColorSpan(DshUi.TEXT_3()),
+                tail, report.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return report;
+    }
+
+    private void showDataSettings() {
+        final File dshHome = new File(appRoot, ".dsh");
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this,
+                UiText.t("数据与扩展", "Data & extensions")));
+
+        body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this,
+                "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button files = DshUi.button(this, "浏览文件", false);
+        files.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                FileBrowser.show(MainActivity.this, appRoot);
+            }
+        });
+        body.addView(files, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "配置备份"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this,
+                "把账户密钥与模型配置导出到共享存储；重装或换机后可恢复"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button backup = DshUi.button(this, "备份与恢复", false);
+        backup.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                ConfigBackupPanel.show(MainActivity.this, appRoot, dshHome);
+            }
+        });
+        body.addView(backup, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "插件"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this,
+                "启用内置插件，或从 npm 安装社区插件（重启后生效）"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button plugins = DshUi.button(this, "管理插件", false);
+        final File pluginDshDir = dshDirRef;
+        plugins.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                if (pluginDshDir == null || toolsDirRef == null || nodeRef == null) {
+                    toast("运行环境尚未就绪，请稍后再试");
+                    return;
+                }
+                PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
+                    @Override public File dshDir() { return pluginDshDir; }
+                    @Override public File root() { return appRoot; }
+                    @Override public File toolsDir() { return toolsDirRef; }
+                    @Override public File node() { return nodeRef; }
+                    @Override public java.util.Set<String> selection() {
+                        return savedPluginSelection();
+                    }
+                    @Override public void saveSelection(java.util.Set<String> names) {
+                        setEnabledPlugins(names);
                     }
                 });
             }
-            body.addView(btnPlugins, DshUi.fullWidth(this, 8));
+        });
+        body.addView(plugins, DshUi.fullWidth(this, 8));
 
-            // ── 配置备份 ──
-            body.addView(DshUi.sectionLabel(this, "配置备份"), DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "把账户密钥与模型配置导出到共享存储；重装或换机后可恢复"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.Button btnBackup = DshUi.button(this, "备份与恢复", false);
-            final File backupHome = dshHome;
-            btnBackup.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    ConfigBackupPanel.show(MainActivity.this, appRoot, backupHome);
-                }
-            });
-            body.addView(btnBackup, DshUi.fullWidth(this, 8));
-
-            // ── 订阅 ──
-            body.addView(DshUi.sectionLabel(this, "订阅"), DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "查看 Command Code 账户余额、滚动窗口与本期用量"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.Button btnCc = DshUi.button(this, "Command Code 用量", false);
-            final String ccKey = readRef(creds, "COMMANDCODE_API_KEY");
-            btnCc.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    CommandCodePanel.show(MainActivity.this, ccKey);
-                }
-            });
-            body.addView(btnCc, DshUi.fullWidth(this, 8));
-
-            // ── 网络 ──
-            body.addView(DshUi.sectionLabel(this, "网络"), DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "检测更新功能依赖的各个源是否可用（直连与镜像分开报告）"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.Button btnNet = DshUi.button(this, "网络诊断", false);
-            btnNet.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    NetworkDiag.show(MainActivity.this, apkDownloadUrl());
-                }
-            });
-            body.addView(btnNet, DshUi.fullWidth(this, 8));
-
-            // ── 文件 ──
-            body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.Button btnFiles = DshUi.button(this, "浏览文件", false);
-            btnFiles.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    FileBrowser.show(MainActivity.this, appRoot);
-                }
-            });
-            body.addView(btnFiles, DshUi.fullWidth(this, 8));
-
-            // ── 显示缩放 ──
-            body.addView(DshUi.sectionLabel(this, "显示缩放"),
-                    DshUi.fullWidth(this, 22));
-            body.addView(DshUi.hint(this, "界面布局已固定为桌面宽度，文字偏小可在此放大（立即生效）"),
-                    DshUi.fullWidth(this, 6));
-            android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
-            zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            fillZoomRow(zoomRow);
-            body.addView(zoomRow, DshUi.fullWidth(this, 8));
-
-            // ── 维护状态：补丁是否仍然生效（DSH 更新后可能失效）──
-            body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
-            // 状态用颜色表达（不再用符号前缀）：
-            // \u0000 = 正常，\u0001 = 需注意
-            android.text.SpannableStringBuilder pr = new android.text.SpannableStringBuilder();
-            if (patchReport.isEmpty()) {
-                pr.append("（暂无补丁记录）");
-            } else {
-                for (String line : patchReport.values()) {
-                    boolean warn = line.startsWith("\u0001");
-                    String text = line.length() > 0 ? line.substring(1) : line;
-                    int start = pr.length();
-                    pr.append(text).append('\n');
-                    pr.setSpan(new android.text.style.ForegroundColorSpan(
-                                    warn ? 0xFFB26A00 : DshUi.TEXT_2()),
-                            start, pr.length(),
-                            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                }
+        android.widget.Button back = DshUi.button(this, "返回", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back), 650);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showSettings();
             }
-            int tail = pr.length();
-            pr.append("App ").append(appVersion())
-              .append("　运行包 ").append(payloadSummary());
-            pr.setSpan(new android.text.style.ForegroundColorSpan(DshUi.TEXT_3()),
-                    tail, pr.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            // hint() 只接受 String，这里需要富文本（逐行着色）
-            android.widget.TextView prView = DshUi.hint(this, "");
-            prView.setText(pr);
-            body.addView(prView, DshUi.fullWidth(this, 6));
+        });
+        dialog.show();
+    }
 
-            android.widget.Button cancel = DshUi.button(this, "取消", false);
-            android.widget.Button save = DshUi.button(this, "保存并重启", true);
-            final android.app.Dialog dlg = DshUi.dialog(this,
-                    DshUi.scroll(this, body), DshUi.footer(this, cancel, save), 660);
+    private void showDiagnosticsSettings() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this,
+                UiText.t("诊断与日志", "Diagnostics & logs")));
 
-            cancel.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) { dlg.dismiss(); }
-            });
-            save.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    try {
-                        writeRefs(creds, ccField.getText().toString().trim(),
-                                dsField.getText().toString().trim());
-                        String m = modelField.getText().toString().trim();
-                        if (m.length() > 0) setScalar(settings, "model", m);
-                        dlg.dismiss();
-                        if (lastSessionStatus == SessionStatus.RUNNING
-                                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-                            // 正在跑任务时重启会**直接中断它** —— 必须问一句。
-                            // 原来这个按钮一点就走（nodeProcess.destroy()），
-                            // 正在生成的回答、正在跑的 shell 调用全丢。
-                            // 而 App 本来是知道运行状态的（lastSessionStatus）。
-                            DshUi.confirm(MainActivity.this,
-                                    "有任务正在运行",
-                                    "重启会中断当前正在执行的任务，确定要重启吗？",
-                                    "重启", new Runnable() {
-                                @Override public void run() {
-                                    toast("正在重启服务…");
-                                    restartAgent();
-                                }
-                            });
-                        } else {
-                            toast("已保存，正在重启服务…");
-                            restartAgent();
-                        }
-                    } catch (Throwable t) {
-                        toast("保存失败: " + t.getMessage());
-                    }
-                }
-            });
-            dlg.show();
-        } catch (Throwable t) {
-            log("错误: 打开设置页失败: " + t);
-            toast("打开设置失败: " + shorten(t));
-        }
+        android.widget.Button logButton = DshUi.button(this, "查看运行日志", false);
+        logButton.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { showLog(); }
+        });
+        body.addView(logButton, DshUi.fullWidth(this, 12));
+        android.widget.Button export = DshUi.button(this, "导出诊断包", false);
+        export.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                log("用户点击: 导出诊断包"); exportDiagnostics();
+            }
+        });
+        body.addView(export, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "网络"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this,
+                "检测更新功能依赖的各个源是否可用（直连与镜像分开报告）"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button network = DshUi.button(this, "网络诊断", false);
+        network.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                NetworkDiag.show(MainActivity.this, apkDownloadUrl());
+            }
+        });
+        body.addView(network, DshUi.fullWidth(this, 8));
+
+        android.widget.Button back = DshUi.button(this, "返回", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back), 560);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showSettings();
+            }
+        });
+        dialog.show();
     }
 
     /** 设置页里的「标签 + 输入框」组合。 */
