@@ -25,7 +25,7 @@ DSH 本身是一个 Node.js 写的 CLI/Web 应用。要在 Android 上跑它，
   ├── ICU 数据（31MB，Node 的 Intl 依赖它，删不掉）
   └── 一堆引导脚本（unpack.js / preflight.js / sharp-android.js ...）
 
-首次启动时下载「运行包」（54MB，分 5 片）
+首次启动时下载「运行包」（payload-v9 约 117MiB，分 5 片）
   ├── dsh.tar.zst         DSH 本体（node_modules）
   └── tools-*.tar.zst     工具链（git / python / npm / curl ...）
 

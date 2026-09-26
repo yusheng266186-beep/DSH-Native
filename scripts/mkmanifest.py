@@ -73,6 +73,8 @@ NO_ENTRY = 0xFFFFFFFF
 ICON_RES_ID = int(os.environ.get("DSH_ICON_RES_ID", "0x7F030000"), 16)
 THEME_RES_ID = int(os.environ.get("DSH_THEME_RES_ID", "0x7F040000"), 16)
 SHORTCUTS_RES_ID = int(os.environ.get("DSH_SHORTCUTS_RES_ID", "0x7F050000"), 16)
+NETWORK_SECURITY_CONFIG_RES_ID = int(
+    os.environ.get("DSH_NETWORK_SECURITY_CONFIG_RES_ID", "0x7F050001"), 16)
 
 # Res_value::dataType
 TYPE_REFERENCE = 0x01
@@ -116,6 +118,7 @@ ATTR_IDS = {
     "targetSdkVersion": 0x01010270,
     "extractNativeLibs": 0x010104ea,
     "usesCleartextTraffic": 0x010104ec,
+    "networkSecurityConfig": 0x01010527,
 }
 
 # android.content.pm.ActivityInfo configuration-change bits
@@ -183,7 +186,7 @@ def manifest_tree():
                  # 看板会一直显示「网络不可用（未连接）」—— 即使手机网络正常。
                  E("uses-permission",
                    [(A, "name", s("android.permission.ACCESS_NETWORK_STATE"))]),
-                 # 把启动日志写到 /sdcard/DSHNative/，便于在设备内直接排查
+                 # 共享工作区、文件导入与用户主动导出的诊断需要存储权限。
                  E("uses-permission",
                    [(A, "name", s("android.permission.WRITE_EXTERNAL_STORAGE"))]),
                  E("uses-permission",
@@ -206,7 +209,9 @@ def manifest_tree():
                     (A, "icon", ref(ICON_RES_ID)),
                     (A, "hasCode", boolean(True)),
                     (A, "extractNativeLibs", boolean(True)),
-                    (A, "usesCleartextTraffic", boolean(True))],
+                    # DSH Web 只在 127.0.0.1 提供 HTTP；所有外部地址禁止明文。
+                    (A, "usesCleartextTraffic", boolean(False)),
+                    (A, "networkSecurityConfig", ref(NETWORK_SECURITY_CONFIG_RES_ID))],
                    [
                        E("activity",
                          [(A, "name", s("dev.dsh.nativeapp.MainActivity")),
@@ -227,14 +232,21 @@ def manifest_tree():
                                  E("category",
                                    [(A, "name",
                                       s("android.intent.category.LAUNCHER"))]),
-                                      # 接收其他 App 的「分享」：文件与文本直接落到工作区
-                                      E("intent-filter", [], [
-                                          E("action",
-                                            [(A, "name", s("android.intent.action.SEND"))]),
-                                          E("category",
-                                            [(A, "name", s("android.intent.category.DEFAULT"))]),
-                                          E("data", [(A, "mimeType", s("*/*"))]),
-                                      ]),
+                             ]),
+                             # 接收其他 App 的分享：单个或多个文件直接落到工作区
+                             E("intent-filter", [], [
+                                 E("action",
+                                   [(A, "name", s("android.intent.action.SEND"))]),
+                                 E("category",
+                                   [(A, "name", s("android.intent.category.DEFAULT"))]),
+                                 E("data", [(A, "mimeType", s("*/*"))]),
+                             ]),
+                             E("intent-filter", [], [
+                                 E("action",
+                                   [(A, "name", s("android.intent.action.SEND_MULTIPLE"))]),
+                                 E("category",
+                                   [(A, "name", s("android.intent.category.DEFAULT"))]),
+                                 E("data", [(A, "mimeType", s("*/*"))]),
                              ]),
                          ]),
                    # 前台服务：保活 + 通知栏提供「设置 / 停止」

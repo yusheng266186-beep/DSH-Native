@@ -20,11 +20,10 @@ import java.util.concurrent.Executors;
 /**
  * 配置备份与恢复面板。
  *
- * <p>打包与安全校验在纯逻辑类 {@link ConfigBackup} 里（29 项离线测试，
+ * <p>打包与安全校验在纯逻辑类 {@link ConfigBackup} 里（40 项离线测试，
  * 含构造恶意 zip 验证的 zip-slip 防护）。
  *
- * <p>界面上必须讲清的一件事：**备份里含明文密钥**。
- * 导出位置在共享存储，任何应用都能读 —— 不说明就等于替用户做了个危险决定。
+ * <p>新版备份默认使用口令加密；旧版明文 ZIP 仍可恢复，但会明确标识风险。
  *
  * <h3>关闭面板之后</h3>
  * 面板关闭时置 {@code closed} 标记，所有 {@code ui.post} 回调据此放弃 ——
@@ -47,10 +46,9 @@ public final class ConfigBackupPanel {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, "配置备份"));
 
-        // 明文密钥的提示放在最显眼的位置，而不是藏在小字里
-        TextView warn = DshUi.hint(act, "备份包含账户密钥（明文），导出到共享存储后"
-                + "任何应用都能读取，请妥善保管。");
-        warn.setTextColor(0xFFB26A00);
+        TextView warn = DshUi.hint(act, "备份包含账户密钥。新导出的 .dshbak 文件会使用"
+                + "口令加密；请牢记口令，遗失后无法恢复。旧版 ZIP 会标为明文。");
+        warn.setTextColor(DshUi.WARN());
         body.addView(warn, DshUi.fullWidth(act, 6));
 
         final TextView status = DshUi.hint(act, "");
@@ -120,41 +118,45 @@ public final class ConfigBackupPanel {
 
         export.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                // 忙碌期禁用并换文案：导出要遍历/打包多个配置，连点会排队导出
-                // 好几份一模一样的备份（每份都含明文密钥，落盘就多一份泄露面）。
-                DshUi.setBusy(export, "导出", "导出中…", true);
-                status.setText("正在导出…");
-                io.execute(new Runnable() {
-                    @Override public void run() {
-                        // 先算后定：final 变量不能在 try 与 catch 里各赋一次
-                        String m;
-                        boolean good = false;
-                        try {
-                            File out = new File(backupDir,
-                                    ConfigBackup.fileName(System.currentTimeMillis()));
-                            int n = ConfigBackup.exportTo(dshHome, out);
-                            if (n <= 0) {
-                                m = "没有可导出的配置文件";
-                            } else {
-                                good = true;
-                                m = "已导出 " + n + " 个文件　" + out.getName();
-                                DshUi.log("配置已导出: " + out.getAbsolutePath());
-                            }
-                        } catch (Throwable t) {
-                            m = "导出失败：" + t.getClass().getSimpleName();
-                            DshUi.log("配置导出失败: " + t);
+                askNewPassword(act, "设置备份口令",
+                        "口令至少 8 位。它不会保存到 App 中，请自行牢记。",
+                        new PasswordAction() {
+                    @Override public void run(final char[] password) {
+                        if (closed[0] || io.isShutdown()) {
+                            java.util.Arrays.fill(password, '\0');
+                            return;
                         }
-                        final String msg = m;
-                        final boolean ok = good;
-                        ui.post(new Runnable() {
+                        DshUi.setBusy(export, "导出", "导出中…", true);
+                        status.setText("正在加密导出…");
+                        io.execute(new Runnable() {
                             @Override public void run() {
-                                // 面板已关：不再改它的视图、也不再弹「已导出」——
-                                // 那种事后提示和用户当下的操作对不上号。
-                                if (closed[0]) return;
-                                DshUi.setBusy(export, "导出", "导出中…", false);
-                                status.setText(msg);
-                                DshUi.toast(act, ok ? "已导出到 " + backupDir.getName() + "/" : msg);
-                                if (ok) refresh[0].run();
+                                String message;
+                                boolean good = false;
+                                try {
+                                    File out = new File(backupDir,
+                                            ConfigBackup.fileName(System.currentTimeMillis()));
+                                    int n = ConfigBackup.exportEncrypted(dshHome, out, password);
+                                    good = n > 0;
+                                    message = good ? "已加密导出 " + n + " 个文件　" + out.getName()
+                                            : "没有可导出的配置文件";
+                                    if (good) DshUi.log("加密配置已导出: " + out.getAbsolutePath());
+                                } catch (Throwable t) {
+                                    message = "导出失败：" + readable(t);
+                                    DshUi.log("配置导出失败: " + t);
+                                } finally {
+                                    java.util.Arrays.fill(password, '\0');
+                                }
+                                final String result = message;
+                                final boolean ok = good;
+                                ui.post(new Runnable() {
+                                    @Override public void run() {
+                                        if (closed[0]) return;
+                                        DshUi.setBusy(export, "导出", "导出中…", false);
+                                        status.setText(result);
+                                        DshUi.toast(act, ok ? "加密备份已保存" : result);
+                                        if (ok) refresh[0].run();
+                                    }
+                                });
                             }
                         });
                     }
@@ -178,7 +180,8 @@ public final class ConfigBackupPanel {
         row.setBackground(DshUi.rowBg(act));
 
         TextView name = new TextView(act);
-        name.setText(f.getName().replace("dsh-config-", "").replace(".zip", ""));
+        name.setText(f.getName().replace("dsh-config-", "")
+                .replace(".dshbak", "").replace(".zip", ""));
         name.setTextSize(12.5f);
         name.setTextColor(DshUi.TEXT());
         name.setSingleLine(true);
@@ -204,70 +207,175 @@ public final class ConfigBackupPanel {
     }
 
     /** 恢复确认：说明会覆盖什么、会先存一份当前配置。 */
-    private static void confirmRestore(final Activity act, final File zip, final Dialog parent,
+    private static void confirmRestore(final Activity act, final File backup, final Dialog parent,
                                        final File dshHome, final ExecutorService io,
                                        final Handler ui, final boolean[] closed) {
-        final String bad = ConfigBackup.validate(zip);
-        if (bad != null) {
-            LinearLayout box = DshUi.paddedBody(act);
-            box.addView(DshUi.title(act, "恢复这份配置？"));
-            box.addView(DshUi.hint(act, "无法使用：" + bad), DshUi.fullWidth(act, 8));
-            Button close = DshUi.button(act, "关闭", true);
-            final Dialog d = DshUi.dialog(act, box, DshUi.footer(act, close), 300);
-            close.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { d.dismiss(); }
+        if (ConfigBackup.isEncrypted(backup)) {
+            askPassword(act, "输入备份口令", "解密并验证这份备份。",
+                    new PasswordAction() {
+                @Override public void run(char[] password) {
+                    String bad = ConfigBackup.validateEncrypted(backup, password);
+                    if (bad != null) {
+                        java.util.Arrays.fill(password, '\0');
+                        DshUi.toast(act, "无法解密：" + bad);
+                        return;
+                    }
+                    confirmRestoreReady(act, backup, parent, dshHome, io, ui, closed,
+                            password, true);
+                }
             });
-            d.show();
             return;
         }
-        // 与插件安装走同一个确认入口（DshUi.confirm）：破坏性操作的确认样式与
-        // 话术必须一致，用户才知道哪些操作需要小心 —— 此前只有恢复有确认框，
-        // 标准不统一比"少一个确认框"更容易让人误判风险。
+
+        String bad = ConfigBackup.validate(backup);
+        if (bad != null) {
+            DshUi.toast(act, "无法使用：" + bad);
+            return;
+        }
+        // 旧 ZIP 没有口令；先让用户为恢复前的安全副本设置一个新口令。
+        askNewPassword(act, "旧版明文备份",
+                "这份 ZIP 未加密。恢复前将创建一份加密安全副本，请设置口令。",
+                new PasswordAction() {
+            @Override public void run(char[] password) {
+                confirmRestoreReady(act, backup, parent, dshHome, io, ui, closed,
+                        password, false);
+            }
+        });
+    }
+
+    private static void confirmRestoreReady(final Activity act, final File backup,
+                                            final Dialog parent, final File dshHome,
+                                            final ExecutorService io, final Handler ui,
+                                            final boolean[] closed, final char[] password,
+                                            final boolean encrypted) {
         DshUi.confirm(act, "恢复这份配置？",
-                zip.getName() + "\n"
+                backup.getName() + "\n"
               + "将覆盖当前的账户密钥与模型配置。\n"
-              + "恢复前会自动把当前配置另存一份，以便退回。\n"
+              + "恢复前会自动创建一份加密安全副本。\n"
               + "恢复后需要重启 App 才会生效。",
                 "恢复", new Runnable() {
                     @Override public void run() {
-                        // 顺序关键：先入队，再关面板。
-                        // parent.dismiss() 会触发 onDismiss 里的 io.shutdown()，
-                        // 那之后再提交任务会被拒绝（RejectedExecutionException）——
-                        // 恢复就变成"点了没反应"，正是本轮要修的问题之一。
-                        // 这里同时显式判 closed / 已停止：确认框的父面板若在别处
-                        // 被关掉，也不该再往一个已经停掉的池里提交。
-                        if (closed[0] || io.isShutdown()) return;
+                        if (closed[0] || io.isShutdown()) {
+                            java.util.Arrays.fill(password, '\0');
+                            return;
+                        }
                         io.execute(new Runnable() {
                             @Override public void run() {
-                                String m;
+                                String message;
                                 try {
-                                    // 先给当前配置留一份退路：恢复是覆盖操作，
-                                    // 万一这份备份不合用，还能退回原状
-                                    ConfigBackup.safetyCopy(dshHome, zip.getParentFile(),
-                                            System.currentTimeMillis());
-                                    int n = ConfigBackup.restoreFrom(zip, dshHome);
-                                    m = "已恢复 " + n + " 个文件，重启后生效";
-                                    DshUi.log("配置已恢复: " + zip.getName() + " → " + n + " 个文件");
+                                    ConfigBackup.safetyCopy(dshHome, backup.getParentFile(),
+                                            System.currentTimeMillis(), password);
+                                    int n = encrypted
+                                            ? ConfigBackup.restoreEncrypted(backup, dshHome, password)
+                                            : ConfigBackup.restoreFrom(backup, dshHome);
+                                    message = "已恢复 " + n + " 个文件，重启后生效";
+                                    DshUi.log("配置已恢复: " + backup.getName()
+                                            + " → " + n + " 个文件");
                                 } catch (Throwable t) {
-                                    m = "恢复失败：" + t.getClass().getSimpleName();
+                                    message = "恢复失败：" + readable(t);
                                     DshUi.log("配置恢复失败: " + t);
+                                } finally {
+                                    java.util.Arrays.fill(password, '\0');
                                 }
-                                final String msg = m;
+                                final String result = message;
                                 ui.post(new Runnable() {
                                     @Override public void run() {
-                                        // 这条回调**故意不判 closed**：收起面板本来就是
-                                        // 「恢复」这个已确认动作的一部分，而这是唯一的
-                                        // 回执渠道 —— 判掉它，用户点完「恢复」就永远
-                                        // 收不到结果。它也不碰面板内的任何视图，
-                                        // 不会出现"事后改已经消失的界面"。
-                                        DshUi.toast(act, msg);
+                                        DshUi.toast(act, result);
                                     }
                                 });
                             }
                         });
-                        // 关掉列表面板：恢复期间它的备份清单已经过期
                         parent.dismiss();
                     }
+                }, new Runnable() {
+                    @Override public void run() {
+                        java.util.Arrays.fill(password, '\0');
+                    }
                 });
+    }
+
+    private interface PasswordAction {
+        void run(char[] password);
+    }
+
+    private static void askNewPassword(final Activity act, String title, String description,
+                                       final PasswordAction action) {
+        final LinearLayout body = DshUi.paddedBody(act);
+        body.addView(DshUi.title(act, title));
+        body.addView(DshUi.hint(act, description), DshUi.fullWidth(act, 8));
+        body.addView(DshUi.label(act, "口令"), DshUi.fullWidth(act, 8));
+        final android.widget.EditText first = DshUi.input(act, "", true);
+        body.addView(first, DshUi.fullWidth(act, 6));
+        body.addView(DshUi.label(act, "再次输入"), DshUi.fullWidth(act, 8));
+        final android.widget.EditText second = DshUi.input(act, "", true);
+        body.addView(second, DshUi.fullWidth(act, 6));
+        final TextView error = DshUi.hint(act, "");
+        error.setTextColor(DshUi.WARN());
+        body.addView(error, DshUi.fullWidth(act, 4));
+
+        Button cancel = DshUi.button(act, "取消", false);
+        Button next = DshUi.button(act, "继续", true);
+        final Dialog dialog = DshUi.dialog(act, body, DshUi.footer(act, cancel, next), 460);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dialog.dismiss(); }
+        });
+        next.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String a = first.getText().toString();
+                String b = second.getText().toString();
+                if (a.length() < 8) {
+                    error.setText("口令至少 8 位");
+                    return;
+                }
+                if (!a.equals(b)) {
+                    error.setText("两次输入不一致");
+                    return;
+                }
+                char[] password = a.toCharArray();
+                first.setText("");
+                second.setText("");
+                dialog.dismiss();
+                action.run(password);
+            }
+        });
+        dialog.show();
+    }
+
+    private static void askPassword(final Activity act, String title, String description,
+                                    final PasswordAction action) {
+        LinearLayout body = DshUi.paddedBody(act);
+        body.addView(DshUi.title(act, title));
+        body.addView(DshUi.hint(act, description), DshUi.fullWidth(act, 8));
+        final android.widget.EditText input = DshUi.input(act, "", true);
+        body.addView(input, DshUi.fullWidth(act, 8));
+        final TextView error = DshUi.hint(act, "");
+        error.setTextColor(DshUi.WARN());
+        body.addView(error, DshUi.fullWidth(act, 4));
+        Button cancel = DshUi.button(act, "取消", false);
+        Button next = DshUi.button(act, "继续", true);
+        final Dialog dialog = DshUi.dialog(act, body, DshUi.footer(act, cancel, next), 380);
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { dialog.dismiss(); }
+        });
+        next.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String value = input.getText().toString();
+                if (value.length() < 8) {
+                    error.setText("口令至少 8 位");
+                    return;
+                }
+                char[] password = value.toCharArray();
+                input.setText("");
+                dialog.dismiss();
+                action.run(password);
+            }
+        });
+        dialog.show();
+    }
+
+    private static String readable(Throwable error) {
+        String message = error == null ? null : error.getMessage();
+        return message == null || message.length() == 0
+                ? error.getClass().getSimpleName() : message;
     }
 }

@@ -115,6 +115,37 @@ public class ShareTargetsTest {
                 && ShareTargets.displayName(new File("/")).length() > 0, "empty");
         check("null safe", ShareTargets.displayName(null) != null, "null");
 
+        System.out.println("=== 8. incoming share safety ===");
+        check("path is reduced to safe basename",
+                "passwd".equals(ShareTargets.incomingName("../../etc/passwd", "fallback")),
+                ShareTargets.incomingName("../../etc/passwd", "fallback"));
+        check("backslash path is reduced",
+                "secret.txt".equals(ShareTargets.incomingName("..\\secret.txt", "fallback")),
+                ShareTargets.incomingName("..\\secret.txt", "fallback"));
+        check("hidden name is made visible",
+                ShareTargets.incomingName(".credentials.yaml", "fallback").startsWith("_"),
+                ShareTargets.incomingName(".credentials.yaml", "fallback"));
+        check("control characters removed",
+                !ShareTargets.incomingName("a\nb.txt", "fallback").contains("\n"), "newline remains");
+        check("empty incoming name uses fallback",
+                "fallback.txt".equals(ShareTargets.incomingName("", "fallback.txt")), "wrong");
+
+        File collision = new File(root, "report.txt"); write(collision, "old");
+        File unique = ShareTargets.uniqueDestination(root, "report.txt");
+        check("collision creates numbered destination",
+                unique != null && unique.getName().equals("report (2).txt"), String.valueOf(unique));
+        check("destination remains inside workspace",
+                ShareTargets.isContained(root, unique), String.valueOf(unique));
+        check("outside destination rejected",
+                !ShareTargets.isContained(root, new File(outside, "x")), "escaped");
+
+        File credential = new File(root, ".credentials.yaml"); write(credential, "secret");
+        check("credentials cannot be shared",
+                !ShareTargets.isShareable(credential, allowed), "secret exposed");
+        File key = new File(root, "release.keystore"); write(key, "secret");
+        check("keystore cannot be shared",
+                !ShareTargets.isShareable(key, allowed), "key exposed");
+
         rmrf(base);
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

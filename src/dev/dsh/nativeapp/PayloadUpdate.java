@@ -29,6 +29,8 @@ import java.util.List;
  */
 final class PayloadUpdate {
 
+    private static final long INSTALL_RESERVE_BYTES = 64L * 1024L * 1024L;
+
     /** 一个分片的判定输入。 */
     static final class Part {
         final String name;
@@ -48,6 +50,56 @@ final class PayloadUpdate {
     }
 
     private PayloadUpdate() { }
+
+    /** 清单里的归档名最终会拼到下载 URL 与本地路径，必须是单段安全文件名。 */
+    static boolean isSafeAssetName(String name) {
+        if (name == null || name.length() == 0 || name.length() > 120) return false;
+        if (name.startsWith(".")) return false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+            if (!ok) return false;
+        }
+        return name.endsWith(".tar.zst");
+    }
+
+    /** SHA-256 必须是恰好 64 位十六进制，防止空值绕过校验。 */
+    static boolean isSha256(String value) {
+        if (value == null || value.length() != 64) return false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+                    || (c >= 'A' && c <= 'F'))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 下载并解压一组分片前应预留的可用空间。
+     *
+     * <p>归档解压后的体积按压缩体积的三倍估算，再加 64 MiB 文件系统余量；
+     * 尚未缓存的归档本身也要占空间。计算使用饱和加法，恶意清单不能靠溢出
+     * 把结果变成负数并绕过检查。
+     */
+    static long requiredFreeBytes(long compressedBytes, long cachedBytes) {
+        long compressed = Math.max(0L, compressedBytes);
+        long cached = Math.max(0L, Math.min(compressed, cachedBytes));
+        long download = compressed - cached;
+        return saturatedAdd(saturatedAdd(download, saturatedMultiply(compressed, 3L)),
+                INSTALL_RESERVE_BYTES);
+    }
+
+    private static long saturatedMultiply(long value, long factor) {
+        if (value <= 0L || factor <= 0L) return 0L;
+        if (value > Long.MAX_VALUE / factor) return Long.MAX_VALUE;
+        return value * factor;
+    }
+
+    private static long saturatedAdd(long a, long b) {
+        if (a >= Long.MAX_VALUE - b) return Long.MAX_VALUE;
+        return a + b;
+    }
 
     /**
      * 该分片是否需要处理（下载 + 解压）。

@@ -114,7 +114,7 @@
 ### 能自动化的（每次构建都跑）
 
 ```bash
-bash scripts/run_tests.sh     # 476 项纯逻辑断言
+bash scripts/run_tests.sh     # 580 项纯逻辑断言
 ```
 
 ### 需要手工跑的

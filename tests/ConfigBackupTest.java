@@ -32,7 +32,7 @@ public class ConfigBackupTest {
         write(new File(dsh, "unrelated.txt"), "should not be backed up\n");
 
         System.out.println("=== 1. export ===");
-        File zip = new File(backups, ConfigBackup.fileName(1_700_000_000_000L));
+        File zip = new File(backups, "dsh-config-legacy.zip");
         int n = ConfigBackup.exportTo(dsh, zip);
         check("exports 2 files", n == 2, "got " + n);
         check("zip exists and non-empty", zip.isFile() && zip.length() > 0, "missing");
@@ -63,7 +63,41 @@ public class ConfigBackupTest {
                 read(new File(dsh, "settings.yaml")).contains("commandcode"),
                 read(new File(dsh, "settings.yaml")));
 
-        System.out.println("=== 4. zip-slip: crafted malicious backups ===");
+        System.out.println("=== 4. encrypted backup ===");
+        char[] password = "correct-horse".toCharArray();
+        File encrypted = new File(backups, ConfigBackup.fileName(1_700_000_000_123L));
+        int encryptedCount = ConfigBackup.exportEncrypted(dsh, encrypted, password);
+        check("encrypted export contains 2 files", encryptedCount == 2,
+                String.valueOf(encryptedCount));
+        check("encrypted format detected", ConfigBackup.isEncrypted(encrypted), "not detected");
+        check("encrypted backup validates with password",
+                ConfigBackup.validateEncrypted(encrypted, password) == null,
+                String.valueOf(ConfigBackup.validateEncrypted(encrypted, password)));
+        check("wrong password rejected",
+                ConfigBackup.validateEncrypted(encrypted, "wrong-pass".toCharArray()) != null,
+                "wrong password accepted");
+        check("legacy validator refuses encrypted file",
+                ConfigBackup.validate(encrypted) != null, "should request password");
+
+        write(new File(dsh, ".credentials.yaml"), "CHANGED\n");
+        int encryptedRestored = ConfigBackup.restoreEncrypted(encrypted, dsh, password);
+        check("encrypted restore writes both files", encryptedRestored == 2,
+                String.valueOf(encryptedRestored));
+        check("encrypted restore recovers credentials",
+                read(new File(dsh, ".credentials.yaml")).contains("user_secret123"), "not restored");
+
+        File tampered = new File(backups, "dsh-config-tampered.dshbak");
+        copy(encrypted, tampered);
+        java.io.RandomAccessFile random = new java.io.RandomAccessFile(tampered, "rw");
+        random.seek(random.length() - 1);
+        int last = random.read();
+        random.seek(random.length() - 1);
+        random.write(last ^ 0x01);
+        random.close();
+        check("tampered encrypted backup rejected",
+                ConfigBackup.validateEncrypted(tampered, password) != null, "tamper accepted");
+
+        System.out.println("=== 5. zip-slip and size limits ===");
         File slip = new File(base, "slip.zip");
         makeZip(slip, "../escaped.txt", "pwned");
         check("path traversal entry rejected", ConfigBackup.validate(slip) != null,
@@ -88,30 +122,39 @@ public class ConfigBackupTest {
                 !new File("/tmp/absolute-escape.txt").exists(), "zip-slip succeeded!");
         check("original config untouched after failed restore",
                 read(new File(dsh, "settings.yaml")).contains("commandcode"), "damaged");
+        File bomb = new File(base, "bomb.zip");
+        makeLargeZip(bomb, "settings.yaml", 2 * 1024 * 1024 + 1);
+        check("oversized expanded entry rejected", ConfigBackup.validate(bomb) != null,
+                "zip bomb accepted");
 
-        System.out.println("=== 5. listBackups ===");
+        System.out.println("=== 6. listBackups ===");
         write(new File(backups, "dsh-config-20260101-0000.zip"), "x");
         write(new File(backups, "random.zip"), "x");
         List<File> list = ConfigBackup.listBackups(backups);
         boolean allBackupNames = true;
         for (File f : list) if (!ConfigBackup.isBackupName(f.getName())) allBackupNames = false;
         check("only backup-named files listed", allBackupNames, list.toString());
-        check("non-backup excluded", list.size() == 2, "got " + list.size());
+        boolean hasRandom = false;
+        for (File f : list) if (f.getName().equals("random.zip")) hasRandom = true;
+        check("non-backup excluded", !hasRandom, list.toString());
         check("newest first", list.get(0).lastModified() >= list.get(list.size()-1).lastModified(),
                 "wrong order");
         check("null dir safe", ConfigBackup.listBackups(null).isEmpty(), "should be empty");
         check("nonexistent dir safe", ConfigBackup.listBackups(new File(base,"nodir")).isEmpty(), "wrong");
 
-        System.out.println("=== 6. safety copy ===");
-        File sc = ConfigBackup.safetyCopy(dsh, backups, 1_700_000_000_000L);
+        System.out.println("=== 7. safety copy ===");
+        File sc = ConfigBackup.safetyCopy(dsh, backups, 1_700_000_000_000L, password);
         check("safety copy created", sc.isFile() && sc.length() > 0, "missing");
-        check("safety copy is restorable", ConfigBackup.validate(sc) == null,
-                String.valueOf(ConfigBackup.validate(sc)));
+        check("safety copy is encrypted", ConfigBackup.isEncrypted(sc), "plaintext");
+        check("safety copy is restorable", ConfigBackup.validateEncrypted(sc, password) == null,
+                String.valueOf(ConfigBackup.validateEncrypted(sc, password)));
 
-        System.out.println("=== 7. filename helpers ===");
+        System.out.println("=== 8. filename helpers ===");
         check("name has prefix/suffix",
                 ConfigBackup.fileName(0).startsWith("dsh-config-")
-                && ConfigBackup.fileName(0).endsWith(".zip"), ConfigBackup.fileName(0));
+                && ConfigBackup.fileName(0).endsWith(".dshbak"), ConfigBackup.fileName(0));
+        check("millisecond timestamp avoids overwrite",
+                !ConfigBackup.fileName(1000).equals(ConfigBackup.fileName(1001)), "same name");
         check("random name not a backup",
                 !ConfigBackup.isBackupName("settings.yaml"), "wrong");
         check("null name safe", !ConfigBackup.isBackupName(null), "wrong");
@@ -129,6 +172,30 @@ public class ConfigBackupTest {
         zos.write(content.getBytes("UTF-8"));
         zos.closeEntry();
         zos.close();
+    }
+
+    static void makeLargeZip(File zip, String entryName, int size) throws Exception {
+        ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zip));
+        zos.putNextEntry(new ZipEntry(entryName));
+        byte[] block = new byte[8192];
+        int written = 0;
+        while (written < size) {
+            int n = Math.min(block.length, size - written);
+            zos.write(block, 0, n);
+            written += n;
+        }
+        zos.closeEntry();
+        zos.close();
+    }
+
+    static void copy(File source, File target) throws Exception {
+        java.io.FileInputStream in = new java.io.FileInputStream(source);
+        FileOutputStream out = new FileOutputStream(target);
+        byte[] buffer = new byte[8192];
+        int n;
+        while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        in.close();
+        out.close();
     }
 
     static void write(File f, String s) throws Exception {

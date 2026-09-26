@@ -5,7 +5,8 @@
 > **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.25.8-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
 >
 > 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
-> 然后经 **GitHub 镜像**分块下载约 54MB 运行包（视网络而定）。
+> 然后经 **GitHub 镜像**分块下载约 117MiB 运行包（视网络而定）。
+> 首次安装建议预留至少 550MiB 可用空间。
 > 完成后在 Models 页面填 API Key 即可使用。
 >
 > **上传文件**：点输入框左下角 **** → **「文件 file」**（DSH 原生入口）。
@@ -13,8 +14,9 @@
 > **从其他 App 分享**：在任意应用里选「分享」→「DeepSeek Harness」，
 > 文件或文本会直接落到工作区，agent 立刻可用。
 >
-> 首次启动会请求**存储权限**，请点「允许」——
-> 日志会写入 `/sdcard/DSHNative/launch.log`，便于排查问题（可随时删除）。
+> 首次启动会请求**存储权限**，用于共享工作区、文件导入和诊断导出。
+> 常驻运行日志只保存在 App 私有目录；只有主动点「导出诊断包」时，
+> 才会把已脱敏的诊断文件写入共享存储。
 >
 > SHA-256：`a73347b6ace6b5cfec7ed0b49f86ff3f1988e65c412172e36f56fbba5ef96335`
 
@@ -30,10 +32,11 @@
 | [docs/GOTCHAS.md](docs/GOTCHAS.md) | 踩过的坑：静默失败、环境陷阱、Android 特有、布局、发布 |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明。**第八节是最新事实**：CI 构建与发布、签名事故与防护、新增红线、已知陷阱、未验证事项 |
 | [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
+| [docs/PHASE1-HARDENING.md](docs/PHASE1-HARDENING.md) | 阶段一稳定性、安全改造与真机验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 476 项纯逻辑断言，构建期强制执行。
+**测试**：`bash scripts/run_tests.sh` —— 580 项纯逻辑断言，构建期强制执行。
 
-**当前版本：0.23.3**（运行包 payload-v7）
+**当前版本：0.25.8**（运行包 payload-v9）
 
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
 
@@ -43,13 +46,13 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.25.8 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.8-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带重试与 SHA 校验） | APK 34MB + 首启 54MB |
+| **[v0.25.8 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.8-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 34MB + 首启约 117MiB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
 ### 使用步骤
 
 1. 安装 APK（34MB）
-2. 打开 App，**保持联网** —— 首启分块下载约 54MB 运行包
+2. 打开 App，**保持联网** —— 首启分块下载约 117MiB 运行包
    （面板显示百分比 / 速率 / 重试次数；网络抖动会自动重试）
 
    启动前会先做一次**自检**（执行 `node --version`），
@@ -62,7 +65,7 @@
 > 且不校验完整性——移动网络中断会产生静默损坏的归档。
 > 现改为 2MB 分块 + 块级重试 + SHA-256 校验，策略已通过故障注入测试验证。
 
-> 引导式架构的原因：完整运行包 316MB，压缩后 54MB，但直接塞进 APK 会超过
+> 引导式架构的原因：完整运行包解压后数百 MB，压缩后约 117MiB，直接塞进 APK 会超过
 > GitHub 的 100MB 单文件上限，且构建迭代极慢。拆成「轻量 APK + 独立运行包」后，
 > APK 可快速迭代，且以后升级 agent 无需重装 App。
 
@@ -79,6 +82,9 @@
 
 > 发版时**必须同步更新仓库根目录的 `latest.json`**，否则 App 检测不到新版本。
 > 详见 [scripts/release_checklist.md](scripts/release_checklist.md)。
+
+更新链路会先验证 APK 内置的运行包清单摘要，再验证每个分片的大小与 SHA-256；
+App 更新包下载后还会核对版本、包名及签名，校验失败不会调起安装器。
 
 ## ⚡ 增量更新
 

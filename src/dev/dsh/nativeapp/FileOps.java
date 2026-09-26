@@ -143,8 +143,10 @@ final class FileOps {
         if (isRoot(target, allowedRoots)) return "不能删除该根目录";
         if (!isWritable(target, allowedRoots)) return "该位置不允许删除";
         try {
-            if (target.isDirectory()) {
-                int n = deleteRecursive(target);
+            String allowedRoot = containingRoot(target, allowedRoots);
+            if (allowedRoot == null) return "该位置不允许删除";
+            if (target.isDirectory() && !isSymbolicLink(target)) {
+                int n = deleteRecursive(target, allowedRoot);
                 if (target.exists()) return "部分内容未能删除";
                 return n <= 0 ? "删除失败（权限不足）" : null;
             }
@@ -155,17 +157,52 @@ final class FileOps {
     }
 
     /** 递归删除；返回成功删除的条目数。 */
-    private static int deleteRecursive(File dir) {
+    private static int deleteRecursive(File dir, String allowedRoot) throws IOException {
+        // 每一层都重新核对边界。符号链接只删链接本身，绝不跟随到目标目录。
+        if (isSymbolicLink(dir)) return dir.delete() ? 1 : 0;
+        String current = canonical(dir);
+        if (!within(current, allowedRoot)) {
+            throw new IOException("递归目标越过允许目录");
+        }
         int n = 0;
         File[] kids = dir.listFiles();
         if (kids != null) {
             for (File k : kids) {
-                if (k.isDirectory()) n += deleteRecursive(k);
+                if (isSymbolicLink(k)) {
+                    if (k.delete()) n++;
+                } else if (k.isDirectory()) {
+                    n += deleteRecursive(k, allowedRoot);
+                }
                 else if (k.delete()) n++;
             }
         }
         if (dir.delete()) n++;
         return n;
+    }
+
+    /** 找出真正包含目标的白名单根，返回其规范路径。 */
+    private static String containingRoot(File target, List<File> allowedRoots) {
+        String path = canonical(target);
+        if (path == null || allowedRoots == null) return null;
+        for (File root : allowedRoots) {
+            String candidate = canonical(root);
+            if (within(path, candidate)) return candidate;
+        }
+        return null;
+    }
+
+    private static boolean within(String path, String root) {
+        if (path == null || root == null) return false;
+        return path.equals(root) || path.startsWith(root.endsWith("/") ? root : root + "/");
+    }
+
+    /**
+     * 只判断当前路径项本身是否为符号链接；父目录即使也是链接也不会造成误判。
+     */
+    private static boolean isSymbolicLink(File file) throws IOException {
+        File parent = file.getParentFile();
+        File normalized = parent == null ? file : new File(parent.getCanonicalFile(), file.getName());
+        return !normalized.getCanonicalFile().equals(normalized.getAbsoluteFile());
     }
 
     /** target 是否就是某个允许的根。 */
@@ -188,7 +225,11 @@ final class FileOps {
         if (kids == null) return 0;
         for (File k : kids) {
             n++;
-            if (k.isDirectory()) n += countEntries(k);
+            try {
+                if (k.isDirectory() && !isSymbolicLink(k)) n += countEntries(k);
+            } catch (IOException ignored) {
+                // 无法判断时按一个叶子项计数，绝不继续向下跟随
+            }
         }
         return n;
     }
@@ -206,13 +247,16 @@ final class FileOps {
     /**
      * 组装允许写入的根列表。
      *
-     * <p>**刻意不包含 {@code /} 与 {@code /sdcard} 整体** ——
-     * 那些位置含系统文件与其它应用的数据，误删后果不可逆。
-     * 需要访问时仍可浏览，只是不能改。
+     * <p>**刻意不包含 {@code /}、{@code /sdcard} 整体和 App 运行时目录** ——
+     * 那些位置含系统文件、其它应用数据或可执行运行包，误删后果不可逆。
+     * App 私有目录里只开放配置子目录；其它位置仍可浏览，但不能改。
      */
     static List<File> writableRoots(File appDir) {
         List<File> out = new ArrayList<File>();
-        if (appDir != null) out.add(appDir);
+        if (appDir != null) {
+            out.add(new File(appDir, ".dsh"));
+            out.add(new File(appDir, "workspace"));
+        }
         File shared = new File("/sdcard/DSHNative");
         if (shared.isDirectory()) out.add(shared);
         return out;
