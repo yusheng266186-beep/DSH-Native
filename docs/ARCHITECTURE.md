@@ -169,13 +169,21 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `TextCodec` | 编码探测、换行符、二进制判定 | 31 |
 | `Version` | 版本号比较（含溢出饱和） | 23 |
 | `CommandCodeUsage` | 余额解析与格式化 | 38 |
-| `TaskNotifier` | 何时该发完成通知 | 33 |
-| `FileOps` | 写入白名单、符号链接逃逸、名称校验 | 47 |
-| `ConfigBackup` | zip-slip 防护、白名单进出 | 29 |
-| `ShareTargets` | 路径编解码往返、MIME 映射 | 45 |
+| `TaskNotifier` | 何时该发完成通知 | 27 |
+| `FileOps` | 写入白名单、符号链接逃逸、名称校验 | 52 |
+| `ConfigBackup` | zip-slip 防护、白名单进出 | 40 |
+| `ShareTargets` | 路径编解码往返、MIME 映射 | 55 |
 | `PluginSpecs` | 命令注入防护、YAML 生成 | 98 |
-| `PayloadUpdate` | 分片更新决策、删除路径安全 | 37 |
-| | **合计** | **423** |
+| `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
+| `SessionStatus` / `SessionRecovery` | 状态优先级、恢复出口 | 86 |
+| `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
+| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 23 |
+| `MobileLayout` | 响应式 viewport 补丁 | 10 |
+| `WorkspaceProjects` | 命名项目与路径约束 | 19 |
+| `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
+| `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
+| `ReleaseChannel` | 稳定/测试通道规则 | 8 |
+| | **合计** | **650** |
 
 ### 强制手段
 

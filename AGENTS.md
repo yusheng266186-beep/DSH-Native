@@ -44,7 +44,7 @@ DSH 本身是一个 Node.js 写的 CLI/Web 应用。要在 Android 上跑它，
 | 红线 | 原因 |
 |---|---|
 | **源码、脚本、注释里不能出现 emoji** | 用户明确要求过。构建脚本里有检查，违反了会构建失败。 |
-| **纯逻辑层不能 import `android.` / `androidx.`** | `FileListing` `TextCodec` `Version` `CommandCodeUsage` `TaskNotifier` `FileOps` `ConfigBackup` `ShareTargets` `PluginSpecs` `PayloadUpdate` `SessionStatus` 要在普通 JVM 上跑测试。构建脚本第 3.45 步会检查。 |
+| **纯逻辑层不能 import `android.` / `androidx.`** | `run_tests.sh` 编译的纯逻辑类都要在普通 JVM 上运行，包括移动布局、工作区、分享任务、插件授权和发布通道规则。构建脚本第 3.45 步会检查。 |
 | **新功能必须用原生 UI，不能用 `AlertDialog.Builder`** | 构建脚本第 3.5 步会检查。统一走 `DshUi`。 |
 | **不能提交 APK 到仓库** | 仓库历史已经 2.5GB（88 次提交各带一个 34MB 的 APK）。APK 由 GitHub Releases 提供，App 也从 Releases 下载。`.gitignore` 已加。 |
 | **发布必须用 `scripts/release.sh`，不能手工写 latest.json** | 曾经因为脚本语法错误跳过了 `gh release create` 却写了清单，导致所有客户端更新失败。`release.sh` 会先验证 release 资产与两条下载路径，**最后**才写清单。 |
@@ -81,7 +81,7 @@ bash scripts/run_tests.sh
 bash scripts/build_bootstrap.sh
 
 # 发布（上传 → 验证资产 → 轮询两条下载路径 → 最后写 latest.json）
-bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
+bash scripts/release.sh <版本号> <构建目录> <发布说明.md> [stable|test]
 
 # 重建运行包分片（改动了 tools 内容时）
 DSH_TOOLS_DIR=<工具链目录> DSH_PAYLOAD_OUT=<输出目录> python3 scripts/make_payload_parts.py
@@ -111,6 +111,15 @@ bootstrap/src/dev/dsh/nativeapp/
 ├── PluginSpecs.java       插件规格校验（命令注入防护）+ patch YAML 生成
 ├── PayloadUpdate.java     运行包更新决策（分片修订号 + 删除清单）
 ├── SessionStatus.java     通知栏状态看板的判定（状态优先级、文案、渠道）
+├── SessionRecovery.java   会话恢复错误与用户出口
+├── ProcessSupervisor.java 进程退避重启与失败判定
+├── TransferState.java     下载进度与停滞判定
+├── SecretMasker.java      日志与诊断包敏感信息脱敏
+├── MobileLayout.java      手机、横屏、平板 viewport 与响应式补丁
+├── WorkspaceProjects.java 命名项目、目录约束与默认工作区兼容
+├── ShareTask.java         分享导入后的任务提示词与网页提交脚本
+├── PluginPermissions.java 插件能力披露与版本指纹授权
+├── ReleaseChannel.java    稳定/测试通道清单和标签规则
 │
 │  ── UI 层 ──
 ├── DshUi.java             设计系统：颜色、卡片、按钮、对话框、通知渠道

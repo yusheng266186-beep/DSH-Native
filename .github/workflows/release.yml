@@ -16,6 +16,14 @@ on:
       version:
         description: '版本号（如 0.23.5）'
         required: true
+      channel:
+        description: '发布通道；test 是预发布且只更新 latest-test.json'
+        type: choice
+        required: true
+        default: test
+        options:
+          - test
+          - stable
       notes_file:
         description: '发布说明文件（可选；默认 release-notes/v<版本>.md，再退回 git log）'
         required: false
@@ -121,7 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/release.sh "${{ inputs.version }}" \
-               "$RUNNER_TEMP/dsh-build" "$RUNNER_TEMP/notes.md"
+               "$RUNNER_TEMP/dsh-build" "$RUNNER_TEMP/notes.md" "${{ inputs.channel }}"
 
       - name: 提交版本号与清单
         if: ${{ !inputs.dry_run }}
@@ -135,7 +143,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "[i] 没有需要提交的改动（版本号与清单均已是目标状态）"
           else
-            git commit -m "发布 ${{ inputs.version }}：版本号、清单与 README [skip ci]"
+            git commit -m "发布 ${{ inputs.version }} ${{ inputs.channel }} 通道：版本号与清单 [skip ci]"
             git push origin HEAD:main
             echo "[OK] 清单已推送，App 现在可以检测到更新"
           fi

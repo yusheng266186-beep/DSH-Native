@@ -84,6 +84,10 @@ public final class PluginPanel {
         Set<String> selection();
         /** 保存选择。 */
         void saveSelection(Set<String> names);
+        /** 当前插件版本是否已经得到用户明确授权。 */
+        boolean hasPermissionGrant(String key);
+        /** 保存与插件内容指纹绑定的授权。 */
+        void savePermissionGrant(String key);
     }
 
     /** 打开发布说明面板。 */
@@ -189,9 +193,10 @@ public final class PluginPanel {
 
                 // 内置可选插件
                 for (String name : PluginSpecs.builtinPlugins()) {
-                    boolean present = new File(builtinModules, name).isDirectory();
+                    File dir = new File(builtinModules, name);
+                    boolean present = dir.isDirectory();
                     listBox.addView(buildRow(act, name, present ? "内置" : "运行包中缺失",
-                                    present, sel.contains(name), host, refresh[0]),
+                                    present, sel.contains(name), dir, true, host, refresh[0]),
                             new LinearLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -205,7 +210,7 @@ public final class PluginPanel {
                     String kind = PluginSpecs.pluginKind(dir) == PluginSpecs.KIND_BUNDLE
                             ? "已安装 · bundle" : "已安装";
                     listBox.addView(buildRow(act, name, kind, true,
-                                    sel.contains(name), host, refresh[0]),
+                                    sel.contains(name), dir, false, host, refresh[0]),
                             new LinearLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -297,7 +302,8 @@ public final class PluginPanel {
                         + "来源：" + describeSource(raw) + "\n"
                         + (resolved.equals(raw) ? "" : "解析后的包名：" + resolved + "\n")
                         + "安装过程会在本机执行该包自带的 install / postinstall 脚本，"
-                        + "脚本拥有与本应用相同的权限。请只安装可信来源。";
+                        + "脚本拥有与本应用相同的权限。请只安装可信来源。\n\n"
+                        + PluginPermissions.disclosure(resolved, false);
                 DshUi.confirm(act, "安装插件？", body, "安装", new Runnable() {
                     @Override public void run() { installNow[0].run(); }
                 });
@@ -353,7 +359,8 @@ public final class PluginPanel {
 
     /** 一行插件：名称 + 来源，右侧启用开关。 */
     private static View buildRow(final Activity act, final String name, final String source,
-                                 final boolean present, final boolean enabled,
+                                 final boolean present, final boolean selected,
+                                 final File pluginDir, final boolean builtIn,
                                  final Host host, final Runnable refresh) {
         LinearLayout row = new LinearLayout(act);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -373,7 +380,13 @@ public final class PluginPanel {
         text.addView(n, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView s = DshUi.hint(act, source);
+        final String grantKey = PluginPermissions.grantKey(name,
+                PluginSpecs.readPackageJson(pluginDir));
+        final boolean granted = host.hasPermissionGrant(grantKey);
+        final boolean enabled = selected && granted;
+        String version = PluginPermissions.versionOf(PluginSpecs.readPackageJson(pluginDir));
+        TextView s = DshUi.hint(act, source + " · " + version
+                + (granted ? " · 已授权" : " · 需授权"));
         s.setTextSize(10.5f);
         text.addView(s, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -385,10 +398,29 @@ public final class PluginPanel {
         toggle.setEnabled(present);
         toggle.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                Set<String> sel = new HashSet<String>(host.selection());
-                if (sel.contains(name)) sel.remove(name); else sel.add(name);
-                host.saveSelection(sel);
-                refresh.run();
+                if (enabled) {
+                    Set<String> sel = new HashSet<String>(host.selection());
+                    sel.remove(name);
+                    host.saveSelection(sel);
+                    refresh.run();
+                    return;
+                }
+                final Runnable enable = new Runnable() {
+                    @Override public void run() {
+                        host.savePermissionGrant(grantKey);
+                        Set<String> sel = new HashSet<String>(host.selection());
+                        sel.add(name);
+                        host.saveSelection(sel);
+                        refresh.run();
+                    }
+                };
+                if (granted) {
+                    enable.run();
+                } else {
+                    DshUi.confirm(act, "授权并启用插件？",
+                            name + "\n\n" + PluginPermissions.disclosure(name, builtIn),
+                            "授权并启用", enable);
+                }
             }
         });
         row.addView(toggle, new LinearLayout.LayoutParams(

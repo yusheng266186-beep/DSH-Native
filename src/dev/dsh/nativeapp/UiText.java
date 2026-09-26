@@ -28,6 +28,19 @@ public final class UiText {
         put("更新与维护", "Updates & maintenance");
         put("数据与扩展", "Data & extensions");
         put("诊断与日志", "Diagnostics & logs");
+        put("项目与工作区", "Projects & workspace");
+        put("管理项目", "Manage projects");
+        put("新建项目", "New project");
+        put("新建并切换", "Create & switch");
+        put("已有项目", "Existing projects");
+        put("默认工作区", "Default workspace");
+        put("浏览当前项目", "Browse current project");
+        put("正在使用", "Active");
+        put("切换", "Switch");
+        put("项目名需为 1 至 48 个字符，且不能包含路径符号",
+                "Use 1–48 characters and no path separators.");
+        put("无法创建项目目录", "Could not create the project directory.");
+        put("工作区不可用", "Workspace unavailable");
         put("返回", "Back");
         put("完成", "Done");
         put("应用", "Apply");
@@ -104,6 +117,9 @@ public final class UiText {
         put("当前 App 版本 ", "Current app version ");
         put("更新运行包（DSH / 工具链）", "Update runtime (DSH / toolchain)");
         put("检查 App 更新并安装", "Check and install app update");
+        put("更新通道", "Update channel");
+        put("稳定版", "Stable");
+        put("测试版", "Test");
         put("查看运行日志", "View runtime log");
         put("导出诊断", "Export diagnostics");
         put("导出诊断包", "Export diagnostic bundle");
@@ -152,6 +168,16 @@ public final class UiText {
                 "The agent will keep running in the background. Reopen the app to return here.");
         put("清空运行日志？", "Clear runtime log?");
         put("运行环境尚未就绪，请稍后再试", "The runtime is not ready yet. Try again shortly.");
+        put("授权并启用插件？", "Authorize and enable plugin?");
+        put("授权并启用", "Authorize & enable");
+        put("用分享内容创建任务？", "Create a task from shared items?");
+        put("创建任务", "Create task");
+        put("分享内容已创建任务", "Task created from shared items");
+        put("任务已填入，请确认后发送", "Task filled in. Review and send it.");
+        put("文件已保存，但未找到任务输入框",
+                "Files were saved, but the task editor was not found.");
+        put("任务已排队，DSH 界面就绪后自动提交",
+                "Task queued until the DSH interface is ready.");
         put("（暂无补丁记录）", "No patch status is available.");
         put("正在启动 DeepSeek Harness", "Starting DeepSeek Harness");
         put("正在准备运行环境…", "Preparing runtime…");

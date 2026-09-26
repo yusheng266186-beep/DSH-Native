@@ -35,8 +35,9 @@
 | [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
 | [docs/PHASE1-HARDENING.md](docs/PHASE1-HARDENING.md) | 阶段一稳定性、安全改造与真机验收清单 |
 | [docs/PHASE2-EXPERIENCE.md](docs/PHASE2-EXPERIENCE.md) | 阶段二用户体验、功能增强与真机验收清单 |
+| [docs/PHASE3-PRODUCT.md](docs/PHASE3-PRODUCT.md) | 阶段三移动端产品能力、发布通道与真机验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 593 项纯逻辑断言，构建期强制执行。
+**测试**：`bash scripts/run_tests.sh` —— 650 项纯逻辑断言，构建期强制执行。
 
 **当前版本：0.25.8**（运行包 payload-v9）
 
@@ -82,7 +83,10 @@
 | 更新运行包 | 检查 DSH / 工具链更新（走分片清单，只下变化部分），完成后自动重启 agent |
 | 检查 App 更新并安装 | 读取 `latest.json` → 下载新 APK → 调起系统安装器覆盖安装 |
 
-> 发版时**必须同步更新仓库根目录的 `latest.json`**，否则 App 检测不到新版本。
+更新页可以选择**稳定版**或**测试版**。稳定版只读取 `latest.json`；测试版同时读取
+`latest-test.json` 与稳定清单并采用版本较高者，既可提前验收新功能，也不会错过更高的正式版。
+
+> 发版时必须通过发布工作流同步对应清单，不能手工改版本信息。
 > 详见 [scripts/release_checklist.md](scripts/release_checklist.md)。
 
 更新链路会先验证 APK 内置的运行包清单摘要，再验证每个分片的大小与 SHA-256；
@@ -107,6 +111,12 @@ App 更新包下载后还会核对版本、包名及签名，校验失败不会�
 agent 的工作目录是 **`/sdcard/DSHNative/workspace`** —— 位于手机共享存储，
 任何文件管理器都能访问。**把项目或文档放进去，agent 就能直接读写，
 它生成的产物也会出现在这里。**
+
+「工具 → 数据与扩展 → 管理项目」可建立互相隔离的命名项目。旧文件继续留在默认工作区，
+不会自动移动或删除。切换项目需要重启 agent；有任务运行时会先二次确认。
+
+从其他 App 分享文件或文本后，可选择直接创建 DSH 任务；若页面暂未就绪，任务会排队，
+文件始终先保存到当前项目，不会因取消创建任务而删除。
 
 ## 它要解决什么问题
 
