@@ -57,6 +57,14 @@ public class MainActivity extends Activity {
      */
     private static final String ASSET_PATH =
             "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v9/";
+    /**
+     * payload-v9 的 manifest.json 固定摘要。
+     *
+     * <p>摘要内置在 APK，而不是从同一个镜像下载，代理即使同时替换清单和归档
+     * 也无法通过验证。更换 payload tag 或清单内容时必须同步更新这个值。
+     */
+    private static final String PAYLOAD_MANIFEST_SHA256 =
+            "a9bf9bb990857273123aedb666ba69707400737da33eb95d2f1f940cfb512ec8";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -122,11 +130,27 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private TextView logView;
-    private Process nodeProcess;
     private File crashFile;
-    /** 共享日志：写到 /sdcard/DSHNative/launch.log，便于在设备内直接查看排查。 */
+    /** 私有运行日志；只有用户主动导出诊断时才复制到共享存储。 */
     private File sharedLog;
     private final Object logLock = new Object();
+
+    /**
+     * Service 只弱引用这个监听器；Activity 重建时旧界面不会被进程输出线程持有。
+     */
+    private final HarnessService.Listener harnessListener =
+            new HarnessService.Listener() {
+        @Override public void onOutputLine(String line) {
+            log("[dsh] " + line);
+        }
+
+        @Override public void onStopRequested() {
+            log("收到停止请求，运行进程已结束");
+            runOnUiThread(new Runnable() {
+                @Override public void run() { finish(); }
+            });
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -174,7 +198,7 @@ public class MainActivity extends Activity {
         android.widget.FrameLayout root = rootView;
 
         // 日志面板不加入视图树：整个屏幕留给 DSH 界面。
-        // 日志仍会写入 logcat 与 /sdcard/DSHNative/launch.log，便于后台排查。
+        // 日志写入 logcat 与应用私有目录；只有用户主动导出时才进入共享存储。
         logView = new TextView(this);
         logView.setTextSize(10);
 
@@ -715,6 +739,11 @@ public class MainActivity extends Activity {
         appRoot = root;
         log("私有目录: " + root);
 
+        if (!supportsArm64Runtime()) {
+            return "此版本只包含 arm64-v8a 运行环境；当前设备架构为 "
+                    + java.util.Arrays.toString(android.os.Build.SUPPORTED_ABIS);
+        }
+
         // 把 agent 的工作目录放到共享存储，这样用文件管理器丢进去的项目
         // agent 能直接读写，产出也能直接看到。
         // （dsh-fs-local / dsh-bash-local 用 process.cwd() 解析相对路径）
@@ -770,11 +799,24 @@ public class MainActivity extends Activity {
             setSplashStatus("正在准备运行环境…");
         } else {
             if (updatePending) log("上次检查到运行包有更新，本次启动应用");
-            boolean upToDate = ensurePayload(node, root, dshDir, toolsDir);
-            clearPayloadUpdatePending();
-            if (upToDate) {
-                log("运行包已是最新，本次无需下载");
-                setSplashStatus("正在准备运行环境…");
+            try {
+                boolean upToDate = ensurePayload(node, root, dshDir, toolsDir);
+                clearPayloadUpdatePending();
+                if (upToDate) {
+                    log("运行包已是最新，本次无需下载");
+                    setSplashStatus("正在准备运行环境…");
+                }
+            } catch (Throwable updateError) {
+                // 已有一套完整环境时，更新失败不能把 App 一起锁死。
+                // 保留旧运行包继续启动，后台稍后会重新检查；首次安装则仍要报错。
+                if (!locallyComplete) {
+                    if (updateError instanceof Exception) throw (Exception) updateError;
+                    throw new Exception(updateError);
+                }
+                clearPayloadUpdatePending();
+                payloadLastError = shorten(updateError);
+                log("运行包更新失败，保留当前可用版本继续启动: " + updateError);
+                setSplashStatus("更新失败，正在使用现有运行环境…");
             }
         }
 
@@ -918,9 +960,9 @@ public class MainActivity extends Activity {
         pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
         pb.environment().put("PYTHONNOUSERSITE", "1");
 
-        nodeProcess = pb.start();
-        log("dsh web 已启动 (pid " + pidOf(nodeProcess) + ")");
-        pipeOutput(nodeProcess);
+        Process started = pb.start();
+        HarnessService.adoptProcess(started);
+        log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
         // 5. 等待服务就绪后加载界面
         String url = waitForServer();
@@ -931,7 +973,7 @@ public class MainActivity extends Activity {
         }, 45000);
         if (url == null) {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
-            if (probeHttp(PORT) > 0) {
+            if (probeHttp(chosenPort) > 0) {
                 url = "http://127.0.0.1:" + chosenPort + "/";
                 log("警告: 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
             }
@@ -943,6 +985,21 @@ public class MainActivity extends Activity {
         // 走到这里说明服务一直没就绪：**必须返回原因**而不是默默结束。
         // 原来这里是静默 return，用户只会看到开屏一直转圈。
         return "DSH 服务在等待时间内没有就绪（可能是端口占用、运行包损坏或网络问题）";
+    }
+
+    /** 内置 Node 与工具链目前只提供 64 位 ARM 构建。 */
+    private static boolean supportsArm64Runtime() {
+        String[] abis = android.os.Build.SUPPORTED_ABIS;
+        if (abis == null) return false;
+        for (String abi : abis) {
+            if ("arm64-v8a".equals(abi)) return true;
+        }
+        return false;
+    }
+
+    private static String formatMib(long bytes) {
+        if (bytes < 0L) bytes = 0L;
+        return String.format(java.util.Locale.ROOT, "%.0f MiB", bytes / 1048576.0d);
     }
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
@@ -1458,9 +1515,13 @@ public class MainActivity extends Activity {
         final int MAX_SECONDS = 240;
         showStatus("正在启动 DSH …", "首次启动需加载插件，通常 20–60 秒。");
         for (int i = 0; i < MAX_SECONDS; i++) {
-            if (lastUrl != null) return lastUrl;
+            String serviceUrl = HarnessService.managedUrl();
+            if (serviceUrl != null) {
+                log("  已捕获服务地址");
+                return serviceUrl;
+            }
 
-            if (!isProcessAlive(nodeProcess)) {
+            if (!HarnessService.isManagedProcessAlive()) {
                 log("错误: dsh web 进程已退出，且未打印服务地址");
                 showStatus("DSH 启动失败",
                         "dsh 进程已退出。请查看上方日志面板中标有 <code>[dsh]</code> 的输出行。");
@@ -1482,7 +1543,6 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private volatile String lastUrl;
     private android.widget.FrameLayout rootView;
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
@@ -1619,33 +1679,6 @@ public class MainActivity extends Activity {
     /** DSH 触发的文件选择回调（必须保留引用，否则会被回收导致无响应）。 */
     private android.webkit.ValueCallback<android.net.Uri[]> pendingFileCallback;
     private static final int REQ_FILE_CHOOSER = 0x2001;
-
-    private void pipeOutput(final Process p) {
-        final InputStream is = p.getInputStream();
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    BufferedReader r = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-                    String line;
-                    StringBuilder carry = new StringBuilder();
-                    while ((line = r.readLine()) != null) {
-                        String clean = stripAnsi(line);
-                        log("[dsh] " + clean);
-                        if (lastUrl == null) {
-                            java.util.regex.Matcher m = URL_PATTERN.matcher(clean);
-                            if (m.find()) {
-                                lastUrl = m.group();
-                                log("  已捕获服务地址");
-                            }
-                        }
-                        carry.setLength(0);
-                    }
-                } catch (IOException e) {
-                    log("[dsh] 输出流结束");
-                }
-            }
-        }).start();
-    }
 
     /** 首次运行时写入最小配置：DSH_HOME 与凭据。 */
     private void prepareConfig(File root) throws IOException {
@@ -1964,8 +1997,7 @@ public class MainActivity extends Activity {
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
                 try {
-                    File mf = new File(root, "manifest.json");
-                    download("manifest.json", mf);
+                    File mf = refreshPayloadManifest(root);
                     org.json.JSONObject man = new org.json.JSONObject(readText(mf));
                     org.json.JSONArray parts = man.getJSONArray("parts");
                     java.util.Set<String> appliedRevs = appliedRevisions();
@@ -2180,9 +2212,6 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 try {
                     java.util.List<File> dirs = new java.util.ArrayList<File>();
-                    if (sharedLog != null && sharedLog.getParentFile() != null) {
-                        dirs.add(sharedLog.getParentFile());
-                    }
                     dirs.add(new File("/sdcard/DSHNative"));
                     dirs.add(new File("/sdcard/Download/DSHNative"));
                     dirs.add(new File("/storage/emulated/0/DSHNative"));
@@ -2215,14 +2244,16 @@ public class MainActivity extends Activity {
                     body.append("Payload: ").append(payloadSummary()).append('\n');
                     if (payloadLastError.length() > 0) {
                         body.append("Last payload update error: ")
-                                .append(payloadLastError).append('\n');
+                                .append(maskSecrets(payloadLastError)).append('\n');
                     }
                     if (lastRecoveryRaw.length() > 0) {
-                        body.append("Last session recovery error:\n")
-                                .append(lastRecoveryRaw).append('\n');
+                        // 原始恢复文本可能包含会话内容，不进入可分享的诊断文件。
+                        body.append("Last session recovery error: present, content omitted\n");
                     }
-                    body.append("\n--- launch.log tail ---\n").append(tail);
-                    writeText(out, body.toString());
+                    body.append("\n--- launch.log tail ---\n").append(maskSecrets(tail));
+                    File staged = new File(out.getAbsolutePath() + ".tmp");
+                    writeText(staged, maskSecrets(body.toString()));
+                    TransferState.atomicReplace(staged, out);
                     final String path = out.getAbsolutePath();
                     log("诊断已导出: " + path);
                     runOnUiThread(new Runnable() {
@@ -3248,6 +3279,14 @@ public class MainActivity extends Activity {
                     downloadPath("https://github.com/" + REPO
                                     + "/releases/download/" + tag + "/",
                             apkName, apk);
+                    String downloadedVer = apkVersionOf(apk);
+                    if (downloadedVer == null
+                            || Version.compare(downloadedVer, rel[0]) != 0
+                            || !cachedApkInstallable(apk)) {
+                        if (apk.exists()) apk.delete();
+                        throw new SecurityException(
+                                "下载的 APK 版本、包名或签名与当前应用不匹配");
+                    }
                     log("更新包已下载: " + (apk.length() / 1048576) + " MB");
                     setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
                     installApk(apk);
@@ -3341,6 +3380,7 @@ public class MainActivity extends Activity {
             android.content.pm.PackageInfo archive = pm.getPackageArchiveInfo(
                     apk.getAbsolutePath(), android.content.pm.PackageManager.GET_SIGNATURES);
             if (installed == null || archive == null
+                    || !getPackageName().equals(archive.packageName)
                     || installed.signatures == null || archive.signatures == null
                     || installed.signatures.length == 0
                     || archive.signatures.length != installed.signatures.length) {
@@ -3430,6 +3470,124 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- 运行包
     /**
+     * 下载并验证运行包清单，成功后才原子替换缓存。
+     *
+     * <p>旧实现直接把有效缓存截断后再下载，网络失败时所谓“回退缓存”读到的
+     * 可能是空文件；超时线程还可能继续写同一文件。现在每次使用唯一临时文件，
+     * 超时会主动断开连接，缓存只在完整验证通过后替换。
+     */
+    private synchronized File refreshPayloadManifest(final File root) throws Exception {
+        final File cached = new File(root, "manifest.json");
+        final File staged = new File(root, "manifest-"
+                + System.nanoTime() + ".next");
+        final DownloadControl control = new DownloadControl();
+        final java.util.concurrent.atomic.AtomicReference<Throwable> error =
+                new java.util.concurrent.atomic.AtomicReference<Throwable>();
+
+        try {
+            Thread fetch = new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        downloadPath(ASSET_PATH, "manifest.json", staged, control, false);
+                    } catch (Throwable t) {
+                        error.set(t);
+                    }
+                }
+            }, "manifest-fetch");
+            fetch.setDaemon(true);
+            fetch.start();
+            try { fetch.join(20000); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                control.cancel();
+                throw new IOException("清单下载被中断");
+            }
+            if (fetch.isAlive()) {
+                control.cancel();
+                try { fetch.join(3000); } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                throw new IOException("清单下载超时（20 秒）");
+            }
+            if (error.get() != null) {
+                Throwable t = error.get();
+                if (t instanceof Exception) throw (Exception) t;
+                throw new IOException("清单下载失败", t);
+            }
+
+            String invalid = validatePayloadManifest(staged);
+            if (invalid != null) throw new IOException("运行包清单不可信：" + invalid);
+            TransferState.atomicReplace(staged, cached);
+            log("运行包清单已验证并更新");
+            return cached;
+        } catch (Throwable t) {
+            control.cancel();
+            TransferState.discard(new File(staged.getAbsolutePath() + ".part"),
+                    new File(staged.getAbsolutePath() + ".part.id"));
+            if (staged.exists()) staged.delete();
+
+            String cachedError = validatePayloadManifest(cached);
+            if (cachedError == null) {
+                log("清单更新失败，使用已验证的本地缓存: " + shorten(t));
+                return cached;
+            }
+            throw new IOException("无法取得可信的运行包清单：" + shorten(t)
+                    + "；本地缓存不可用：" + cachedError);
+        }
+    }
+
+    /** 返回 null 表示清单可信，否则返回可读原因。 */
+    private String validatePayloadManifest(File file) {
+        try {
+            if (file == null || !file.isFile()) return "文件不存在";
+            if (file.length() <= 0 || file.length() > 256 * 1024) return "文件大小异常";
+            String digest = sha256(file);
+            if (!PAYLOAD_MANIFEST_SHA256.equalsIgnoreCase(digest)) return "摘要与 APK 内置值不一致";
+
+            org.json.JSONObject manifest = new org.json.JSONObject(readText(file));
+            int version = manifest.getInt("version");
+            if (version <= 0 || version > 100) return "结构版本异常";
+            org.json.JSONArray parts = manifest.getJSONArray("parts");
+            if (parts.length() <= 0 || parts.length() > 20) return "分片数量异常";
+            java.util.HashSet<String> names = new java.util.HashSet<String>();
+            for (int i = 0; i < parts.length(); i++) {
+                org.json.JSONObject part = parts.getJSONObject(i);
+                String name = part.getString("name");
+                if (!PayloadUpdate.isSafeAssetName(name)) return "分片名不安全：" + name;
+                if (!names.add(name)) return "分片名重复：" + name;
+                String target = part.getString("target");
+                if (!"dsh".equals(target) && !"tools".equals(target)) {
+                    return "分片目标不允许：" + target;
+                }
+                long size = part.getLong("size");
+                if (size <= 0 || size > 512L * 1024L * 1024L) return "分片大小异常：" + name;
+                if (!PayloadUpdate.isSha256(part.getString("sha256"))) {
+                    return "分片摘要格式错误：" + name;
+                }
+                org.json.JSONObject sentinel = part.getJSONObject("sentinel");
+                if (!PayloadUpdate.isSafeRelativePath(sentinel.getString("path"))) {
+                    return "哨兵路径不安全：" + name;
+                }
+                if (sentinel.getLong("size") < 0
+                        || !PayloadUpdate.isSha256(sentinel.getString("sha256"))) {
+                    return "哨兵信息异常：" + name;
+                }
+                org.json.JSONArray removals = part.optJSONArray("remove");
+                if (removals != null) {
+                    for (int k = 0; k < removals.length(); k++) {
+                        if (!PayloadUpdate.isSafeRelativePath(removals.optString(k, null))) {
+                            return "删除路径不安全：" + name;
+                        }
+                    }
+                }
+            }
+            return null;
+        } catch (Throwable t) {
+            return "解析失败：" + t.getClass().getSimpleName();
+        }
+    }
+
+    /**
      * 确保运行包就绪，**只下载缺失或变化的分片**。
      *
      * <p>流程：取 manifest.json → 用每个分片的"哨兵文件"（路径+大小+sha256）
@@ -3445,36 +3603,7 @@ public class MainActivity extends Activity {
      */
     private boolean ensurePayload(File node, File root, File dshDir, File toolsDir)
             throws Exception {
-        File mf = new File(root, "manifest.json");
-        // 清单下载放在后台线程里，设一个**总时限**。
-        // 国内网络下拉 GitHub 可能长时间无响应，而这一步在启动路径上 ——
-        // 不设限就会一直卡在「正在准备运行环境」。
-        // 超时后走「用上次缓存的清单」这条既有分支。
-        final java.util.concurrent.atomic.AtomicReference<Throwable> dlErr =
-                new java.util.concurrent.atomic.AtomicReference<Throwable>();
-        try {
-        Thread dl = new Thread(new Runnable() {
-            @Override public void run() {
-                try { download("manifest.json", mf); }
-                catch (Throwable t) { dlErr.set(t); }
-            }
-        }, "manifest-fetch");
-        dl.setDaemon(true);
-        dl.start();
-        try { dl.join(20000); } catch (InterruptedException ie) { }
-        if (dl.isAlive()) {
-            dl.interrupt();
-            log("清单下载超时（20 秒），改用本地缓存");
-            throw new IOException("清单下载超时");
-        }
-        if (dlErr.get() != null) throw dlErr.get();
-        } catch (Throwable t) {
-            // 离线也要能启动：用上次缓存的清单
-            if (!mf.exists()) {
-                throw new IOException("无法获取运行包清单，且本地无缓存：" + t.getMessage());
-            }
-            log("清单更新失败，改用本地缓存（离线启动）: " + t.getMessage());
-        }
+        File mf = refreshPayloadManifest(root);
 
         org.json.JSONObject man = new org.json.JSONObject(readText(mf));
         org.json.JSONArray parts = man.getJSONArray("parts");
@@ -3482,7 +3611,7 @@ public class MainActivity extends Activity {
                   + man.optInt("version", 0) + "）");
 
         // 第一遍：逐分片判定 —— 哨兵是否匹配 + 修订号是否变高。
-        // 判定逻辑在纯逻辑类 PayloadUpdate 里（37 项测试）。
+        // 判定逻辑在纯逻辑类 PayloadUpdate 里（55 项测试）。
         java.util.Set<String> appliedRevs = appliedRevisions();
         java.util.List<String> missing = new java.util.ArrayList<String>();
         java.util.LinkedHashMap<String, java.util.List<String>> removals =
@@ -3519,30 +3648,91 @@ public class MainActivity extends Activity {
         }
         setSplashStatus(PayloadUpdate.describe(parts.length(), missing.size()));
 
-        // 第二遍：只下载这些分片
+        // 下载前先把流量和空间成本说清楚，并在空间明显不足时尽早失败。
+        // 解压到一半才报 ENOSPC 会留下难以诊断的半更新环境。
+        long compressedBytes = 0L;
+        long cachedBytes = 0L;
+        for (int i = 0; i < parts.length(); i++) {
+            org.json.JSONObject part = parts.getJSONObject(i);
+            String name = part.getString("name");
+            if (!missing.contains(name)) continue;
+            long expectedSize = part.getLong("size");
+            compressedBytes += expectedSize;
+            File archive = new File(root, name);
+            File partial = new File(archive.getAbsolutePath() + ".part");
+            long present = Math.max(archive.isFile() ? archive.length() : 0L,
+                    partial.isFile() ? partial.length() : 0L);
+            cachedBytes += Math.min(expectedSize, present);
+        }
+        long requiredBytes = PayloadUpdate.requiredFreeBytes(compressedBytes, cachedBytes);
+        long usableBytes = root.getUsableSpace();
+        log("运行包空间预检: 预计至少需要 " + formatMib(requiredBytes)
+                + "，当前可用 " + formatMib(usableBytes));
+        if (usableBytes > 0L && usableBytes < requiredBytes) {
+            throw new IOException("存储空间不足：运行包更新至少需要 "
+                    + formatMib(requiredBytes) + "，当前可用 " + formatMib(usableBytes));
+        }
+        long remainingDownload = Math.max(0L, compressedBytes - cachedBytes);
+        boolean[] network = networkState();
+        if (remainingDownload >= 20L * 1024L * 1024L && network[2]) {
+            String notice = "当前为移动网络，预计还需下载 " + formatMib(remainingDownload);
+            log(notice);
+            setSplashStatus(notice + "…");
+            toast(notice);
+        }
+
+        // 第二遍：先把所有需要的分片下载并校验完，再改动运行目录。
+        // 这样任一网络或摘要错误都不会留下半更新环境。
         long bytes = 0;
+        java.util.LinkedHashMap<String, File> archives =
+                new java.util.LinkedHashMap<String, File>();
         for (int i = 0; i < parts.length(); i++) {
             org.json.JSONObject part = parts.getJSONObject(i);
             String name = part.getString("name");
             if (!missing.contains(name)) continue;
 
             String expected = part.getString("sha256");
-            File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
             File archive = new File(root, name);
-
-            if (archive.exists()) archive.delete();
-            download(name, archive);
+            long expectedSize = part.getLong("size");
+            boolean reusable = archive.isFile() && archive.length() == expectedSize
+                    && expected.equalsIgnoreCase(sha256(archive));
+            if (reusable) {
+                log("  复用已下载并验证的分片 " + name);
+            } else {
+                if (archive.exists() && !archive.delete()) {
+                    throw new IOException("无法清理损坏的下载文件: " + name);
+                }
+                download(name, archive);
+            }
             String actual = sha256(archive);
-            if (!expected.equalsIgnoreCase(actual)) {
+            long actualSize = archive.length();
+            if (actualSize != expectedSize || !expected.equalsIgnoreCase(actual)) {
                 archive.delete();
-                throw new IOException("SHA-256 校验失败: " + name
+                throw new IOException("运行包校验失败: " + name
+                        + "\n  期望大小 " + expectedSize + "，实际 " + actualSize
                         + "\n  期望 " + expected + "\n  实际 " + actual);
             }
             bytes += archive.length();
+            archives.put(name, archive);
             log("  " + name + " 校验通过");
+        }
 
-            // 处理前先执行该分片声明的删除。
-            // 哨兵发现不了「文件被删了」，这份清单就是为它准备的。
+        // 第三遍：所有输入都可信之后再逐项解压。
+        for (int i = 0; i < parts.length(); i++) {
+            org.json.JSONObject part = parts.getJSONObject(i);
+            String name = part.getString("name");
+            if (!missing.contains(name)) continue;
+            File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
+            File archive = archives.get(name);
+
+            setSplashStatus("正在解压运行包…");
+            log("解压 " + name + " …");
+            run(node, root, new String[]{
+                    new File(root, "unpack.js").getAbsolutePath(),
+                    archive.getAbsolutePath(),
+                    dir.getAbsolutePath()}, null);
+
+            // 删除清单放在成功解压之后执行。即使解压失败，旧环境里原有文件也还在。
             java.util.List<String> del = removals.get(name);
             if (del != null && !del.isEmpty()) {
                 for (String rel : del) {
@@ -3553,16 +3743,10 @@ public class MainActivity extends Activity {
                     }
                 }
             }
-
-            setSplashStatus("正在解压运行包…");
-            log("解压 " + name + " …");
-            run(node, root, new String[]{
-                    new File(root, "unpack.js").getAbsolutePath(),
-                    archive.getAbsolutePath(),
-                    dir.getAbsolutePath()}, null);
-            archive.delete();
         }
-        log("增量更新完成，本次下载 " + (bytes / 1048576) + " MB");
+        // 全部分片成功后才清理归档；中途失败则保留，重试时无需重复下载。
+        for (File archive : archives.values()) archive.delete();
+        log("增量更新完成，本次验证 " + (bytes / 1048576) + " MB");
         // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
         // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
         rememberPayloadRevisions(parts, dshDir, toolsDir);
@@ -3574,7 +3758,8 @@ public class MainActivity extends Activity {
      * 选择 agent 的工作目录。
      *
      * <p>优先共享存储 —— 否则用户无法把文件放进 App 私有目录，agent 也就无从下手。
-     * 逐个候选路径试写，全失败则返回 null（调用方回退到私有目录）。
+     * 逐个候选路径试写；全失败则创建 App 私有工作区，保证分享导入与 agent
+     * 始终使用同一个可写目录。
      */
     private File resolveWorkspace() {
         String[] candidates = {
@@ -3596,6 +3781,15 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) {
                 // 试下一个
             }
+        }
+        File fallback = new File(appRoot != null ? appRoot : getFilesDir(), "workspace");
+        try {
+            if (!fallback.isDirectory() && !fallback.mkdirs()) return null;
+            seedWorkspaceReadme(fallback);
+            log("共享存储不可用，改用私有工作区: " + fallback);
+            return fallback;
+        } catch (Throwable t) {
+            log("私有工作区也不可用: " + t);
         }
         return null;
     }
@@ -3652,22 +3846,7 @@ public class MainActivity extends Activity {
     /** 启动前台服务，避免切后台/锁屏时 agent 被系统冻结。 */
     private void startHarnessService() {
         try {
-            HarnessService.onStopRequested = new Runnable() {
-                @Override public void run() {
-                    log("收到停止请求，正在结束 …");
-                    if (nodeProcess != null) nodeProcess.destroy();
-                    runOnUiThread(new Runnable() {
-                        @Override public void run() { finish(); }
-                    });
-                }
-            };
-            HarnessService.onSettingsRequested = new Runnable() {
-                @Override public void run() {
-                    runOnUiThread(new Runnable() {
-                        @Override public void run() { showSettings(); }
-                    });
-                }
-            };
+            HarnessService.setListener(harnessListener);
             android.content.Intent svc =
                     new android.content.Intent(this, HarnessService.class);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -3939,9 +4118,9 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent() {
-        try {
-            if (nodeProcess != null) nodeProcess.destroy();
-        } catch (Throwable ignored) { }
+        HarnessService.stopManagedProcess();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .remove("dshPort").remove("dshToken").apply();
         dshPageLoaded = false;
         splashHidden = false;
         runOnUiThread(new Runnable() {
@@ -4852,80 +5031,148 @@ public class MainActivity extends Activity {
 
     /** 从指定 release 路径下载（供 App 自更新使用，它不在运行包那个 release 下）。 */
     private void downloadPath(String basePath, String assetName, File out) throws IOException {
-        // 小文件（如 manifest.json）不打进度，否则会出现 "100% (0/0 MB)" 这种误导性输出
-        final boolean quiet = assetName.endsWith(".json");
-        final int CHUNK = 2 * 1024 * 1024;
-        final int MAX_RETRY_PER_SOURCE = 4;
+        downloadPath(basePath, assetName, out, new DownloadControl(), true);
+    }
 
+    /** 可取消、可跨次续传的分块下载；完成前只写入 .part 临时文件。 */
+    private void downloadPath(String basePath, String assetName, File out,
+                              DownloadControl control, boolean resume) throws IOException {
+        final boolean quiet = assetName.endsWith(".json");
+        final int chunkSize = 2 * 1024 * 1024;
+        final int maxRetryPerSource = 4;
+
+        File partial = new File(out.getAbsolutePath() + ".part");
+        File identityFile = new File(out.getAbsolutePath() + ".part.id");
+        long prepared = TransferState.prepare(partial, identityFile,
+                basePath + assetName, resume);
         long total = -1;
-        java.io.RandomAccessFile raf = new java.io.RandomAccessFile(out, "rw");
+        java.io.RandomAccessFile raf = new java.io.RandomAccessFile(partial, "rw");
         try {
-            raf.setLength(0);
-            long done = 0;
-            int chunkIdx = 0;
+            long done = prepared;
+            if (raf.length() != done) raf.setLength(done);
+            if (done > 0 && !quiet) log("  从 " + (done / 1048576) + " MB 继续下载");
+            int chunkIndex = (int) (done / chunkSize);
             int retries = 0;
-            long t0 = System.currentTimeMillis();
+            long startedAt = System.currentTimeMillis();
             int lastLoggedPct = -1;
-            String lastErr = null;
+            String lastError = null;
 
             while (total < 0 || done < total) {
-                long end = total < 0 ? (done + CHUNK - 1) : Math.min(done + CHUNK - 1, total - 1);
+                control.check();
+                long end = total < 0 ? done + chunkSize - 1
+                        : Math.min(done + chunkSize - 1, total - 1);
+                RangeResult result = null;
 
-                byte[] buf = null;
-                for (int s = 0; s < SOURCES.length && buf == null; s++) {
-                    String url = SOURCES[s] + basePath + assetName;
-                    for (int attempt = 0; attempt < MAX_RETRY_PER_SOURCE; attempt++) {
+                for (int source = 0; source < SOURCES.length && result == null; source++) {
+                    String url = SOURCES[source] + basePath + assetName;
+                    for (int attempt = 0; attempt < maxRetryPerSource; attempt++) {
                         try {
-                            Object[] r = fetchRange(url, done, end);
-                            buf = (byte[]) r[0];
-                            if (total < 0 && r[1] != null) total = (Long) r[1];
-                            if (s > 0) log("  已切换到镜像源 #" + s);
+                            result = fetchRange(url, done, end, control);
+                            if (total < 0 && result.total != null) {
+                                total = result.total.longValue();
+                            }
+                            if (source > 0) log("  已切换到镜像源 #" + source);
                             break;
                         } catch (Exception e) {
-                            lastErr = shorten(e);
+                            lastError = shorten(e);
                             retries++;
+                            control.check();
                             try {
                                 Thread.sleep(500L * (attempt + 1));
-                            } catch (InterruptedException ie) {
+                            } catch (InterruptedException interrupted) {
                                 Thread.currentThread().interrupt();
                                 throw new IOException("下载被中断");
                             }
                         }
                     }
-                    if (buf == null) log("  源 #" + s + " 失败（" + lastErr + "），尝试下一个");
+                    if (result == null) {
+                        log("  源 #" + source + " 失败（" + lastError + "），尝试下一个");
+                    }
                 }
 
-                if (buf == null) {
-                    throw new IOException("下载失败（块 " + chunkIdx + "，已下载 "
-                            + (done / 1048576) + "MB）：所有来源均不可用\n最后错误：" + lastErr
-                            + "\n请检查网络后重新打开 App —— 已下载部分会保留。");
+                if (result == null) {
+                    throw new IOException("下载失败（块 " + chunkIndex + "，已下载 "
+                            + (done / 1048576) + "MB）：所有来源均不可用\n最后错误："
+                            + lastError + "\n请检查网络后重试，已下载部分会继续保留。");
                 }
-                long want = end - done + 1;
-                if (buf.length < want && total > 0 && done + buf.length < total) {
-                    throw new IOException("块 " + chunkIdx + " 长度不足: " + buf.length + " / " + want);
+
+                long wanted = end - done + 1;
+                byte[] data = result.data;
+                if (data.length <= 0) throw new IOException("块 " + chunkIndex + " 内容为空");
+                if (data.length < wanted && total > 0 && done + data.length < total) {
+                    throw new IOException("块 " + chunkIndex + " 长度不足: "
+                            + data.length + " / " + wanted);
+                }
+                if (total > 0 && done + data.length > total) {
+                    throw new IOException("块 " + chunkIndex + " 超出文件总长度");
                 }
                 raf.seek(done);
-                raf.write(buf);
-                done += buf.length;
-                chunkIdx++;
+                raf.write(data);
+                done += data.length;
+                chunkIndex++;
+                if (total < 0 && data.length < wanted) total = done;
 
                 if (total > 0) {
                     int pct = (int) (done * 100 / total);
                     if (pct / 10 != lastLoggedPct / 10) {
                         lastLoggedPct = pct;
-                        long secs = Math.max(1, (System.currentTimeMillis() - t0) / 1000);
-                        if (quiet) { /* 静默 */ } else
-                        log("  " + pct + "%  (" + (done / 1048576) + "/" + (total / 1048576)
-                                + " MB, " + (done / 1048576 / secs) + " MB/s, 重试 " + retries + " 次)");
-                        // 开屏只显示友好的进度，不显示速率/重试等技术细节
-                        setSplashStatus("正在下载运行包 " + pct + "%");
+                        long seconds = Math.max(1,
+                                (System.currentTimeMillis() - startedAt) / 1000);
+                        if (!quiet) {
+                            log("  " + pct + "%  (" + (done / 1048576) + "/"
+                                    + (total / 1048576) + " MB, "
+                                    + (done / 1048576 / seconds) + " MB/s, 重试 "
+                                    + retries + " 次)");
+                            setSplashStatus("正在下载运行包 " + pct + "%");
+                        }
                     }
                 }
-                if (total < 0 && buf.length < CHUNK) break;
             }
+            control.check();
+            raf.getFD().sync();
             log("  下载完成 " + (done / 1048576) + " MB，重试 " + retries + " 次");
         } finally {
             raf.close();
+        }
+        control.check();
+        TransferState.commit(partial, identityFile, out);
+    }
+
+    /** disconnect 用于中止 HttpURLConnection 的阻塞读取。 */
+    private static final class DownloadControl {
+        private boolean cancelled;
+        private HttpURLConnection active;
+
+        synchronized void bind(HttpURLConnection connection) throws IOException {
+            if (cancelled) {
+                connection.disconnect();
+                throw new IOException("下载已取消");
+            }
+            active = connection;
+        }
+
+        synchronized void unbind(HttpURLConnection connection) {
+            if (active == connection) active = null;
+        }
+
+        synchronized void cancel() {
+            cancelled = true;
+            if (active != null) active.disconnect();
+            active = null;
+        }
+
+        synchronized void check() throws IOException {
+            if (cancelled) throw new IOException("下载已取消");
+        }
+    }
+
+    private static final class RangeResult {
+        final byte[] data;
+        final Long total;
+
+        RangeResult(byte[] data, Long total) {
+            this.data = data;
+            this.total = total;
         }
     }
 
@@ -4937,14 +5184,17 @@ public class MainActivity extends Activity {
         return m;
     }
 
-    /** 取指定字节范围。返回 {byte[] data, Long totalSizeOrNull}。 */
-    private Object[] fetchRange(String url, long start, long end) throws IOException {
+    /** 取指定字节范围；响应严格限制在本块大小内，避免镜像返回整包导致 OOM。 */
+    private RangeResult fetchRange(String url, long start, long end,
+                                   DownloadControl control) throws IOException {
         HttpURLConnection c = null;
         try {
             // 手动跟随重定向：CDN 会 302 到签名 URL，且签名地址可能变化
             String cur = url;
             for (int hop = 0; hop < 8; hop++) {
+                control.check();
                 c = (HttpURLConnection) new URL(cur).openConnection();
+                control.bind(c);
                 c.setInstanceFollowRedirects(false);
                 c.setConnectTimeout(20000);
                 c.setReadTimeout(40000);
@@ -4954,6 +5204,7 @@ public class MainActivity extends Activity {
                 int code = c.getResponseCode();
                 if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                     String loc = c.getHeaderField("Location");
+                    control.unbind(c);
                     c.disconnect();
                     c = null;
                     if (loc == null) throw new IOException("重定向缺少 Location");
@@ -4963,31 +5214,69 @@ public class MainActivity extends Activity {
                 if (code != 200 && code != 206) {
                     throw new IOException("HTTP " + code);
                 }
+                long maximum = end - start + 1;
                 Long total = null;
                 if (code == 206) {
                     String cr = c.getHeaderField("Content-Range");   // bytes 0-1/33540352
-                    if (cr != null) {
+                    if (cr == null || !cr.startsWith("bytes ")) {
+                        throw new IOException("206 响应缺少 Content-Range");
+                    }
+                    try {
+                        int dash = cr.indexOf('-', 6);
                         int slash = cr.lastIndexOf('/');
-                        if (slash > 0) {
-                            try { total = Long.parseLong(cr.substring(slash + 1).trim()); }
-                            catch (NumberFormatException ignored) { }
+                        long actualStart = Long.parseLong(cr.substring(6, dash).trim());
+                        long actualEnd = Long.parseLong(cr.substring(dash + 1, slash).trim());
+                        long parsedTotal = Long.parseLong(cr.substring(slash + 1).trim());
+                        if (actualStart != start || actualEnd < actualStart || actualEnd > end
+                                || parsedTotal <= actualEnd) {
+                            throw new IOException("Content-Range 与请求不一致: " + cr);
                         }
+                        total = Long.valueOf(parsedTotal);
+                        maximum = actualEnd - actualStart + 1;
+                    } catch (NumberFormatException badRange) {
+                        throw new IOException("Content-Range 格式错误: " + cr);
                     }
                 } else {
-                    int cl = c.getContentLength();
-                    if (cl > 0) total = (long) cl;
+                    if (start > 0) throw new IOException("服务器忽略 Range，无法安全续传");
+                    String length = c.getHeaderField("Content-Length");
+                    if (length != null) {
+                        try {
+                            long parsed = Long.parseLong(length.trim());
+                            if (parsed > maximum) {
+                                throw new IOException("服务器忽略 Range，返回整包 "
+                                        + parsed + " 字节");
+                            }
+                            if (parsed >= 0) total = Long.valueOf(parsed);
+                        } catch (NumberFormatException ignored) { }
+                    }
                 }
                 InputStream in = c.getInputStream();
-                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
-                byte[] b = new byte[131072];
-                int n;
-                while ((n = in.read(b)) > 0) bos.write(b, 0, n);
-                in.close();
-                return new Object[]{bos.toByteArray(), total};
+                try {
+                    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(
+                            (int) Math.min(maximum, 262144L));
+                    byte[] b = new byte[131072];
+                    long received = 0;
+                    int n;
+                    while ((n = in.read(b)) > 0) {
+                        control.check();
+                        received += n;
+                        if (received > maximum) {
+                            throw new IOException("响应超过请求块大小，已中止以避免内存溢出");
+                        }
+                        bos.write(b, 0, n);
+                    }
+                    if (code == 200 && total == null) total = Long.valueOf(received);
+                    return new RangeResult(bos.toByteArray(), total);
+                } finally {
+                    in.close();
+                }
             }
             throw new IOException("重定向次数过多");
         } finally {
-            if (c != null) c.disconnect();
+            if (c != null) {
+                control.unbind(c);
+                c.disconnect();
+            }
         }
     }
 
@@ -5165,16 +5454,6 @@ public class MainActivity extends Activity {
         } catch (Throwable t) { return "?"; }
     }
 
-    /** 匹配 dsh 启动时打印的本地服务地址（含 token）。 */
-    private static final java.util.regex.Pattern URL_PATTERN =
-            java.util.regex.Pattern.compile(
-                    "http://(?:127\\.0\\.0\\.1|localhost):\\d+(?:/[A-Za-z0-9_\\-?=&.]*)?");
-
-    /** 去掉 ANSI 转义序列，避免颜色码混进 URL。 */
-    private static String stripAnsi(String s) {
-        return s.replaceAll("\\u001B\\[[0-9;?]*[ -/]*[@-~]", "");
-    }
-
     private volatile boolean statusPageLoading;
 
     /** 在 WebView 中显示状态，避免出现无从判断的空白区域。 */
@@ -5239,17 +5518,6 @@ public class MainActivity extends Activity {
             return -1;
         } finally {
             if (c != null) c.disconnect();
-        }
-    }
-
-    /** Process.isAlive() 是 API 26+，用反射以便在旧 jar 上编译。 */
-    private boolean isProcessAlive(Process p) {
-        if (p == null) return false;
-        try {
-            Object r = Process.class.getMethod("isAlive").invoke(p);
-            return Boolean.TRUE.equals(r);
-        } catch (Throwable t) {
-            return true;
         }
     }
 
@@ -5353,34 +5621,13 @@ public class MainActivity extends Activity {
         t.start();
     }
 
-    /**
-     * 初始化共享日志文件。
-     *
-     * <p>为什么要写这里：本项目多次因无法获取真实运行日志而反复来回。
-     * \`/sdcard\` 是设备内各 App 与调试环境都能访问的位置，
-     * 把启动日志写在这里，就无需 adb、无需截图即可排查。
-     */
+    /** 初始化应用私有日志文件；共享存储只用于用户主动导出的脱敏诊断。 */
     private void initSharedLog() {
-        // 依次尝试多个候选位置：不同 ROM 的共享存储策略不同，
-        // 且目录若由其他 UID 创建则本 App 可能无写权限。
-        java.util.List<File> candidates = new java.util.ArrayList<File>();
-        candidates.add(new File("/sdcard/DSHNative/launch.log"));
-        candidates.add(new File("/sdcard/Download/DSHNative/launch.log"));
-        candidates.add(new File("/storage/emulated/0/DSHNative/launch.log"));
-        candidates.add(new File("/sdcard/launch.log"));
-        for (File cand : candidates) {
-            try {
-                File dir = cand.getParentFile();
-                if (dir != null && !dir.exists()) dir.mkdirs();
-                java.io.FileWriter probe = new java.io.FileWriter(cand, true);
-                probe.write("");
-                probe.close();
-                sharedLog = cand;
-                break;
-            } catch (Throwable ignored) { /* 试下一个 */ }
-        }
         try {
-            if (sharedLog == null) throw new IOException("所有候选路径均不可写");
+            File dir = new File(getFilesDir(), "logs");
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("无法创建私有日志目录");
+            sharedLog = new File(dir, "launch.log");
+            removeLegacySharedLogs();
             // 追加而非覆盖：否则每次启动都会抹掉上一个会话的记录，
             // 跨会话的问题（例如"应用内更新到底下载成功没有"）就无从追查。
             // 超过上限时轮转一次，保留上一份，避免无限增长。
@@ -5390,7 +5637,6 @@ public class MainActivity extends Activity {
                 if (prev.exists()) prev.delete();
                 sharedLog.renameTo(prev);
             }
-            File dir = sharedLog.getParentFile();
             java.io.FileWriter w = new java.io.FileWriter(sharedLog, true);
             w.write("\n\n=== DSH Native 启动日志 ===\n");
             w.write("时间: " + new java.util.Date() + "\n");
@@ -5399,12 +5645,32 @@ public class MainActivity extends Activity {
                     + android.os.Build.VERSION.SDK_INT + ")\n");
             w.write("APK 版本: 0.25.8\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
-            w.write("说明: 本文件由 App 写入，便于在设备内直接查看，可随时删除。\n\n");
+            w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
-            Log.i(TAG, "shared log: " + sharedLog.getAbsolutePath());
+            Log.i(TAG, "private log: " + sharedLog.getAbsolutePath());
         } catch (Throwable t) {
             Log.w(TAG, "initSharedLog failed", t);
             sharedLog = null;
+        }
+    }
+
+    /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
+    private void removeLegacySharedLogs() {
+        String[] paths = {
+                "/sdcard/DSHNative/launch.log",
+                "/sdcard/Download/DSHNative/launch.log",
+                "/storage/emulated/0/DSHNative/launch.log",
+                "/sdcard/launch.log",
+        };
+        for (String path : paths) {
+            File current = new File(path);
+            File previous = new File(path + ".1");
+            if (current.isFile() && !current.delete()) {
+                Log.w(TAG, "unable to remove legacy shared log: " + path);
+            }
+            if (previous.isFile() && !previous.delete()) {
+                Log.w(TAG, "unable to remove legacy shared log: " + previous);
+            }
         }
     }
 
@@ -5415,14 +5681,10 @@ public class MainActivity extends Activity {
      * 现在覆盖常见密钥形态，并兜底屏蔽超长无空格串。
      */
     private static String maskSecrets(String s) {
-        s = s.replaceAll("token=[A-Za-z0-9_\\-]+", "token=***");
-        s = s.replaceAll("sk-[A-Za-z0-9_\\-]{6,}", "sk-***");
-        s = s.replaceAll("user_[A-Za-z0-9_\\-]{12,}", "user_***");
-        s = s.replaceAll("[A-Za-z0-9_\\-]{40,}", "***");
-        return s;
+        return SecretMasker.mask(s);
     }
 
-    /** 追加一行到共享日志；token 等敏感串做脱敏。 */
+    /** 追加一行到私有日志；即使在私有目录也先做脱敏。 */
     private void appendSharedLog(String msg) {
         if (sharedLog == null) return;
         synchronized (logLock) {
@@ -5471,8 +5733,9 @@ public class MainActivity extends Activity {
                                            int[] grantResults) {
         boolean granted = grantResults != null && grantResults.length > 0
                 && grantResults[0] == 0;   // PackageManager.PERMISSION_GRANTED
-        log("存储权限结果: " + (granted ? "已授予，日志将写入 /sdcard/DSHNative/launch.log"
-                : "被拒绝 —— 无法写共享日志，不影响 App 运行"));
+        if (granted) removeLegacySharedLogs();
+        log("存储权限结果: " + (granted ? "已授予，共享工作区与诊断导出可用"
+                : "被拒绝 —— 共享工作区与诊断导出不可用，不影响私有运行日志"));
     }
 
     /**
@@ -5588,13 +5851,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * 处理从其他 App 分享过来的内容。
-     *
-     * <p>文件直接落到工作区；文本存成带时间戳的说明文件。
-     * 这样用户在任何 App 里「分享到 DeepSeek Harness」，
-     * 内容就出现在 agent 能直接读写的地方。
-     */
+    private static final Object SHARE_IMPORT_LOCK = new Object();
+    private static final long MAX_SHARED_FILE_BYTES = 512L * 1024L * 1024L;
+    private static final long SHARE_SPACE_RESERVE = 32L * 1024L * 1024L;
+
+    /** 处理从其他 App 分享过来的单个或多个文件及文本。 */
     private void handleShareIntent(android.content.Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
@@ -5608,7 +5869,8 @@ public class MainActivity extends Activity {
                 // 兜底：工作区不可用（共享存储没挂上、权限被拒）时，
                 // 落到应用私有目录，而不是把用户分享过来的文件直接丢掉。
                 // 用户至少还能在「设置 → 文件」里找到它，agent 也能读到。
-                ws = new File(getFilesDir(), "workspace");
+                File base = appRoot != null ? appRoot : new File(getFilesDir(), "dsh");
+                ws = new File(base, "workspace");
                 //noinspection ResultOfMethodCallIgnored
                 ws.mkdirs();
                 log("工作区不可用，分享内容改落到私有目录: " + ws);
@@ -5622,70 +5884,211 @@ public class MainActivity extends Activity {
             String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",
                     java.util.Locale.US).format(new java.util.Date());
 
-            android.net.Uri stream = intent.getParcelableExtra(
-                    android.content.Intent.EXTRA_STREAM);
-            String text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
-            String subject = intent.getStringExtra(android.content.Intent.EXTRA_SUBJECT);
+            final java.util.List<android.net.Uri> streams = sharedUris(intent);
+            final String text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
+            final String subject = intent.getStringExtra(android.content.Intent.EXTRA_SUBJECT);
+            if (streams.isEmpty() && (text == null || text.length() == 0)) return;
 
-            if (stream != null) {
-                String name = queryDisplayName(stream);
-                if (name == null || name.length() == 0) name = "分享文件-" + stamp;
-                // 拷贝放到后台线程：分享过来的可能是几百 MB 的视频，
-                // 在 UI 线程里拷会直接 ANR（这也是原来就存在的隐患）。
-                final File wsFinal = ws;
-                final File out = new File(wsFinal, name);
-                final android.net.Uri src = stream;
-                final String finalName = name;
-                new Thread(new Runnable() {
-                    @Override public void run() {
-                        try {
-                            java.io.InputStream in = getContentResolver().openInputStream(src);
-                            if (in == null) throw new IOException("无法读取分享的文件");
-                            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
-                            byte[] buf = new byte[65536];
-                            int k;
-                            while ((k = in.read(buf)) > 0) fo.write(buf, 0, k);
-                            fo.close();
-                            in.close();
-                            log("已接收分享文件: " + out.getAbsolutePath());
-                            toast("已放入工作区：" + finalName);
-                        } catch (Throwable t) {
-                            log("错误: 保存分享文件失败: " + t);
-                            toast("接收分享文件失败");
+            final File wsFinal = ws;
+            final String stampFinal = stamp;
+            int totalItems = streams.size() + (text != null && text.length() > 0 ? 1 : 0);
+            toast("正在接收 " + totalItems + " 项分享内容…");
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    synchronized (SHARE_IMPORT_LOCK) {
+                        int saved = 0;
+                        java.util.List<String> failures = new java.util.ArrayList<String>();
+                        for (android.net.Uri stream : streams) {
+                            try {
+                                File out = importSharedUri(stream, wsFinal, stampFinal);
+                                saved++;
+                                log("已接收分享文件: " + out.getAbsolutePath());
+                            } catch (Throwable t) {
+                                failures.add(shorten(t));
+                                log("错误: 保存分享文件失败: " + t);
+                            }
+                        }
+                        if (text != null && text.length() > 0) {
+                            try {
+                                File out = importSharedText(text, subject, wsFinal, stampFinal);
+                                saved++;
+                                log("已接收分享文本: " + out.getAbsolutePath());
+                            } catch (Throwable t) {
+                                failures.add(shorten(t));
+                                log("错误: 保存分享文本失败: " + t);
+                            }
+                        }
+                        if (failures.isEmpty()) {
+                            toast("已将 " + saved + " 项内容放入工作区");
+                        } else {
+                            toast("已保存 " + saved + " 项，失败 " + failures.size()
+                                    + " 项：" + failures.get(0));
                         }
                     }
-                }).start();
-                return;
-            }
-
-            if (text != null && text.length() > 0) {
-                String base = (subject != null && subject.trim().length() > 0)
-                        ? subject.trim().replaceAll("[\\/:*?\"<>|]", "_") : "分享内容";
-                File out = new File(ws, base + "-" + stamp + ".txt");
-                writeText(out, text);
-                log("已接收分享文本: " + out.getAbsolutePath());
-                toast("已放入工作区：" + out.getName());
-            }
+                }
+            }, "share-import").start();
         } catch (Throwable t) {
             log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
         }
     }
 
-    private String queryDisplayName(android.net.Uri uri) {
+    /** 同时读取 EXTRA_STREAM 与 ClipData，兼容各类分享来源。 */
+    private java.util.List<android.net.Uri> sharedUris(android.content.Intent intent) {
+        java.util.List<android.net.Uri> out = new java.util.ArrayList<android.net.Uri>();
         try {
-            android.database.Cursor c = getContentResolver().query(uri, null, null, null, null);
-            if (c != null) {
-                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-                if (c.moveToFirst() && i >= 0) {
-                    String v = c.getString(i);
-                    c.close();
-                    return v;
+            if (android.content.Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
+                java.util.ArrayList<android.net.Uri> many = intent.getParcelableArrayListExtra(
+                        android.content.Intent.EXTRA_STREAM);
+                if (many != null) {
+                    for (android.net.Uri uri : many) addUniqueUri(out, uri);
                 }
-                c.close();
+            } else {
+                android.net.Uri one = intent.getParcelableExtra(
+                        android.content.Intent.EXTRA_STREAM);
+                addUniqueUri(out, one);
             }
-        } catch (Throwable ignored) { }
+            android.content.ClipData clip = intent.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    addUniqueUri(out, clip.getItemAt(i).getUri());
+                }
+            }
+        } catch (Throwable t) {
+            log("读取分享 URI 失败: " + t);
+        }
+        return out;
+    }
+
+    private static void addUniqueUri(java.util.List<android.net.Uri> list,
+                                     android.net.Uri uri) {
+        if (uri != null && !list.contains(uri)) list.add(uri);
+    }
+
+    private File importSharedUri(android.net.Uri source, File workspaceDir, String stamp)
+            throws Exception {
+        String rawName = queryDisplayName(source);
+        String safeName = ShareTargets.incomingName(rawName, "分享文件-" + stamp);
+        long declared = querySharedSize(source);
+        if (declared > MAX_SHARED_FILE_BYTES) {
+            throw new IOException("文件超过 512 MB 上限");
+        }
+        long usable = workspaceDir.getUsableSpace();
+        if (declared > 0 && usable > 0 && declared + SHARE_SPACE_RESERVE > usable) {
+            throw new IOException("工作区空间不足");
+        }
+
+        File target = reserveShareTarget(workspaceDir, safeName);
+        File temp = new File(workspaceDir, ".dsh-import-" + System.nanoTime() + ".part");
+        if (!ShareTargets.isContained(workspaceDir, temp)) {
+            target.delete();
+            throw new IOException("接收路径越过工作区");
+        }
+
+        InputStream in = null;
+        FileOutputStream output = null;
+        boolean committed = false;
+        try {
+            in = getContentResolver().openInputStream(source);
+            if (in == null) throw new IOException("无法读取分享文件");
+            output = new FileOutputStream(temp);
+            byte[] buffer = new byte[65536];
+            long copied = 0;
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                copied += n;
+                if (copied > MAX_SHARED_FILE_BYTES) {
+                    throw new IOException("文件超过 512 MB 上限");
+                }
+                output.write(buffer, 0, n);
+            }
+            output.getFD().sync();
+            output.close();
+            output = null;
+            TransferState.atomicReplace(temp, target);
+            committed = true;
+            return target;
+        } finally {
+            if (output != null) try { output.close(); } catch (Throwable ignored) { }
+            if (in != null) try { in.close(); } catch (Throwable ignored) { }
+            if (!committed) {
+                temp.delete();
+                target.delete();
+            }
+        }
+    }
+
+    private File importSharedText(String text, String subject, File workspaceDir, String stamp)
+            throws Exception {
+        String base = subject != null && subject.trim().length() > 0
+                ? subject.trim() : "分享内容";
+        String name = ShareTargets.incomingName(base + "-" + stamp + ".txt",
+                "分享内容-" + stamp + ".txt");
+        File target = reserveShareTarget(workspaceDir, name);
+        File temp = new File(workspaceDir, ".dsh-import-" + System.nanoTime() + ".part");
+        boolean committed = false;
+        try {
+            FileOutputStream out = new FileOutputStream(temp);
+            try {
+                byte[] data = text.getBytes("UTF-8");
+                if (data.length > MAX_SHARED_FILE_BYTES) throw new IOException("文本内容过大");
+                out.write(data);
+                out.getFD().sync();
+            } finally {
+                out.close();
+            }
+            TransferState.atomicReplace(temp, target);
+            committed = true;
+            return target;
+        } finally {
+            if (!committed) {
+                temp.delete();
+                target.delete();
+            }
+        }
+    }
+
+    /** 创建零字节占位以保留名称，避免并发分享覆盖同名文件。 */
+    private File reserveShareTarget(File workspaceDir, String safeName) throws IOException {
+        for (int attempt = 0; attempt < 100; attempt++) {
+            File target = ShareTargets.uniqueDestination(workspaceDir, safeName);
+            if (target == null) break;
+            if (!ShareTargets.isContained(workspaceDir, target)) break;
+            if (target.createNewFile()) return target;
+        }
+        throw new IOException("无法生成不重复的文件名");
+    }
+
+    private String queryDisplayName(android.net.Uri uri) {
+        android.database.Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                int i = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (cursor.moveToFirst() && i >= 0) return cursor.getString(i);
+            }
+        } catch (Throwable t) {
+            log("读取分享文件名失败: " + t);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
         return null;
+    }
+
+    private long querySharedSize(android.net.Uri uri) {
+        android.database.Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri,
+                    new String[]{android.provider.OpenableColumns.SIZE}, null, null, null);
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getLong(0);
+            }
+        } catch (Throwable t) {
+            log("读取分享文件大小失败: " + t);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return -1;
     }
 
     /**
@@ -5737,7 +6140,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        HarnessService.clearListener(harnessListener);
         super.onDestroy();
-        if (nodeProcess != null) nodeProcess.destroy();
     }
 }

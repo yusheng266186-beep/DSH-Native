@@ -82,7 +82,80 @@ final class ShareTargets {
      */
     static boolean isShareable(File f, List<File> allowedRoots) {
         if (f == null || !f.isFile()) return false;
+        if (isSensitiveName(f.getName())) return false;
         return FileOps.isWritable(f, allowedRoots);
+    }
+
+    /** 外部 ContentProvider 给出的显示名不能直接当作磁盘路径。 */
+    static String incomingName(String raw, String fallback) {
+        String value = raw == null ? "" : raw.trim();
+        value = value.replace('\\', '/');
+        int slash = value.lastIndexOf('/');
+        if (slash >= 0) value = value.substring(slash + 1);
+
+        StringBuilder clean = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\0' || c < 0x20 || c == 0x7F || c == '/' || c == '\\') {
+                clean.append('_');
+            } else {
+                clean.append(c);
+            }
+        }
+        value = clean.toString().trim();
+        while (value.startsWith(".")) value = "_" + value.substring(1);
+        if (value.length() == 0 || value.equals(".") || value.equals("..")) {
+            value = fallback == null || fallback.trim().length() == 0
+                    ? "shared-file" : fallback.trim();
+        }
+        while (utf8Length(value) > 240 && value.length() > 1) {
+            value = value.substring(0, value.length() - 1);
+        }
+        if (FileOps.validateName(value) != null) return "shared-file";
+        return value;
+    }
+
+    /** 同名文件不覆盖，依次生成“名称 (2).扩展名”。 */
+    static File uniqueDestination(File directory, String safeName) {
+        if (directory == null) return null;
+        String name = incomingName(safeName, "shared-file");
+        File direct = new File(directory, name);
+        if (!direct.exists() && isContained(directory, direct)) return direct;
+
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String extension = dot > 0 ? name.substring(dot) : "";
+        for (int i = 2; i <= 9999; i++) {
+            String candidateName = incomingName(base + " (" + i + ")" + extension,
+                    "shared-file-" + i);
+            File candidate = new File(directory, candidateName);
+            if (!candidate.exists() && isContained(directory, candidate)) return candidate;
+        }
+        return null;
+    }
+
+    static boolean isContained(File directory, File candidate) {
+        if (directory == null || candidate == null) return false;
+        try {
+            String root = directory.getCanonicalPath();
+            String path = candidate.getCanonicalPath();
+            return path.startsWith(root.endsWith("/") ? root : root + "/");
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean isSensitiveName(String name) {
+        String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        return n.equals(".credentials.yaml") || n.equals(".env")
+                || n.equals(".npmrc") || n.equals("id_rsa") || n.equals("id_ed25519")
+                || n.endsWith(".keystore") || n.endsWith(".jks") || n.endsWith(".p12")
+                || n.endsWith(".pem") || n.endsWith(".key");
+    }
+
+    private static int utf8Length(String value) {
+        try { return value.getBytes("UTF-8").length; }
+        catch (Throwable t) { return value.length(); }
     }
 
     /** 分享时的 MIME 类型；无法判定时给 {@code application/octet-stream}。 */

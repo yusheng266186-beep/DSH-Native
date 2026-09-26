@@ -100,8 +100,47 @@ public class PayloadUpdateTest {
         check("scoped name with slash survives",
                 PayloadUpdate.parseRevision(PayloadUpdate.revisionKey("a/b", 3)) == 3, "wrong");
 
+        System.out.println("=== 7. manifest input validation ===");
+        check("normal archive accepted", PayloadUpdate.isSafeAssetName("dsh.tar.zst"), "rejected");
+        check("hyphen archive accepted", PayloadUpdate.isSafeAssetName("tools-base.tar.zst"), "rejected");
+        String[] badNames = {"../dsh.tar.zst", "/dsh.tar.zst", "a/b.tar.zst",
+                ".hidden.tar.zst", "dsh.zip", "dsh tar.zst", "", null};
+        for (String name : badNames) {
+            check("unsafe archive rejected: " + String.valueOf(name),
+                    !PayloadUpdate.isSafeAssetName(name), "accepted");
+        }
+        check("valid digest accepted",
+                PayloadUpdate.isSha256(repeat("a", 64)), "rejected");
+        check("short digest rejected", !PayloadUpdate.isSha256("abc"), "accepted");
+        check("non-hex digest rejected",
+                !PayloadUpdate.isSha256(repeat("g", 64)), "accepted");
+
+        System.out.println("=== 8. disk-space preflight ===");
+        long mib = 1024L * 1024L;
+        check("uncached archive includes download, extraction and reserve",
+                PayloadUpdate.requiredFreeBytes(100L * mib, 0L) == 464L * mib,
+                String.valueOf(PayloadUpdate.requiredFreeBytes(100L * mib, 0L)));
+        check("cached archive no longer needs download space",
+                PayloadUpdate.requiredFreeBytes(100L * mib, 100L * mib) == 364L * mib,
+                String.valueOf(PayloadUpdate.requiredFreeBytes(100L * mib, 100L * mib)));
+        check("cached bytes are clamped to archive total",
+                PayloadUpdate.requiredFreeBytes(10L * mib, 20L * mib) == 94L * mib,
+                String.valueOf(PayloadUpdate.requiredFreeBytes(10L * mib, 20L * mib)));
+        check("negative input cannot reduce reserve",
+                PayloadUpdate.requiredFreeBytes(-1L, -1L) == 64L * mib,
+                String.valueOf(PayloadUpdate.requiredFreeBytes(-1L, -1L)));
+        check("overflow saturates instead of wrapping",
+                PayloadUpdate.requiredFreeBytes(Long.MAX_VALUE, 0L) == Long.MAX_VALUE,
+                String.valueOf(PayloadUpdate.requiredFreeBytes(Long.MAX_VALUE, 0L)));
+
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
+    }
+
+    static String repeat(String value, int count) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < count; i++) out.append(value);
+        return out.toString();
     }
 }
