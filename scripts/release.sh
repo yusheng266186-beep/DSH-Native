@@ -14,7 +14,7 @@
 #   3) 直连与镜像两条下载路径都返回成功
 #
 # 用法：
-#   scripts/release.sh <版本号> <构建目录> [发布说明.md]
+#   scripts/release.sh <版本号> <构建目录> [发布说明.md] [stable|test]
 # 例：
 #   scripts/release.sh 0.19.3 /root/build /tmp/notes.md
 set -euo pipefail
@@ -39,7 +39,14 @@ currentPayloadTag() {
 VER="${1:?用法: release.sh <版本号> <构建目录> [发布说明.md]}"
 BUILD_DIR="${2:?用法: release.sh <版本号> <构建目录> [发布说明.md]}"
 NOTES="${3:-}"
-TAG="v${VER}-bootstrap"
+CHANNEL="${4:-stable}"
+case "$CHANNEL" in
+    stable) TAG="v${VER}-bootstrap"; MANIFEST="latest.json" ;;
+    test)   TAG="v${VER}-test";      MANIFEST="latest-test.json" ;;
+    *) echo "[FAIL] 未知发布通道: $CHANNEL（只支持 stable/test）"; exit 1 ;;
+esac
+TITLE="DeepSeek Harness v${VER}"
+if [ "$CHANNEL" = "test" ]; then TITLE="$TITLE 测试版"; fi
 REPO="yusheng266186-beep/DSH-Native"
 APK_NAME="DSHNative-bootstrap.apk"
 PRIMARY="https://github.com/${REPO}/releases/download/${TAG}/${APK_NAME}"
@@ -52,6 +59,7 @@ APK="${BUILD_DIR}/bootstrap/DSHNative-bootstrap.apk"
 SHA=$(sha256sum "$APK" | cut -d' ' -f1)
 SIZE=$(stat -c%s "$APK")
 echo "  版本:   $VER  ($TAG)"
+echo "  通道:   $CHANNEL"
 echo "  APK:    $SIZE 字节"
 echo "  SHA256: $SHA"
 
@@ -64,11 +72,16 @@ fi
 # 2) 上传
 echo "  上传中 …"
 if [ -n "$NOTES" ] && [ -f "$NOTES" ]; then
-    gh release create "$TAG" --repo "$REPO" \
-        --title "DeepSeek Harness v${VER}" --notes-file "$NOTES" "$APK"
+    EXTRA=()
+    [ "$CHANNEL" = "test" ] && EXTRA+=(--prerelease)
+    gh release create "$TAG" --repo "$REPO" "${EXTRA[@]}" \
+        --title "$TITLE" \
+        --notes-file "$NOTES" "$APK"
 else
-    gh release create "$TAG" --repo "$REPO" \
-        --title "DeepSeek Harness v${VER}" \
+    EXTRA=()
+    [ "$CHANNEL" = "test" ] && EXTRA+=(--prerelease)
+    gh release create "$TAG" --repo "$REPO" "${EXTRA[@]}" \
+        --title "$TITLE" \
         --notes "见仓库 README 与 git log。" "$APK"
 fi
 
@@ -100,11 +113,10 @@ done
 # 运行包标签在 bash 里算好再传进去 —— 之前直接写在 Python 里调用 bash 函数，
 # 那次发布就断在这里（好在清单是最后一步，没有写坏线上状态）。
 PAYLOAD_TAG="$(currentPayloadTag)"
-python3 - "$VER" "$TAG" "$SHA" "$NOTES" "$PAYLOAD_TAG" <<'PY'
+python3 - "$VER" "$TAG" "$SHA" "$NOTES" "$PAYLOAD_TAG" "$MANIFEST" "$CHANNEL" <<'PY'
 import json, sys, pathlib
-ver, tag, sha, notes_file, payload_tag = (sys.argv[1], sys.argv[2], sys.argv[3],
-                                          sys.argv[4], sys.argv[5])
-p = pathlib.Path('latest.json')
+ver, tag, sha, notes_file, payload_tag, manifest, channel = sys.argv[1:8]
+p = pathlib.Path(manifest)
 old = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
 
 # notes 取发布说明里第一个有内容的行（去掉 markdown 标题符号）。
@@ -121,11 +133,11 @@ except Exception:
     pass
 
 old.update({"version": ver, "tag": tag, "apk": "DSHNative-bootstrap.apk",
-            "payload": payload_tag})
+            "payload": payload_tag, "channel": channel})
 if summary:
     old["notes"] = summary
 p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf-8')
-print(f"  [OK] latest.json → {ver}")
+print(f"  [OK] {manifest} → {ver}")
 PY
 
 # 6) 从真实产物与真实 payload 清单生成 README / latest.json。
@@ -137,10 +149,11 @@ curl -fsSL --retry 3 --max-time 120 \
     "https://github.com/${REPO}/releases/download/${PAYLOAD_TAG}/manifest.json" \
     -o "$PAYLOAD_MANIFEST"
 python3 scripts/sync_project_metadata.py \
+    --channel "$CHANNEL" \
     --version "$VER" \
     --apk "$APK" \
     --payload-manifest "$PAYLOAD_MANIFEST"
 python3 scripts/sync_project_metadata.py --check
 
 echo
-echo "  发布完成。清单已更新，App 现在可以检测到 v${VER}。"
+echo "  发布完成。${CHANNEL} 通道清单已更新，App 现在可以检测到 v${VER}。"

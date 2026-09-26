@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize release metadata into latest.json and README.
+"""Synchronize stable/test release metadata and the stable README.
 
 The release workflow owns the values.  Humans should not hand-edit version links,
 APK size, payload size, or checksum in README because all four have drifted before.
@@ -117,32 +117,55 @@ def update_readme(text: str, version: str, apk_bytes: int,
     return text
 
 
-def check_consistency(latest_path: pathlib.Path, readme_path: pathlib.Path) -> list[str]:
+def validate_manifest(path: pathlib.Path, payload_tag: str, label: str) -> tuple[dict, list[str]]:
     errors: list[str] = []
-    latest = json.loads(latest_path.read_text(encoding="utf-8"))
-    readme = readme_path.read_text(encoding="utf-8")
-    version = source_version()
-    payload_tag = source_payload_tag()
-
-    java = (ROOT / "src/dev/dsh/nativeapp/MainActivity.java").read_text(encoding="utf-8")
-    if f"APK 版本: {version}" not in java:
-        errors.append("MainActivity log version differs from manifest version")
-    if latest.get("version") != version:
-        errors.append("latest.json version differs from source version")
+    if not path.exists():
+        return {}, [f"{label} manifest is missing"]
+    latest = json.loads(path.read_text(encoding="utf-8"))
+    version = latest.get("version")
+    if not isinstance(version, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+        errors.append(f"{label} manifest has an invalid version")
     if latest.get("payload") != payload_tag:
-        errors.append("latest.json payload tag differs from MainActivity")
-    if f"**当前版本：{version}**" not in readme:
-        errors.append("README current version differs from source version")
+        errors.append(f"{label} manifest payload differs from MainActivity")
 
     apk_bytes = latest.get("apk_bytes")
     payload_bytes = latest.get("payload_bytes")
     sha = latest.get("sha256")
     if not isinstance(apk_bytes, int) or apk_bytes <= 0:
-        errors.append("latest.json is missing apk_bytes")
+        errors.append(f"{label} manifest is missing apk_bytes")
     if not isinstance(payload_bytes, int) or payload_bytes <= 0:
-        errors.append("latest.json is missing payload_bytes")
+        errors.append(f"{label} manifest is missing payload_bytes")
     if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{64}", sha) is None:
-        errors.append("latest.json is missing a valid sha256")
+        errors.append(f"{label} manifest is missing a valid sha256")
+    return latest, errors
+
+
+def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
+                      readme_path: pathlib.Path) -> list[str]:
+    errors: list[str] = []
+    readme = readme_path.read_text(encoding="utf-8")
+    version = source_version()
+    payload_tag = source_payload_tag()
+    stable, stable_errors = validate_manifest(stable_path, payload_tag, "stable")
+    errors.extend(stable_errors)
+    test: dict = {}
+    if test_path.exists():
+        test, test_errors = validate_manifest(test_path, payload_tag, "test")
+        errors.extend(test_errors)
+
+    java = (ROOT / "src/dev/dsh/nativeapp/MainActivity.java").read_text(encoding="utf-8")
+    if f"APK 版本: {version}" not in java:
+        errors.append("MainActivity log version differs from source version")
+    published_versions = {stable.get("version"), test.get("version")}
+    if version not in published_versions:
+        errors.append("source version differs from both stable and test manifests")
+    stable_version = stable.get("version")
+    if isinstance(stable_version, str) and f"**当前版本：{stable_version}**" not in readme:
+        errors.append("README current version differs from stable manifest")
+
+    apk_bytes = stable.get("apk_bytes")
+    payload_bytes = stable.get("payload_bytes")
+    sha = stable.get("sha256")
     if isinstance(apk_bytes, int) and mib(apk_bytes) not in readme:
         errors.append("README does not contain generated APK size")
     if isinstance(payload_bytes, int) and mib(payload_bytes) not in readme:
@@ -160,13 +183,17 @@ def main() -> int:
     parser.add_argument("--payload-manifest", type=pathlib.Path)
     parser.add_argument("--payload-bytes", type=int)
     parser.add_argument("--sha256")
-    parser.add_argument("--latest", type=pathlib.Path, default=ROOT / "latest.json")
+    parser.add_argument("--channel", choices=("stable", "test"), default="stable")
+    parser.add_argument("--latest", type=pathlib.Path)
+    parser.add_argument("--test-latest", type=pathlib.Path,
+                        default=ROOT / "latest-test.json")
     parser.add_argument("--readme", type=pathlib.Path, default=ROOT / "README.md")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
     if args.check:
-        errors = check_consistency(args.latest, args.readme)
+        stable_path = args.latest or ROOT / "latest.json"
+        errors = check_consistency(stable_path, args.test_latest, args.readme)
         if errors:
             for error in errors:
                 print(f"[FAIL] {error}", file=sys.stderr)
@@ -174,7 +201,9 @@ def main() -> int:
         print("[OK] release metadata is consistent")
         return 0
 
-    latest = json.loads(args.latest.read_text(encoding="utf-8"))
+    latest_path = args.latest or ROOT / (
+        "latest-test.json" if args.channel == "test" else "latest.json")
+    latest = json.loads(latest_path.read_text(encoding="utf-8"))
     version = args.version or str(latest.get("version") or source_version())
     apk_bytes = args.apk_bytes
     if args.apk is not None:
@@ -197,12 +226,14 @@ def main() -> int:
         "payload_bytes": int(payload_bytes),
         "sha256": sha256,
     })
-    args.latest.write_text(json.dumps(latest, ensure_ascii=False, indent=2) + "\n",
+    latest_path.write_text(json.dumps(latest, ensure_ascii=False, indent=2) + "\n",
                            encoding="utf-8")
-    readme = args.readme.read_text(encoding="utf-8")
-    args.readme.write_text(update_readme(readme, version, int(apk_bytes),
-                                         int(payload_bytes), sha256), encoding="utf-8")
-    print(f"[OK] README/latest.json -> v{version}, {mib(apk_bytes)} + {mib(payload_bytes)}")
+    if args.channel == "stable":
+        readme = args.readme.read_text(encoding="utf-8")
+        args.readme.write_text(update_readme(readme, version, int(apk_bytes),
+                                             int(payload_bytes), sha256), encoding="utf-8")
+    print(f"[OK] {args.channel} metadata -> v{version}, "
+          f"{mib(apk_bytes)} + {mib(payload_bytes)}")
     return 0
 
 

@@ -114,7 +114,7 @@
 ### 能自动化的（每次构建都跑）
 
 ```bash
-bash scripts/run_tests.sh     # 593 项纯逻辑断言
+bash scripts/run_tests.sh     # 650 项纯逻辑断言
 ```
 
 ### 需要手工跑的
@@ -209,11 +209,12 @@ App 自己的日志要通过界面里的「日志」面板查看。
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `.github/workflows/build.yml` | 推送到 main（改到 src/tests/scripts/payload/icon）或手动 | 构建 + 全部断言 + 四道闸门 + 上传 APK 产物。**不发布** |
-| `.github/workflows/release.yml` | **手动**（输入版本号） | 升版本号 → 构建 → 上传 Release → 验证两条下载路径 → 写 `latest.json` → 提交推送 |
+| `.github/workflows/release.yml` | **手动**（输入版本号和通道） | 升版本号 → 构建 → 上传 Release → 验证两条下载路径 → 写通道清单 → 提交推送 |
 
 `release.yml` 的输入：
 
 * `version`（必填）：目标版本号
+* `channel`：`test` 创建 Prerelease 并更新 `latest-test.json`；`stable` 更新 `latest.json` 与 README
 * `dry_run`：只升版本号 + 构建 + `git push --dry-run` 验权限，**不发布不提交**。发版前先跑这个
 * `notes_file`：发布说明路径，默认 `release-notes/v<版本>.md`，没有就从上一个 tag 的 git log 生成
 * `signer_ref`：**签名比对参考版本**，默认取最新发布版。**重发同一个版本号时必须显式指定**（例如换成已安装版本用的一致签名时）

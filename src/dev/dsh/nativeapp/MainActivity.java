@@ -75,29 +75,8 @@ public class MainActivity extends Activity {
      * 手机流量多为运营商 NAT 共享 IP，实测已直接返回 403。
      * 改为读取仓库里的静态 latest.json（走 CDN，无此限制）。
      */
-    private static final String RAW = "https://raw.githubusercontent.com/"
-            + REPO + "/main/latest.json";
-    /**
-     * 顺序：直连优先，镜像兜底。
-     *
-     * <p>实测 gh-proxy 会缓存这个文件，多次返回旧版本（0.12.1），
-     * 而直连 raw 始终是最新的。GitHub raw 自身有 5 分钟 CDN 缓存，
-     * 不同边缘刷新时间还不一致 —— 所以后面还会「取所有源里版本最高的那个」。
-     */
-    private static final String[] VERSION_SOURCES = {
-            // 顺序按**实测新鲜度**排，不是按印象：
-            //   GitHub raw    —— 5 分钟 CDN 缓存，实测最准
-            //   gh-proxy      —— 与 raw 同源，缓存同样几分钟
-            //   jsDelivr x2   —— **@main 分支缓存严重过期**（实测停在几十个版本前），
-            //                    保留它们只是因为「raw 被墙时还能拿到一个旧值」，
-            //                    放到最后，避免每次都先白等一轮
-            // 取「所有源的最高版本」而非第一个成功的 —— 正是这条逻辑
-            // 让 jsDelivr 的陈旧数据不会影响更新。
-            RAW,
-            "https://gh-proxy.com/" + RAW,
-            "https://cdn.jsdelivr.net/gh/" + REPO + "@main/latest.json",
-            "https://fastly.jsdelivr.net/gh/" + REPO + "@main/latest.json",
-    };
+    private static final String RAW_ROOT = "https://raw.githubusercontent.com/"
+            + REPO + "/main/";
 
     /**
      * 镜像前缀。**只放前缀**，完整路径由 downloadPath 传入 ——
@@ -307,6 +286,22 @@ public class MainActivity extends Activity {
                         showSettings();
                         return true;
                     }
+                    if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
+                        log("分享任务已提交到 DSH");
+                        toast("分享内容已创建任务");
+                        return true;
+                    }
+                    if (m.indexOf("[dsh-native] share-task-prefilled") >= 0) {
+                        log("分享任务已填入编辑器，发送按钮暂不可用");
+                        toast("任务已填入，请确认后发送");
+                        return true;
+                    }
+                    if (m.indexOf("[dsh-native] share-task-editor-not-found") >= 0
+                            || m.indexOf("[dsh-native] share-task-error") >= 0) {
+                        log("分享任务无法自动提交: " + m);
+                        toast("文件已保存，但未找到任务输入框");
+                        return true;
+                    }
                     // 网页主题上报：原生跟着 DSH 自己的主题走，
                     // 而不是跟 Android 系统深色（两者相互独立）
                     if (m.indexOf("[dsh-theme] dark=") >= 0) {
@@ -488,6 +483,14 @@ public class MainActivity extends Activity {
                 // 一直显示着，而对话早已结束。
                 // 第一条真实状态最多 5 秒后到达（脚本会定时重放会话列表请求）。
                 pushStatus(SessionStatus.UNKNOWN);
+                final String sharedPrompt = pendingSharedTaskPrompt;
+                if (sharedPrompt != null) {
+                    pendingSharedTaskPrompt = null;
+                    new android.os.Handler(android.os.Looper.getMainLooper())
+                            .postDelayed(new Runnable() {
+                        @Override public void run() { dispatchShareTaskPrompt(sharedPrompt); }
+                    }, 800);
+                }
                 if (dshPageLoaded) {
                     log("DSH 界面已重新加载，状态采集脚本已重新注入");
                     return;
@@ -1722,15 +1725,12 @@ public class MainActivity extends Activity {
     /**
      * 可选的显示缩放档位（百分比）。
      *
-     * <p>为什么需要：为了让 DSH 的桌面布局在手机上不被挤压，
-     * 前端 viewport 被固定为 600px，代价是整体缩放后**文字偏小**。
-     * WebView 的 textZoom 只放大文字、不影响布局，正好补上这个取舍。
+     * <p>为什么需要：DSH 的页面现在会按屏幕宽度响应式适配，但不同设备的
+     * 字体密度与用户视力仍有差异。WebView 的 textZoom 只放大文字、
+     * 不改变项目内容与会话状态。
      */
     private static final int[] ZOOM_STEPS = {100, 115, 130, 150};
     private static final String PREFS = "dsh-native";
-    /** 前端 index.html 原始 viewport 写法（补丁从这里重新生成，保证可重复更新）。 */
-    private static final String VP_ORIG =
-            "content=\"width=device-width, initial-scale=1\"";
     /** 当前已应用的 viewport 宽度（0 = 尚未应用）。 */
     private volatile int appliedViewportWidth = 0;
     /** 工具链目录与 node 可执行文件（插件安装需要）。 */
@@ -1750,6 +1750,8 @@ public class MainActivity extends Activity {
     private volatile File dshDirRef;
     /** agent 的工作目录（优先共享存储）。 */
     private volatile File workspace;
+    /** 所有命名项目的共同根目录；默认工作区就是该目录本身。 */
+    private volatile File workspaceRoot;
     private android.view.View splashView;
     private android.widget.TextView splashStatus;
     /** 顶部 WebView 加载进度条（2dp）。 */
@@ -1768,6 +1770,8 @@ public class MainActivity extends Activity {
      * 会直接弹「工作区不可用」并把文件丢掉（冷启动分享必失败）。
      */
     private volatile android.content.Intent pendingShareIntent;
+    /** 分享导入后、网页尚未就绪时等待提交的任务提示词。 */
+    private volatile String pendingSharedTaskPrompt;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
     private volatile String pendingAction = "";
     /**
@@ -2051,8 +2055,9 @@ public class MainActivity extends Activity {
      * 否则测出来的速度没有参考意义。
      */
     private String apkDownloadUrl() {
-        return "https://github.com/yusheng266186-beep/DSH-Native/releases/download/v"
-                + appVersion() + "-bootstrap/DSHNative-bootstrap.apk";
+        return "https://github.com/" + REPO + "/releases/download/"
+                + ReleaseChannel.tag(appVersion(), updateChannelPreference())
+                + "/DSHNative-bootstrap.apk";
     }
 
     // ---------------------------------------------------------------- 运行包修订号
@@ -3165,7 +3170,7 @@ public class MainActivity extends Activity {
     /**
      * 生成插件覆盖层（{@code --patch}）。
      *
-     * <p>启用哪些插件由**用户选择**决定（设置 → 插件），默认只启用 Schedule。
+     * <p>启用哪些插件由**用户选择并明确授权**决定（设置 → 插件），默认不启用插件。
      * 覆盖层的内容交给纯逻辑类 {@link PluginSpecs#buildPatchYaml} 生成
      * （有 64 项测试，含命令注入防护与 YAML 结构校验）。
      *
@@ -3247,22 +3252,40 @@ public class MainActivity extends Activity {
                     .getStringSet("plugins", null);
         } catch (Throwable ignored) { }
         java.util.List<String> want = new java.util.ArrayList<String>();
-        if (saved == null) {
-            want.add("@deepseek-ai/dsh-schedule");      // 默认
-        } else {
-            want.addAll(saved);
-        }
+        if (saved != null) want.addAll(saved);
 
         File profileModules = new File(new File(root, ".dsh"),
                 "profiles/web/node_modules");
         java.util.List<String> out = new java.util.ArrayList<String>();
+        java.util.List<String> pendingGrant = new java.util.ArrayList<String>();
+        StringBuilder grantSignature = new StringBuilder();
         for (String name : want) {
             if (name == null || name.length() == 0) continue;
-            if (resolvePlugin(dshDir, profileModules, name) == null) {
+            File resolved = resolvePlugin(dshDir, profileModules, name);
+            if (resolved == null) {
                 log("  跳过插件 " + name + "：解析不到（可能未安装）");
                 continue;
             }
+            String grant = PluginPermissions.grantKey(name,
+                    PluginSpecs.readPackageJson(resolved));
+            if (!pluginPermissionGrants().contains(grant)) {
+                log("  跳过插件 " + name + "：当前版本尚未获得用户授权");
+                pendingGrant.add(name);
+                grantSignature.append(grant).append('\n');
+                continue;
+            }
             out.add(name);
+        }
+        if (!pendingGrant.isEmpty()) {
+            String noticeKey = "pluginPermissionNotice."
+                    + Integer.toHexString(grantSignature.toString().hashCode());
+            android.content.SharedPreferences prefs =
+                    getSharedPreferences(PREFS, MODE_PRIVATE);
+            if (!prefs.getBoolean(noticeKey, false)) {
+                prefs.edit().putBoolean(noticeKey, true).apply();
+                toast("有 " + pendingGrant.size()
+                        + " 个已选插件需要重新授权，请到数据与扩展 → 插件");
+            }
         }
         return out;
     }
@@ -3287,16 +3310,31 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 读取当前选择（未设置过时为默认值）。 */
+    /** 读取当前选择；第三阶段起不再默认启用任何插件，必须显式授权。 */
     private java.util.Set<String> savedPluginSelection() {
         try {
             java.util.Set<String> s = getSharedPreferences(PREFS, MODE_PRIVATE)
                     .getStringSet("plugins", null);
             if (s != null) return new java.util.HashSet<String>(s);
         } catch (Throwable ignored) { }
-        java.util.Set<String> def = new java.util.HashSet<String>();
-        def.add("@deepseek-ai/dsh-schedule");
-        return def;
+        return new java.util.HashSet<String>();
+    }
+
+    private java.util.Set<String> pluginPermissionGrants() {
+        try {
+            java.util.Set<String> grants = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getStringSet("pluginPermissionGrants", null);
+            if (grants != null) return new java.util.HashSet<String>(grants);
+        } catch (Throwable ignored) { }
+        return new java.util.HashSet<String>();
+    }
+
+    private void rememberPluginPermissionGrant(String key) {
+        if (key == null || key.length() == 0) return;
+        java.util.Set<String> grants = pluginPermissionGrants();
+        grants.add(key);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putStringSet("pluginPermissionGrants", grants).apply();
     }
 
 
@@ -3308,6 +3346,43 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             return "?";
         }
+    }
+
+    private String updateChannelPreference() {
+        try {
+            return ReleaseChannel.normalize(getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("updateChannel", ReleaseChannel.STABLE));
+        } catch (Throwable ignored) {
+            return ReleaseChannel.STABLE;
+        }
+    }
+
+    private void setUpdateChannelPreference(String channel) {
+        String normalized = ReleaseChannel.normalize(channel);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("updateChannel", normalized).apply();
+        log("更新通道已切换为" + ReleaseChannel.label(normalized));
+    }
+
+    /**
+     * 测试通道同时读取测试与稳定清单并取版本最高者，避免测试用户错过后来发布的
+     * 更高稳定版；稳定通道只读取 latest.json，绝不会被预发布版本打扰。
+     */
+    private String[] versionSources() {
+        java.util.List<String> files = new java.util.ArrayList<String>();
+        if (ReleaseChannel.TEST.equals(updateChannelPreference())) {
+            files.add(ReleaseChannel.manifest(ReleaseChannel.TEST));
+        }
+        files.add(ReleaseChannel.manifest(ReleaseChannel.STABLE));
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        for (String file : files) {
+            String raw = RAW_ROOT + file;
+            out.add(raw);
+            out.add("https://gh-proxy.com/" + raw);
+            out.add("https://cdn.jsdelivr.net/gh/" + REPO + "@main/" + file);
+            out.add("https://fastly.jsdelivr.net/gh/" + REPO + "@main/" + file);
+        }
+        return out.toArray(new String[0]);
     }
 
     /** 极简 HTTP GET（GitHub API 用；走系统 CA，与运行包的证书问题无关）。 */
@@ -3363,7 +3438,8 @@ public class MainActivity extends Activity {
         String[] best = null;
         String bestVer = null;      // 用原始版本串比较，不再转成 int[3]
         int ok = 0;
-        for (String base : VERSION_SOURCES) {
+        String[] sources = versionSources();
+        for (String base : sources) {
             try {
                 String url = base + (base.indexOf('?') >= 0 ? "&" : "?")
                         + "t=" + System.currentTimeMillis();
@@ -3383,9 +3459,10 @@ public class MainActivity extends Activity {
             }
         }
         if (best == null) {
-            log("版本清单获取失败（" + VERSION_SOURCES.length + " 个源均不可用）");
+            log("版本清单获取失败（" + sources.length + " 个源均不可用）");
         } else if (ok > 1) {
-            log("版本清单: 从 " + ok + " 个源取得，采用最高版本 " + best[0]);
+            log("版本清单: " + ReleaseChannel.label(updateChannelPreference())
+                    + "，从 " + ok + " 个源取得，采用最高版本 " + best[0]);
         }
         return best;
     }
@@ -3930,6 +4007,24 @@ public class MainActivity extends Activity {
      * 始终使用同一个可写目录。
      */
     private File resolveWorkspace() {
+        File root = resolveWorkspaceRoot();
+        workspaceRoot = root;
+        if (root == null) return null;
+        String selected = activeProjectName();
+        File active = WorkspaceProjects.directory(root, selected);
+        if (active == null || (!active.isDirectory() && !active.mkdirs())) {
+            log("项目工作区不可用，回退到默认工作区: " + selected);
+            selected = WorkspaceProjects.DEFAULT;
+            rememberActiveProject(selected);
+            active = root;
+        }
+        seedWorkspaceReadme(active);
+        log("当前项目: " + WorkspaceProjects.displayName(selected)
+                + "（" + active.getAbsolutePath() + "）");
+        return active;
+    }
+
+    private File resolveWorkspaceRoot() {
         String[] candidates = {
                 "/sdcard/DSHNative/workspace",
                 "/sdcard/Download/DSHNative/workspace",
@@ -3944,7 +4039,6 @@ public class MainActivity extends Activity {
                 w.write("");
                 w.close();
                 probe.delete();
-                seedWorkspaceReadme(d);
                 return d;
             } catch (Throwable ignored) {
                 // 试下一个
@@ -3953,13 +4047,30 @@ public class MainActivity extends Activity {
         File fallback = new File(appRoot != null ? appRoot : getFilesDir(), "workspace");
         try {
             if (!fallback.isDirectory() && !fallback.mkdirs()) return null;
-            seedWorkspaceReadme(fallback);
             log("共享存储不可用，改用私有工作区: " + fallback);
             return fallback;
         } catch (Throwable t) {
             log("私有工作区也不可用: " + t);
         }
         return null;
+    }
+
+    private String activeProjectName() {
+        try {
+            String raw = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("activeProject", WorkspaceProjects.DEFAULT);
+            String normalized = WorkspaceProjects.normalize(raw);
+            return normalized == null ? WorkspaceProjects.DEFAULT : normalized;
+        } catch (Throwable ignored) {
+            return WorkspaceProjects.DEFAULT;
+        }
+    }
+
+    private void rememberActiveProject(String name) {
+        String normalized = WorkspaceProjects.normalize(name);
+        if (normalized == null) normalized = WorkspaceProjects.DEFAULT;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("activeProject", normalized).apply();
     }
 
     /** 工作区说明的标题行（用于判断文件是否由本应用生成）。 */
@@ -4214,7 +4325,7 @@ public class MainActivity extends Activity {
 
         body.addView(DshUi.sectionLabel(this, "显示缩放"), DshUi.fullWidth(this, 22));
         body.addView(DshUi.hint(this,
-                "界面布局已固定为桌面宽度，文字偏小可在此放大（立即生效）"),
+                "界面会按手机、横屏和平板宽度响应式适配；文字偏小可在此放大（立即生效）"),
                 DshUi.fullWidth(this, 6));
         android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
         zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -4268,6 +4379,15 @@ public class MainActivity extends Activity {
                 DshUi.status(this, "当前 App 版本 " + appVersion());
         body.addView(status, DshUi.fullWidth(this, 6));
 
+        body.addView(DshUi.sectionLabel(this, "更新通道"), DshUi.fullWidth(this, 18));
+        body.addView(DshUi.hint(this,
+                "稳定版只接收正式发布；测试版可提前安装新功能，可能存在尚未真机验证的问题。"),
+                DshUi.fullWidth(this, 5));
+        final android.widget.LinearLayout channelRow = new android.widget.LinearLayout(this);
+        channelRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        fillUpdateChannelRow(channelRow, status);
+        body.addView(channelRow, DshUi.fullWidth(this, 8));
+
         android.widget.Button payload =
                 DshUi.button(this, "更新运行包（DSH / 工具链）", false);
         payload.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4301,6 +4421,28 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    private void fillUpdateChannelRow(final android.widget.LinearLayout row,
+                                      final android.widget.TextView status) {
+        row.removeAllViews();
+        String current = updateChannelPreference();
+        String[] values = { ReleaseChannel.STABLE, ReleaseChannel.TEST };
+        String[] labels = { "稳定版", "测试版" };
+        for (int i = 0; i < values.length; i++) {
+            final String value = values[i];
+            android.widget.Button button = DshUi.toggleButton(this, labels[i],
+                    value.equals(current));
+            button.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    setUpdateChannelPreference(value);
+                    fillUpdateChannelRow(row, status);
+                    setStatus(status, "已切换到" + ReleaseChannel.label(value)
+                            + "，下次检查立即生效");
+                }
+            });
+            addEqualButton(row, button, i == 0 ? 0 : 6);
+        }
+    }
+
     private android.text.SpannableStringBuilder buildPatchReport() {
         android.text.SpannableStringBuilder report = new android.text.SpannableStringBuilder();
         if (patchReport.isEmpty()) {
@@ -4331,7 +4473,18 @@ public class MainActivity extends Activity {
         body.addView(DshUi.title(this,
                 UiText.t("数据与扩展", "Data & extensions")));
 
-        body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.sectionLabel(this, "项目与工作区"), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this,
+                "当前：" + WorkspaceProjects.displayName(activeProjectName())
+                        + "。每个项目使用独立工作目录，切换时会重启 agent。"),
+                DshUi.fullWidth(this, 6));
+        android.widget.Button projects = DshUi.button(this, "管理项目", false);
+        projects.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { showWorkspaceProjects(); }
+        });
+        body.addView(projects, DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
         body.addView(DshUi.hint(this,
                 "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑"),
                 DshUi.fullWidth(this, 6));
@@ -4378,6 +4531,12 @@ public class MainActivity extends Activity {
                     @Override public void saveSelection(java.util.Set<String> names) {
                         setEnabledPlugins(names);
                     }
+                    @Override public boolean hasPermissionGrant(String key) {
+                        return pluginPermissionGrants().contains(key);
+                    }
+                    @Override public void savePermissionGrant(String key) {
+                        rememberPluginPermissionGrant(key);
+                    }
                 });
             }
         });
@@ -4392,6 +4551,113 @@ public class MainActivity extends Activity {
             }
         });
         dialog.show();
+    }
+
+    private void showWorkspaceProjects() {
+        final File root = workspaceRoot != null ? workspaceRoot : resolveWorkspaceRoot();
+        if (root == null) {
+            toast("工作区不可用");
+            return;
+        }
+        workspaceRoot = root;
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, "项目与工作区"));
+        body.addView(DshUi.hint(this,
+                "命名项目保存在工作区的 projects 目录。默认工作区保留原有文件，"
+                        + "不会自动迁移或删除。"), DshUi.fullWidth(this, 5));
+
+        body.addView(DshUi.sectionLabel(this, "新建项目"), DshUi.fullWidth(this, 18));
+        final android.widget.EditText name = DshUi.input(this, "", false);
+        name.setHint("例如：语文备课、南溟项目");
+        name.setSingleLine(true);
+        body.addView(name, DshUi.fullWidth(this, 6));
+        android.widget.Button create = DshUi.button(this, "新建并切换", true);
+        body.addView(create, DshUi.fullWidth(this, 6));
+
+        body.addView(DshUi.sectionLabel(this, "已有项目"), DshUi.fullWidth(this, 22));
+        final android.widget.LinearLayout list = new android.widget.LinearLayout(this);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        body.addView(list, DshUi.fullWidth(this, 6));
+        fillWorkspaceProjectList(list, root);
+
+        android.widget.Button browse = DshUi.button(this, "浏览当前项目", false);
+        android.widget.Button back = DshUi.button(this, "返回", true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, browse, back), 680);
+        browse.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                File target = workspace != null ? workspace : root;
+                FileBrowser.show(MainActivity.this, target);
+            }
+        });
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss(); showDataSettings();
+            }
+        });
+        create.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                String normalized = WorkspaceProjects.normalize(name.getText().toString());
+                if (normalized == null || normalized.length() == 0) {
+                    toast("项目名需为 1 至 48 个字符，且不能包含路径符号");
+                    return;
+                }
+                if (!WorkspaceProjects.create(root, normalized)) {
+                    toast("无法创建项目目录");
+                    return;
+                }
+                dialog.dismiss();
+                switchWorkspaceProject(normalized);
+            }
+        });
+        dialog.show();
+    }
+
+    private void fillWorkspaceProjectList(android.widget.LinearLayout list, File root) {
+        list.removeAllViews();
+        addWorkspaceProjectRow(list, root, WorkspaceProjects.DEFAULT);
+        for (String project : WorkspaceProjects.list(root)) {
+            addWorkspaceProjectRow(list, root, project);
+        }
+    }
+
+    private void addWorkspaceProjectRow(android.widget.LinearLayout list, File root,
+                                        final String project) {
+        boolean active = project.equals(activeProjectName());
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.TextView label = DshUi.label(this,
+                WorkspaceProjects.displayName(project));
+        row.addView(label, new android.widget.LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        android.widget.Button button = DshUi.toggleButton(this,
+                active ? "正在使用" : "切换", active);
+        button.setEnabled(!active);
+        button.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) { switchWorkspaceProject(project); }
+        });
+        row.addView(button, new android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        list.addView(row, DshUi.fullWidth(this, 4));
+    }
+
+    private void switchWorkspaceProject(final String project) {
+        final Runnable apply = new Runnable() {
+            @Override public void run() {
+                rememberActiveProject(project);
+                toast("正在切换到" + WorkspaceProjects.displayName(project) + "…");
+                restartAgent();
+            }
+        };
+        if (lastSessionStatus == SessionStatus.RUNNING
+                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+            DshUi.confirm(this, "切换项目会中断当前任务",
+                    "agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
+                    "切换并重启", apply);
+        } else {
+            apply.run();
+        }
     }
 
     private void showDiagnosticsSettings() {
@@ -5183,30 +5449,16 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * 手机端适配：把前端 viewport 由「设备宽度」改为固定宽度。
+     * 手机端适配：为前端写入安全的最小 viewport 与响应式 CSS。
      *
      * <p>DSH 的 Web 界面是桌面优先设计：设置弹窗需要约 600 CSS px，
      * 而手机纵向只有约 400 px，导致内容横向溢出、被切割挤压。
      *
-     * <p>把 viewport 固定为 600 px 后，浏览器会整体缩放以适配屏幕宽度 ——
-     * 相当于「桌面版网站」模式：布局得到足够空间，代价是文字略小，
-     * 因此同时开启了双指缩放供用户自行调整。
-     */
-    /**
-     * 按当前屏幕宽度计算 viewport 宽度。
-     *
-     * <p>关键点：宽度必须**随屏幕宽度成比例**变化，否则渲染缩放会随方向变化。
-     * 固定 600px 时，竖屏缩放 400/600=0.67，横屏却是 869/600=1.45 ——
-     * 横屏内容被放大一倍多，几乎没法用。
-     *
-     * <p>取 1.5 倍：竖屏 400dp → 600px（与原行为一致），
-     * 横屏 869dp → 1303px，两者缩放都是 0.67，文字物理大小一致，
-     * 而横屏多出来的宽度全部交给 DSH 的桌面布局使用。
+     * <p>窄屏保留 480 CSS px 防止桌面组件被压坏；横屏与平板使用真实宽度，
+     * 不再一律缩小到 0.67 倍。对话框、输入框、代码块和触控目标另加移动端规则。
      */
     private int viewportWidthFor(android.content.res.Configuration cfg) {
-        int cssW = cfg != null ? cfg.screenWidthDp : 400;
-        int w = Math.round(cssW * 1.5f);
-        return Math.max(600, Math.min(1600, w));
+        return MobileLayout.viewportWidth(cfg != null ? cfg.screenWidthDp : 400);
     }
 
     private void patchFrontendViewport(File dshDir) {
@@ -5220,25 +5472,21 @@ public class MainActivity extends Activity {
         try {
             int want = viewportWidthFor(getResources().getConfiguration());
             String src = readText(html);
-            // 先把任何旧的 width=NNN 还原成原始写法，再统一替换 ——
-            // 这样方向切换时可以反复更新（早先靠「是否已是 600」判断，
-            // 换一个宽度就再也改不动了）。
-            String base = src.replaceAll("content=\"width=[0-9]+\"", VP_ORIG);
-            if (base.indexOf(VP_ORIG) < 0) {
+            String patched = MobileLayout.patchHtml(src, want);
+            if (patched == null) {
                 log("  [警告] viewport 标签格式不符，未做适配");
                 recordPatch("前端 viewport", false, "标签格式不符，未适配");
                 return;
             }
-            if (want == appliedViewportWidth && src.equals(base.replace(VP_ORIG,
-                    "content=\"width=" + want + "\""))) {
-                log("  viewport 已适配（" + want + "px），无需改动");
-                recordPatch("前端 viewport", true, want + "px");
-                return;
+            if (!patched.equals(src)) {
+                writeText(html, patched);
+                log("  已写入响应式布局与 viewport：" + want + "px");
+            } else {
+                log("  响应式布局已是最新（" + want + "px）");
             }
-            writeText(html, base.replace(VP_ORIG, "content=\"width=" + want + "\""));
             appliedViewportWidth = want;
-            log("  已适配屏幕宽度：" + want + "px（竖屏 600 / 横屏按比例放大，保持缩放一致）");
             recordPatch("前端 viewport", true, want + "px");
+            recordPatch("移动端响应式", true, "对话框、输入框与触控目标");
         } catch (Throwable t) {
             log("  [警告] viewport 适配失败: " + t);
         }
@@ -6225,11 +6473,13 @@ public class MainActivity extends Activity {
                 @Override public void run() {
                     synchronized (SHARE_IMPORT_LOCK) {
                         int saved = 0;
+                        java.util.List<File> savedFiles = new java.util.ArrayList<File>();
                         java.util.List<String> failures = new java.util.ArrayList<String>();
                         for (android.net.Uri stream : streams) {
                             try {
                                 File out = importSharedUri(stream, wsFinal, stampFinal);
                                 saved++;
+                                savedFiles.add(out);
                                 log("已接收分享文件: " + out.getAbsolutePath());
                             } catch (Throwable t) {
                                 failures.add(shorten(t));
@@ -6240,6 +6490,7 @@ public class MainActivity extends Activity {
                             try {
                                 File out = importSharedText(text, subject, wsFinal, stampFinal);
                                 saved++;
+                                savedFiles.add(out);
                                 log("已接收分享文本: " + out.getAbsolutePath());
                             } catch (Throwable t) {
                                 failures.add(shorten(t));
@@ -6252,12 +6503,54 @@ public class MainActivity extends Activity {
                             toast("已保存 " + saved + " 项，失败 " + failures.size()
                                     + " 项：" + failures.get(0));
                         }
+                        if (!savedFiles.isEmpty()) offerSharedTask(savedFiles);
                     }
                 }
             }, "share-import").start();
         } catch (Throwable t) {
             log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
+        }
+    }
+
+    /** 分享导入成功后让用户决定：只保存，或直接交给当前 DSH 会话处理。 */
+    private void offerSharedTask(final java.util.List<File> files) {
+        final java.util.List<String> names = new java.util.ArrayList<String>();
+        for (File file : files) names.add(ShareTargets.displayName(file));
+        final String prompt = ShareTask.prompt(activeProjectName(), names);
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                StringBuilder detail = new StringBuilder();
+                detail.append("已保存 ").append(files.size()).append(" 项到“")
+                        .append(WorkspaceProjects.displayName(activeProjectName()))
+                        .append("”。\n\n");
+                int shown = Math.min(6, names.size());
+                for (int i = 0; i < shown; i++) detail.append("- ").append(names.get(i)).append('\n');
+                if (names.size() > shown) detail.append("- 另有 ")
+                        .append(names.size() - shown).append(" 项\n");
+                detail.append("\n选择“创建任务”会把这些文件交给当前 DSH 会话处理。内容已保存，取消不会删除文件。");
+                DshUi.confirm(MainActivity.this, "用分享内容创建任务？",
+                        detail.toString(), "创建任务", new Runnable() {
+                    @Override public void run() { dispatchShareTaskPrompt(prompt); }
+                });
+            }
+        });
+    }
+
+    private void dispatchShareTaskPrompt(String prompt) {
+        if (prompt == null || prompt.length() == 0) return;
+        if (webView == null || !dshPageLoaded) {
+            pendingSharedTaskPrompt = prompt;
+            toast("任务已排队，DSH 界面就绪后自动提交");
+            return;
+        }
+        try {
+            webView.evaluateJavascript(ShareTask.javascript(prompt), null);
+            log("正在把分享内容提交到当前 DSH 会话");
+        } catch (Throwable t) {
+            pendingSharedTaskPrompt = prompt;
+            log("分享任务提交失败，已保留待重试: " + t);
+            toast("文件已保存，任务将在界面就绪后重试");
         }
     }
 

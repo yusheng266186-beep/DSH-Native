@@ -4,12 +4,12 @@
 
 | 脚本 | 克隆里能跑吗 | 说明 |
 |---|---|---|
-| `run_tests.sh` | **能** | 593 项纯逻辑断言，只依赖 JDK。接手第一步就跑这个 |
+| `run_tests.sh` | **能** | 650 项纯逻辑断言，只依赖 JDK。接手第一步就跑这个 |
 | `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
 | `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
 | `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
 | `bump_version.sh` | 能 | 提升版本号（从源码读当前值，不失配）|
-| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步 README / latest.json 的版本、大小和摘要 |
+| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步稳定/测试清单；稳定发布同时同步 README |
 | `mkmanifest.py` | 需要构建工作区 | 手写二进制 AndroidManifest.xml |
 | `mkzip.py` | 需要构建工作区的产物 | 组装 APK |
 | `make_payload_parts.py` | 需要工具链目录 | 重建运行包分片 |
@@ -55,7 +55,7 @@ DSH_BUILD_DIR=~/dsh-build bash scripts/build_bootstrap.sh
 
 ### `run_tests.sh`
 
-编译并运行 16 个纯逻辑测试类。这些类不依赖 Android，
+编译并运行 21 个纯逻辑测试类。这些类不依赖 Android，
 所以能在普通 JVM 上跑。构建流程的第 3.4 步会调用它，**失败即中止构建**。
 
 ### `build_bootstrap.sh`
@@ -104,7 +104,7 @@ API 限流时退回比对 `Content-Length`。
 ### `release.sh`
 
 ```bash
-bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
+bash scripts/release.sh <版本号> <构建目录> <发布说明.md> [stable|test]
 ```
 
 顺序**不能改**：
@@ -113,8 +113,8 @@ bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
 1. gh release create              上传 APK + 清单
 2. 验证 release 资产存在
 3. 轮询两条下载路径（直连 + 镜像）都是 206/200
-4. 最后才写 latest.json
-5. 同步 README 的下载链接与 SHA-256
+4. 最后才写通道清单：稳定版 `latest.json`，测试版 `latest-test.json`
+5. 稳定版同步 README 的下载链接与 SHA-256；测试版不改稳定下载入口
 ```
 
 出过一次事故：脚本语法错误跳过了 `gh release create`，但清单被写了
@@ -123,6 +123,9 @@ bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
 README 同步是后加的 —— 那两个数字（链接里的版本号、SHA-256）
 每次发版都变，手工维护出过两次错（链接长期指向 v0.9.0、
 SHA 被拼成两个哈希连在一起）。
+
+`test` 会创建 `v<版本>-test` 的 GitHub Prerelease，供真机验收；`stable` 才会创建
+`v<版本>-bootstrap` 并更新 README。两个通道使用同一签名检查，均可覆盖安装已有 App。
 
 ### `make_payload_parts.py`
 

@@ -58,7 +58,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 1.   收集 APK 内置负载（node + lib/*.so + 引导脚本）
 2.   aapt2 compile/link 编译资源，导出资源 id
 3.   mkmanifest.py 手写二进制 AndroidManifest.xml（注入资源 id）
-3.4  run_tests.sh —— 593 项纯逻辑测试           ← 失败则中止
+3.4  run_tests.sh —— 650 项纯逻辑测试           ← 失败则中止
 3.45 架构约束检查：纯逻辑层不得 import android.  ← 失败则中止
 3.5  UI 规范检查：不得使用 AlertDialog.Builder   ← 失败则中止
 4.   javac --release 8 编译
@@ -84,7 +84,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 
 | 步骤 | 检查什么 | 为什么 |
 |---|---|---|
-| 3.4 | 593 项测试 | 没有真机调试回路，测试是唯一验证手段 |
+| 3.4 | 650 项测试 | 没有真机调试回路，测试是唯一验证手段 |
 | 3.45 | 纯逻辑层无 Android 依赖 | 否则测试跑不起来，「纯逻辑层」会慢慢失效 |
 | 3.5 | 不用系统 AlertDialog | 保证 UI 风格统一（走 `DshUi`） |
 
@@ -138,7 +138,7 @@ python3 scripts/make_payload_parts.py
 ## 发布
 
 ```bash
-bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
+bash scripts/release.sh <版本号> <构建目录> <发布说明.md> [stable|test]
 ```
 
 顺序（**不要改**）：
@@ -147,11 +147,14 @@ bash scripts/release.sh <版本号> <构建目录> <发布说明.md>
 1. gh release create         上传 APK + 清单
 2. 验证 release 资产存在
 3. 轮询两条下载路径          直连 + 镜像，都是 206/200 才算通过
-4. 最后才写 latest.json
+4. 最后才写通道清单       stable → latest.json；test → latest-test.json
 ```
 
 出过一次事故：脚本语法错误跳过了 `gh release create`，但清单被写了
 → 所有客户端更新失败。所以顺序不能反。
+
+测试通道使用 `v<版本>-test` GitHub Prerelease，不更新 README 的稳定下载入口；
+稳定通道使用 `v<版本>-bootstrap`。发布工作流会在两种通道中执行同一套签名核对。
 
 ### 运行包发布
 
