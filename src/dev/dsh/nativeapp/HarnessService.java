@@ -10,6 +10,13 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.lang.ref.WeakReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * 前台服务：让 agent 在后台也保持运行。
  *
@@ -47,10 +54,93 @@ public class HarnessService extends Service {
     public static final String EXTRA_STATUS_NETWORK_LABEL = "networkLabel";
     public static final String EXTRA_STATUS_SINCE = "since";
 
-    /** 由 MainActivity 注入：收到"停止"时如何收尾。 */
-    public static Runnable onStopRequested;
-    /** 由 MainActivity 注入：收到"设置"时如何打开设置。 */
-    public static Runnable onSettingsRequested;
+    /** Node 进程由 Service 侧的监管器持有，不再属于任何 Activity 实例。 */
+    private static final ProcessSupervisor PROCESS = new ProcessSupervisor();
+    private static volatile String managedUrl;
+    private static final Pattern URL_PATTERN = Pattern.compile(
+            "http://(?:127\\.0\\.0\\.1|localhost):\\d+(?:/[A-Za-z0-9_\\-?=&.]*)?");
+
+    /**
+     * 界面监听者只用弱引用：Activity 重建后旧实例可以正常回收，
+     * 进程输出仍由 Service 持续消费，不会因无人读取而堵塞。
+     */
+    public interface Listener {
+        void onOutputLine(String line);
+        void onStopRequested();
+    }
+
+    private static WeakReference<Listener> listenerRef =
+            new WeakReference<Listener>(null);
+
+    public static synchronized void setListener(Listener listener) {
+        listenerRef = new WeakReference<Listener>(listener);
+    }
+
+    public static synchronized void clearListener(Listener listener) {
+        Listener current = listenerRef.get();
+        if (current == listener) listenerRef.clear();
+    }
+
+    /** 接管并持续读取一个新启动的 Node 进程。 */
+    public static synchronized void adoptProcess(final Process process) {
+        if (PROCESS.current() == process) return;
+        PROCESS.adopt(process);
+        managedUrl = null;
+        Thread output = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(process.getInputStream(), "UTF-8"));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        String clean = stripAnsi(line);
+                        Log.i(TAG, "[dsh] " + clean);
+                        if (managedUrl == null) {
+                            Matcher match = URL_PATTERN.matcher(clean);
+                            if (match.find()) managedUrl = match.group();
+                        }
+                        Listener listener = currentListener();
+                        if (listener != null) {
+                            try { listener.onOutputLine(clean); }
+                            catch (Throwable t) { Log.w(TAG, "输出监听失败", t); }
+                        }
+                    }
+                } catch (IOException e) {
+                    Log.i(TAG, "dsh 输出流结束", e);
+                } finally {
+                    PROCESS.clear(process);
+                }
+            }
+        }, "dsh-process-output");
+        output.setDaemon(true);
+        output.start();
+    }
+
+    public static Process managedProcess() {
+        return PROCESS.current();
+    }
+
+    public static boolean isManagedProcessAlive() {
+        return PROCESS.isAlive();
+    }
+
+    public static String managedUrl() {
+        return managedUrl;
+    }
+
+    /** 供设置页重启使用：只停进程，不关闭 Activity。 */
+    public static boolean stopManagedProcess() {
+        managedUrl = null;
+        return PROCESS.stop();
+    }
+
+    private static synchronized Listener currentListener() {
+        return listenerRef.get();
+    }
+
+    private static String stripAnsi(String value) {
+        return value.replaceAll("\\u001B\\[[0-9;?]*[ -/]*[@-~]", "");
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -68,18 +158,20 @@ public class HarnessService extends Service {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
             Log.i(TAG, "通知栏请求停止");
-            if (onStopRequested != null) {
-                try { onStopRequested.run(); } catch (Throwable ignored) { }
+            stopManagedProcess();
+            Listener listener = currentListener();
+            if (listener != null) {
+                try { listener.onStopRequested(); }
+                catch (Throwable t) { Log.w(TAG, "停止回调失败", t); }
             }
+            getSharedPreferences("dsh-native", MODE_PRIVATE).edit()
+                    .remove("dshPort").remove("dshToken").apply();
             stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
         }
         if (ACTION_SETTINGS.equals(action)) {
             Log.i(TAG, "通知栏请求打开设置");
-            if (onSettingsRequested != null) {
-                try { onSettingsRequested.run(); } catch (Throwable ignored) { }
-            }
             return START_STICKY;
         }
         if (ACTION_STATUS.equals(action)) {

@@ -98,6 +98,8 @@ cat > "$OUT/res_manifest.xml" <<'XEOF'
         <activity android:name=".A">
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
         </activity>
+        <meta-data android:name="dsh.network_security_config"
+            android:resource="@xml/network_security_config"/>
     </application>
 </manifest>
 XEOF
@@ -114,7 +116,10 @@ THEME_RES_ID=$(awk '$2=="style" && $3=="AppTheme"{print $4}' "$OUT/symbols.txt")
 [ -n "$THEME_RES_ID" ] || die "未能取得 AppTheme 资源 id"
 SHORTCUTS_RES_ID=$(awk '$2=="xml" && $3=="shortcuts"{print $4}' "$OUT/symbols.txt")
 [ -n "$SHORTCUTS_RES_ID" ] || die "未能取得 shortcuts 资源 id"
-echo "  ic_launcher = $ICON_RES_ID    AppTheme = $THEME_RES_ID    shortcuts = $SHORTCUTS_RES_ID"
+NETWORK_SECURITY_CONFIG_RES_ID=$(awk '$2=="xml" && $3=="network_security_config"{print $4}' "$OUT/symbols.txt")
+[ -n "$NETWORK_SECURITY_CONFIG_RES_ID" ] || die "未能取得 network_security_config 资源 id"
+echo "  ic_launcher = $ICON_RES_ID    AppTheme = $THEME_RES_ID"
+echo "  shortcuts = $SHORTCUTS_RES_ID    network_security_config = $NETWORK_SECURITY_CONFIG_RES_ID"
 
 python3 - "$OUT/resources.apk" "$OUT/apk" <<'PYEOF'
 import sys, zipfile, os
@@ -137,6 +142,7 @@ PYEOF
 say "3. 生成二进制 AndroidManifest.xml"
 DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
   DSH_SHORTCUTS_RES_ID="$SHORTCUTS_RES_ID" \
+  DSH_NETWORK_SECURITY_CONFIG_RES_ID="$NETWORK_SECURITY_CONFIG_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
 echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
 
@@ -150,7 +156,7 @@ bash run_tests.sh
 # 纯逻辑层必须保持无 Android 依赖 —— 否则就无法在普通 JVM 上测试，
 # 「构建期跑测试」这个保证会静默失效。这是架构约束，不是风格偏好。
 say "3.45 架构约束检查"
-PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java bootstrap/src/dev/dsh/nativeapp/Version.java bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java bootstrap/src/dev/dsh/nativeapp/TaskNotifier.java bootstrap/src/dev/dsh/nativeapp/FileOps.java bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java bootstrap/src/dev/dsh/nativeapp/ShareTargets.java bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java bootstrap/src/dev/dsh/nativeapp/SessionStatus.java bootstrap/src/dev/dsh/nativeapp/SessionRecovery.java"
+PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java bootstrap/src/dev/dsh/nativeapp/Version.java bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java bootstrap/src/dev/dsh/nativeapp/TaskNotifier.java bootstrap/src/dev/dsh/nativeapp/FileOps.java bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java bootstrap/src/dev/dsh/nativeapp/ShareTargets.java bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java bootstrap/src/dev/dsh/nativeapp/ProcessSupervisor.java bootstrap/src/dev/dsh/nativeapp/TransferState.java bootstrap/src/dev/dsh/nativeapp/SecretMasker.java bootstrap/src/dev/dsh/nativeapp/SessionStatus.java bootstrap/src/dev/dsh/nativeapp/SessionRecovery.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

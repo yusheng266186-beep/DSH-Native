@@ -1026,14 +1026,18 @@ public final class FileBrowser {
         File shared = new File("/sdcard/DSHNative");
         if (shared.isDirectory()) b.roots.add(new Root("共享", shared));
         if (appDir != null) {
+            File privateWorkspace = new File(appDir, "workspace");
+            if (privateWorkspace.isDirectory()) {
+                b.roots.add(new Root("私有工作区", privateWorkspace));
+            }
             File dshHome = new File(appDir, ".dsh");
             if (dshHome.isDirectory()) b.roots.add(new Root("配置", dshHome));
             File tools = new File(appDir, "tools");
             if (tools.isDirectory()) b.roots.add(new Root("工具链", tools));
         }
         b.roots.add(new Root("根", new File("/")));
-        // 写入白名单：只有应用自己的目录可增删改，其余位置只读。
-        // 刻意不含 / 与整个 /sdcard —— 那些位置含系统文件与其它应用数据。
+        // 写入白名单：只开放配置目录、私有工作区与 DSHNative 共享目录。
+        // App 运行时、/ 与整个 /sdcard 保持只读，避免误删可执行环境或系统数据。
         b.writeRoots.addAll(FileOps.writableRoots(appDir));
         b.cwd = appDir != null && appDir.isDirectory() ? appDir : b.roots.get(0).dir;
         DshUi.log("打开文件浏览: " + b.cwd.getAbsolutePath()

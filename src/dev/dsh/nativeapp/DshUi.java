@@ -94,6 +94,7 @@ public final class DshUi {
     public static int BTN_PRESS()   { return dark ? 0xFF353638 : 0xFFE8EAEE; }  // --dsw-alias-bg-layer-3
     public static int ACCENT()      { return dark ? 0xFF6B85FF : 0xFF4D6BFE; }  // 品牌蓝（深色下提亮）
     public static int ACCENT_DARK() { return dark ? 0xFF5A73F0 : 0xFF3D59E8; }  // 品牌蓝按下
+    public static int WARN()        { return dark ? 0xFFF59E0B : 0xFFB26A00; }  // 警示文字
     public static int TEXT()        { return dark ? 0xFFF9FAFB : 0xFF1F2329; }  // --dsw-alias-label-primary
     public static int TEXT_2()      { return dark ? 0xFFCFD3D6 : 0xFF6B7280; }  // --dsw-alias-label-secondary
     public static int TEXT_3()      { return dark ? 0xFFADB2B8 : 0xFF9CA3AF; }  // --dsw-alias-label-tertiary
@@ -583,6 +584,13 @@ public final class DshUi {
      */
     public static void confirm(final Context c, String title, String body,
                                String dangerLabel, final Runnable onConfirm) {
+        confirm(c, title, body, dangerLabel, onConfirm, null);
+    }
+
+    /** 危险操作确认；取消时可释放口令等短生命周期敏感数据。 */
+    public static void confirm(final Context c, String title, String body,
+                               String dangerLabel, final Runnable onConfirm,
+                               final Runnable onCancel) {
         if (c == null) return;
         LinearLayout box = paddedBody(c);
         box.addView(DshUi.title(c, title));
@@ -592,11 +600,20 @@ public final class DshUi {
         Button cancel = button(c, "取消", false);
         Button ok = button(c, dangerLabel == null ? "确定" : dangerLabel, true);
         final android.app.Dialog d = dialog(c, box, footer(c, cancel, ok), 400);
+        final boolean[] accepted = {false};
+        d.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            @Override public void onDismiss(android.content.DialogInterface ignored) {
+                if (!accepted[0] && onCancel != null) {
+                    try { onCancel.run(); } catch (Throwable ignoredError) { }
+                }
+            }
+        });
         cancel.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { d.dismiss(); }
         });
         ok.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
+                accepted[0] = true;
                 d.dismiss();
                 if (onConfirm != null) {
                     try { onConfirm.run(); } catch (Throwable ignored) { }

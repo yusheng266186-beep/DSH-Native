@@ -121,6 +121,20 @@ public class FileOpsTest {
                 FileOps.delete(root, allowed) != null, "should reject");
         check("root still exists after rejected delete", root.isDirectory(), "gone!");
 
+        File outsideKeep = new File(outside, "must-stay.txt");
+        write(outsideKeep, "keep");
+        File linkedTree = new File(root, "tree-with-link");
+        linkedTree.mkdirs();
+        File outwardChild = new File(linkedTree, "outside-link");
+        Files.createSymbolicLink(outwardChild.toPath(), outside.toPath());
+        check("count treats nested symlink as leaf",
+                FileOps.countEntries(linkedTree) == 1,
+                String.valueOf(FileOps.countEntries(linkedTree)));
+        check("delete tree containing outward symlink succeeds",
+                FileOps.delete(linkedTree, allowed) == null, "delete failed");
+        check("outward symlink target survives recursive delete",
+                outsideKeep.isFile() && "keep".equals(read(outsideKeep)), "outside was damaged");
+
         System.out.println("=== 7. writableRoots never includes system paths ===");
         List<File> wr = FileOps.writableRoots(new File("/data/user/0/pkg/files/dsh"));
         boolean hasRoot = false, hasSdcard = false;
@@ -130,8 +144,12 @@ public class FileOpsTest {
         }
         check("does not include filesystem root", !hasRoot, "dangerous");
         check("does not include whole /sdcard", !hasSdcard, "dangerous");
-        check("includes app dir", wr.contains(new File("/data/user/0/pkg/files/dsh")),
-                wr.toString());
+        check("app runtime root stays read-only",
+                !wr.contains(new File("/data/user/0/pkg/files/dsh")), wr.toString());
+        check("includes app configuration directory",
+                wr.contains(new File("/data/user/0/pkg/files/dsh/.dsh")), wr.toString());
+        check("includes private fallback workspace",
+                wr.contains(new File("/data/user/0/pkg/files/dsh/workspace")), wr.toString());
 
         rmrf(base);
         System.out.println();
@@ -148,6 +166,11 @@ public class FileOpsTest {
     static void write(File f, String s) throws Exception {
         java.io.FileOutputStream os = new java.io.FileOutputStream(f);
         os.write(s.getBytes("UTF-8")); os.close();
+    }
+
+    static String read(File f) throws Exception {
+        byte[] data = Files.readAllBytes(f.toPath());
+        return new String(data, "UTF-8");
     }
 
     static void rmrf(File f) {
