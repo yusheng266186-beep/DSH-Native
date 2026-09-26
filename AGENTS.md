@@ -96,9 +96,10 @@ DSH_TOOLS_DIR=<工具链目录> DSH_PAYLOAD_OUT=<输出目录> python3 scripts/m
 
 ```
 bootstrap/src/dev/dsh/nativeapp/
-├── MainActivity.java      3823 行 —— 启动流程、补丁、更新、设置页
+├── MainActivity.java      启动流程、首次引导、补丁、更新、分类设置页
 │
 │  ── 纯逻辑层（无 Android 依赖，有测试）──
+├── UiText.java            原生外壳中英文、系统语言回退、首次引导判定
 ├── FileListing.java       目录列举、排序、图标类型判定
 ├── TextCodec.java         编码探测（BOM / UTF-8 / GB18030）、换行符
 ├── Version.java           版本号比较（带溢出保护）

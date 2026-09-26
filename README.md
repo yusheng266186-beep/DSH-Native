@@ -2,12 +2,13 @@
 
 > ## ⬇直接下载
 >
-> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.25.8-bootstrap/DSHNative-bootstrap.apk)**（34 MB）
+> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.25.8-bootstrap/DSHNative-bootstrap.apk)**（33.6 MiB）
 >
 > 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
-> 然后经 **GitHub 镜像**分块下载约 117MiB 运行包（视网络而定）。
+> 然后经 **GitHub 镜像**分块下载约 117.2 MiB 运行包（视网络而定）。
 > 首次安装建议预留至少 550MiB 可用空间。
-> 完成后在 Models 页面填 API Key 即可使用。
+> 新安装会先显示三步引导；运行环境就绪后自动打开「账号与模型」，
+> 填入 API Key 并保存即可使用。
 >
 > **上传文件**：点输入框左下角 **** → **「文件 file」**（DSH 原生入口）。
 >
@@ -33,8 +34,9 @@
 | [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明。**第八节是最新事实**：CI 构建与发布、签名事故与防护、新增红线、已知陷阱、未验证事项 |
 | [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
 | [docs/PHASE1-HARDENING.md](docs/PHASE1-HARDENING.md) | 阶段一稳定性、安全改造与真机验收清单 |
+| [docs/PHASE2-EXPERIENCE.md](docs/PHASE2-EXPERIENCE.md) | 阶段二用户体验、功能增强与真机验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 580 项纯逻辑断言，构建期强制执行。
+**测试**：`bash scripts/run_tests.sh` —— 593 项纯逻辑断言，构建期强制执行。
 
 **当前版本：0.25.8**（运行包 payload-v9）
 
@@ -46,26 +48,26 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.25.8 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.8-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 34MB + 首启约 117MiB |
+| **[v0.25.8 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.25.8-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 33.6 MiB + 首启约 117.2 MiB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
 ### 使用步骤
 
-1. 安装 APK（34MB）
-2. 打开 App，**保持联网** —— 首启分块下载约 117MiB 运行包
+1. 安装 APK（33.6 MiB）
+2. 打开 App，**保持联网** —— 首启分块下载约 117.2 MiB 运行包
    （面板显示百分比 / 速率 / 重试次数；网络抖动会自动重试）
 
    启动前会先做一次**自检**（执行 `node --version`），
    3 秒内即可确认架构是否成立，无需等下载完才知道。
 3. 等待解压与启动（约 1–2 分钟）
-4. 界面加载后，在 **Models 页面填入 API Key** 即可开始使用
+4. 运行环境就绪后会自动打开 **账号与模型**，填入 API Key 并保存即可开始使用
 
 > **v0.2.1 修复了 v0.2.0 的一个真实缺陷**：原下载实现是单次流式下载，没有分块与重试。
 > 实测发现本机网络下 34MB 文件连续多次失败（`ETIMEDOUT` / `timeout`），
 > 且不校验完整性——移动网络中断会产生静默损坏的归档。
 > 现改为 2MB 分块 + 块级重试 + SHA-256 校验，策略已通过故障注入测试验证。
 
-> 引导式架构的原因：完整运行包解压后数百 MB，压缩后约 117MiB，直接塞进 APK 会超过
+> 引导式架构的原因：完整运行包解压后数百 MB，压缩后约 117.2 MiB，直接塞进 APK 会超过
 > GitHub 的 100MB 单文件上限，且构建迭代极慢。拆成「轻量 APK + 独立运行包」后，
 > APK 可快速迭代，且以后升级 agent 无需重装 App。
 
@@ -73,7 +75,7 @@
 
 ## 应用内更新
 
-**通知栏 → 展开 →「设置」→ 底部「更新」区**：
+**App 右上角「工具」→「更新与维护」**（通知栏「设置」仍可作为备用入口）：
 
 | 按钮 | 作用 |
 |---|---|
@@ -220,7 +222,8 @@ Termux 的 `nodejs` 包是用 NDK r28 编译的 bionic 版本，解释器指向 
 ├── DSHNative-bootstrap.apk              # 引导式 APK（34MB，由 Releases 提供）
 ├── DSHNative-poc.apk                    # v0.1.0 自检 PoC（历史产物）
 ├── src/dev/dsh/nativeapp/
-│   └── MainActivity.java                # 引导逻辑：解压 → 下载 → 解包 → 启动 → WebView
+│   ├── MainActivity.java                # 引导、下载、启动、WebView 与分类设置页
+│   └── UiText.java                      # 原生外壳中英文与系统语言回退
 ├── payload/
 │   ├── srv.js                           # PoC 的自检服务
 │   └── unpack.js                        # tar.zst 解压器（纯 Node，零依赖）
@@ -231,7 +234,8 @@ Termux 的 `nodejs` 包是用 NDK r28 编译的 bionic 版本，解释器指向 
 │   ├── mkzip.py                         # 纯 Python 打包 APK
 │   └── AndroidManifest.xml
 └── docs/
-    └── PHASE2-STATUS.md                 # 完整技术记录（实测证据 / 阻断分析 / 待办）
+    ├── PHASE2-STATUS.md                 # Android 原生运行可行性实测记录（历史命名）
+    └── PHASE2-EXPERIENCE.md             # 阶段二体验改造与真机验收
 ```
 
 ### 为什么需要 `mkmanifest.py`

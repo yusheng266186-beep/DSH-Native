@@ -3,5 +3,8 @@
   "tag": "v0.25.8-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v9",
-  "notes": "v0.25.8"
+  "notes": "v0.25.8",
+  "apk_bytes": 35216418,
+  "payload_bytes": 122922215,
+  "sha256": "a73347b6ace6b5cfec7ed0b49f86ff3f1988e65c412172e36f56fbba5ef96335"
 }

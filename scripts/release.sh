@@ -19,46 +19,6 @@
 #   scripts/release.sh 0.19.3 /root/build /tmp/notes.md
 set -euo pipefail
 
-# 同步 README 里的下载链接与 SHA-256。
-#
-# 手工维护出过问题：README 里的下载链接曾长期指向 v0.9.0，
-# 而 SHA-256 因为一次批量替换被拼成了两个哈希。
-# 这两个数字每次发版都会变，交给脚本最可靠。
-update_readme() {
-    local ver="$1" sha="$2" readme="$3"
-    [ -f "$readme" ] || return 0
-    # SHA 为空时必须拒绝改写，而不是把 README 里的校验值清空。
-    #
-    # 曾经这里传的是未定义的变量（$APK_OUT，脚本里的真名是 $APK）。
-    # 因为它在**命令替换**里，set -u 只让子 shell 报错、外层脚本照常跑完，
-    # 于是每次发版都把 README 的 SHA-256 静默替换成空值，还打印「已同步」。
-    if [ -z "$sha" ]; then
-        echo "[FAIL] SHA-256 为空，拒绝改写 README（请检查 APK 路径变量）"
-        exit 1
-    fi
-    python3 - "$ver" "$sha" "$readme" <<'PYEOF'
-import re, sys
-ver, sha, path = sys.argv[1], sys.argv[2], sys.argv[3]
-s = open(path, encoding='utf-8').read()
-before = s
-# 下载链接与 release 标签统一指向本次版本
-s = re.sub(r'releases/download/v[0-9.]+-bootstrap/DSHNative-bootstrap\.apk',
-           f'releases/download/v{ver}-bootstrap/DSHNative-bootstrap.apk', s)
-s = re.sub(r'releases/tag/v[0-9.]+-bootstrap', f'releases/tag/v{ver}-bootstrap', s)
-s = re.sub(r'\[v[0-9.]+ 引导式（推荐）\]',
-           f'[v{ver} 引导式（推荐）]', s)
-# SHA-256：旧值可能是 64 位，也可能是被拼坏的超长串
-# （曾经因为一次批量替换变成两个哈希连在一个反引号里），两种都要能吃下
-s = re.sub(r'SHA-256：`[0-9a-f]{64,}`', f'SHA-256：`{sha}`', s)
-if s != before:
-    open(path, 'w', encoding='utf-8').write(s)
-    print(f"  [OK] README 已同步到 v{ver}")
-else:
-    print("  [--] README 无需改动")
-PYEOF
-}
-
-
 # 从 App 源码里取实际使用的运行包标签 —— 避免 latest.json 与代码不一致
 # （曾出现过：App 已切到 payload-v7，latest.json 里还写着 payload-v6）
 currentPayloadTag() {
@@ -168,14 +128,19 @@ p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf
 print(f"  [OK] latest.json → {ver}")
 PY
 
-# 6) 同步 README 的下载链接与 SHA-256。
-#    这两个数字每次发版都会变，手工维护出过两次错：
-#    下载链接曾长期指向 v0.9.0；SHA-256 因为一次批量替换被拼成了两个哈希。
-# README 默认就用仓库根（脚本开头已 cd 到那里）——
-# 原来默认写死 /root/dsh-native，从克隆里跑时那个路径不存在，
-# update_readme 会因为 [ -f ] 不成立而**静默跳过** README 同步。
-update_readme "$VER" "$(sha256sum "$APK" | cut -d' ' -f1)" \
-              "${REPO_DIR:-$(pwd)}/README.md"
+# 6) 从真实产物与真实 payload 清单生成 README / latest.json。
+#    版本、链接、APK 大小、payload 合计与 SHA-256 由同一脚本写入，
+#    不再保留五处需要手工同步的数字。
+META_DIR="$(mktemp -d)"
+PAYLOAD_MANIFEST="$META_DIR/manifest.json"
+curl -fsSL --retry 3 --max-time 120 \
+    "https://github.com/${REPO}/releases/download/${PAYLOAD_TAG}/manifest.json" \
+    -o "$PAYLOAD_MANIFEST"
+python3 scripts/sync_project_metadata.py \
+    --version "$VER" \
+    --apk "$APK" \
+    --payload-manifest "$PAYLOAD_MANIFEST"
+python3 scripts/sync_project_metadata.py --check
 
 echo
 echo "  发布完成。清单已更新，App 现在可以检测到 v${VER}。"
