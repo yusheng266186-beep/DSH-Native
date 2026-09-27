@@ -43,6 +43,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/PluginSpecs.java
      $JAVA_DIR/PayloadUpdate.java
      $JAVA_DIR/SessionStatus.java
+     $JAVA_DIR/SessionProbe.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
@@ -68,6 +69,7 @@ TESTS="tests/FileListingTest.java
        tests/PluginSpecsTest.java
        tests/PayloadUpdateTest.java
        tests/SessionStatusTest.java
+       tests/SessionProbeTest.java
        tests/SessionRecoveryTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
@@ -98,7 +100,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -130,6 +132,23 @@ else
     fi
 fi
 
+# 会话状态探针必须在真实 JavaScript 引擎里覆盖首次请求、重放、计数和幂等。
+if command -v node >/dev/null 2>&1; then
+    SESSION_PROBE_JS="$OUT/session-probe.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.SessionProbeTest --dump-script > "$SESSION_PROBE_JS"
+    if ! node --check "$SESSION_PROBE_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] SessionProbe JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/session-probe-simulation.js "$SESSION_PROBE_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] SessionProbe fetch 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
 # 原生接线回归：入口必须随页面加载注入，旧的 WebView 覆盖按钮不得回流，
 # 同时禁止为了打开设置而新增高权限 JavaScriptInterface。
 MAIN_ACTIVITY="$JAVA_DIR/MainActivity.java"
@@ -146,6 +165,16 @@ elif ! grep -q 'installWebToolsEntry();' "$MAIN_ACTIVITY" \
     rc=1
 else
     echo "  WebToolsEntryWiring: overlay removed / injection wired / no JavascriptInterface"
+fi
+
+# 状态探针必须在页面开始阶段安装，避免 onPageFinished 之后才接管而错过首次会话请求。
+if ! grep -q 'installSessionProbe(view);' "$MAIN_ACTIVITY" \
+        || ! grep -q 'HarnessService.TASK_CHANNEL_ID' "$MAIN_ACTIVITY" \
+        || ! grep -q 'taskNotifier.startedAt()' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 状态计时或任务完成提醒接线不完整" >&2
+    rc=1
+else
+    echo "  SessionStatusWiring: early probe / stable timer / completion channel"
 fi
 
 # 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并

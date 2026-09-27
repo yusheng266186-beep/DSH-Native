@@ -15,11 +15,30 @@ public class MobileLayoutTest {
         String html = "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body></body></html>";
         String once = MobileLayout.patchHtml(html, 480);
         check("viewport patched", once != null && once.contains("width=480"), String.valueOf(once));
+        check("viewport no longer forces 1:1 scale", once != null
+                && !once.contains("width=480, initial-scale=1"), String.valueOf(once));
         check("style injected", once != null && once.contains("dsh-native-responsive"), "missing");
+        check("session probe embedded before app modules", once != null
+                && once.contains("dsh-native-session-probe")
+                && once.indexOf("dsh-native-session-probe") < once.indexOf("</head>"), "missing");
+        check("settings switches keep native size", once != null
+                && once.contains("[role=switch]{flex-shrink:0!important;}"), "missing");
+        check("global button height override removed", once != null
+                && !once.contains("button,[role=button]{min-height:44px;}"), "still present");
+        check("narrow settings use vertical layout", once != null
+                && once.contains("max-width:520px")
+                && once.contains("flex-direction:column!important"), "missing");
         String twice = MobileLayout.patchHtml(once, 869);
         check("patch idempotent", twice != null && twice.indexOf("dsh-native-responsive")
                 == twice.lastIndexOf("dsh-native-responsive"), String.valueOf(twice));
+        check("probe idempotent", twice != null && twice.indexOf("dsh-native-session-probe")
+                == twice.lastIndexOf("dsh-native-session-probe"), String.valueOf(twice));
         check("width can change", twice != null && twice.contains("width=869"), String.valueOf(twice));
+        String oldScale = "<html><head><meta name=\"viewport\" "
+                + "content=\"width=480, initial-scale=0.8333\"></head></html>";
+        String migrated = MobileLayout.patchHtml(oldScale, 600);
+        check("older calculated scale is migrated", migrated != null
+                && migrated.contains("content=\"width=600\""), String.valueOf(migrated));
         check("missing viewport rejected", MobileLayout.patchHtml("<head></head>", 480) == null, "accepted");
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);

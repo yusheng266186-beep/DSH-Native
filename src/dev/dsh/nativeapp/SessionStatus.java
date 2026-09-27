@@ -8,17 +8,14 @@ package dev.dsh.nativeapp;
  * 是否需要自己批准、网络有没有问题。
  *
  * <h3>状态从哪里来</h3>
- * 最初的想法是轮询 DSH 的 HTTP 接口（{@code /api/session/list}）——
- * <b>实测这个接口不存在</b>，DSH 的服务端 API 走的是自定义 RPC
- * （WebSocket + {@code /api/remote.mux}），不是 REST。
- * 所以那个版本的通知功能实际上从未生效过。
+ * 最初的实现把 {@code /api/session/list} 当成普通 REST GET 轮询，实测只会 404；
+ * DSH 实际使用带 RPC 请求体的同源 POST。当前探针捕获并重放页面自己已经认证的
+ * 只读请求，不再猜接口格式。
  *
- * <p>现在改为读**页面自身的状态**：DSH 的界面会把这些状态渲染出来，
- * 而三个关键的文案是稳定的（取自 DSH 客户端插件的 locale 字典）：
+ * <p>运行/空闲来自完整会话列表响应；等待批准来自页面可见状态。用于审批的
+ * 关键文案取自 DSH 客户端插件的 locale 字典：
  *
  * <table>
- *   <tr><td>{@code input.stop}</td><td>停止生成</td><td>存在 → 正在运行</td></tr>
- *   <tr><td>{@code input.send}</td><td>发送消息</td><td>存在 → 空闲可发送</td></tr>
  *   <tr><td>{@code waiting}</td><td>等待审批</td><td>存在 → 需要用户批准</td></tr>
  * </table>
  *
@@ -90,6 +87,18 @@ final class SessionStatus {
     /** 是否用系统计时器显示运行时长。 */
     static boolean useChronometer(int state) {
         return state == RUNNING || state == AWAITING_APPROVAL;
+    }
+
+    /**
+     * 通知内容的稳定签名。运行状态必须包含任务起点，否则新一轮任务与上一轮
+     * 文案相同的时候会被误判为重复，系统计时器继续沿用旧时间。
+     */
+    static String notificationSignature(int state, boolean networkOk,
+                                        String networkDetail, long since) {
+        long timerStart = useChronometer(state) && since > 0L ? since : 0L;
+        return state + "|" + title(state, 0L) + "|"
+                + text(state, networkOk, networkDetail) + "|"
+                + useChronometer(state) + "|" + timerStart;
     }
 
     /**
@@ -299,7 +308,11 @@ final class SessionStatus {
         if (i < 0) return -1;
         String rest = message.substring(i + 11).trim();  // "[dsh-appr] " 共 11 字符
         if (rest.length() == 0) return -1;
-        return rest.charAt(0) == 'a' ? AWAITING_APPROVAL : -1;
+        // '-' 是明确的「审批已结束」信号，必须刷新 DOM 证据；若忽略它，
+        // 上一次 AWAITING_APPROVAL 会在有效期内继续压住已经空闲的会话状态。
+        if (rest.charAt(0) == 'a') return AWAITING_APPROVAL;
+        if (rest.charAt(0) == '-') return UNKNOWN;
+        return -1;
     }
 
     /** 页面侧上报的会话列表计数前缀。 */

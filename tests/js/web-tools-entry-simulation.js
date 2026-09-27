@@ -15,6 +15,8 @@ class Element {
     this.ownText = text;
     this.listeners = {};
     this.title = attrs.title || '';
+    this.rectWidth = attrs.rectWidth || 0;
+    this.hidden = false;
   }
 
   get childNodes() { return this.children; }
@@ -69,11 +71,17 @@ class Element {
   }
 
   cloneNode(deep) {
-    const clone = new Element(this.tagName, { ...this.attrs }, this.ownText);
+    const clone = new Element(this.tagName,
+      { ...this.attrs, rectWidth: this.rectWidth }, this.ownText);
     clone.className = this.className;
     clone.title = this.title;
+    clone.hidden = this.hidden;
     if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
     return clone;
+  }
+
+  getBoundingClientRect() {
+    return { width: this.rectWidth, height: this.hidden ? 0 : 40 };
   }
 
   querySelectorAll(selector) {
@@ -117,19 +125,22 @@ function descendants(root) {
   return out;
 }
 
-function settingsTree(language) {
+function settingsTree(language, collapsed = false) {
   const chinese = language === 'zh';
   const label = chinese ? '设置' : 'Settings';
   const button = new Element('button', {
-    class: chinese ? 'trigger wide' : 'trigger rail',
+    class: collapsed ? 'trigger VOzbGW_rail' : 'trigger wide',
     'aria-label': label,
     'aria-haspopup': 'dialog',
     'aria-expanded': 'false',
+    rectWidth: collapsed ? 36 : 164,
   });
   button.appendChild(new Element('svg'));
   if (chinese) button.appendChild(new Element('span', {}, label));
   else button.appendChild(new Element('span', {}, label));
-  const row = new Element('div', { class: chinese ? 'triggerRow wide' : 'triggerRow railRow' });
+  const row = new Element('div', {
+    class: collapsed ? 'triggerRow VOzbGW_railRow' : 'triggerRow wide',
+  });
   row.appendChild(button);
   const host = new Element('div', { class: 'settingsArea' });
   host.appendChild(row);
@@ -179,6 +190,7 @@ const context = {
     return timers.length;
   },
 };
+context.window.getComputedStyle = () => ({ display: 'block', visibility: 'visible' });
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -197,6 +209,7 @@ vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'one tools row should be inserted');
 assert(tree.host.children[0].getAttribute('data-dsh-native-tools') === 'row',
   'tools row should participate in layout before Settings');
+assert(toolsRows()[0].hidden === false, 'expanded sidebar should show App tools');
 let toolsButton = toolsRows()[0].children[0];
 assert(toolsButton.getAttribute('aria-label') === 'App 工具', 'Chinese label missing');
 assert(toolsButton.getAttribute('aria-haspopup') === null, 'dialog state leaked from Settings');
@@ -209,7 +222,25 @@ assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').leng
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'repeat injection must not duplicate the row');
 
-const next = settingsTree('en');
+tree.button.rectWidth = 36;
+tree.button.className = 'trigger VOzbGW_rail';
+tree.row.className = 'triggerRow VOzbGW_railRow';
+observerCallback();
+runShortTimers();
+assert(toolsRows().length === 1 && toolsRows()[0].hidden === true,
+  'collapsed sidebar should hide the ambiguous cloned gear');
+assert(tree.button.getAttribute('aria-haspopup') === 'dialog',
+  'collapsed Settings button must remain the original WebUI action');
+
+tree.button.rectWidth = 164;
+tree.button.className = 'trigger wide';
+tree.row.className = 'triggerRow wide';
+observerCallback();
+runShortTimers();
+assert(toolsRows()[0].hidden === false,
+  'expanding the sidebar should restore App tools without a reload');
+
+const next = settingsTree('en', false);
 tree.host.children = [];
 tree.row.parentElement = null;
 tree.host.appendChild(next.row);
@@ -223,4 +254,4 @@ assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').leng
   'rerender should not repeat the migration event');
 assert(errors.length === 0, 'normal mounting should not report a missing anchor');
 
-console.log('WebToolsEntrySimulation: 12 pass / 0 fail');
+console.log('WebToolsEntrySimulation: 16 pass / 0 fail');

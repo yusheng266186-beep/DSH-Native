@@ -5,8 +5,9 @@ package dev.dsh.nativeapp;
  *
  * <p>脚本只使用现有的控制台消息桥，不暴露 {@code JavascriptInterface}。
  * 它以 DSH 自己的「设置」按钮为语义锚点，克隆同一行的结构与样式，
- * 因而入口参与侧边栏布局，不会覆盖网页内容。DSH 的 React 树重绘后，
- * MutationObserver 会以幂等方式重新挂载。</p>
+ * 因而入口参与侧边栏布局，不会覆盖网页内容。侧栏收起时隐藏克隆入口，
+ * 保证唯一可见的齿轮仍然是 DSH 自己的设置；展开后才显示带文字的 App 工具。
+ * DSH 的 React 树重绘后，MutationObserver 会以幂等方式重新挂载。</p>
  */
 final class WebToolsEntry {
     static final String OPEN_MARKER = "[dsh-native] open-settings";
@@ -40,6 +41,13 @@ final class WebToolsEntry {
                 + "function replaceLabel(e,label){var ss=e.querySelectorAll('span');"
                 + "for(var i=0;i<ss.length;i++){var v=(ss[i].textContent||'').trim();"
                 + "if(v==='设置'||/^settings$/i.test(v)){ss[i].textContent=label;return;}}}"
+                + "function expanded(e){try{"
+                + "var r=e.getBoundingClientRect&&e.getBoundingClientRect();"
+                + "if(r&&r.width>0)return r.width>44;"
+                + "return !/(^|\\s)[^\\s]*_rail(?:\\s|$)/.test(String(e.className));"
+                + "}catch(x){return false;}}"
+                + "function sync(row,settings){var show=expanded(settings);"
+                + "row.hidden=!show;row.setAttribute('data-dsh-native-expanded',show?'1':'0');}"
                 + "function prepareButton(e,label){"
                 + "var remove=['aria-expanded','aria-haspopup','aria-keyshortcuts',"
                 + "'aria-controls','aria-current','data-modal-autofocus'];"
@@ -59,12 +67,13 @@ final class WebToolsEntry {
                 + "+label+'|'+String(settings.childNodes.length);"
                 + "var row=document.querySelector('['+ATTR+'=\"row\"]');"
                 + "if(row&&row.parentElement===host&&"
-                + "row.getAttribute('data-dsh-native-signature')===sig)return true;"
+                + "row.getAttribute('data-dsh-native-signature')===sig){"
+                + "sync(row,settings);return true;}"
                 + "if(row&&row.parentElement)row.parentElement.removeChild(row);"
                 + "row=trigger.cloneNode(false);row.setAttribute(ATTR,'row');"
                 + "row.setAttribute('data-dsh-native-signature',sig);"
                 + "var button=settings.cloneNode(true);prepareButton(button,label);"
-                + "row.appendChild(button);host.insertBefore(row,trigger);"
+                + "row.appendChild(button);sync(row,settings);host.insertBefore(row,trigger);"
                 + "if(!reported){reported=true;console.log('" + READY_MARKER + "');}"
                 + "return true;}"
                 + "function queue(){if(scheduled)return;scheduled=true;"
@@ -72,7 +81,7 @@ final class WebToolsEntry {
                 + "window.__dshNativeToolsEntry={ensure:ensure};ensure();"
                 + "try{new MutationObserver(queue).observe(document.documentElement,"
                 + "{childList:true,subtree:true,attributes:true,"
-                + "attributeFilter:['aria-label','class']});}catch(e){}"
+                + "attributeFilter:['aria-label','aria-expanded','class','hidden','style']});}catch(e){}"
                 + "setInterval(queue,4000);"
                 + "setTimeout(function(){try{if(!ensure())console.error('"
                 + MISSING_MARKER + "');}catch(e){console.error('"

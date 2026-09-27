@@ -22,6 +22,10 @@ public class TaskNotifierTest {
         check("start produces no notification",
                 n.onEvent("start", "s1", t0, false) == null, "should be null");
         check("running flag set", n.isRunning(), "should be true");
+        check("start time retained", n.startedAt() == t0, String.valueOf(n.startedAt()));
+        n.onEvent("start", "s1", t0 + 30_000L, false);
+        check("duplicate start does not reset timer", n.startedAt() == t0,
+                String.valueOf(n.startedAt()));
         String msg = n.onEvent("done", "s1", t0 + 90_000L, false);
         check("long run in background notifies", msg != null, "should notify");
         check("message mentions duration", msg != null && msg.contains("1 分 30 秒"), String.valueOf(msg));
@@ -70,6 +74,8 @@ public class TaskNotifierTest {
         s.onEvent("start", "x", t0, false);
         s.onEvent("done", "x", t0 + 60_000L, false);
         check("running cleared after done", !s.isRunning(), "should be false");
+        check("start time cleared after done", s.startedAt() == 0L,
+                String.valueOf(s.startedAt()));
         s.onEvent("start", "y", t0 + 200_000L, false);
         check("can start again", s.isRunning(), "should be true");
 

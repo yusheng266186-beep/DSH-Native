@@ -66,7 +66,7 @@
 3. 准备运行包 → 见第 3 节
 
 4. 应用 Android 专项补丁 → applyAndroidPatches()
-   ├─ patchFrontendViewport()    改前端 index.html 的 viewport
+   ├─ patchFrontendViewport()    改 viewport、移动端 CSS，并嵌入最早期状态探针
    ├─ patchAttachmentDurability() 让附件落在可用位置
    └─ 替换 sharp 为 Pillow 实现
 
@@ -169,25 +169,26 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `TextCodec` | 编码探测、换行符、二进制判定 | 31 |
 | `Version` | 版本号比较（含溢出饱和） | 23 |
 | `CommandCodeUsage` | 余额解析与格式化 | 38 |
-| `TaskNotifier` | 何时该发完成通知 | 27 |
+| `TaskNotifier` | 何时该发完成通知、稳定任务起点 | 30 |
 | `FileOps` | 写入白名单、符号链接逃逸、名称校验 | 52 |
 | `ConfigBackup` | zip-slip 防护、白名单进出 | 40 |
 | `ShareTargets` | 路径编解码往返、MIME 映射 | 55 |
 | `PluginSpecs` | 命令注入防护、YAML 生成 | 98 |
 | `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
-| `SessionStatus` / `SessionRecovery` | 状态优先级、恢复出口 | 86 |
+| `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 89 |
+| `SessionProbe` | 首次会话请求捕获与只读 RPC 重放脚本 | 10 |
 | `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
 | `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 25 |
-| `MobileLayout` | 响应式 viewport 补丁 | 10 |
+| `MobileLayout` | 初始缩放、响应式设置弹窗与探针嵌入 | 17 |
 | `WorkspaceProjects` | 命名项目与路径约束 | 19 |
 | `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
 | `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
 | `ReleaseChannel` | 稳定/测试通道规则 | 8 |
-| `WebToolsEntry` | WebUI 入口注入、语言与状态标记 | 19 |
+| `WebToolsEntry` | WebUI 入口注入、收起隐藏、语言与状态标记 | 21 |
 | `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
 | `OperationGate` | 维护任务互斥与并发竞争 | 12 |
 | `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 30 |
-| | **合计** | **740** |
+| | **合计** | **765** |
 
 ### 强制手段
 
@@ -212,7 +213,7 @@ App 会在 DSH 启动前修改运行包里的文件。这些补丁都是**文本
 
 | 补丁 | 改什么 | 前提 |
 |---|---|---|
-| **viewport** | 前端 `index.html` 的 viewport 标签 | 存在 `content="width=device-width, initial-scale=1"` |
+| **viewport / 状态探针** | 前端 `index.html` 的 viewport、移动端 CSS 和 `SessionProbe` | 存在标准 viewport 与 `</head>` |
 | **附件落盘** | `dsh-attachment-local/lib/index.js` | 存在 `await syncDirectory(`、`await link(staged.path, target);` |
 | **sharp 替换** | `node_modules/sharp/index.js` | 用 `sharp-android.js` + `pillow_shim.py` 整份覆盖 |
 
@@ -329,9 +330,11 @@ DSH 前端 → /api/… → DSH 服务端（本地 127.0.0.1:<端口>）
   ↓ 执行在 <root>/tools 的沙箱里
 结果回到前端
   ↓
-注入的脚本轮询 /api/session/list，观察 running 由有到无
-  ↓ console.log('[dsh-task] done …')
-onConsoleMessage 捕获 → TaskNotifier 判定 → 是否需要发通知
+index.html 内的 SessionProbe 在前端模块前接管 DSH 自己的 session/list 请求
+  ↓ 解析完整响应并每 5 秒重放只读 RPC
+console.log('[dsh-sess] r=N')
+  ↓
+onConsoleMessage 捕获 → 状态计时 + TaskNotifier → 是否需要发完成通知
 ```
 
 **为什么用注入而不是原生轮询**：网页**已经完成认证**（会话 Cookie），
@@ -353,35 +356,35 @@ DeepSeek Harness · 运行中 2:14
 
 | 状态 | 来源 | 表现 |
 |---|---|---|
-| 运行中 | 页面上有「停止生成」 | 低优先级，带运行时长 |
+| 运行中 | 会话列表完整响应中 `running=true` | 低优先级，带系统计时器 |
 | 等待批准 | 页面上有「等待审批」 | **高优先级横幅 + 提示音** |
-| 空闲 | 页面上有「发送消息」 | 低优先级 |
+| 空闲 | 会话列表完整响应中运行数为 0 | 低优先级 |
 | 网络异常 | Android `ConnectivityManager` | 顶到正文最前面 |
 
 ### 状态从哪里读
 
-**读页面自身的状态**，不做接口调用。三个判据取自 DSH 客户端插件的
-locale 字典（`dsh-client-ui-conversation` 的 `input.stop` / `input.send`，
-`dsh-client-ui-approval` 的 `waiting`），中英文都覆盖。
+运行/空闲只认 DSH 自己的会话列表 RPC。`SessionProbe` 在前端模块运行前包装同源
+`fetch`，捕获页面已经认证的只读请求，在完整响应被诊断日志截断前统计 `running`，
+并每 5 秒用新 `rpcId` 重放。等待批准仍从可见 DOM 的中英文无障碍文案判断。
 
-按文案定位元素时，可见文字、`aria-label`、`title`、`placeholder`、
-`data-tooltip` **都要查** —— 按钮显示的是图标，文案只在属性里。
+探针只向控制台回报计数，不读取或回传 token，不新增 `JavascriptInterface`。
 
-### 为什么是两个通知渠道
+### 为什么是三个通知渠道
 
-**只有「等待批准」会响铃/横幅**。常驻通知如果一直打扰，用户会直接把渠道
-关掉，那就什么都看不到了。而 Android 不允许创建后修改渠道重要性，
-所以拆成两个：看板用 `IMPORTANCE_LOW`，提醒用 `IMPORTANCE_HIGH`。
+常驻看板用 `IMPORTANCE_LOW`；等待批准用 `IMPORTANCE_HIGH`；后台任务完成使用独立的
+`IMPORTANCE_DEFAULT` 渠道。Android 不允许创建后修改渠道重要性，拆开后完成提醒可以
+发声或震动，又不会让常驻通知持续打扰。
 
 ### 判不出来时不猜
 
-页面没加载完、或三个文案一个都找不到时，报「状态未知」。
+页面没加载完、或长时间拿不到会话列表证据时，报「状态未知」。
 **通知里显示错误的状态比不显示更糟** —— 用户会以为 agent 卡住了。
 
 ### 心跳
 
-每 2 秒上报一次（状态没变也报）。只在变化时上报的话，
-通知里的**运行时长与网络状态会僵住**在几分钟前的文案。
+会话列表每 5 秒重放一次；运行时长由 Android 系统计时器逐秒显示，不需要每秒重发通知。
+状态、任务起点或网络内容任一变化时才重新发布，既避免 MIUI 闪烁，也不会漏掉网络切换或
+让新任务沿用旧计时器。
 
 ---
 

@@ -7,8 +7,11 @@ import java.util.regex.Pattern;
 final class MobileLayout {
     private static final String STYLE_OPEN = "<style id=\"dsh-native-responsive\">";
     private static final String STYLE_CLOSE = "</style>";
+    private static final String PROBE_OPEN = "<script id=\"dsh-native-session-probe\">";
+    private static final String PROBE_CLOSE = "</script>";
     private static final Pattern VIEWPORT = Pattern.compile(
-            "content=\\\"width=(?:device-width|[0-9]+)(?:,\\s*initial-scale=1(?:\\.0)?)?\\\"");
+            "content=\\\"width=(?:device-width|[0-9]+)"
+            + "(?:,\\s*initial-scale=[0-9]+(?:\\.[0-9]+)?)?\\\"");
 
     private MobileLayout() { }
 
@@ -27,16 +30,36 @@ final class MobileLayout {
         if (html == null) return null;
         Matcher matcher = VIEWPORT.matcher(html);
         if (!matcher.find()) return null;
-        String viewport = "content=\"width=" + viewportWidth + ", initial-scale=1\"";
+        // 不锁死 initial-scale=1。窄屏使用 480 CSS px 时，强制 1:1 会让页面
+        // 超出物理屏幕，用户每次进入都得手动缩小；交给 WebView 的 overview
+        // 模式计算 fit-to-width 初始比例，同时仍保留双指缩放。
+        String viewport = "content=\"width=" + viewportWidth + "\"";
         String out = matcher.replaceFirst(Matcher.quoteReplacement(viewport));
 
         String style = STYLE_OPEN
                 + "@media(max-width:840px){"
                 + "[role=dialog]{box-sizing:border-box!important;"
                 + "max-width:calc(100vw - 16px)!important;max-height:calc(100vh - 16px)!important;}"
-                + "textarea,input,select{font-size:16px!important;}"
-                + "button,[role=button]{min-height:44px;}"
+                + "textarea,input,select{box-sizing:border-box;max-width:100%;}"
+                + "[data-shortcut-modal=\"settings\"] [role=switch]{flex-shrink:0!important;}"
                 + "pre,code{max-width:100%;overflow-wrap:anywhere;}"
+                + "}"
+                + "@media(max-width:520px){"
+                + "[data-shortcut-modal=\"settings\"][role=dialog]{"
+                + "width:calc(100vw - 16px)!important;flex-direction:column!important;}"
+                + "[data-shortcut-modal=\"settings\"]>nav{box-sizing:border-box!important;"
+                + "width:100%!important;gap:8px!important;padding:12px 8px 8px!important;"
+                + "border-bottom:.5px solid var(--dsw-alias-border-l2)!important;}"
+                + "[data-shortcut-modal=\"settings\"]>nav>div:first-child{padding:0 8px!important;}"
+                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child{"
+                + "flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;}"
+                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child>button{"
+                + "flex:0 0 auto!important;padding-left:10px!important;padding-right:10px!important;}"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child{min-height:0!important;}"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:first-child{"
+                + "height:auto!important;min-height:48px!important;padding:10px 8px 6px!important;}"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:last-child{"
+                + "padding:0 16px 16px!important;}"
                 + "}"
                 + "@media(max-height:520px) and (orientation:landscape){"
                 + "[role=dialog]{max-height:calc(100vh - 8px)!important;}"
@@ -53,6 +76,22 @@ final class MobileLayout {
             int head = out.indexOf("</head>");
             if (head < 0) return null;
             out = out.substring(0, head) + style + out.substring(head);
+        }
+
+        // WebViewClient.onPageStarted 的 JavaScript 执行时机在不同内核上并不完全一致。
+        // 把只读状态探针写进 index.html，且置于 deferred module 执行之前，才能保证
+        // 首次 /api/session/list 请求不被漏掉；重复启动会原位替换而不是叠加。
+        String probe = PROBE_OPEN + SessionProbe.script() + PROBE_CLOSE;
+        int oldProbe = out.indexOf(PROBE_OPEN);
+        if (oldProbe >= 0) {
+            int oldProbeEnd = out.indexOf(PROBE_CLOSE, oldProbe);
+            if (oldProbeEnd < 0) return null;
+            out = out.substring(0, oldProbe) + probe
+                    + out.substring(oldProbeEnd + PROBE_CLOSE.length());
+        } else {
+            int head = out.indexOf("</head>");
+            if (head < 0) return null;
+            out = out.substring(0, head) + probe + out.substring(head);
         }
         return out;
     }

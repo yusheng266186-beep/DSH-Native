@@ -58,7 +58,8 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 1.   收集 APK 内置负载（node + lib/*.so + 引导脚本）
 2.   aapt2 compile/link 编译资源，导出资源 id
 3.   mkmanifest.py 手写二进制 AndroidManifest.xml（注入资源 id）
-3.4  run_tests.sh —— 740 项纯逻辑断言 + 12 项注入脚本 DOM 模拟 ← 失败则中止
+3.4  run_tests.sh —— 765 项纯逻辑断言 + 16 项入口 DOM 模拟
+      + 8 项状态探针 fetch 模拟                                      ← 失败则中止
 3.45 架构约束检查：纯逻辑层不得 import android.  ← 失败则中止
 3.5  UI 规范检查：不得使用 AlertDialog.Builder   ← 失败则中止
 4.   javac --release 8 编译

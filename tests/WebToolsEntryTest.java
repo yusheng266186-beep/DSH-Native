@@ -31,6 +31,10 @@ public class WebToolsEntryTest {
         check("English tools label", script.contains("App tools"), "missing");
         check("clones live WebUI styles", script.contains("trigger.cloneNode(false)")
                 && script.contains("settings.cloneNode(true)"), "not cloned");
+        check("collapsed sidebar hides ambiguous gear", script.contains("r.width>44")
+                && script.contains("row.hidden=!show"), "collapsed state missing");
+        check("expansion is observed", script.contains("'aria-expanded'")
+                && script.contains("'hidden'") && script.contains("'style'"), "observer incomplete");
         check("layout marker present", script.contains("data-dsh-native-tools"), "missing");
         check("mutation recovery present", script.contains("new MutationObserver(queue)"),
                 "missing observer");

@@ -450,6 +450,12 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 try {
+                    // 会话列表的首次请求通常发生在 onPageFinished 之前。
+                    // 在这里先接管 fetch，才能可靠获得任务开始时间与结束状态。
+                    if (url != null && url.indexOf("127.0.0.1") >= 0) {
+                        view.setInitialScale(0);
+                        installSessionProbe(view);
+                    }
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
                 } catch (Throwable ignored) { }
             }
@@ -497,16 +503,20 @@ public class MainActivity extends Activity {
                 // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
+                installSessionProbe(view);
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
                 installWebToolsEntry();
-                // 注入完成后立刻推一次「正在获取状态」。
+                // 首次探针还没有给出真实状态时，推一次「正在获取状态」。
                 //
                 // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
                 // 实测过一次：App 更新后服务被重建，占位文案「正在运行」就那么
                 // 一直显示着，而对话早已结束。
-                // 第一条真实状态最多 5 秒后到达（脚本会定时重放会话列表请求）。
-                pushStatus(SessionStatus.UNKNOWN);
+                // 探针现在嵌入 index.html，真实状态可能已经在 onPageFinished 前到达；
+                // 此时绝不能再用 UNKNOWN 把它覆盖掉。
+                if (lastSessionStatus == SessionStatus.UNKNOWN) {
+                    pushStatus(SessionStatus.UNKNOWN);
+                }
                 final String sharedPrompt = pendingSharedTaskPrompt;
                 if (sharedPrompt != null) {
                     pendingSharedTaskPrompt = null;
@@ -1178,6 +1188,9 @@ public class MainActivity extends Activity {
         statusPageLoading = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
+                // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
+                // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
+                webView.setInitialScale(0);
                 webView.loadUrl(target);
                 // 复用已有实例时，开屏要在加载完成后收起；
                 // 这里先排一个兜底，避免任何情况下被永久挡住
@@ -1722,7 +1735,7 @@ public class MainActivity extends Activity {
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
 
-    /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里，有 33 项测试）。 */
+    /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里并由离线测试覆盖）。 */
     private final TaskNotifier taskNotifier = new TaskNotifier();
     /** App 是否在前台：在前台时界面本来就看得见结果，不必再弹通知。 */
     private volatile boolean inForeground = true;
@@ -2463,8 +2476,9 @@ public class MainActivity extends Activity {
     /** 处理来自注入脚本的任务事件。 */
     private void onTaskEvent(String kind, String sessionId) {
         try {
-            String msg = taskNotifier.onEvent(kind, sessionId,
-                    System.currentTimeMillis(), inForeground);
+            long now = System.currentTimeMillis();
+            String msg = taskNotifier.onEvent(kind, sessionId, now, inForeground);
+            taskStartedAt = taskNotifier.startedAt();
             if (msg == null) return;
             notifyTaskDone(msg);
         } catch (Throwable t) {
@@ -2480,9 +2494,9 @@ public class MainActivity extends Activity {
             if (nm == null) return;
             // 先确保渠道存在：渠道原本只由前台服务创建，
             // 服务没起来时通知会因渠道不存在而静默丢失
-            DshUi.ensureChannel(this, HarnessService.CHANNEL_ID,
-                    "DeepSeek Harness", "运行状态与任务完成提醒",
-                    android.app.NotificationManager.IMPORTANCE_LOW);
+            DshUi.ensureChannel(this, HarnessService.TASK_CHANNEL_ID,
+                    "任务完成", "DSH 在后台完成任务时提醒",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT);
             int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
             if (icon == 0) icon = android.R.drawable.stat_notify_sync;
 
@@ -2498,15 +2512,20 @@ public class MainActivity extends Activity {
 
             android.app.Notification.Builder b;
             if (android.os.Build.VERSION.SDK_INT >= 26) {
-                b = new android.app.Notification.Builder(this, HarnessService.CHANNEL_ID);
+                b = new android.app.Notification.Builder(
+                        this, HarnessService.TASK_CHANNEL_ID);
             } else {
                 b = new android.app.Notification.Builder(this);
             }
-            b.setContentTitle("DeepSeek Harness")
+            b.setContentTitle("任务已完成")
              .setContentText(text)
              .setSmallIcon(icon)
              .setContentIntent(pi)
              .setAutoCancel(true);
+            if (android.os.Build.VERSION.SDK_INT < 26) {
+                b.setDefaults(android.app.Notification.DEFAULT_ALL)
+                 .setPriority(android.app.Notification.PRIORITY_DEFAULT);
+            }
             nm.notify(TASK_DONE_NOTIFY_ID, b.build());
             log("已发出任务完成通知: " + text);
         } catch (Throwable t) {
@@ -2518,9 +2537,8 @@ public class MainActivity extends Activity {
     /**
      * 注入状态采集脚本。
      *
-     * <p>读的是**页面自身的状态**，不是 HTTP 接口 ——
-     * DSH 的服务端 API 走自定义 RPC（WebSocket），没有 REST 端点，
-     * 早先轮询 {@code /api/session/list} 的版本实际上从未生效过。
+     * <p>审批读页面可见状态；运行/空闲由 {@link SessionProbe} 捕获并重放
+     * DSH 页面自己发出的会话列表 RPC，不再构造错误的 REST GET。
      *
      * <p>三个判据取自 DSH 客户端插件的 locale 字典，是稳定的文案：
      * 「停止生成」「发送消息」「等待审批」。
@@ -2724,20 +2742,19 @@ public class MainActivity extends Activity {
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
     private void onSessionStatus(int state) {
         try {
-            if (state == SessionStatus.RUNNING && lastSessionStatus != SessionStatus.RUNNING
-                    && lastSessionStatus != SessionStatus.AWAITING_APPROVAL) {
-                taskStartedAt = System.currentTimeMillis();
-            }
+            long now = System.currentTimeMillis();
             // 顺带驱动「任务完成」通知。
             //
-            // 原来它轮询 /api/session/list —— 那个接口**不存在**
-            //（DSH 的服务端 API 是自定义 RPC，不是 REST），所以那条链
-            // 实际上从未生效过。现在改用同一个页面状态源。
+            // 原来它把 /api/session/list 当普通 REST GET，实际会 404。
+            // 现在改用 SessionProbe 捕获的真实 RPC 状态源。
             if (state == SessionStatus.RUNNING || state == SessionStatus.AWAITING_APPROVAL) {
-                taskNotifier.onEvent("start", "", System.currentTimeMillis(), inForeground);
+                // 重复的运行心跳不得重置起点；即使状态曾短暂降为 UNKNOWN，
+                // TaskNotifier 仍保留同一轮任务的开始时间。
+                taskNotifier.onEvent("start", "", now, inForeground);
+                taskStartedAt = taskNotifier.startedAt();
             } else if (state == SessionStatus.IDLE) {
-                String done = taskNotifier.onEvent("done", "",
-                        System.currentTimeMillis(), inForeground);
+                String done = taskNotifier.onEvent("done", "", now, inForeground);
+                taskStartedAt = 0L;
                 if (done != null) notifyTaskDone(done);
             }
             lastSessionStatus = state;
@@ -2790,6 +2807,9 @@ public class MainActivity extends Activity {
         try {
             boolean[] net = networkState();
             log("网络环境已变化: " + SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
+            // 不能只写日志。通知正文包含网络状态，同一任务运行期间网络变化时
+            // 也必须重新发布，否则会一直显示旧网络信息。
+            pushStatus(lastSessionStatus);
         } catch (Throwable t) {
             log("处理网络变化失败: " + t);
         }
@@ -2800,6 +2820,10 @@ public class MainActivity extends Activity {
     private volatile int pushedState = -2;
     /** 是否已经推送过一次网络状态。 */
     private volatile boolean networkInited;
+    /** 上次推送使用的任务起点与网络内容，用于精确去重。 */
+    private volatile long pushedSince = -1L;
+    private volatile boolean pushedNetworkOk;
+    private volatile String pushedNetworkLabel = "";
 
     /**
      * 把状态推给前台服务更新通知。
@@ -2811,17 +2835,20 @@ public class MainActivity extends Activity {
      */
     private void pushStatus(int state) {
         try {
-            // 状态没变 → 什么都不用做
-            if (state == pushedState && networkInited) return;
-
             boolean[] net = networkState();
+            String netLabel = SessionStatus.networkLabel(net[1], net[2], net[3], net[0]);
+            long since = SessionStatus.useChronometer(state) ? taskStartedAt : 0L;
+            // 状态、计时起点和网络内容都没变才跳过。只看 state 会漏掉
+            // 网络切换，也会让新任务复用上一轮的系统计时器。
+            if (state == pushedState && networkInited && since == pushedSince
+                    && net[0] == pushedNetworkOk && netLabel.equals(pushedNetworkLabel)) return;
+
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
             i.putExtra(HarnessService.EXTRA_STATUS_STATE, state);
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK, net[0]);
-            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL,
-                    SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
-            i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
+            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL, netLabel);
+            i.putExtra(HarnessService.EXTRA_STATUS_SINCE, since);
             startService(i);
             // **推送成功之后**才记下状态。
             //
@@ -2831,6 +2858,9 @@ public class MainActivity extends Activity {
             // 这个 catch 之前是空的，连日志都没有。
             pushedState = state;
             networkInited = true;
+            pushedSince = since;
+            pushedNetworkOk = net[0];
+            pushedNetworkLabel = netLabel;
         } catch (Throwable t) {
             log("警告: 状态推送失败（通知栏将停在旧状态）: " + t);
         }
@@ -2876,6 +2906,20 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- 网络诊断
     /**
+     * 在页面最早期安装只读会话状态探针。
+     *
+     * <p>必须同时在 {@code onPageStarted} 和 {@code onPageFinished} 调用：前者保证
+     * 不错过首次会话列表请求，后者是在极少数 WebView 尚未提供 fetch 时的幂等兜底。</p>
+     */
+    private void installSessionProbe(WebView view) {
+        try {
+            if (view != null) view.evaluateJavascript(SessionProbe.script(), null);
+        } catch (Throwable t) {
+            log("警告: 会话状态探针注入失败: " + t);
+        }
+    }
+
+    /**
      * 注入一段 JS，把失败的 fetch 响应体打到浏览器控制台。
      *
      * <p>为什么需要：DSH 的接口在出错时返回结构化 JSON，
@@ -2892,20 +2936,12 @@ public class MainActivity extends Activity {
             "(function(){"
           + "if(window.__dshDiag)return;window.__dshDiag=1;"
           + "var of=window.fetch;"
-          + "var sessReq=null,sessLogged=0;"
           + "function isAsset(u){return /\\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map)(\\?|$)/i.test(u);}"
           + "window.fetch=function(){"
           + "  var a=arguments[0];"
           + "  var u='';"
           + "  try{u=(typeof a==='string')?a:(a&&a.url?a.url:String(a));}catch(x){}"
           + "  var p=of.apply(this,arguments);"
-          + "  try{"
-          + "    var ini=arguments[1];"
-          + "    if(u.indexOf('/api/session/list')>=0&&ini&&ini.body){"
-          + "      sessReq={m:(ini.method||'POST'),h:ini.headers,b:String(ini.body)};"
-          + "      if(!sessLogged){sessLogged=1;console.log('[dsh-sess-src] captured len='+sessReq.b.length);}"
-          + "    }"
-          + "  }catch(x){}"
           + "  try{"
           + "    p.then(function(r){"
           + "      try{"
@@ -2916,15 +2952,6 @@ public class MainActivity extends Activity {
           + "          console.log('[dsh-api] '+r.status+' '+u+' ('+ct.split(';')[0]+')');return;"
           + "        }"
           + "        r.clone().text().then(function(t){"
-          + "          try{"
-          + "            if(u.indexOf('/api/session/list')>=0){"
-          + "              var j=JSON.parse(t);"
-          + "              var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
-          + "              var rn=0,q;"
-          + "              for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)rn++;}"
-          + "              console.log('[dsh-sess] r='+rn);"
-          + "            }"
-          + "          }catch(e2){}"
           + "          console.log('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,700));"
           + "        }).catch(function(){});"
           + "      }catch(e){}"
@@ -2934,40 +2961,6 @@ public class MainActivity extends Activity {
           + "  }catch(e){}"
           + "  return p;"
           + "};"
-          // 定时重放会话列表请求。
-          //
-          // 为什么必须自己重放：`running` 是判断「有没有任务在跑」的**唯一权威依据**，
-          // 而 DSH 自己请求 /api/session/list 的频率极低（实测一次启动只请求一两次）。
-          // 结果就是证据过期 —— 任务早就结束了，App 却还拿着几分钟前的旧值。
-          //
-          // 这里记下 DSH 发过的那个请求（方法/头/体），每 5 秒用新的 rpcId 重放一次。
-          // 它是只读的本地 RPC，不会改变任何状态；响应由我们自己的 promise 接收，
-          // DSH 的客户端拿不到、也不受影响。
-          + "setInterval(function(){"
-          + "  if(!sessReq)return;"
-          + "  try{"
-          + "    var o=JSON.parse(sessReq.b);"
-          + "    o.rpcId='probe-'+Date.now()+'-'+Math.floor(Math.random()*1e6);"
-          + "    var hh={};"
-          + "    try{"
-          + "      if(sessReq.h&&typeof sessReq.h.forEach==='function'){sessReq.h.forEach(function(v,k){hh[k]=v;});}"
-          + "      else if(sessReq.h){for(var k in sessReq.h){hh[k]=sessReq.h[k];}}"
-          + "    }catch(x){}"
-          + "    if(!hh['Content-Type']&&!hh['content-type'])hh['Content-Type']='application/json';"
-          + "    of.call(window,'/api/session/list',{method:sessReq.m,headers:hh,"
-          + "      body:JSON.stringify(o),credentials:'same-origin'})"
-          + "      .then(function(r){return r.text();})"
-          + "      .then(function(t){"
-          + "        try{"
-          + "          var j=JSON.parse(t);"
-          + "          var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
-          + "          var n=0,q;"
-          + "          for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)n++;}"
-          + "          console.log('[dsh-sess] r='+n);"
-          + "        }catch(x){}"
-          + "      }).catch(function(){});"
-          + "  }catch(x){}"
-          + "},5000);"
           + "})();"
           // 应用内设置入口：长按顶部区域 1.2 秒。
           //
