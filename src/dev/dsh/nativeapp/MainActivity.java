@@ -303,18 +303,26 @@ public class MainActivity extends Activity {
                     }
                     if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
                         log("分享任务已提交到 DSH");
-                        toast("分享内容已创建任务");
+                        finishShareTaskSubmission(
+                                UiText.t("分享任务已提交", "Shared task submitted"),
+                                DshUi.RESULT_SUCCESS);
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-prefilled") >= 0) {
                         log("分享任务已填入编辑器，发送按钮暂不可用");
-                        toast("任务已填入，请确认后发送");
+                        finishShareTaskSubmission(
+                                UiText.t("任务已填入，请确认后发送",
+                                        "Task filled in. Review and send it."),
+                                DshUi.RESULT_WARNING);
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-editor-not-found") >= 0
                             || m.indexOf("[dsh-native] share-task-error") >= 0) {
                         log("分享任务无法自动提交: " + m);
-                        toast("文件已保存，但未找到任务输入框");
+                        finishShareTaskSubmission(
+                                UiText.t("文件已保存，但未找到任务输入框",
+                                        "Files saved, but the task editor was not found."),
+                                DshUi.RESULT_ERROR);
                         return true;
                     }
                     // 网页主题上报：原生跟着 DSH 自己的主题走，
@@ -1774,6 +1782,10 @@ public class MainActivity extends Activity {
     private volatile android.content.Intent pendingShareIntent;
     /** 分享导入后、网页尚未就绪时等待提交的任务提示词。 */
     private volatile String pendingSharedTaskPrompt;
+    /** 分享任务的持续提交反馈，仅在主线程读写。 */
+    private DshUi.TaskProgress shareSubmitProgress;
+    /** 提交反馈代次：超时回调不得关闭更新的提交。 */
+    private int shareSubmitGeneration;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
     private volatile String pendingAction = "";
     /**
@@ -3532,11 +3544,14 @@ public class MainActivity extends Activity {
         setMaintenanceBusy(button, "检查 App 更新并安装", "正在检查…", true);
         new Thread(new Runnable() {
             @Override public void run() {
+                boolean success = false;
+                String outcome = "检查失败";
                 setStatus(status, "正在检查更新…");
                 log("开始检查 App 更新（当前 " + appVersion() + "）…");
                 try {
                     final String[] rel = latestRelease();
                     if (rel == null) {
+                        outcome = "未找到版本";
                         setStatus(status, "未找到可用的发布版本");
                         return;
                     }
@@ -3544,6 +3559,8 @@ public class MainActivity extends Activity {
                     final String apkName = rel[2];
                     final String local = appVersion();
                     if (!isNewer(rel[0], local)) {
+                        success = true;
+                        outcome = "已是最新";
                         log("已是最新版本: " + local + "（远端 " + rel[0] + "）");
                         setStatus(status, "已是最新版本 " + local);
                         if (interactive) toast("已是最新版本");
@@ -3568,6 +3585,8 @@ public class MainActivity extends Activity {
                     // （实测踩过：0.23.4 重发时是我手工删掉缓存才通的。）
                     if (cachedVer != null && !isNewer(rel[0], cachedVer)
                             && cachedApkInstallable(apk)) {
+                        success = true;
+                        outcome = "准备安装";
                         log("本地已有最新安装包 " + cachedVer
                                 + "（此前下载后未安装），直接调起安装，跳过下载");
                         setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
@@ -3593,16 +3612,20 @@ public class MainActivity extends Activity {
                                 "下载的 APK 版本、包名或签名与当前应用不匹配");
                     }
                     log("更新包已下载: " + (apk.length() / 1048576) + " MB");
+                    success = true;
+                    outcome = "准备安装";
                     setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
                     installApk(apk);
                 } catch (Throwable t) {
+                    success = false;
+                    outcome = "检查失败";
                     log("错误: 检查更新失败: " + t);
                     setStatus(status, "检查失败：" + shorten(t));
                     if (interactive) toast("检查更新失败");
                 } finally {
                     maintenanceGate.finish(OperationGate.APP_UPDATE);
-                    setMaintenanceBusy(button, "检查 App 更新并安装",
-                            "正在检查…", false);
+                    setMaintenanceResult(button, "检查 App 更新并安装",
+                            outcome, success);
                 }
             }
         }).start();
@@ -3622,6 +3645,17 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 DshUi.setBusy(button, idle, busy, on);
+            }
+        });
+    }
+
+    private void setMaintenanceResult(final android.widget.Button button,
+                                      final String idle, final String outcome,
+                                      final boolean success) {
+        if (button == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                DshUi.finishBusy(button, idle, outcome, success);
             }
         });
     }
@@ -3777,6 +3811,8 @@ public class MainActivity extends Activity {
                 "正在更新…", true);
         new Thread(new Runnable() {
             @Override public void run() {
+                boolean success = false;
+                String outcome = "更新失败";
                 payloadLastError = "";
                 setStatus(status, "正在检查运行包…");
                 try {
@@ -3784,6 +3820,8 @@ public class MainActivity extends Activity {
                     File node = new File(root, "node");
                     boolean upToDate = ensurePayload(node, root,
                             new File(root, "dsh"), new File(root, "tools"));
+                    success = true;
+                    outcome = upToDate ? "已是最新" : "更新完成";
                     setStatus(status, upToDate ? "运行包已是最新" : "运行包已更新，正在重启…");
                     if (upToDate) {
                         toast("运行包已是最新");
@@ -3791,13 +3829,15 @@ public class MainActivity extends Activity {
                         restartAgent();
                     }
                 } catch (Throwable t) {
+                    success = false;
+                    outcome = "更新失败";
                     log("错误: 更新运行包失败: " + t);
                     payloadLastError = shorten(t);
                     setStatus(status, "运行包更新失败，可再次点击重试：" + payloadLastError);
                 } finally {
                     maintenanceGate.finish(OperationGate.PAYLOAD_UPDATE);
-                    setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
-                            "正在更新…", false);
+                    setMaintenanceResult(button, "更新运行包（DSH / 工具链）",
+                            outcome, success);
                 }
             }
         }).start();
@@ -4661,15 +4701,13 @@ public class MainActivity extends Activity {
         name.setHint("例如：语文备课、南溟项目");
         name.setSingleLine(true);
         body.addView(name, DshUi.fullWidth(this, 6));
-        android.widget.Button create = DshUi.button(this, "新建并切换", true);
+        final android.widget.Button create = DshUi.button(this, "新建并切换", true);
         body.addView(create, DshUi.fullWidth(this, 6));
 
         body.addView(DshUi.sectionLabel(this, "已有项目"), DshUi.fullWidth(this, 22));
         final android.widget.LinearLayout list = new android.widget.LinearLayout(this);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         body.addView(list, DshUi.fullWidth(this, 6));
-        fillWorkspaceProjectList(list, root);
-
         android.widget.Button browse = DshUi.button(this, "浏览当前项目", false);
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
@@ -4696,23 +4734,25 @@ public class MainActivity extends Activity {
                     toast("无法创建项目目录");
                     return;
                 }
-                dialog.dismiss();
-                switchWorkspaceProject(normalized);
+                requestWorkspaceProjectSwitch(normalized, dialog, create, "新建并切换");
             }
         });
+        fillWorkspaceProjectList(list, root, dialog);
         dialog.show();
     }
 
-    private void fillWorkspaceProjectList(android.widget.LinearLayout list, File root) {
+    private void fillWorkspaceProjectList(android.widget.LinearLayout list, File root,
+                                          android.app.Dialog dialog) {
         list.removeAllViews();
-        addWorkspaceProjectRow(list, root, WorkspaceProjects.DEFAULT);
+        addWorkspaceProjectRow(list, root, WorkspaceProjects.DEFAULT, dialog);
         for (String project : WorkspaceProjects.list(root)) {
-            addWorkspaceProjectRow(list, root, project);
+            addWorkspaceProjectRow(list, root, project, dialog);
         }
     }
 
     private void addWorkspaceProjectRow(android.widget.LinearLayout list, File root,
-                                        final String project) {
+                                        final String project,
+                                        final android.app.Dialog dialog) {
         boolean active = project.equals(activeProjectName());
         android.widget.LinearLayout row = new android.widget.LinearLayout(this);
         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -4724,27 +4764,41 @@ public class MainActivity extends Activity {
         android.widget.Button button = DshUi.toggleButton(this,
                 active ? "正在使用" : "切换", active);
         button.setEnabled(!active);
+        final android.widget.Button switchButton = button;
         button.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { switchWorkspaceProject(project); }
+            @Override public void onClick(android.view.View v) {
+                requestWorkspaceProjectSwitch(project, dialog, switchButton, "切换");
+            }
         });
         row.addView(button, new android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(row, DshUi.fullWidth(this, 4));
     }
 
-    private void switchWorkspaceProject(final String project) {
+    private void requestWorkspaceProjectSwitch(final String project,
+                                               final android.app.Dialog origin,
+                                               final android.widget.Button button,
+                                               final String idleLabel) {
+        DshUi.setBusy(button, idleLabel, "切换中…", true);
         final Runnable apply = new Runnable() {
             @Override public void run() {
+                if (origin != null) origin.dismiss();
                 rememberActiveProject(project);
-                toast("正在切换到" + WorkspaceProjects.displayName(project) + "…");
-                restartAgent();
+                String display = UiText.text(WorkspaceProjects.displayName(project));
+                restartAgent(UiText.t("正在切换到“" + display + "”…",
+                        "Switching to \"" + display + "\"…"));
+            }
+        };
+        final Runnable cancel = new Runnable() {
+            @Override public void run() {
+                DshUi.setBusy(button, idleLabel, "切换中…", false);
             }
         };
         if (lastSessionStatus == SessionStatus.RUNNING
                 || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
             DshUi.confirm(this, "切换项目会中断当前任务",
                     "agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
-                    "切换并重启", apply);
+                    "切换并重启", apply, cancel);
         } else {
             apply.run();
         }
@@ -4802,6 +4856,10 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent() {
+        restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
+    }
+
+    private void restartAgent(final String progressMessage) {
         HarnessService.stopManagedProcess();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .remove("dshPort").remove("dshToken").apply();
@@ -4814,7 +4872,7 @@ public class MainActivity extends Activity {
                     splashView.setAlpha(1f);
                     splashView.setVisibility(android.view.View.VISIBLE);
                 }
-                if (splashStatus != null) splashStatus.setText("正在重启服务…");
+                if (splashStatus != null) splashStatus.setText(progressMessage);
                 startSplashAnimation();
             }
         });
@@ -6603,12 +6661,18 @@ public class MainActivity extends Activity {
 
             final File wsFinal = ws;
             final String stampFinal = stamp;
-            int totalItems = streams.size() + (text != null && text.length() > 0 ? 1 : 0);
-            toast("正在接收 " + totalItems + " 项分享内容…");
+            final int totalItems = streams.size()
+                    + (text != null && text.length() > 0 ? 1 : 0);
+            final DshUi.TaskProgress importProgress = DshUi.taskProgress(this,
+                    UiText.t("正在接收分享内容", "Receiving shared items"),
+                    UiText.t("准备接收 0 / " + totalItems + " 项",
+                            "Preparing 0 / " + totalItems + " items"),
+                    totalItems);
             new Thread(new Runnable() {
                 @Override public void run() {
                     synchronized (SHARE_IMPORT_LOCK) {
                         int saved = 0;
+                        int completed = 0;
                         java.util.List<File> savedFiles = new java.util.ArrayList<File>();
                         java.util.List<String> failures = new java.util.ArrayList<String>();
                         for (android.net.Uri stream : streams) {
@@ -6621,6 +6685,8 @@ public class MainActivity extends Activity {
                                 failures.add(shorten(t));
                                 log("错误: 保存分享文件失败: " + t);
                             }
+                            completed++;
+                            updateShareImportProgress(importProgress, completed, totalItems);
                         }
                         if (text != null && text.length() > 0) {
                             try {
@@ -6632,14 +6698,10 @@ public class MainActivity extends Activity {
                                 failures.add(shorten(t));
                                 log("错误: 保存分享文本失败: " + t);
                             }
+                            completed++;
+                            updateShareImportProgress(importProgress, completed, totalItems);
                         }
-                        if (failures.isEmpty()) {
-                            toast("已将 " + saved + " 项内容放入工作区");
-                        } else {
-                            toast("已保存 " + saved + " 项，失败 " + failures.size()
-                                    + " 项：" + failures.get(0));
-                        }
-                        if (!savedFiles.isEmpty()) offerSharedTask(savedFiles);
+                        finishShareImport(importProgress, saved, savedFiles, failures);
                     }
                 }
             }, "share-import").start();
@@ -6647,6 +6709,44 @@ public class MainActivity extends Activity {
             log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
         }
+    }
+
+    private void updateShareImportProgress(final DshUi.TaskProgress progress,
+                                           final int completed, final int total) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                progress.update(UiText.t("正在接收 " + completed + " / " + total + " 项",
+                        "Receiving " + completed + " / " + total + " items"), completed);
+            }
+        });
+    }
+
+    private void finishShareImport(final DshUi.TaskProgress progress, final int saved,
+                                   java.util.List<File> savedFiles,
+                                   java.util.List<String> failures) {
+        final java.util.List<File> files =
+                new java.util.ArrayList<File>(savedFiles);
+        final int failed = failures.size();
+        final String firstFailure = failed > 0 ? failures.get(0) : "";
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                final String summary;
+                final int result;
+                if (failed == 0) {
+                    summary = UiText.t("已将 " + saved + " 项内容放入工作区",
+                            saved + " item(s) saved to the workspace");
+                    result = DshUi.RESULT_SUCCESS;
+                } else {
+                    summary = UiText.t("已保存 " + saved + " 项，失败 " + failed
+                                    + " 项：" + firstFailure,
+                            saved + " saved, " + failed + " failed: " + firstFailure);
+                    result = saved > 0 ? DshUi.RESULT_WARNING : DshUi.RESULT_ERROR;
+                }
+                progress.finish(summary, result, files.isEmpty() ? null : new Runnable() {
+                    @Override public void run() { offerSharedTask(files); }
+                });
+            }
+        });
     }
 
     /** 分享导入成功后让用户决定：只保存，或直接交给当前 DSH 会话处理。 */
@@ -6673,21 +6773,60 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void dispatchShareTaskPrompt(String prompt) {
+    private void dispatchShareTaskPrompt(final String prompt) {
         if (prompt == null || prompt.length() == 0) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() { dispatchShareTaskPrompt(prompt); }
+            });
+            return;
+        }
         if (webView == null || !dshPageLoaded) {
             pendingSharedTaskPrompt = prompt;
             toast("任务已排队，DSH 界面就绪后自动提交");
             return;
         }
+        if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
+        final int generation = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        shareSubmitGeneration = generation;
+        shareSubmitProgress = DshUi.taskProgress(this,
+                UiText.t("正在提交任务", "Submitting task"),
+                UiText.t("正在写入当前 DSH 会话…",
+                        "Writing to the current DSH session…"), 0);
         try {
             webView.evaluateJavascript(ShareTask.javascript(prompt), null);
             log("正在把分享内容提交到当前 DSH 会话");
+            webView.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (!InteractionFeedback.isCurrent(
+                            generation, shareSubmitGeneration)) return;
+                    finishShareTaskSubmission(
+                            UiText.t("提交状态未确认，请检查输入框",
+                                    "Submission was not confirmed. Check the task editor."),
+                            DshUi.RESULT_WARNING);
+                }
+            }, InteractionFeedback.SUBMIT_TIMEOUT_MS);
         } catch (Throwable t) {
             pendingSharedTaskPrompt = prompt;
             log("分享任务提交失败，已保留待重试: " + t);
-            toast("文件已保存，任务将在界面就绪后重试");
+            finishShareTaskSubmission(
+                    UiText.t("文件已保存，任务将在界面就绪后重试",
+                            "Files saved. The task will retry when the interface is ready."),
+                    DshUi.RESULT_ERROR);
         }
+    }
+
+    private void finishShareTaskSubmission(final String message, final int result) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() { finishShareTaskSubmission(message, result); }
+            });
+            return;
+        }
+        shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        DshUi.TaskProgress progress = shareSubmitProgress;
+        shareSubmitProgress = null;
+        if (progress != null) progress.finish(message, result, null);
     }
 
     /** 同时读取 EXTRA_STREAM 与 ClipData，兼容各类分享来源。 */
@@ -6898,6 +7037,9 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         stopSplashAnimation();
         exitDialog = null;
+        shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
+        shareSubmitProgress = null;
         HarnessService.clearListener(harnessListener);
         super.onDestroy();
     }

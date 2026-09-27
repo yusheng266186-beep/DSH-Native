@@ -177,7 +177,7 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
 | `SessionStatus` / `SessionRecovery` | 状态优先级、恢复出口 | 86 |
 | `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
-| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 23 |
+| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 25 |
 | `MobileLayout` | 响应式 viewport 补丁 | 10 |
 | `WorkspaceProjects` | 命名项目与路径约束 | 19 |
 | `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
@@ -186,7 +186,8 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `WebToolsEntry` | WebUI 入口注入、语言与状态标记 | 19 |
 | `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
 | `OperationGate` | 维护任务互斥与并发竞争 | 12 |
-| | **合计** | **708** |
+| `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 30 |
+| | **合计** | **740** |
 
 ### 强制手段
 

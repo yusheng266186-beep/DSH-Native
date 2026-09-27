@@ -31,7 +31,7 @@ PURE = ["FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier
         "SessionStatus", "SessionRecovery", "ProcessSupervisor", "TransferState",
         "SecretMasker", "UiText", "MobileLayout", "WorkspaceProjects", "ShareTask",
         "PluginPermissions", "ReleaseChannel", "WebToolsEntry", "UiPolicy",
-        "OperationGate"]
+        "OperationGate", "InteractionFeedback"]
 EMOJI = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
 SOURCES = os.path.join(ROOT, "src", "dev", "dsh", "nativeapp")
 

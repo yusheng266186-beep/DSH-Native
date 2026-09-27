@@ -37,6 +37,8 @@ public final class UiText {
         put("浏览当前项目", "Browse current project");
         put("正在使用", "Active");
         put("切换", "Switch");
+        put("切换中…", "Switching…");
+        put("切换并重启", "Switch & restart");
         put("项目名需为 1 至 48 个字符，且不能包含路径符号",
                 "Use 1–48 characters and no path separators.");
         put("无法创建项目目录", "Could not create the project directory.");
@@ -57,6 +59,12 @@ public final class UiText {
                 "This controls the native tools. The DSH web language can be changed separately in web settings.");
 
         put("更新", "Updates");
+        put("更新完成", "Update complete");
+        put("更新失败", "Update failed");
+        put("检查失败", "Check failed");
+        put("未找到版本", "No release found");
+        put("已是最新", "Up to date");
+        put("准备安装", "Ready to install");
         put("插件", "Plugins");
         put("配置备份", "Configuration backup");
         put("订阅", "Subscription");
@@ -72,6 +80,7 @@ public final class UiText {
         put("保存", "Save");
         put("保存并重启", "Save & restart");
         put("保存中", "Saving");
+        put("保存失败", "Save failed");
         put("取消", "Cancel");
         put("关闭", "Close");
         put("确定", "OK");
@@ -81,15 +90,23 @@ public final class UiText {
         put("重启", "Restart");
         put("刷新", "Refresh");
         put("刷新中…", "Refreshing…");
+        put("刷新完成", "Refresh complete");
+        put("刷新失败", "Refresh failed");
         put("重新检测", "Run again");
         put("正在检测…", "Checking…");
+        put("检测完成", "Check complete");
+        put("发现问题", "Issues found");
         put("正在读取…", "Loading…");
         put("正在打开…", "Opening…");
         put("导出", "Export");
         put("导出中…", "Exporting…");
+        put("导出完成", "Export complete");
+        put("导出失败", "Export failed");
         put("恢复", "Restore");
         put("安装", "Install");
         put("安装中…", "Installing…");
+        put("安装完成", "Install complete");
+        put("安装失败", "Install failed");
         put("启用", "Enable");
         put("已启用", "Enabled");
         put("删除", "Delete");

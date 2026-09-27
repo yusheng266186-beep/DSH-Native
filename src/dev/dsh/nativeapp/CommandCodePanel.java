@@ -172,7 +172,9 @@ public final class CommandCodePanel {
                             @Override public void run() {
                                 if (closed[0]) return;      // 面板已关：视图已不存在
                                 if (my != gen[0]) return;   // 已被新一轮取代：旧数据不上屏
-                                DshUi.setBusy(refresh, "刷新", "刷新中…", false);
+                                boolean any = u.hasCredits || u.hasSubscription || u.hasUsage;
+                                DshUi.finishBusy(refresh, "刷新",
+                                        any ? "刷新完成" : "刷新失败", any);
                                 render(act, content, u, e1, e2, e3);
                             }
                         });

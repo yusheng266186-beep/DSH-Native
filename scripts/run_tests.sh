@@ -55,7 +55,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ReleaseChannel.java
      $JAVA_DIR/WebToolsEntry.java
      $JAVA_DIR/UiPolicy.java
-     $JAVA_DIR/OperationGate.java"
+     $JAVA_DIR/OperationGate.java
+     $JAVA_DIR/InteractionFeedback.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -79,7 +80,8 @@ TESTS="tests/FileListingTest.java
        tests/ReleaseChannelTest.java
        tests/WebToolsEntryTest.java
        tests/UiPolicyTest.java
-       tests/OperationGateTest.java"
+       tests/OperationGateTest.java
+       tests/InteractionFeedbackTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
@@ -96,7 +98,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -158,5 +160,17 @@ elif ! grep -q 'maintenanceGate.tryStart' "$MAIN_ACTIVITY" \
     rc=1
 else
     echo "  Phase4BExperienceWiring: maintenance gated / insets merged / splash stopped / back guarded"
+fi
+
+# 阶段四 C 接线回归：长任务必须有持续反馈，项目切换必须先收起
+# 原面板再展示精确的重启状态，按钮动效必须共用统一策略。
+if ! grep -q 'DshUi.taskProgress' "$MAIN_ACTIVITY" \
+        || ! grep -q 'finishShareTaskSubmission' "$MAIN_ACTIVITY" \
+        || ! grep -q 'origin.dismiss();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'InteractionFeedback.PRESSED_SCALE' "$JAVA_DIR/DshUi.java"; then
+    echo "  [FAIL] 阶段四 C 动效/持续反馈/项目切换接线不完整" >&2
+    rc=1
+else
+    echo "  Phase4CInteractionWiring: motion unified / progress persistent / switch visible"
 fi
 exit $rc

@@ -546,9 +546,9 @@ public final class TextEditor {
                 ui.post(new Runnable() {
                     @Override public void run() {
                         saving[0] = false;
-                        DshUi.setBusy(saveBtn, "保存", "保存中", false);
                         if (fail != null) {
                             // 失败时对话框保持打开：改动还在编辑器里，可以直接重试
+                            DshUi.finishBusy(saveBtn, "保存", "保存失败", false);
                             DshUi.toast(act, "保存失败: " + fail.getMessage());
                             return;
                         }

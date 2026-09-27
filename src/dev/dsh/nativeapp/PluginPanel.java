@@ -269,12 +269,13 @@ public final class PluginPanel {
                                 // 日志在上面那段里已经记过，排查不受影响。
                                 if (closed[0]) return;
                                 for (int i = 0; i < installButtons.size(); i++) {
-                                    DshUi.setBusy(installButtons.get(i), "安装", "安装中…", false);
+                                    DshUi.finishBusy(installButtons.get(i), "安装",
+                                            good ? "安装完成" : "安装失败", good);
                                 }
                                 hint.setText(msg + (good ? "　请在下方列表中勾选启用" : ""));
                                 if (good) {
                                     spec.setText("");
-                                    refresh[0].run();
+                                    ui.postDelayed(refresh[0], InteractionFeedback.RESULT_HOLD_MS);
                                 }
                                 DshUi.toast(act, msg);
                             }

@@ -4,7 +4,7 @@
 
 | 脚本 | 克隆里能跑吗 | 说明 |
 |---|---|---|
-| `run_tests.sh` | **能** | 708 项纯逻辑断言 + 12 项注入脚本 DOM 模拟，依赖 JDK 与 Node。接手第一步就跑这个 |
+| `run_tests.sh` | **能** | 740 项纯逻辑断言 + 12 项注入脚本 DOM 模拟，依赖 JDK 与 Node。接手第一步就跑这个 |
 | `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
 | `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
 | `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
@@ -55,7 +55,7 @@ DSH_BUILD_DIR=~/dsh-build bash scripts/build_bootstrap.sh
 
 ### `run_tests.sh`
 
-编译并运行 24 个纯逻辑测试类。这些类不依赖 Android，
+编译并运行 25 个纯逻辑测试类。这些类不依赖 Android，
 所以能在普通 JVM 上跑。构建流程的第 3.4 步会调用它，**失败即中止构建**。
 
 ### `build_bootstrap.sh`
