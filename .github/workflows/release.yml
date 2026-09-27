@@ -118,7 +118,14 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -q -m "演练：版本号 ${{ inputs.version }} [skip ci]"
+          # 允许对已经写入源码的目标版本重复演练。阶段候选通常会先把
+          # versionName/versionCode 合入 main，此时 bump_version 是合法的幂等操作，
+          # 不应因为 `git commit` 的“无改动”退出码误判演练失败。
+          if git diff --cached --quiet; then
+            echo "[演练] 版本号已经是目标值；使用当前 HEAD 验证推送权限"
+          else
+            git commit -q -m "演练：版本号 ${{ inputs.version }} [skip ci]"
+          fi
           git push --dry-run origin HEAD:main
           echo "[演练] 通过。真实发布时同样这一步会真正推送。"
 
