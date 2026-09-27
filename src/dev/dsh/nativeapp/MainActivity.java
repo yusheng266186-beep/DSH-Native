@@ -1784,6 +1784,9 @@ public class MainActivity extends Activity {
     private volatile String pendingSharedTaskPrompt;
     /** 分享任务的持续提交反馈，仅在主线程读写。 */
     private DshUi.TaskProgress shareSubmitProgress;
+    /** 仍在运行的分享导入面板，Activity 销毁时统一收回。 */
+    private final java.util.List<DshUi.TaskProgress> shareImportProgresses =
+            new java.util.ArrayList<DshUi.TaskProgress>();
     /** 提交反馈代次：超时回调不得关闭更新的提交。 */
     private int shareSubmitGeneration;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
@@ -6668,6 +6671,7 @@ public class MainActivity extends Activity {
                     UiText.t("准备接收 0 / " + totalItems + " 项",
                             "Preparing 0 / " + totalItems + " items"),
                     totalItems);
+            shareImportProgresses.add(importProgress);
             new Thread(new Runnable() {
                 @Override public void run() {
                     synchronized (SHARE_IMPORT_LOCK) {
@@ -6742,8 +6746,11 @@ public class MainActivity extends Activity {
                             saved + " saved, " + failed + " failed: " + firstFailure);
                     result = saved > 0 ? DshUi.RESULT_WARNING : DshUi.RESULT_ERROR;
                 }
-                progress.finish(summary, result, files.isEmpty() ? null : new Runnable() {
-                    @Override public void run() { offerSharedTask(files); }
+                progress.finish(summary, result, new Runnable() {
+                    @Override public void run() {
+                        shareImportProgresses.remove(progress);
+                        if (!files.isEmpty()) offerSharedTask(files);
+                    }
                 });
             }
         });
@@ -7040,6 +7047,8 @@ public class MainActivity extends Activity {
         shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
         if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
         shareSubmitProgress = null;
+        for (DshUi.TaskProgress progress : shareImportProgresses) progress.dismiss();
+        shareImportProgresses.clear();
         HarnessService.clearListener(harnessListener);
         super.onDestroy();
     }
