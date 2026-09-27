@@ -30,7 +30,7 @@ final class SessionStatus {
     static final int RUNNING = 1;
     /** 等待用户的批准。 */
     static final int AWAITING_APPROVAL = 2;
-    /** 状态未知：页面没加载完，或找不到任何判定依据。 */
+    /** 正在同步：页面没加载完，或暂时找不到任何判定依据。 */
     static final int UNKNOWN = 3;
 
     private SessionStatus() { }
@@ -65,7 +65,7 @@ final class SessionStatus {
             case RUNNING:           return "运行中";
             case AWAITING_APPROVAL: return "等待批准";
             case IDLE:              return "空闲";
-            default:                return "状态未知";
+            default:                return "同步中";
         }
     }
 
@@ -127,7 +127,7 @@ final class SessionStatus {
                 sb.append(networkOk ? "当前没有任务在运行" : "网络恢复后可直接继续");
                 break;
             default:
-                sb.append("正在获取状态…");
+                sb.append(networkOk ? "正在同步任务状态" : "等待网络恢复后同步状态");
                 break;
         }
         return sb.toString();
@@ -195,14 +195,9 @@ final class SessionStatus {
      * <p>只上报**状态变化**，不是每次都报 —— 否则控制台会被刷爆。
      */
     static String pollScript() {
-        // 只负责一件事：**检测待批准**。
-        //
-        // 运行/空闲状态不在这里判断 —— 它由 App 从 DSH 自己的
-        // /api/session/list 响应里读（那个接口是 RPC 式 POST，
-        // 注入脚本用 GET 调只会 404；实测 109 次 404 全是这么来的）。
-        //
-        // 审批是会话的「待处理交互」，会话列表里没有这个字段，
-        // 所以仍需从界面读 —— 但用**精确匹配 + 可见性**双重限制：
+        // 会话列表仍是运行/空闲的权威来源；DOM 是独立兜底，避免页面使用
+        // 相对 API 地址或请求格式变化时，常驻通知永远停在「同步中」。
+        // 三种判据都使用**精确匹配 + 可见性**双重限制：
         //   * 精确匹配：避免对话正文里出现这几个字就误判
         //   * 可见性：避免已处理的旧面板仍留在 DOM 里造成误判
         return "(function(){"
@@ -237,16 +232,41 @@ final class SessionStatus {
              + "    return false;"
              + "  }catch(e){return false;}"
              + "}"
+             + "var STOP=['停止生成','Stop generating'];"
+             + "var SEND=['发送消息','Send message'];"
              + "var APPR=['允许一次','Allow once','等待审批','Waiting for approval'];"
              + "function tick(){"
              + "  try{"
              + "    if(!document.body)return;"
-             + "    var a=exact(APPR)?'a':'-';"
-             + "    if(a!==last){last=a;console.log('[dsh-appr] '+a);}"
+             + "    var now='s='+(exact(STOP)?1:0)+' n='+(exact(SEND)?1:0)"
+             + "      +' p='+(exact(APPR)?1:0);"
+             + "    if(now!==last){last=now;console.log('[dsh-dom] '+now);}"
              + "  }catch(e){}"
              + "}"
              + "tick();setInterval(tick,2000);"
              + "})();";
+    }
+
+    /**
+     * 合并会话列表和页面 DOM 两份状态证据。
+     *
+     * <p>会话列表是运行/空闲的权威来源；页面证据只在列表暂时不可用时兜底。
+     * 等待批准始终优先，因为它需要用户动作。返回 -1 表示保持现状。
+     */
+    static int resolveSignals(int lastState,
+                              int sessionState, boolean sessionFresh,
+                              boolean sessionRecent,
+                              int domState, boolean domFresh) {
+        if (domFresh && domState == AWAITING_APPROVAL) return AWAITING_APPROVAL;
+        if (sessionFresh && (sessionState == RUNNING || sessionState == IDLE)) {
+            return sessionState;
+        }
+        if (domFresh && (domState == RUNNING || domState == IDLE)) {
+            return domState;
+        }
+        if (sessionRecent) return -1;
+        if (lastState == RUNNING || lastState == AWAITING_APPROVAL) return UNKNOWN;
+        return -1;
     }
 
     /**

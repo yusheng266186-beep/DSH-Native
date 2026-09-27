@@ -2537,8 +2537,8 @@ public class MainActivity extends Activity {
     /**
      * 注入状态采集脚本。
      *
-     * <p>审批读页面可见状态；运行/空闲由 {@link SessionProbe} 捕获并重放
-     * DSH 页面自己发出的会话列表 RPC，不再构造错误的 REST GET。
+     * <p>会话列表由 {@link SessionProbe} 捕获并重放；页面可见状态同时作为独立兜底，
+     * 避免 API 地址或请求格式变化时通知栏失去运行/空闲状态。
      *
      * <p>三个判据取自 DSH 客户端插件的 locale 字典，是稳定的文案：
      * 「停止生成」「发送消息」「等待审批」。
@@ -2700,9 +2700,10 @@ public class MainActivity extends Activity {
      *
      * <p>现在的规则：
      * <ol>
-     *   <li>任何一方说「在跑」就是在跑；</li>
-     *   <li>「空闲」必须有明确证据（全量会话列表，或 DOM 上确实只有发送按钮）；</li>
-     *   <li>完全没有新鲜证据时返回 -1 —— 保持上一次状态，不猜、也不降级。</li>
+     *   <li>等待批准优先，因为它需要用户动作；</li>
+     *   <li>新鲜会话列表是运行/空闲的权威证据；</li>
+     *   <li>列表暂不可用时，才用可见的停止/发送按钮兜底；</li>
+     *   <li>完全没有新鲜证据时保持现状，过久的运行态改为「同步中」。</li>
      * </ol>
      *
      * @return 推导出的状态；无新鲜证据时返回 -1
@@ -2710,33 +2711,10 @@ public class MainActivity extends Activity {
     private int deriveStatus(long now) {
         boolean domFresh = domSignalAt > 0 && now - domSignalAt <= SIGNAL_TTL_MS;
         boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
-
-        // 1) 等待批准优先级最高 —— 这是唯一仍然读页面的状态
-        if (domFresh && domSignalState == SessionStatus.AWAITING_APPROVAL) {
-            return SessionStatus.AWAITING_APPROVAL;
-        }
-        // 2) 运行 / 空闲**只认会话列表**（页面侧解析的完整 JSON）。
-        //
-        //    不再用页面上的「停止生成 / 发送消息」按钮推断运行状态：
-        //    那两个按钮的文案匹配一旦失效（换成图标、文案改字），就解析成
-        //    「无依据」；更糟的是**误命中时会把状态钉死** —— 实测过一次：
-        //    对话早已结束，通知栏却一直停在「运行中」。
-        //    按钮从此只保留一个用途：识别「等待批准」（见上一步）。
-        if (sessFresh) {
-            return sessSignalState == SessionStatus.RUNNING
-                    ? SessionStatus.RUNNING : SessionStatus.IDLE;
-        }
-        // 3) 刚过期不久：保持上一次状态，避免无谓抖动
-        if (sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS) {
-            return -1;
-        }
-        // 4) 长时间拿不到权威数据：宁可报「未知」，也不要把旧状态一直挂着。
-        //    「通知里显示错误的状态比不显示更糟」是项目的既有约定。
-        if (lastSessionStatus == SessionStatus.RUNNING
-                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-            return SessionStatus.UNKNOWN;
-        }
-        return -1;
+        boolean sessRecent = sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS;
+        return SessionStatus.resolveSignals(lastSessionStatus,
+                sessSignalState, sessFresh, sessRecent,
+                domSignalState, domFresh);
     }
 
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
@@ -3514,8 +3492,9 @@ public class MainActivity extends Activity {
         if (best == null) {
             log("版本清单获取失败（" + sources.length + " 个源均不可用）");
         } else if (ok > 1) {
-            log("版本清单: " + ReleaseChannel.label(updateChannelPreference())
-                    + "，从 " + ok + " 个源取得，采用最高版本 " + best[0]);
+            log("更新通道: " + ReleaseChannel.label(updateChannelPreference())
+                    + "（仅决定检查更新源，当前安装包 " + appVersion() + "）"
+                    + "；从 " + ok + " 个源取得，采用最高版本 " + best[0]);
         }
         return best;
     }
@@ -4507,7 +4486,8 @@ public class MainActivity extends Activity {
 
         body.addView(DshUi.sectionLabel(this, "更新通道"), DshUi.fullWidth(this, 18));
         body.addView(DshUi.hint(this,
-                "稳定版只接收正式发布；测试版可提前安装新功能，可能存在尚未真机验证的问题。"),
+                "此选项只决定检查哪个更新源，不代表当前安装包类型。稳定版只接收正式发布；"
+                        + "测试版可提前安装新功能。当前安装包：" + appVersion()),
                 DshUi.fullWidth(this, 5));
         final android.widget.LinearLayout channelRow = new android.widget.LinearLayout(this);
         channelRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -6409,7 +6389,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.26.0\n");
+            w.write("APK 版本: 0.26.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

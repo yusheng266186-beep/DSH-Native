@@ -19,6 +19,8 @@ async function main() {
   const replies = [
     { result: { value: { items: [{ running: true }, { running: false }] } } },
     { result: { value: { items: [{ running: false }] } } },
+    { result: { value: { sessions: [{ running: true }] } } },
+    { result: { value: { ok: true } } },
   ];
   const originalFetch = (url, init) => {
     calls.push({ url, init });
@@ -45,7 +47,8 @@ async function main() {
     throw new Error('expected one 5 second replay interval');
   }
 
-  await wrapped('/api/session/list', {
+  // DSH 当前真机日志使用没有前导斜杠的相对地址。
+  await wrapped('api/session/list', {
     method: 'POST',
     headers: { Accept: 'application/json' },
     body: JSON.stringify({ rpcId: 'initial', input: {} }),
@@ -60,12 +63,30 @@ async function main() {
   if (!String(replayBody.rpcId).startsWith('probe-')) throw new Error('rpcId was not refreshed');
   if (!messages.includes('[dsh-sess] r=0')) throw new Error('idle response not reported');
 
+  await wrapped('https://127.0.0.1/api/session/list?refresh=1', {
+    method: 'POST',
+    body: JSON.stringify({ rpcId: 'absolute', input: {} }),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  if (messages.filter((item) => item === '[dsh-sess] r=1').length !== 2) {
+    throw new Error('absolute URL or sessions response was not reported');
+  }
+
+  const idleBefore = messages.filter((item) => item === '[dsh-sess] r=0').length;
+  await wrapped('api/session/list', {
+    method: 'POST',
+    body: JSON.stringify({ rpcId: 'unknown-shape', input: {} }),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const idleAfter = messages.filter((item) => item === '[dsh-sess] r=0').length;
+  if (idleAfter !== idleBefore) throw new Error('unknown response shape became false idle');
+
   vm.runInNewContext(script, context);
   if (context.window.fetch !== wrapped || intervals.length !== 1) {
     throw new Error('repeat injection must stay idempotent');
   }
 
-  console.log('SessionProbeSimulation: 8 pass / 0 fail');
+  console.log('SessionProbeSimulation: 11 pass / 0 fail');
 }
 
 main().catch((error) => {

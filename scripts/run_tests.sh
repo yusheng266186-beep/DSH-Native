@@ -149,6 +149,23 @@ if command -v node >/dev/null 2>&1; then
     fi
 fi
 
+# DOM 状态兜底必须真实覆盖空闲、运行、待批准、无依据与重复注入。
+if command -v node >/dev/null 2>&1; then
+    SESSION_STATUS_JS="$OUT/session-status.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.SessionStatusTest --dump-script > "$SESSION_STATUS_JS"
+    if ! node --check "$SESSION_STATUS_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] SessionStatus JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/session-status-simulation.js "$SESSION_STATUS_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] SessionStatus DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
 # 原生接线回归：入口必须随页面加载注入，旧的 WebView 覆盖按钮不得回流，
 # 同时禁止为了打开设置而新增高权限 JavaScriptInterface。
 MAIN_ACTIVITY="$JAVA_DIR/MainActivity.java"

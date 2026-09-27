@@ -140,8 +140,16 @@ def validate_manifest(path: pathlib.Path, payload_tag: str, label: str) -> tuple
     return latest, errors
 
 
+def version_tuple(value: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", value)
+    if match is None:
+        raise ValueError(f"invalid semantic version: {value}")
+    return tuple(int(part) for part in match.groups())
+
+
 def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
-                      readme_path: pathlib.Path) -> list[str]:
+                      readme_path: pathlib.Path,
+                      allow_unpublished_source: bool = False) -> list[str]:
     errors: list[str] = []
     readme = readme_path.read_text(encoding="utf-8")
     version = source_version()
@@ -158,7 +166,11 @@ def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
         errors.append("MainActivity log version differs from source version")
     published_versions = {stable.get("version"), test.get("version")}
     if version not in published_versions:
-        errors.append("source version differs from both stable and test manifests")
+        published = [item for item in published_versions if isinstance(item, str)]
+        source_is_next = allow_unpublished_source and published \
+            and all(version_tuple(version) > version_tuple(item) for item in published)
+        if not source_is_next:
+            errors.append("source version differs from both stable and test manifests")
     stable_version = stable.get("version")
     if isinstance(stable_version, str) and f"**当前版本：{stable_version}**" not in readme:
         errors.append("README current version differs from stable manifest")
@@ -189,11 +201,14 @@ def main() -> int:
                         default=ROOT / "latest-test.json")
     parser.add_argument("--readme", type=pathlib.Path, default=ROOT / "README.md")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--allow-unpublished-source", action="store_true",
+                        help="allow a strictly newer source version for pull-request APKs")
     args = parser.parse_args()
 
     if args.check:
         stable_path = args.latest or ROOT / "latest.json"
-        errors = check_consistency(stable_path, args.test_latest, args.readme)
+        errors = check_consistency(stable_path, args.test_latest, args.readme,
+                                   args.allow_unpublished_source)
         if errors:
             for error in errors:
                 print(f"[FAIL] {error}", file=sys.stderr)
