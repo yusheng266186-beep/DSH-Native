@@ -53,7 +53,9 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ShareTask.java
      $JAVA_DIR/PluginPermissions.java
      $JAVA_DIR/ReleaseChannel.java
-     $JAVA_DIR/WebToolsEntry.java"
+     $JAVA_DIR/WebToolsEntry.java
+     $JAVA_DIR/UiPolicy.java
+     $JAVA_DIR/OperationGate.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -75,7 +77,9 @@ TESTS="tests/FileListingTest.java
        tests/ShareTaskTest.java
        tests/PluginPermissionsTest.java
        tests/ReleaseChannelTest.java
-       tests/WebToolsEntryTest.java"
+       tests/WebToolsEntryTest.java
+       tests/UiPolicyTest.java
+       tests/OperationGateTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
@@ -92,7 +96,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -140,5 +144,19 @@ elif ! grep -q 'installWebToolsEntry();' "$MAIN_ACTIVITY" \
     rc=1
 else
     echo "  WebToolsEntryWiring: overlay removed / injection wired / no JavascriptInterface"
+fi
+
+# 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并
+# 保留安全区，快速连按返回键不得绕过确认直接销毁 Activity。
+if grep -q 'super.onBackPressed();' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 返回确认仍可被连按绕过" >&2
+    rc=1
+elif ! grep -q 'maintenanceGate.tryStart' "$MAIN_ACTIVITY" \
+        || ! grep -q 'UiPolicy.mergedIme' "$MAIN_ACTIVITY" \
+        || ! grep -q 'stopSplashAnimation();' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 阶段四 B 交互/生命周期接线不完整" >&2
+    rc=1
+else
+    echo "  Phase4BExperienceWiring: maintenance gated / insets merged / splash stopped / back guarded"
 fi
 exit $rc

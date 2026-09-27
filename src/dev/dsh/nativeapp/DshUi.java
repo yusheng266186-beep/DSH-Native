@@ -120,7 +120,9 @@ public final class DshUi {
     public static int BTN_PRESS()   { return dark ? 0xFF353638 : 0xFFE8EAEE; }  // --dsw-alias-bg-layer-3
     public static int ACCENT()      { return dark ? 0xFF6B85FF : 0xFF4D6BFE; }  // 品牌蓝（深色下提亮）
     public static int ACCENT_DARK() { return dark ? 0xFF5A73F0 : 0xFF3D59E8; }  // 品牌蓝按下
-    public static int WARN()        { return dark ? 0xFFF59E0B : 0xFFB26A00; }  // 警示文字
+    public static int SUCCESS()     { return UiPolicy.success(dark); }           // 成功文字
+    public static int WARN()        { return UiPolicy.warning(dark); }           // 警示文字
+    public static int ERROR()       { return UiPolicy.error(dark); }             // 错误文字
     public static int TEXT()        { return dark ? 0xFFF9FAFB : 0xFF1F2329; }  // --dsw-alias-label-primary
     public static int TEXT_2()      { return dark ? 0xFFCFD3D6 : 0xFF6B7280; }  // --dsw-alias-label-secondary
     public static int TEXT_3()      { return dark ? 0xFFADB2B8 : 0xFF9CA3AF; }  // --dsw-alias-label-tertiary
@@ -131,6 +133,22 @@ public final class DshUi {
     // ---------------------------------------------------------------- 工具
     public static int dp(Context c, float v) {
         return (int) (v * c.getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /**
+     * 是否允许播放非必要动画。
+     *
+     * <p>遵循系统“动画程序时长缩放”：用户关闭动画时，原生外壳不再自行播放
+     * 对话框、列表和开屏动效。读取失败时保守地保留动画，不影响功能。</p>
+     */
+    public static boolean animationsEnabled(Context c) {
+        float scale = 1f;
+        try {
+            scale = android.provider.Settings.Global.getFloat(
+                    c.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
+        } catch (Throwable ignored) { }
+        return UiPolicy.animationsEnabled(scale);
     }
 
     private static GradientDrawable round(int fill, int strokeColor, float radiusPx, float strokePx) {
@@ -521,7 +539,8 @@ public final class DshUi {
             // 这是 App 里最高频的原生交互（设置页每次都要开），
             // 零过渡正是"原生层显得生硬"的主要来源。
             try {
-                w.getAttributes().windowAnimations = android.R.style.Animation_Dialog;
+                w.getAttributes().windowAnimations = animationsEnabled(c)
+                        ? android.R.style.Animation_Dialog : 0;
             } catch (Throwable ignored) { }
             int screenW = c.getResources().getDisplayMetrics().widthPixels;
             int screenH = c.getResources().getDisplayMetrics().heightPixels;

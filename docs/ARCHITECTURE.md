@@ -183,7 +183,10 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
 | `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
 | `ReleaseChannel` | 稳定/测试通道规则 | 8 |
-| | **合计** | **650** |
+| `WebToolsEntry` | WebUI 入口注入、语言与状态标记 | 19 |
+| `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
+| `OperationGate` | 维护任务互斥与并发竞争 | 12 |
+| | **合计** | **708** |
 
 ### 强制手段
 

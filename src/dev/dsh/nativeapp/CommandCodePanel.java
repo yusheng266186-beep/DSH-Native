@@ -62,10 +62,6 @@ public final class CommandCodePanel {
     private CommandCodePanel() { }
 
     /** 状态色：正常 / 注意 / 严重，与 DSH 的语义色一致。 */
-    private static final int OK = 0xFF1A7F37;
-    private static final int WARN = 0xFFB26A00;
-    private static final int DANGER = 0xFFD93025;
-
     /**
      * 打开面板。
      *
@@ -217,7 +213,7 @@ public final class CommandCodePanel {
             TextView st = new TextView(act);
             st.setText(CommandCodeUsage.statusLabel(u.status));
             st.setTextSize(12f);
-            st.setTextColor(u.alertLevel() == 0 ? OK : WARN);
+            st.setTextColor(u.alertLevel() == 0 ? DshUi.SUCCESS() : DshUi.WARN());
             st.setSingleLine(true);
             LinearLayout.LayoutParams stlp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -277,9 +273,9 @@ public final class CommandCodePanel {
                     DshUi.TEXT(), 13f);
             row(act, card, "成功率",
                     CommandCodeUsage.successText(u.successRate, u.requestCount, u.failedCount),
-                    u.failedCount > 0 ? WARN : DshUi.TEXT(), 13f);
+                    u.failedCount > 0 ? DshUi.WARN() : DshUi.TEXT(), 13f);
             if (u.failedCount > 0) {
-                row(act, card, "失败", String.valueOf(u.failedCount), WARN, 13f);
+                row(act, card, "失败", String.valueOf(u.failedCount), DshUi.WARN(), 13f);
             }
             row(act, card, "成本", CommandCodeUsage.money(u.totalCost), DshUi.TEXT(), 13f);
             row(act, card, "Token 总量", CommandCodeUsage.tokens(u.tokensTotal), DshUi.TEXT(), 13f);
@@ -410,7 +406,8 @@ public final class CommandCodePanel {
         v.setText(CommandCodeUsage.money(used) + " / " + CommandCodeUsage.money(cap)
                 + "　" + CommandCodeUsage.percentText(pct));
         v.setTextSize(11.5f);
-        v.setTextColor(exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.TEXT()));
+        v.setTextColor(exceeded ? DshUi.ERROR()
+                : (pct >= 80 ? DshUi.WARN() : DshUi.TEXT()));
         v.setTypeface(android.graphics.Typeface.MONOSPACE);
         v.setSingleLine(true);
         v.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -423,7 +420,8 @@ public final class CommandCodePanel {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // 进度条
-        Bar bar = new Bar(act, pct, exceeded ? DANGER : (pct >= 80 ? WARN : DshUi.ACCENT()));
+        Bar bar = new Bar(act, pct, exceeded ? DshUi.ERROR()
+                : (pct >= 80 ? DshUi.WARN() : DshUi.ACCENT()));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, DshUi.dp(act, 5));
         blp.topMargin = DshUi.dp(act, 6);
@@ -444,7 +442,8 @@ public final class CommandCodePanel {
     /** 进度条 + 下方说明（月度余额那块用）。 */
     private static void bar(Activity act, LinearLayout parent, double pct,
                             String caption, int level) {
-        Bar b = new Bar(act, pct, level == 2 ? DANGER : (level == 1 ? WARN : DshUi.ACCENT()));
+        Bar b = new Bar(act, pct, level == 2 ? DshUi.ERROR()
+                : (level == 1 ? DshUi.WARN() : DshUi.ACCENT()));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, DshUi.dp(act, 5));
         blp.topMargin = DshUi.dp(act, 2);

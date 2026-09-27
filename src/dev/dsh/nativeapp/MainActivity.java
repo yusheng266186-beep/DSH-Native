@@ -220,10 +220,17 @@ public class MainActivity extends Activity {
             public void onProgressChanged(WebView view, int newProgress) {
                 final android.widget.ProgressBar pb = topProgress;
                 if (pb == null) return;
+                // 上一次完成时的淡出可能还在跑。若不取消，新页面刚开始加载，
+                // 旧动画会继续把进度条淡掉，用户看不到这次导航的反馈。
+                pb.animate().cancel();
                 pb.setAlpha(1f);
                 pb.setProgress(newProgress);
                 if (newProgress >= 100) {
-                    pb.animate().alpha(0f).setDuration(260).start();
+                    if (DshUi.animationsEnabled(MainActivity.this)) {
+                        pb.animate().alpha(0f).setDuration(260).start();
+                    } else {
+                        pb.setAlpha(0f);
+                    }
                 }
             }
 
@@ -1697,6 +1704,13 @@ public class MainActivity extends Activity {
     }
 
     private android.widget.FrameLayout rootView;
+    /** 维护任务互斥：App 更新与运行包更新不可并行。 */
+    private final OperationGate maintenanceGate = new OperationGate();
+    /** WindowInsets 与可见窗口两条路径分别维护，应用时合并且保留左右安全区。 */
+    private int safeInsetLeft;
+    private int safeInsetRight;
+    private int imeInsetPadding;
+    private int imeFramePadding;
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
 
@@ -1737,12 +1751,16 @@ public class MainActivity extends Activity {
     /** 所有命名项目的共同根目录；默认工作区就是该目录本身。 */
     private volatile File workspaceRoot;
     private android.view.View splashView;
+    private android.widget.ImageView splashLogo;
+    private android.animation.ObjectAnimator splashAnimator;
     private android.widget.TextView splashStatus;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
     /** 当前页面未找到 WebUI 入口锚点时，只提示一次备用手势。 */
     private volatile boolean toolsEntryFallbackWarned;
     private volatile boolean splashHidden;
+    /** 防止快速连按返回键叠加多个确认框。 */
+    private android.app.Dialog exitDialog;
     /** 通知栏「设置」动作带的标记。 */
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
     /** 待处理的设置请求（界面未就绪时先记下，加载完成后打开）。 */
@@ -3497,6 +3515,21 @@ public class MainActivity extends Activity {
     /** 版本号比较：a>b 返回正，a<b 返回负。 */
     /** 检查 App 更新；interactive=true 时把结果显示在给定文本上/弹提示。 */
     private void checkAppUpdate(final boolean interactive, final android.widget.TextView status) {
+        checkAppUpdate(interactive, status, null);
+    }
+
+    private void checkAppUpdate(final boolean interactive,
+                                final android.widget.TextView status,
+                                final android.widget.Button button) {
+        if (!maintenanceGate.tryStart(OperationGate.APP_UPDATE)) {
+            String active = maintenanceGate.active();
+            String message = "已有维护任务正在进行："
+                    + (active == null ? "请稍候" : active);
+            setStatus(status, message);
+            if (interactive) toast(message);
+            return;
+        }
+        setMaintenanceBusy(button, "检查 App 更新并安装", "正在检查…", true);
         new Thread(new Runnable() {
             @Override public void run() {
                 setStatus(status, "正在检查更新…");
@@ -3566,6 +3599,10 @@ public class MainActivity extends Activity {
                     log("错误: 检查更新失败: " + t);
                     setStatus(status, "检查失败：" + shorten(t));
                     if (interactive) toast("检查更新失败");
+                } finally {
+                    maintenanceGate.finish(OperationGate.APP_UPDATE);
+                    setMaintenanceBusy(button, "检查 App 更新并安装",
+                            "正在检查…", false);
                 }
             }
         }).start();
@@ -3575,6 +3612,17 @@ public class MainActivity extends Activity {
         if (tv == null) return;
         runOnUiThread(new Runnable() {
             @Override public void run() { tv.setText(text); }
+        });
+    }
+
+    private void setMaintenanceBusy(final android.widget.Button button,
+                                    final String idle, final String busy,
+                                    final boolean on) {
+        if (button == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                DshUi.setBusy(button, idle, busy, on);
+            }
         });
     }
 
@@ -3715,7 +3763,18 @@ public class MainActivity extends Activity {
     }
 
     /** 手动更新运行包（重新走清单校验，然后重启 agent）。 */
-    private void updatePayloadNow(final android.widget.TextView status) {
+    private void updatePayloadNow(final android.widget.TextView status,
+                                  final android.widget.Button button) {
+        if (!maintenanceGate.tryStart(OperationGate.PAYLOAD_UPDATE)) {
+            String active = maintenanceGate.active();
+            String message = "已有维护任务正在进行："
+                    + (active == null ? "请稍候" : active);
+            setStatus(status, message);
+            toast(message);
+            return;
+        }
+        setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
+                "正在更新…", true);
         new Thread(new Runnable() {
             @Override public void run() {
                 payloadLastError = "";
@@ -3735,6 +3794,10 @@ public class MainActivity extends Activity {
                     log("错误: 更新运行包失败: " + t);
                     payloadLastError = shorten(t);
                     setStatus(status, "运行包更新失败，可再次点击重试：" + payloadLastError);
+                } finally {
+                    maintenanceGate.finish(OperationGate.PAYLOAD_UPDATE);
+                    setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
+                            "正在更新…", false);
                 }
             }
         }).start();
@@ -4415,19 +4478,19 @@ public class MainActivity extends Activity {
         fillUpdateChannelRow(channelRow, status);
         body.addView(channelRow, DshUi.fullWidth(this, 8));
 
-        android.widget.Button payload =
+        final android.widget.Button payload =
                 DshUi.button(this, "更新运行包（DSH / 工具链）", false);
         payload.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                log("用户点击: 更新运行包"); updatePayloadNow(status);
+                log("用户点击: 更新运行包"); updatePayloadNow(status, payload);
             }
         });
         body.addView(payload, DshUi.fullWidth(this, 12));
-        android.widget.Button app =
+        final android.widget.Button app =
                 DshUi.button(this, "检查 App 更新并安装", false);
         app.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                log("用户点击: 检查 App 更新"); checkAppUpdate(true, status);
+                log("用户点击: 检查 App 更新"); checkAppUpdate(true, status, app);
             }
         });
         body.addView(app, DshUi.fullWidth(this, 8));
@@ -4746,8 +4809,13 @@ public class MainActivity extends Activity {
         splashHidden = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                if (splashView != null) splashView.setVisibility(android.view.View.VISIBLE);
+                if (splashView != null) {
+                    splashView.clearAnimation();
+                    splashView.setAlpha(1f);
+                    splashView.setVisibility(android.view.View.VISIBLE);
+                }
                 if (splashStatus != null) splashStatus.setText("正在重启服务…");
+                startSplashAnimation();
             }
         });
         bootInBackground("重启");
@@ -4975,6 +5043,15 @@ public class MainActivity extends Activity {
      * 若 adjustResize 已生效，系统会把 IME 这块 inset 消耗掉，这里读到的
      * 只有导航栏高度 → 内边距为 0；反之则由这里兜住。
      */
+    private void applyRootInsets() {
+        if (rootView == null) return;
+        rootView.setPadding(
+                UiPolicy.safeSide(safeInsetLeft, 0),
+                statusBarHeight(),
+                UiPolicy.safeSide(safeInsetRight, 0),
+                UiPolicy.mergedIme(imeInsetPadding, imeFramePadding));
+    }
+
     private void installImeInsetHandler() {
         try {
             rootView.setOnApplyWindowInsetsListener(
@@ -4988,30 +5065,35 @@ public class MainActivity extends Activity {
                     try {
                         int bottom = insets.getSystemWindowInsetBottom();
                         int nav = navigationBarHeight();
-                        int pad = Math.max(0, bottom - nav);
-                        if (pad != lastPad) {
-                            lastPad = pad;
-                            log("键盘内边距 " + pad + "px（底部 inset=" + bottom
-                                    + ", 导航栏=" + nav + "）");
-                            // 左右内边距来自系统窗口 inset 与刘海安全区。
-                            // 横屏时刘海在侧面：不预留会挡内容，预留了又怕留黑边 ——
-                            // 两者必须同时处理，所以这里显式取最大值。
-                            int left = insets.getSystemWindowInsetLeft();
-                            int right = insets.getSystemWindowInsetRight();
-                            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                                android.view.DisplayCutout cut = insets.getDisplayCutout();
-                                if (cut != null) {
-                                    left = Math.max(left, cut.getSafeInsetLeft());
-                                    right = Math.max(right, cut.getSafeInsetRight());
-                                }
+                        int left = insets.getSystemWindowInsetLeft();
+                        int right = insets.getSystemWindowInsetRight();
+                        int cutoutLeft = 0;
+                        int cutoutRight = 0;
+                        if (android.os.Build.VERSION.SDK_INT >= 28) {
+                            android.view.DisplayCutout cut = insets.getDisplayCutout();
+                            if (cut != null) {
+                                cutoutLeft = cut.getSafeInsetLeft();
+                                cutoutRight = cut.getSafeInsetRight();
                             }
-                            if (left != lastLeft || right != lastRight) {
-                                lastLeft = left;
-                                lastRight = right;
-                                log("左右内边距 " + left + " / " + right + "px（刘海/导航栏）");
-                            }
-                            v.setPadding(left, statusBarHeight(), right, pad);
                         }
+                        safeInsetLeft = UiPolicy.safeSide(left, cutoutLeft);
+                        safeInsetRight = UiPolicy.safeSide(right, cutoutRight);
+                        imeInsetPadding = UiPolicy.imeFromInsets(bottom, nav);
+
+                        if (imeInsetPadding != lastPad) {
+                            lastPad = imeInsetPadding;
+                            log("键盘内边距 " + imeInsetPadding
+                                    + "px（底部 inset=" + bottom + ", 导航栏=" + nav + "）");
+                        }
+                        if (safeInsetLeft != lastLeft || safeInsetRight != lastRight) {
+                            lastLeft = safeInsetLeft;
+                            lastRight = safeInsetRight;
+                            log("左右内边距 " + safeInsetLeft + " / "
+                                    + safeInsetRight + "px（刘海/导航栏）");
+                        }
+                        // 无论变化的是底部还是左右安全区都重新应用，
+                        // 避免横竖屏时因键盘高度未变而保留旧侧边距。
+                        applyRootInsets();
                     } catch (Throwable t) {
                         log("inset 处理失败: " + t);
                     }
@@ -5023,8 +5105,8 @@ public class MainActivity extends Activity {
             log("警告: 无法注册 inset 监听: " + t);
         }
 
-        // 第二条路（更经典可靠）：比较窗口可见区域与根视图高度来推断键盘高度。
-        // 即使 inset 未派发（edge-to-edge 下可能发生），这条也能拿到数值。
+        // 可见窗口是第二条键盘探测路径。两者取较大值，但这里绝不
+        // 改写左右 padding，否则会在横屏键盘弹出时把刘海安全区清零。
         try {
             final android.view.View decor = getWindow().getDecorView();
             decor.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -5035,17 +5117,15 @@ public class MainActivity extends Activity {
                         android.graphics.Rect visible = new android.graphics.Rect();
                         decor.getWindowVisibleDisplayFrame(visible);
                         int screenH = decor.getRootView().getHeight();
-                        int hidden = screenH - visible.bottom;      // 被遮挡的高度
                         int nav = navigationBarHeight();
-                        int kb = hidden - nav;
-                        if (kb < 0) kb = 0;
-                        // 小于 15% 视为噪声（状态栏/导航栏抖动）
-                        if (kb < screenH * 0.15) kb = 0;
+                        int kb = UiPolicy.imeFromVisibleFrame(
+                                screenH, visible.bottom, nav);
                         if (kb != lastKb) {
                             lastKb = kb;
+                            imeFramePadding = kb;
                             log("键盘检测: 高 " + kb + "px（窗口 " + screenH
                                     + ", 可见底 " + visible.bottom + ", 导航栏 " + nav + "）");
-                            rootView.setPadding(0, statusBarHeight(), 0, kb);
+                            applyRootInsets();
                         }
                     } catch (Throwable ignored) { }
                 }
@@ -5093,6 +5173,7 @@ public class MainActivity extends Activity {
 
         // 鲸鱼标志
         android.widget.ImageView logo = new android.widget.ImageView(this);
+        splashLogo = logo;
         int id = getResources().getIdentifier(
                 "ic_launcher_foreground", "mipmap", getPackageName());
         if (id > 0) logo.setImageResource(id);
@@ -5101,22 +5182,6 @@ public class MainActivity extends Activity {
                 android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int boxSize = (int) (196 * d);          // 前景里鲸鱼约占 58%，故视图取得大些
         col.addView(logo, new android.widget.LinearLayout.LayoutParams(boxSize, boxSize));
-
-        // 呼吸动画：透明度 + 轻微缩放
-        try {
-            android.animation.PropertyValuesHolder a =
-                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
-            android.animation.PropertyValuesHolder sx =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
-            android.animation.PropertyValuesHolder sy =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
-            android.animation.ObjectAnimator anim =
-                    android.animation.ObjectAnimator.ofPropertyValuesHolder(logo, a, sx, sy);
-            anim.setDuration(1150);
-            anim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            anim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-            anim.start();
-        } catch (Throwable ignored) { }
 
         // 转圈
         android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
@@ -5156,7 +5221,45 @@ public class MainActivity extends Activity {
         // 默认不接收点击：正常启动时应由 onPageFinished 自动收起。
         // 只有启动失败时才挂上"点击查看日志"（见 boot 的 catch）。
         box.setClickable(false);
+        startSplashAnimation();
         return box;
+    }
+
+    /** 启动开屏呼吸动画；系统关闭动画时保持静态。 */
+    private void startSplashAnimation() {
+        stopSplashAnimation();
+        if (splashLogo == null || !DshUi.animationsEnabled(this)) return;
+        try {
+            android.animation.PropertyValuesHolder a =
+                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
+            android.animation.PropertyValuesHolder sx =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
+            android.animation.PropertyValuesHolder sy =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
+            splashAnimator = android.animation.ObjectAnimator.ofPropertyValuesHolder(
+                    splashLogo, a, sx, sy);
+            splashAnimator.setDuration(1150);
+            splashAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            splashAnimator.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            splashAnimator.start();
+        } catch (Throwable ignored) {
+            splashAnimator = null;
+        }
+    }
+
+    /** 取消无限动画并复位，避免开屏隐藏后继续消耗 CPU/GPU。 */
+    private void stopSplashAnimation() {
+        try {
+            if (splashAnimator != null) splashAnimator.cancel();
+        } catch (Throwable ignored) { }
+        splashAnimator = null;
+        try {
+            if (splashLogo != null) {
+                splashLogo.setAlpha(1f);
+                splashLogo.setScaleX(1f);
+                splashLogo.setScaleY(1f);
+            }
+        } catch (Throwable ignored) { }
     }
 
     /** 更新开屏文案（友好措辞，不暴露日志）。 */
@@ -5177,9 +5280,15 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 final android.view.View sv = splashView;
                 if (sv == null) return;
+                stopSplashAnimation();
                 // 立即停止接收触摸：即使动画因故未结束，也不会再挡住界面
                 sv.setClickable(false);
                 sv.setFocusable(false);
+                if (!DshUi.animationsEnabled(MainActivity.this)) {
+                    sv.clearAnimation();
+                    sv.setVisibility(android.view.View.GONE);
+                    return;
+                }
                 try {
                     android.view.animation.AlphaAnimation fade =
                             new android.view.animation.AlphaAnimation(1f, 0f);
@@ -6752,13 +6861,9 @@ public class MainActivity extends Activity {
      */
     @Override
     public void onBackPressed() {
-        // 已经退到后台（用户连按两次）就直接退，不再重复弹框
-        long now = System.currentTimeMillis();
-        if (now - lastBackPressed < 2000) {
-            super.onBackPressed();
-            return;
-        }
-        lastBackPressed = now;
+        // 快速连按只保留一个确认框。不能在第二次直接调用
+        // super.onBackPressed()：那会销毁 Activity，与“退到后台、保留会话”的文案矛盾。
+        if (exitDialog != null && exitDialog.isShowing()) return;
 
         android.widget.LinearLayout box = DshUi.paddedBody(this);
         box.addView(DshUi.title(this, "退出 DeepSeek Harness？"));
@@ -6769,6 +6874,12 @@ public class MainActivity extends Activity {
         android.widget.Button exit = DshUi.button(this, "退出", true);
         final android.app.Dialog d = DshUi.dialog(this, box,
                 DshUi.footer(this, cancel, exit), 360);
+        exitDialog = d;
+        d.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            @Override public void onDismiss(android.content.DialogInterface dialog) {
+                if (exitDialog == d) exitDialog = null;
+            }
+        });
         cancel.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) { d.dismiss(); }
         });
@@ -6783,11 +6894,10 @@ public class MainActivity extends Activity {
         d.show();
     }
 
-    /** 上一次按返回键的时间（用于「再按一次退出」与防止重复弹框）。 */
-    private long lastBackPressed;
-
     @Override
     protected void onDestroy() {
+        stopSplashAnimation();
+        exitDialog = null;
         HarnessService.clearListener(harnessListener);
         super.onDestroy();
     }

@@ -37,8 +37,9 @@
 | [docs/PHASE2-EXPERIENCE.md](docs/PHASE2-EXPERIENCE.md) | 阶段二用户体验、功能增强与真机验收清单 |
 | [docs/PHASE3-PRODUCT.md](docs/PHASE3-PRODUCT.md) | 阶段三移动端产品能力、发布通道与真机验收清单 |
 | [docs/PHASE4A-WEBUI-TOOLS.md](docs/PHASE4A-WEBUI-TOOLS.md) | 阶段四 A WebUI 工具入口迁移、风险与真机验收清单 |
+| [docs/PHASE4B-EXPERIENCE.md](docs/PHASE4B-EXPERIENCE.md) | 阶段四 B 交互稳定性、可访问性与真机验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 669 项纯逻辑断言及 12 项注入脚本 DOM 模拟，构建期强制执行。
+**测试**：`bash scripts/run_tests.sh` —— 708 项纯逻辑断言及 12 项注入脚本 DOM 模拟，构建期强制执行。
 
 **当前版本：0.25.8**（运行包 payload-v9）
 
@@ -248,7 +249,8 @@ Termux 的 `nodejs` 包是用 NDK r28 编译的 bionic 版本，解释器指向 
     ├── PHASE2-STATUS.md                 # Android 原生运行可行性实测记录（历史命名）
     ├── PHASE2-EXPERIENCE.md             # 阶段二体验改造与真机验收
     ├── PHASE3-PRODUCT.md                # 阶段三移动端产品能力与测试发布
-    └── PHASE4A-WEBUI-TOOLS.md           # 阶段四 A 工具入口迁移与真机验收
+    ├── PHASE4A-WEBUI-TOOLS.md           # 阶段四 A 工具入口迁移与真机验收
+    └── PHASE4B-EXPERIENCE.md            # 阶段四 B 交互稳定性与真机验收
 ```
 
 ### 为什么需要 `mkmanifest.py`

@@ -485,7 +485,7 @@ public final class NetworkDiag {
         val.setTextSize(11.5f);
         val.setTypeface(android.graphics.Typeface.MONOSPACE);
         // 失败用橙色标出：这是整页里唯一需要一眼找到的信息
-        val.setTextColor(value.contains("失败") ? 0xFFB26A00 : DshUi.TEXT());
+        val.setTextColor(value.contains("失败") ? DshUi.WARN() : DshUi.TEXT());
         val.setSingleLine(true);
         val.setEllipsize(android.text.TextUtils.TruncateAt.END);
         val.setGravity(Gravity.END);

@@ -764,7 +764,8 @@ public final class FileBrowser {
             // **只在行数少时开**：动画是逐行错开的，行数一多（> ANIM_ROW_LIMIT）
             // 光等动画就比渲染本身还慢。必须在 addView 之前设，否则本轮子 View
             // 拿不到动画参数。
-            if (listing.entries.size() <= ANIM_ROW_LIMIT) {
+            if (DshUi.animationsEnabled(act)
+                    && listing.entries.size() <= ANIM_ROW_LIMIT) {
                 // 必须显式 setDuration：程序创建的 Animation 时长默认是 **0**
                 // （Animation.mDuration 没有初值），时长 0 的动画会立刻结束 ——
                 // 于是"逐行淡入"退化成一次纯粹的瞬切，等于什么都没做。
