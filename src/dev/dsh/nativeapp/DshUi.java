@@ -64,6 +64,93 @@ public final class DshUi {
         }
     }
 
+    /**
+     * 对话框卡片在首次挂载时分层显现。
+     *
+     * <p>窗口级动画只能看到整块卡片移动，系统窗口合成较快时几乎无感。
+     * 这里再让标题、说明和操作区依次上移淡入，变化在真机上清晰可见，
+     * 但只使用合成属性，不触发布局或重新测量。</p>
+     */
+    private static final class MotionCard extends LinearLayout {
+        private boolean revealed;
+
+        MotionCard(Context c) {
+            super(c);
+            setOrientation(LinearLayout.VERTICAL);
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            if (revealed) return;
+            revealed = true;
+            if (!animationsEnabled(getContext())) return;
+
+            final java.util.ArrayList<View> targets = revealTargets();
+            final float[] finalAlpha = new float[targets.size()];
+            final float[] finalY = new float[targets.size()];
+            int offset = dp(getContext(), 10);
+            for (int i = 0; i < targets.size(); i++) {
+                View target = targets.get(i);
+                target.animate().cancel();
+                finalAlpha[i] = target.getAlpha();
+                finalY[i] = target.getTranslationY();
+                target.setAlpha(0f);
+                target.setTranslationY(finalY[i] + offset);
+            }
+            postOnAnimation(new Runnable() {
+                @Override public void run() {
+                    for (int i = 0; i < targets.size(); i++) {
+                        View target = targets.get(i);
+                        target.animate()
+                                .alpha(finalAlpha[i])
+                                .translationY(finalY[i])
+                                .setStartDelay(InteractionFeedback.revealDelay(i))
+                                .setDuration(InteractionFeedback.CONTENT_REVEAL_MS)
+                                .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                                .withLayer()
+                                .start();
+                    }
+                }
+            });
+        }
+
+        /** 标准内容逐项进入；超长或复杂内容只把容器作为一个整体处理。 */
+        private java.util.ArrayList<View> revealTargets() {
+            java.util.ArrayList<View> result = new java.util.ArrayList<View>();
+            if (getChildCount() == 0) return result;
+            View body = getChildAt(0);
+            View content = body;
+            if (body instanceof ScrollView) {
+                ScrollView scroll = (ScrollView) body;
+                if (scroll.getChildCount() > 0) content = scroll.getChildAt(0);
+            }
+            if (content instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) content;
+                int count = group.getChildCount();
+                if (count > 1 && count <= 12) {
+                    for (int i = 0; i < count; i++) {
+                        View child = group.getChildAt(i);
+                        if (child.getVisibility() == View.VISIBLE) result.add(child);
+                    }
+                }
+            }
+            if (result.isEmpty()) result.add(body);
+            if (getChildCount() > 1) {
+                View footer = getChildAt(1);
+                if (footer.getVisibility() == View.VISIBLE) result.add(footer);
+            }
+            return result;
+        }
+    }
+
+    /** 保存卡片引用，供同一设置流程中的前进/返回做短距离换页。 */
+    private static final class MotionDialog extends android.app.Dialog {
+        MotionCard card;
+        boolean leaving;
+
+        MotionDialog(Context c) { super(c); }
+    }
+
     // ---------------------------------------------------------------- 设计变量
     /**
      * 当前是否深色模式。
@@ -214,6 +301,21 @@ public final class DshUi {
         return s;
     }
 
+    /**
+     * 按钮表面：保留明确的按下色，并叠加圆角水波纹。
+     * 系统关闭动画时只返回静态状态背景，不强制播放装饰动效。
+     */
+    private static android.graphics.drawable.Drawable buttonSurface(
+            Context c, boolean primary) {
+        StateListDrawable content = buttonBg(c, primary);
+        if (android.os.Build.VERSION.SDK_INT < 21 || !animationsEnabled(c)) return content;
+        int ripple = primary ? 0x35FFFFFF : (dark ? 0x24FFFFFF : 0x18000000);
+        android.content.res.ColorStateList colors =
+                android.content.res.ColorStateList.valueOf(ripple);
+        GradientDrawable mask = round(0xFFFFFFFF, 0, dp(c, 10), 0);
+        return new android.graphics.drawable.RippleDrawable(colors, content, mask);
+    }
+
     // ---------------------------------------------------------------- 组件
     /** 对话框标题。 */
     public static TextView title(Context c, String text) {
@@ -282,14 +384,14 @@ public final class DshUi {
         return et;
     }
 
-    /** 按钮：圆角矩形，去 Material 阴影与水波纹。 */
+    /** 按钮：圆角矩形、统一按压深度与边界内水波纹。 */
     public static Button button(Context c, String text, boolean primary) {
         Button b = new LocalizedButton(c);
         b.setText(text);
         b.setTextSize(13.5f);
         b.setAllCaps(false);
         b.setTextColor(primary ? ON_ACCENT() : TEXT());
-        b.setBackground(buttonBg(c, primary));
+        b.setBackground(buttonSurface(c, primary));
         // 清掉主题可能附加的背景着色（backgroundTint）——
         // 否则 setBackground 设的颜色会被 tint 覆盖，
         // 导致「切回次按钮样式却仍显示主按钮色」这类不一致。
@@ -306,7 +408,7 @@ public final class DshUi {
     }
 
     /**
-     * 统一的按压反馈：70ms 轻微缩小，松手 110ms 回弹。
+     * 统一的按压反馈：85ms 下沉，松手 145ms 回弹。
      *
      * <p>只改变透明的视图变换，不触发重新布局；系统关闭动画时不安装。</p>
      */
@@ -351,8 +453,18 @@ public final class DshUi {
      */
     public static void setButtonActive(Button b, boolean primary) {
         if (b == null) return;
-        b.setBackground(buttonBg(b.getContext(), primary));
+        boolean changed = b.isSelected() != primary;
+        b.setBackground(buttonSurface(b.getContext(), primary));
         b.setTextColor(primary ? ON_ACCENT() : TEXT());
+        markToggleState(b, primary);
+        if (changed && animationsEnabled(b.getContext())) {
+            b.animate().cancel();
+            b.setAlpha(0.58f);
+            b.animate().alpha(1f)
+                    .setDuration(InteractionFeedback.CHOICE_CHANGE_MS)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+        }
     }
 
     /**
@@ -373,7 +485,39 @@ public final class DshUi {
         b.setIncludeFontPadding(false);
         b.setTextSize(13f);
         b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
+        markToggleState(b, primary);
         return b;
+    }
+
+    private static void markToggleState(Button b, boolean selected) {
+        b.setSelected(selected);
+        String state = UiText.t(selected ? "已选中" : "未选中",
+                selected ? "Selected" : "Not selected");
+        b.setContentDescription(String.valueOf(b.getText()) + ", " + state);
+    }
+
+    /** 离散选项确认：遵循系统触觉开关，只用于语言、缩放、通道这类选择。 */
+    public static void choiceActivated(View source) {
+        if (source == null) return;
+        try {
+            source.performHapticFeedback(
+                    android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+        } catch (Throwable ignored) { }
+    }
+
+    /** 选项组重建后做一次短促淡入上移，明确告诉用户选择已生效。 */
+    public static void animateChoiceChange(View group) {
+        if (group == null || !animationsEnabled(group.getContext())) return;
+        try {
+            group.animate().cancel();
+            group.setAlpha(0.55f);
+            group.setTranslationY(dp(group.getContext(), 4));
+            group.animate().alpha(1f).translationY(0f)
+                    .setDuration(InteractionFeedback.CHOICE_CHANGE_MS)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .withLayer()
+                    .start();
+        } catch (Throwable ignored) { }
     }
 
     /**
@@ -542,10 +686,11 @@ public final class DshUi {
 
     private static android.app.Dialog buildDialog(Context c, View body, View footer,
                                                   int maxHeightDp, boolean fillHeight) {
-        android.app.Dialog d = new android.app.Dialog(c);
+        MotionDialog d = new MotionDialog(c);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        LinearLayout card = column(c);
+        MotionCard card = new MotionCard(c);
+        d.card = card;
         card.setBackground(cardBg(c));
         // body 必须用 WRAP_CONTENT，**不能**用 0dp + weight=1：
         // 权重子视图在「未指定高度」下测量结果是 0，
@@ -610,6 +755,50 @@ public final class DshUi {
             w.setLayout(width, height);
         }
         return d;
+    }
+
+    /**
+     * 在同一设置流程中切换面板：当前卡片先短距离退出，再创建下一页。
+     * 连点只消费第一次；系统关闭动画时立即切换。
+     */
+    public static void swapDialog(final android.app.Dialog dialog,
+                                  final boolean backwards,
+                                  final Runnable next) {
+        if (dialog == null) {
+            if (next != null) next.run();
+            return;
+        }
+        if (!(dialog instanceof MotionDialog)
+                || !animationsEnabled(dialog.getContext())) {
+            try { dialog.dismiss(); } catch (Throwable ignored) { }
+            if (next != null) next.run();
+            return;
+        }
+        final MotionDialog motion = (MotionDialog) dialog;
+        if (motion.leaving || motion.card == null) return;
+        motion.leaving = true;
+        try {
+            MotionCard card = motion.card;
+            card.animate().cancel();
+            card.animate()
+                    .alpha(0f)
+                    .translationX(dp(card.getContext(), backwards ? 14 : -14))
+                    .setDuration(InteractionFeedback.DIALOG_SWAP_MS)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withLayer()
+                    .withEndAction(new Runnable() {
+                        @Override public void run() {
+                            try { dialog.dismiss(); } catch (Throwable ignored) { }
+                            if (next != null) {
+                                try { next.run(); } catch (Throwable ignored) { }
+                            }
+                        }
+                    })
+                    .start();
+        } catch (Throwable error) {
+            try { dialog.dismiss(); } catch (Throwable ignored) { }
+            if (next != null) next.run();
+        }
     }
 
     /** 把内容包进可滚动区域。 */
@@ -828,7 +1017,7 @@ public final class DshUi {
         if (b == null) return;
         nextButtonGeneration(b);
         b.setEnabled(!on);
-        b.setText(on ? busy : idle);
+        setButtonFeedbackText(b, on ? busy : idle);
     }
 
     /**
@@ -840,7 +1029,7 @@ public final class DshUi {
         if (b == null) return;
         final int generation = nextButtonGeneration(b);
         b.setEnabled(false);
-        b.setText(outcome);
+        setButtonFeedbackText(b, outcome);
         try {
             b.announceForAccessibility((success
                     ? UiText.t("成功：", "Success: ")
@@ -849,10 +1038,24 @@ public final class DshUi {
         b.postDelayed(new Runnable() {
             @Override public void run() {
                 if (!isButtonGenerationCurrent(b, generation)) return;
-                b.setText(idle);
                 b.setEnabled(true);
+                setButtonFeedbackText(b, idle);
             }
         }, InteractionFeedback.RESULT_HOLD_MS);
+    }
+
+    /** 忙碌、结果、复位文案短促淡入，避免状态只在文字上无声跳变。 */
+    private static void setButtonFeedbackText(Button b, CharSequence text) {
+        b.setText(text);
+        if (!animationsEnabled(b.getContext())) return;
+        try {
+            b.animate().cancel();
+            b.setAlpha(0.58f);
+            b.animate().alpha(1f)
+                    .setDuration(InteractionFeedback.CHOICE_CHANGE_MS)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                    .start();
+        } catch (Throwable ignored) { }
     }
 
     private static int nextButtonGeneration(Button b) {

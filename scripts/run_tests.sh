@@ -219,4 +219,15 @@ if ! grep -q 'DshUi.taskProgress' "$MAIN_ACTIVITY" \
 else
     echo "  Phase4CInteractionWiring: motion unified / progress persistent / switch visible"
 fi
+
+# 阶段四 F：动效必须真正在公共组件和设置导航中接线，不能只改一份未使用的资源。
+if ! grep -q 'class MotionCard' "$JAVA_DIR/DshUi.java" \
+        || ! grep -q 'RippleDrawable' "$JAVA_DIR/DshUi.java" \
+        || ! grep -q 'DshUi.swapDialog(dialog, false' "$MAIN_ACTIVITY" \
+        || ! grep -q 'DshUi.animateChoiceChange(row)' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 阶段四 F 分层进入/触摸反馈/面板换页接线不完整" >&2
+    rc=1
+else
+    echo "  Phase4FMotionWiring: layered reveal / bounded ripple / page swap / choice feedback"
+fi
 exit $rc

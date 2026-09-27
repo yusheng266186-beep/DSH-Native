@@ -742,16 +742,19 @@ public class MainActivity extends Activity {
         dialog.setCancelable(false);
         auto.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.AUTO); showFirstRunGuide();
             }
         });
         zh.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.ZH); showFirstRunGuide();
             }
         });
         en.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.EN); showFirstRunGuide();
             }
         });
@@ -1832,8 +1835,10 @@ public class MainActivity extends Activity {
             android.widget.Button b = DshUi.toggleButton(this, pct + "%", cur);
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     applyZoom(pct);
                     fillZoomRow(row);          // 重建 → 状态必然一致
+                    DshUi.animateChoiceChange(row);
                     toast("显示缩放已设为 " + pct + "%");
                 }
             });
@@ -4298,27 +4303,37 @@ public class MainActivity extends Activity {
             });
             account.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showAccountSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showAccountSettings(); }
+                    });
                 }
             });
             display.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDisplaySettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDisplaySettings(); }
+                    });
                 }
             });
             updates.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showUpdateSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showUpdateSettings(); }
+                    });
                 }
             });
             data.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDataSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDataSettings(); }
+                    });
                 }
             });
             diagnostics.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDiagnosticsSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDiagnosticsSettings(); }
+                    });
                 }
             });
             dialog.show();
@@ -4373,7 +4388,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back, save), 660);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         save.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4443,7 +4460,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back, apply), 560);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         apply.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4468,8 +4487,10 @@ public class MainActivity extends Activity {
                     value.equals(choice[0]));
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     choice[0] = value;
                     fillLanguageRow(row, choice);
+                    DshUi.animateChoiceChange(row);
                 }
             });
             addEqualButton(row, b, i == 0 ? 0 : 6);
@@ -4521,7 +4542,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back), 620);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -4539,8 +4562,10 @@ public class MainActivity extends Activity {
                     value.equals(current));
             button.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     setUpdateChannelPreference(value);
                     fillUpdateChannelRow(row, status);
+                    DshUi.animateChoiceChange(row);
                     setStatus(status, "已切换到" + ReleaseChannel.label(value)
                             + "，下次检查立即生效");
                 }
@@ -4584,10 +4609,7 @@ public class MainActivity extends Activity {
                 "当前：" + WorkspaceProjects.displayName(activeProjectName())
                         + "。每个项目使用独立工作目录，切换时会重启 agent。"),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button projects = DshUi.button(this, "管理项目", false);
-        projects.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showWorkspaceProjects(); }
-        });
+        final android.widget.Button projects = DshUi.button(this, "管理项目", false);
         body.addView(projects, DshUi.fullWidth(this, 8));
 
         body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
@@ -4651,9 +4673,24 @@ public class MainActivity extends Activity {
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, back), 650);
+        projects.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                File availableRoot = workspaceRoot != null
+                        ? workspaceRoot : resolveWorkspaceRoot();
+                if (availableRoot == null) {
+                    toast("工作区不可用");
+                    return;
+                }
+                DshUi.swapDialog(dialog, false, new Runnable() {
+                    @Override public void run() { showWorkspaceProjects(); }
+                });
+            }
+        });
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -4696,7 +4733,9 @@ public class MainActivity extends Activity {
         });
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showDataSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showDataSettings(); }
+                });
             }
         });
         create.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4815,7 +4854,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back), 560);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -6389,7 +6430,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.26.1\n");
+            w.write("APK 版本: 0.26.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
