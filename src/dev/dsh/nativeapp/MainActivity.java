@@ -280,9 +280,17 @@ public class MainActivity extends Activity {
                         log("会话恢复：已点击新建会话");
                         return true;
                     }
+                    if (WebToolsEntry.isReady(m)) {
+                        onWebToolsEntryReady();
+                        return true;
+                    }
+                    if (WebToolsEntry.isMissing(m)) {
+                        onWebToolsEntryMissing();
+                        return true;
+                    }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
-                        log("手势：长按顶部 → 打开设置");
+                        log("WebUI / 手势入口：打开工具与设置");
                         showSettings();
                         return true;
                     }
@@ -476,6 +484,7 @@ public class MainActivity extends Activity {
                 installFetchDiagnostics();
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
+                installWebToolsEntry();
                 // 注入完成后立刻推一次「正在获取状态」。
                 //
                 // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
@@ -561,26 +570,6 @@ public class MainActivity extends Activity {
         progressLp.topMargin = statusBarHeight();   // 状态栏透明，内容延伸上去
         root.addView(topProgress, progressLp);
 
-        // 全屏 WebView 原来只有“长按顶部”和通知栏两个隐藏入口。
-        // 通知被关闭后，设置、日志、更新、文件和备份会全部不可达。
-        // 这个小型悬浮入口始终可见，但只占右上角一小块，不改变网页布局。
-        quickToolsButton = DshUi.button(this, "工具", false);
-        quickToolsButton.setSingleLine(true);
-        quickToolsButton.setContentDescription(UiText.t("打开工具与设置", "Open tools and settings"));
-        quickToolsButton.setAlpha(0.92f);
-        try { quickToolsButton.setElevation(DshUi.dp(this, 3)); } catch (Throwable ignored) { }
-        quickToolsButton.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showSettings(); }
-        });
-        android.widget.FrameLayout.LayoutParams toolsLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        DshUi.dp(this, 76), DshUi.dp(this, 44));
-        toolsLp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
-        toolsLp.topMargin = DshUi.dp(this, 8);
-        toolsLp.rightMargin = DshUi.dp(this, 8);
-        root.addView(quickToolsButton, toolsLp);
-
-
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
         // 而不是滚动的日志行。加载完成后淡出。
         splashView = buildSplash();
@@ -664,11 +653,6 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString("uiLanguage", normalized).apply();
         UiText.configure(normalized, java.util.Locale.getDefault().getLanguage());
-        if (quickToolsButton != null) {
-            quickToolsButton.setText("工具");
-            quickToolsButton.setContentDescription(
-                    UiText.t("打开工具与设置", "Open tools and settings"));
-        }
     }
 
     /** Do not show a new onboarding screen to people upgrading an existing install. */
@@ -1756,8 +1740,8 @@ public class MainActivity extends Activity {
     private android.widget.TextView splashStatus;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
-    /** 全屏 WebView 上始终可见的工具入口。 */
-    private android.widget.Button quickToolsButton;
+    /** 当前页面未找到 WebUI 入口锚点时，只提示一次备用手势。 */
+    private volatile boolean toolsEntryFallbackWarned;
     private volatile boolean splashHidden;
     /** 通知栏「设置」动作带的标记。 */
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
@@ -2515,6 +2499,49 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("状态看板注入失败: " + t);
         }
+    }
+
+    /**
+     * 把原生工具入口放进 DSH 自己的侧边栏布局。
+     *
+     * <p>入口以 DSH 的「设置」按钮为语义锚点，克隆同一套行样式并参与正常布局，
+     * 不再使用覆盖 WebView 的悬浮 View。脚本仍只经控制台标记回传动作，避免向
+     * 页面暴露具有原生权限的 {@code JavascriptInterface}。</p>
+     */
+    private void installWebToolsEntry() {
+        try {
+            webView.evaluateJavascript(WebToolsEntry.script(), null);
+            log("已注入 WebUI 工具入口");
+        } catch (Throwable t) {
+            log("WebUI 工具入口注入失败: " + t);
+        }
+    }
+
+    /** 第一次确认入口成功时说明迁移位置；后续启动不再打扰。 */
+    private void onWebToolsEntryReady() {
+        log("WebUI 工具入口已挂载到 DSH 侧边栏");
+        try {
+            android.content.SharedPreferences prefs =
+                    getSharedPreferences(PREFS, MODE_PRIVATE);
+            if (!prefs.getBoolean("toolsEntryMigrationShown", false)) {
+                prefs.edit().putBoolean("toolsEntryMigrationShown", true).apply();
+                toast(UiText.t(
+                        "工具入口已移至 DSH 侧边栏底部",
+                        "App tools moved to the bottom of the DSH sidebar"));
+            }
+        } catch (Throwable t) {
+            log("记录工具入口迁移提示失败: " + t);
+        }
+    }
+
+    /** 锚点长期缺失时给出可操作的退路，但绝不恢复遮挡网页的悬浮按钮。 */
+    private void onWebToolsEntryMissing() {
+        log("警告: DSH 设置锚点未出现，WebUI 工具入口暂未挂载");
+        if (toolsEntryFallbackWarned) return;
+        toolsEntryFallbackWarned = true;
+        toast(UiText.t(
+                "工具入口暂未加载；可长按页面顶部 1.2 秒打开",
+                "App tools did not load. Long-press the page top for 1.2 seconds."));
     }
 
     /** 任务开始时间，用于在通知里显示运行时长。 */

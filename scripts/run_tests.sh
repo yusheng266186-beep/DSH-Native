@@ -52,7 +52,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/WorkspaceProjects.java
      $JAVA_DIR/ShareTask.java
      $JAVA_DIR/PluginPermissions.java
-     $JAVA_DIR/ReleaseChannel.java"
+     $JAVA_DIR/ReleaseChannel.java
+     $JAVA_DIR/WebToolsEntry.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -73,7 +74,8 @@ TESTS="tests/FileListingTest.java
        tests/WorkspaceProjectsTest.java
        tests/ShareTaskTest.java
        tests/PluginPermissionsTest.java
-       tests/ReleaseChannelTest.java"
+       tests/ReleaseChannelTest.java
+       tests/WebToolsEntryTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
@@ -90,7 +92,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -100,4 +102,43 @@ for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.d
         echo "  $name: $(echo "$out" | grep -a 'TOTAL' | tail -1)"
     fi
 done
+
+# WebUI 注入不仅要有字符串断言，还要真正经过 JavaScript 语法检查与最小 DOM 模拟。
+# GitHub runner 自带 Node；本地缺少 Node 时明确失败，避免这条验证静默跳过。
+if ! command -v node >/dev/null 2>&1; then
+    echo "  [FAIL] 找不到 node，无法验证 WebUI 工具入口脚本" >&2
+    rc=1
+else
+    WEB_TOOLS_JS="$OUT/web-tools-entry.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$WEB_TOOLS_JS"
+    if ! node --check "$WEB_TOOLS_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] WebToolsEntry JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/web-tools-entry-simulation.js "$WEB_TOOLS_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] WebToolsEntry DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# 原生接线回归：入口必须随页面加载注入，旧的 WebView 覆盖按钮不得回流，
+# 同时禁止为了打开设置而新增高权限 JavaScriptInterface。
+MAIN_ACTIVITY="$JAVA_DIR/MainActivity.java"
+if grep -q 'quickToolsButton' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 旧的悬浮工具按钮重新出现在 MainActivity" >&2
+    rc=1
+elif grep -q 'addJavascriptInterface' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] MainActivity 不得向 WebUI 暴露 JavascriptInterface" >&2
+    rc=1
+elif ! grep -q 'installWebToolsEntry();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebToolsEntry.isReady' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebToolsEntry.isMissing' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] WebUI 工具入口的页面加载或控制台接线不完整" >&2
+    rc=1
+else
+    echo "  WebToolsEntryWiring: overlay removed / injection wired / no JavascriptInterface"
+fi
 exit $rc
