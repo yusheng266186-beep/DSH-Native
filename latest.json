@@ -1,10 +1,11 @@
 {
-  "version": "0.25.8",
-  "tag": "v0.25.8-bootstrap",
+  "version": "0.26.0",
+  "tag": "v0.26.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v9",
-  "notes": "v0.25.8",
-  "apk_bytes": 35216418,
+  "notes": "阶段四 D：真机反馈修复与正式版收口",
+  "apk_bytes": 35257763,
   "payload_bytes": 122922215,
-  "sha256": "a73347b6ace6b5cfec7ed0b49f86ff3f1988e65c412172e36f56fbba5ef96335"
+  "sha256": "523f746a9ea8e00eb561f5fff65468ab80f33e798872630e9d2827124dc2d038",
+  "channel": "stable"
 }
