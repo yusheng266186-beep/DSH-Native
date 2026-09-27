@@ -217,15 +217,16 @@ public final class LogViewer {
                     sb.append(l.text).append('\n');
                     int end = sb.length();
                     if (l.level == LV_ERROR) {
-                        sb.setSpan(new ForegroundColorSpan(0xFFD93025), start, end,
+                        sb.setSpan(new ForegroundColorSpan(DshUi.ERROR()), start, end,
                                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                        sb.setSpan(new BackgroundColorSpan(0x14D93025), start, end,
+                        sb.setSpan(new BackgroundColorSpan(
+                                        UiPolicy.withAlpha(DshUi.ERROR(), 0x14)), start, end,
                                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     } else if (l.level == LV_WARN) {
-                        sb.setSpan(new ForegroundColorSpan(0xFFB26A00), start, end,
+                        sb.setSpan(new ForegroundColorSpan(DshUi.WARN()), start, end,
                                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     } else if (l.level == LV_OK) {
-                        sb.setSpan(new ForegroundColorSpan(0xFF1A7F37), start, end,
+                        sb.setSpan(new ForegroundColorSpan(DshUi.SUCCESS()), start, end,
                                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     }
                 }

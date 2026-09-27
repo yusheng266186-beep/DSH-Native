@@ -13,4 +13,9 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
+
+    <style name="DshDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/dsh_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/dsh_dialog_exit</item>
+    </style>
 </resources>

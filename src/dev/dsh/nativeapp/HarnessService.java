@@ -41,6 +41,8 @@ public class HarnessService extends Service {
      * 而常驻看板若做成高优先级会被用户直接关掉，那就什么都看不到了。
      */
     public static final String ALERT_CHANNEL_ID = "dsh_alerts";
+    /** 后台任务完成提醒：独立于低优先级常驻看板，允许系统发声或震动。 */
+    public static final String TASK_CHANNEL_ID = "dsh_task_complete";
     public static final int NOTIFICATION_ID = 0x4453;   // "DS"
     /** 提醒通知单独一个 id，避免覆盖掉常驻看板。 */
     public static final int ALERT_NOTIFICATION_ID = 0x4454;
@@ -224,8 +226,8 @@ public class HarnessService extends Service {
             // 在 MIUI 上表现为可见的闪烁。
             // 运行时长由系统计时器自己走、网络变化由系统回调驱动，
             // 所以「内容没变」是常态，不需要更新。
-            String sig = state + "|" + title + "|" + text
-                    + "|" + SessionStatus.useChronometer(state);
+            String sig = SessionStatus.notificationSignature(
+                    state, netOk, netLabel, since);
             if (sig.equals(lastNotificationSig)) return;
             lastNotificationSig = sig;
 
@@ -288,6 +290,9 @@ public class HarnessService extends Service {
         DshUi.ensureChannel(this, ALERT_CHANNEL_ID, "需要批准",
                 "DSH 等待你确认时提醒（其余状态不会打扰）",
                 android.app.NotificationManager.IMPORTANCE_HIGH);
+        DshUi.ensureChannel(this, TASK_CHANNEL_ID, "任务完成",
+                "DSH 在后台完成任务时提醒",
+                android.app.NotificationManager.IMPORTANCE_DEFAULT);
     }
 
     private Notification buildNotification(String text, String customTitle, boolean alert) {

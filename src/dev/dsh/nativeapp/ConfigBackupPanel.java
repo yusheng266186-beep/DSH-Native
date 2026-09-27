@@ -151,7 +151,8 @@ public final class ConfigBackupPanel {
                                 ui.post(new Runnable() {
                                     @Override public void run() {
                                         if (closed[0]) return;
-                                        DshUi.setBusy(export, "导出", "导出中…", false);
+                                        DshUi.finishBusy(export, "导出",
+                                                ok ? "导出完成" : "导出失败", ok);
                                         status.setText(result);
                                         DshUi.toast(act, ok ? "加密备份已保存" : result);
                                         if (ok) refresh[0].run();

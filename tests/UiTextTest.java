@@ -26,6 +26,10 @@ public class UiTextTest {
         UiText.configure("en", "zh");
         check("known label translated", "Settings".equals(UiText.text("设置")),
                 UiText.text("设置"));
+        check("busy result translated", "Install complete".equals(UiText.text("安装完成")),
+                UiText.text("安装完成"));
+        check("project progress translated", "Switching…".equals(UiText.text("切换中…")),
+                UiText.text("切换中…"));
         check("dynamic prefix translated",
                 "Current app version 1.2.3".equals(UiText.text("当前 App 版本 1.2.3")),
                 UiText.text("当前 App 版本 1.2.3"));

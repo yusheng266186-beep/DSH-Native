@@ -43,6 +43,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/PluginSpecs.java
      $JAVA_DIR/PayloadUpdate.java
      $JAVA_DIR/SessionStatus.java
+     $JAVA_DIR/SessionProbe.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
@@ -52,7 +53,11 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/WorkspaceProjects.java
      $JAVA_DIR/ShareTask.java
      $JAVA_DIR/PluginPermissions.java
-     $JAVA_DIR/ReleaseChannel.java"
+     $JAVA_DIR/ReleaseChannel.java
+     $JAVA_DIR/WebToolsEntry.java
+     $JAVA_DIR/UiPolicy.java
+     $JAVA_DIR/OperationGate.java
+     $JAVA_DIR/InteractionFeedback.java"
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -64,6 +69,7 @@ TESTS="tests/FileListingTest.java
        tests/PluginSpecsTest.java
        tests/PayloadUpdateTest.java
        tests/SessionStatusTest.java
+       tests/SessionProbeTest.java
        tests/SessionRecoveryTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
@@ -73,7 +79,11 @@ TESTS="tests/FileListingTest.java
        tests/WorkspaceProjectsTest.java
        tests/ShareTaskTest.java
        tests/PluginPermissionsTest.java
-       tests/ReleaseChannelTest.java"
+       tests/ReleaseChannelTest.java
+       tests/WebToolsEntryTest.java
+       tests/UiPolicyTest.java
+       tests/OperationGateTest.java
+       tests/InteractionFeedbackTest.java"
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
@@ -90,7 +100,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -100,4 +110,96 @@ for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.d
         echo "  $name: $(echo "$out" | grep -a 'TOTAL' | tail -1)"
     fi
 done
+
+# WebUI 注入不仅要有字符串断言，还要真正经过 JavaScript 语法检查与最小 DOM 模拟。
+# GitHub runner 自带 Node；本地缺少 Node 时明确失败，避免这条验证静默跳过。
+if ! command -v node >/dev/null 2>&1; then
+    echo "  [FAIL] 找不到 node，无法验证 WebUI 工具入口脚本" >&2
+    rc=1
+else
+    WEB_TOOLS_JS="$OUT/web-tools-entry.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$WEB_TOOLS_JS"
+    if ! node --check "$WEB_TOOLS_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] WebToolsEntry JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/web-tools-entry-simulation.js "$WEB_TOOLS_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] WebToolsEntry DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# 会话状态探针必须在真实 JavaScript 引擎里覆盖首次请求、重放、计数和幂等。
+if command -v node >/dev/null 2>&1; then
+    SESSION_PROBE_JS="$OUT/session-probe.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.SessionProbeTest --dump-script > "$SESSION_PROBE_JS"
+    if ! node --check "$SESSION_PROBE_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] SessionProbe JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/session-probe-simulation.js "$SESSION_PROBE_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] SessionProbe fetch 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# 原生接线回归：入口必须随页面加载注入，旧的 WebView 覆盖按钮不得回流，
+# 同时禁止为了打开设置而新增高权限 JavaScriptInterface。
+MAIN_ACTIVITY="$JAVA_DIR/MainActivity.java"
+if grep -q 'quickToolsButton' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 旧的悬浮工具按钮重新出现在 MainActivity" >&2
+    rc=1
+elif grep -q 'addJavascriptInterface' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] MainActivity 不得向 WebUI 暴露 JavascriptInterface" >&2
+    rc=1
+elif ! grep -q 'installWebToolsEntry();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebToolsEntry.isReady' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebToolsEntry.isMissing' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] WebUI 工具入口的页面加载或控制台接线不完整" >&2
+    rc=1
+else
+    echo "  WebToolsEntryWiring: overlay removed / injection wired / no JavascriptInterface"
+fi
+
+# 状态探针必须在页面开始阶段安装，避免 onPageFinished 之后才接管而错过首次会话请求。
+if ! grep -q 'installSessionProbe(view);' "$MAIN_ACTIVITY" \
+        || ! grep -q 'HarnessService.TASK_CHANNEL_ID' "$MAIN_ACTIVITY" \
+        || ! grep -q 'taskNotifier.startedAt()' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 状态计时或任务完成提醒接线不完整" >&2
+    rc=1
+else
+    echo "  SessionStatusWiring: early probe / stable timer / completion channel"
+fi
+
+# 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并
+# 保留安全区，快速连按返回键不得绕过确认直接销毁 Activity。
+if grep -q 'super.onBackPressed();' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 返回确认仍可被连按绕过" >&2
+    rc=1
+elif ! grep -q 'maintenanceGate.tryStart' "$MAIN_ACTIVITY" \
+        || ! grep -q 'UiPolicy.mergedIme' "$MAIN_ACTIVITY" \
+        || ! grep -q 'stopSplashAnimation();' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 阶段四 B 交互/生命周期接线不完整" >&2
+    rc=1
+else
+    echo "  Phase4BExperienceWiring: maintenance gated / insets merged / splash stopped / back guarded"
+fi
+
+# 阶段四 C 接线回归：长任务必须有持续反馈，项目切换必须先收起
+# 原面板再展示精确的重启状态，按钮动效必须共用统一策略。
+if ! grep -q 'DshUi.taskProgress' "$MAIN_ACTIVITY" \
+        || ! grep -q 'finishShareTaskSubmission' "$MAIN_ACTIVITY" \
+        || ! grep -q 'origin.dismiss();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'InteractionFeedback.PRESSED_SCALE' "$JAVA_DIR/DshUi.java"; then
+    echo "  [FAIL] 阶段四 C 动效/持续反馈/项目切换接线不完整" >&2
+    rc=1
+else
+    echo "  Phase4CInteractionWiring: motion unified / progress persistent / switch visible"
+fi
 exit $rc

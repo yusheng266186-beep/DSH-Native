@@ -6,9 +6,9 @@ package dev.dsh.nativeapp;
  * <p>要解决的问题：手机上把 App 切到后台后，**不知道 agent 什么时候做完**。
  * 长任务尤其如此 —— 回来时可能已经跑完很久，也可能还在跑。
  *
- * <p>数据来源：页面状态的变化（由 {@link SessionStatus} 采集）。
- * 早先的实现轮询 {@code /api/session/list} —— 实测该接口不存在，
- * DSH 的服务端 API 是自定义 RPC 而非 REST，所以那条链从未生效。
+ * <p>数据来源：页面状态的变化（由 {@link SessionProbe} 和
+ * {@link SessionStatus} 采集）。早先把 {@code /api/session/list} 当作普通
+ * REST GET 的实现会 404；当前重放的是页面实际发出的 RPC POST。
  *
  * <h3>为什么判定逻辑要单独抽出来</h3>
  * 「什么时候该通知」全是判断题，而且很容易做得烦人：任务跑 2 秒也弹一条、
@@ -71,6 +71,9 @@ final class TaskNotifier {
 
     /** 供测试与状态展示。 */
     boolean isRunning() { return running; }
+
+    /** 当前任务的稳定起始时间；未运行时为 0。 */
+    long startedAt() { return running ? startedAt : 0L; }
 
     /** 把毫秒时长变成人话：{@code 1 分 24 秒} / {@code 2 小时 3 分}。 */
     static String duration(long ms) {

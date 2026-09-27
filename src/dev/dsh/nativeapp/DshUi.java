@@ -78,6 +78,11 @@ public final class DshUi {
      */
     private static volatile boolean dark;
 
+    /** 按钮延迟恢复的代次：新任务开始后，旧结果不得重新启用按钮。 */
+    private static final Object BUTTON_FEEDBACK_LOCK = new Object();
+    private static final java.util.WeakHashMap<Button, Integer> BUTTON_GENERATIONS =
+            new java.util.WeakHashMap<Button, Integer>();
+
     /** 当前是否深色模式（供宿主决定系统栏图标明暗等）。 */
     public static boolean isDark() { return dark; }
 
@@ -120,7 +125,9 @@ public final class DshUi {
     public static int BTN_PRESS()   { return dark ? 0xFF353638 : 0xFFE8EAEE; }  // --dsw-alias-bg-layer-3
     public static int ACCENT()      { return dark ? 0xFF6B85FF : 0xFF4D6BFE; }  // 品牌蓝（深色下提亮）
     public static int ACCENT_DARK() { return dark ? 0xFF5A73F0 : 0xFF3D59E8; }  // 品牌蓝按下
-    public static int WARN()        { return dark ? 0xFFF59E0B : 0xFFB26A00; }  // 警示文字
+    public static int SUCCESS()     { return UiPolicy.success(dark); }           // 成功文字
+    public static int WARN()        { return UiPolicy.warning(dark); }           // 警示文字
+    public static int ERROR()       { return UiPolicy.error(dark); }             // 错误文字
     public static int TEXT()        { return dark ? 0xFFF9FAFB : 0xFF1F2329; }  // --dsw-alias-label-primary
     public static int TEXT_2()      { return dark ? 0xFFCFD3D6 : 0xFF6B7280; }  // --dsw-alias-label-secondary
     public static int TEXT_3()      { return dark ? 0xFFADB2B8 : 0xFF9CA3AF; }  // --dsw-alias-label-tertiary
@@ -131,6 +138,22 @@ public final class DshUi {
     // ---------------------------------------------------------------- 工具
     public static int dp(Context c, float v) {
         return (int) (v * c.getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    /**
+     * 是否允许播放非必要动画。
+     *
+     * <p>遵循系统“动画程序时长缩放”：用户关闭动画时，原生外壳不再自行播放
+     * 对话框、列表和开屏动效。读取失败时保守地保留动画，不影响功能。</p>
+     */
+    public static boolean animationsEnabled(Context c) {
+        float scale = 1f;
+        try {
+            scale = android.provider.Settings.Global.getFloat(
+                    c.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
+        } catch (Throwable ignored) { }
+        return UiPolicy.animationsEnabled(scale);
     }
 
     private static GradientDrawable round(int fill, int strokeColor, float radiusPx, float strokePx) {
@@ -278,10 +301,45 @@ public final class DshUi {
         //   但清完要设回一个合理的下限，而不是放任成 0。）
         b.setMinimumHeight(dp(c, 44));
         b.setMinimumWidth(0);
-        try {
-            b.setStateListAnimator(null);      // 去掉 Material 的抬升动画
-        } catch (Throwable ignored) { }
+        installButtonMotion(b);
         return b;
+    }
+
+    /**
+     * 统一的按压反馈：70ms 轻微缩小，松手 110ms 回弹。
+     *
+     * <p>只改变透明的视图变换，不触发重新布局；系统关闭动画时不安装。</p>
+     */
+    private static void installButtonMotion(Button b) {
+        try {
+            b.setStateListAnimator(null);      // 先去掉 Material 的抬升动画
+            b.setScaleX(1f);
+            b.setScaleY(1f);
+            if (!animationsEnabled(b.getContext())) return;
+
+            android.animation.StateListAnimator states =
+                    new android.animation.StateListAnimator();
+            states.addState(new int[]{ android.R.attr.state_pressed,
+                            android.R.attr.state_enabled },
+                    scaleAnimator(b, InteractionFeedback.PRESSED_SCALE,
+                            InteractionFeedback.BUTTON_PRESS_MS));
+            states.addState(new int[]{}, scaleAnimator(b, 1f,
+                    InteractionFeedback.BUTTON_RELEASE_MS));
+            b.setStateListAnimator(states);
+        } catch (Throwable ignored) { }
+    }
+
+    private static android.animation.Animator scaleAnimator(
+            View view, float target, int durationMs) {
+        android.animation.ObjectAnimator x = android.animation.ObjectAnimator.ofFloat(
+                view, "scaleX", target);
+        android.animation.ObjectAnimator y = android.animation.ObjectAnimator.ofFloat(
+                view, "scaleY", target);
+        android.animation.AnimatorSet set = new android.animation.AnimatorSet();
+        set.playTogether(x, y);
+        set.setDuration(durationMs);
+        set.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        return set;
     }
 
     /** 撑满宽度的按钮布局参数。 */
@@ -521,7 +579,11 @@ public final class DshUi {
             // 这是 App 里最高频的原生交互（设置页每次都要开），
             // 零过渡正是"原生层显得生硬"的主要来源。
             try {
-                w.getAttributes().windowAnimations = android.R.style.Animation_Dialog;
+                int custom = c.getResources().getIdentifier(
+                        "DshDialogAnimation", "style", c.getPackageName());
+                int animation = InteractionFeedback.dialogAnimationStyle(
+                        animationsEnabled(c), custom, android.R.style.Animation_Dialog);
+                w.setWindowAnimations(animation);
             } catch (Throwable ignored) { }
             int screenW = c.getResources().getDisplayMetrics().widthPixels;
             int screenH = c.getResources().getDisplayMetrics().heightPixels;
@@ -599,6 +661,110 @@ public final class DshUi {
     }
 
     // ---------------------------------------------------------------- 交互辅助
+    public static final int RESULT_ERROR = -1;
+    public static final int RESULT_WARNING = 0;
+    public static final int RESULT_SUCCESS = 1;
+
+    /**
+     * 持续任务反馈：标题、实时状态和可选的确定进度条。
+     *
+     * <p>用于分享导入与提交这类跨越数百毫秒的任务，避免只弹一个
+     * Toast 后长时间没有上下文。界面仍全部由 DshUi 构建。</p>
+     */
+    public static final class TaskProgress {
+        private final android.app.Dialog dialog;
+        private final TextView message;
+        private final android.widget.ProgressBar progress;
+        private final int total;
+        private boolean finished;
+        private Runnable finishAction;
+
+        private TaskProgress(android.app.Dialog dialog, TextView message,
+                             android.widget.ProgressBar progress, int total) {
+            this.dialog = dialog;
+            this.message = message;
+            this.progress = progress;
+            this.total = Math.max(0, total);
+        }
+
+        public void update(CharSequence text, int completed) {
+            if (finished) return;
+            if (text != null) message.setText(text);
+            if (progress != null && total > 0) {
+                progress.setProgress(InteractionFeedback.progress(completed, total));
+            }
+        }
+
+        public void finish(CharSequence text, int result, final Runnable after) {
+            if (finished) return;
+            finished = true;
+            if (progress != null) progress.setVisibility(View.GONE);
+            if (text != null) message.setText(text);
+            message.setTextColor(result > 0 ? SUCCESS()
+                    : (result < 0 ? ERROR() : WARN()));
+            if (text != null) {
+                try { message.announceForAccessibility(text); } catch (Throwable ignored) { }
+            }
+            finishAction = new Runnable() {
+                @Override public void run() {
+                    finishAction = null;
+                    try { dialog.dismiss(); } catch (Throwable ignored) { }
+                    if (after != null) {
+                        try { after.run(); } catch (Throwable ignored) { }
+                    }
+                }
+            };
+            message.postDelayed(finishAction, InteractionFeedback.RESULT_HOLD_MS);
+        }
+
+        public void dismiss() {
+            finished = true;
+            if (finishAction != null) message.removeCallbacks(finishAction);
+            finishAction = null;
+            try { dialog.dismiss(); } catch (Throwable ignored) { }
+        }
+
+        public boolean isShowing() {
+            try { return dialog.isShowing(); }
+            catch (Throwable ignored) { return false; }
+        }
+    }
+
+    /** 显示不可误关的任务进度面板；total <= 0 时使用不确定进度。 */
+    public static TaskProgress taskProgress(Context c, String title,
+                                            String initialMessage, int total) {
+        LinearLayout body = paddedBody(c);
+        body.addView(DshUi.title(c, title));
+        TextView status = DshUi.status(c, initialMessage);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        body.addView(status, fullWidth(c, 10));
+
+        boolean determinate = total > 0;
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(c, null,
+                determinate ? android.R.attr.progressBarStyleHorizontal
+                        : android.R.attr.progressBarStyle);
+        if (determinate) {
+            bar.setIndeterminate(false);
+            bar.setMax(total);
+            bar.setProgress(0);
+        }
+        try {
+            android.graphics.drawable.Drawable drawable = determinate
+                    ? bar.getProgressDrawable() : bar.getIndeterminateDrawable();
+            drawable.setColorFilter(ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
+        } catch (Throwable ignored) { }
+        LinearLayout.LayoutParams progressLp = fullWidth(c, 14);
+        if (determinate) progressLp.height = Math.max(dp(c, 4), 4);
+        body.addView(bar, progressLp);
+
+        android.app.Dialog dialog = DshUi.dialog(c, body, null, 260);
+        dialog.setCancelable(false);
+        dialog.setCanceledOnTouchOutside(false);
+        TaskProgress out = new TaskProgress(dialog, status, bar, total);
+        try { dialog.show(); } catch (Throwable ignored) { }
+        return out;
+    }
+
     /**
      * 危险操作的二次确认。
      *
@@ -660,7 +826,49 @@ public final class DshUi {
      */
     public static void setBusy(Button b, CharSequence idle, CharSequence busy, boolean on) {
         if (b == null) return;
+        nextButtonGeneration(b);
         b.setEnabled(!on);
         b.setText(on ? busy : idle);
+    }
+
+    /**
+     * 长任务结束后先在按钮上保留一小段可见结果，再恢复默认文案。
+     * 代次检查保证旧的延迟回调不会打断新任务。
+     */
+    public static void finishBusy(final Button b, final CharSequence idle,
+                                  CharSequence outcome, boolean success) {
+        if (b == null) return;
+        final int generation = nextButtonGeneration(b);
+        b.setEnabled(false);
+        b.setText(outcome);
+        try {
+            b.announceForAccessibility((success
+                    ? UiText.t("成功：", "Success: ")
+                    : UiText.t("失败：", "Failed: ")) + outcome);
+        } catch (Throwable ignored) { }
+        b.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!isButtonGenerationCurrent(b, generation)) return;
+                b.setText(idle);
+                b.setEnabled(true);
+            }
+        }, InteractionFeedback.RESULT_HOLD_MS);
+    }
+
+    private static int nextButtonGeneration(Button b) {
+        synchronized (BUTTON_FEEDBACK_LOCK) {
+            Integer old = BUTTON_GENERATIONS.get(b);
+            int next = InteractionFeedback.nextGeneration(old == null ? 0 : old);
+            BUTTON_GENERATIONS.put(b, next);
+            return next;
+        }
+    }
+
+    private static boolean isButtonGenerationCurrent(Button b, int expected) {
+        synchronized (BUTTON_FEEDBACK_LOCK) {
+            Integer current = BUTTON_GENERATIONS.get(b);
+            return current != null
+                    && InteractionFeedback.isCurrent(expected, current);
+        }
     }
 }

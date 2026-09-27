@@ -220,10 +220,17 @@ public class MainActivity extends Activity {
             public void onProgressChanged(WebView view, int newProgress) {
                 final android.widget.ProgressBar pb = topProgress;
                 if (pb == null) return;
+                // 上一次完成时的淡出可能还在跑。若不取消，新页面刚开始加载，
+                // 旧动画会继续把进度条淡掉，用户看不到这次导航的反馈。
+                pb.animate().cancel();
                 pb.setAlpha(1f);
                 pb.setProgress(newProgress);
                 if (newProgress >= 100) {
-                    pb.animate().alpha(0f).setDuration(260).start();
+                    if (DshUi.animationsEnabled(MainActivity.this)) {
+                        pb.animate().alpha(0f).setDuration(260).start();
+                    } else {
+                        pb.setAlpha(0f);
+                    }
                 }
             }
 
@@ -280,26 +287,42 @@ public class MainActivity extends Activity {
                         log("会话恢复：已点击新建会话");
                         return true;
                     }
+                    if (WebToolsEntry.isReady(m)) {
+                        onWebToolsEntryReady();
+                        return true;
+                    }
+                    if (WebToolsEntry.isMissing(m)) {
+                        onWebToolsEntryMissing();
+                        return true;
+                    }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
-                        log("手势：长按顶部 → 打开设置");
+                        log("WebUI / 手势入口：打开工具与设置");
                         showSettings();
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
                         log("分享任务已提交到 DSH");
-                        toast("分享内容已创建任务");
+                        finishShareTaskSubmission(
+                                UiText.t("分享任务已提交", "Shared task submitted"),
+                                DshUi.RESULT_SUCCESS);
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-prefilled") >= 0) {
                         log("分享任务已填入编辑器，发送按钮暂不可用");
-                        toast("任务已填入，请确认后发送");
+                        finishShareTaskSubmission(
+                                UiText.t("任务已填入，请确认后发送",
+                                        "Task filled in. Review and send it."),
+                                DshUi.RESULT_WARNING);
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-editor-not-found") >= 0
                             || m.indexOf("[dsh-native] share-task-error") >= 0) {
                         log("分享任务无法自动提交: " + m);
-                        toast("文件已保存，但未找到任务输入框");
+                        finishShareTaskSubmission(
+                                UiText.t("文件已保存，但未找到任务输入框",
+                                        "Files saved, but the task editor was not found."),
+                                DshUi.RESULT_ERROR);
                         return true;
                     }
                     // 网页主题上报：原生跟着 DSH 自己的主题走，
@@ -427,6 +450,12 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 try {
+                    // 会话列表的首次请求通常发生在 onPageFinished 之前。
+                    // 在这里先接管 fetch，才能可靠获得任务开始时间与结束状态。
+                    if (url != null && url.indexOf("127.0.0.1") >= 0) {
+                        view.setInitialScale(0);
+                        installSessionProbe(view);
+                    }
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
                 } catch (Throwable ignored) { }
             }
@@ -474,15 +503,20 @@ public class MainActivity extends Activity {
                 // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
+                installSessionProbe(view);
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
-                // 注入完成后立刻推一次「正在获取状态」。
+                installWebToolsEntry();
+                // 首次探针还没有给出真实状态时，推一次「正在获取状态」。
                 //
                 // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
                 // 实测过一次：App 更新后服务被重建，占位文案「正在运行」就那么
                 // 一直显示着，而对话早已结束。
-                // 第一条真实状态最多 5 秒后到达（脚本会定时重放会话列表请求）。
-                pushStatus(SessionStatus.UNKNOWN);
+                // 探针现在嵌入 index.html，真实状态可能已经在 onPageFinished 前到达；
+                // 此时绝不能再用 UNKNOWN 把它覆盖掉。
+                if (lastSessionStatus == SessionStatus.UNKNOWN) {
+                    pushStatus(SessionStatus.UNKNOWN);
+                }
                 final String sharedPrompt = pendingSharedTaskPrompt;
                 if (sharedPrompt != null) {
                     pendingSharedTaskPrompt = null;
@@ -560,26 +594,6 @@ public class MainActivity extends Activity {
         progressLp.gravity = android.view.Gravity.TOP;
         progressLp.topMargin = statusBarHeight();   // 状态栏透明，内容延伸上去
         root.addView(topProgress, progressLp);
-
-        // 全屏 WebView 原来只有“长按顶部”和通知栏两个隐藏入口。
-        // 通知被关闭后，设置、日志、更新、文件和备份会全部不可达。
-        // 这个小型悬浮入口始终可见，但只占右上角一小块，不改变网页布局。
-        quickToolsButton = DshUi.button(this, "工具", false);
-        quickToolsButton.setSingleLine(true);
-        quickToolsButton.setContentDescription(UiText.t("打开工具与设置", "Open tools and settings"));
-        quickToolsButton.setAlpha(0.92f);
-        try { quickToolsButton.setElevation(DshUi.dp(this, 3)); } catch (Throwable ignored) { }
-        quickToolsButton.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showSettings(); }
-        });
-        android.widget.FrameLayout.LayoutParams toolsLp =
-                new android.widget.FrameLayout.LayoutParams(
-                        DshUi.dp(this, 76), DshUi.dp(this, 44));
-        toolsLp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
-        toolsLp.topMargin = DshUi.dp(this, 8);
-        toolsLp.rightMargin = DshUi.dp(this, 8);
-        root.addView(quickToolsButton, toolsLp);
-
 
         // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
         // 而不是滚动的日志行。加载完成后淡出。
@@ -664,11 +678,6 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString("uiLanguage", normalized).apply();
         UiText.configure(normalized, java.util.Locale.getDefault().getLanguage());
-        if (quickToolsButton != null) {
-            quickToolsButton.setText("工具");
-            quickToolsButton.setContentDescription(
-                    UiText.t("打开工具与设置", "Open tools and settings"));
-        }
     }
 
     /** Do not show a new onboarding screen to people upgrading an existing install. */
@@ -1179,6 +1188,9 @@ public class MainActivity extends Activity {
         statusPageLoading = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
+                // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
+                // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
+                webView.setInitialScale(0);
                 webView.loadUrl(target);
                 // 复用已有实例时，开屏要在加载完成后收起；
                 // 这里先排一个兜底，避免任何情况下被永久挡住
@@ -1713,10 +1725,17 @@ public class MainActivity extends Activity {
     }
 
     private android.widget.FrameLayout rootView;
+    /** 维护任务互斥：App 更新与运行包更新不可并行。 */
+    private final OperationGate maintenanceGate = new OperationGate();
+    /** WindowInsets 与可见窗口两条路径分别维护，应用时合并且保留左右安全区。 */
+    private int safeInsetLeft;
+    private int safeInsetRight;
+    private int imeInsetPadding;
+    private int imeFramePadding;
     /** App 私有根目录，供设置页读写配置。 */
     private volatile File appRoot;
 
-    /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里，有 33 项测试）。 */
+    /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里并由离线测试覆盖）。 */
     private final TaskNotifier taskNotifier = new TaskNotifier();
     /** App 是否在前台：在前台时界面本来就看得见结果，不必再弹通知。 */
     private volatile boolean inForeground = true;
@@ -1753,12 +1772,16 @@ public class MainActivity extends Activity {
     /** 所有命名项目的共同根目录；默认工作区就是该目录本身。 */
     private volatile File workspaceRoot;
     private android.view.View splashView;
+    private android.widget.ImageView splashLogo;
+    private android.animation.ObjectAnimator splashAnimator;
     private android.widget.TextView splashStatus;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
-    /** 全屏 WebView 上始终可见的工具入口。 */
-    private android.widget.Button quickToolsButton;
+    /** 当前页面未找到 WebUI 入口锚点时，只提示一次备用手势。 */
+    private volatile boolean toolsEntryFallbackWarned;
     private volatile boolean splashHidden;
+    /** 防止快速连按返回键叠加多个确认框。 */
+    private android.app.Dialog exitDialog;
     /** 通知栏「设置」动作带的标记。 */
     public static final String EXTRA_OPEN_SETTINGS = "dev.dsh.nativeapp.OPEN_SETTINGS";
     /** 待处理的设置请求（界面未就绪时先记下，加载完成后打开）。 */
@@ -1772,6 +1795,13 @@ public class MainActivity extends Activity {
     private volatile android.content.Intent pendingShareIntent;
     /** 分享导入后、网页尚未就绪时等待提交的任务提示词。 */
     private volatile String pendingSharedTaskPrompt;
+    /** 分享任务的持续提交反馈，仅在主线程读写。 */
+    private DshUi.TaskProgress shareSubmitProgress;
+    /** 仍在运行的分享导入面板，Activity 销毁时统一收回。 */
+    private final java.util.List<DshUi.TaskProgress> shareImportProgresses =
+            new java.util.ArrayList<DshUi.TaskProgress>();
+    /** 提交反馈代次：超时回调不得关闭更新的提交。 */
+    private int shareSubmitGeneration;
     /** 快捷方式请求的动作："" / "log" / "update"。 */
     private volatile String pendingAction = "";
     /**
@@ -2446,8 +2476,9 @@ public class MainActivity extends Activity {
     /** 处理来自注入脚本的任务事件。 */
     private void onTaskEvent(String kind, String sessionId) {
         try {
-            String msg = taskNotifier.onEvent(kind, sessionId,
-                    System.currentTimeMillis(), inForeground);
+            long now = System.currentTimeMillis();
+            String msg = taskNotifier.onEvent(kind, sessionId, now, inForeground);
+            taskStartedAt = taskNotifier.startedAt();
             if (msg == null) return;
             notifyTaskDone(msg);
         } catch (Throwable t) {
@@ -2463,9 +2494,9 @@ public class MainActivity extends Activity {
             if (nm == null) return;
             // 先确保渠道存在：渠道原本只由前台服务创建，
             // 服务没起来时通知会因渠道不存在而静默丢失
-            DshUi.ensureChannel(this, HarnessService.CHANNEL_ID,
-                    "DeepSeek Harness", "运行状态与任务完成提醒",
-                    android.app.NotificationManager.IMPORTANCE_LOW);
+            DshUi.ensureChannel(this, HarnessService.TASK_CHANNEL_ID,
+                    "任务完成", "DSH 在后台完成任务时提醒",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT);
             int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
             if (icon == 0) icon = android.R.drawable.stat_notify_sync;
 
@@ -2481,15 +2512,20 @@ public class MainActivity extends Activity {
 
             android.app.Notification.Builder b;
             if (android.os.Build.VERSION.SDK_INT >= 26) {
-                b = new android.app.Notification.Builder(this, HarnessService.CHANNEL_ID);
+                b = new android.app.Notification.Builder(
+                        this, HarnessService.TASK_CHANNEL_ID);
             } else {
                 b = new android.app.Notification.Builder(this);
             }
-            b.setContentTitle("DeepSeek Harness")
+            b.setContentTitle("任务已完成")
              .setContentText(text)
              .setSmallIcon(icon)
              .setContentIntent(pi)
              .setAutoCancel(true);
+            if (android.os.Build.VERSION.SDK_INT < 26) {
+                b.setDefaults(android.app.Notification.DEFAULT_ALL)
+                 .setPriority(android.app.Notification.PRIORITY_DEFAULT);
+            }
             nm.notify(TASK_DONE_NOTIFY_ID, b.build());
             log("已发出任务完成通知: " + text);
         } catch (Throwable t) {
@@ -2501,9 +2537,8 @@ public class MainActivity extends Activity {
     /**
      * 注入状态采集脚本。
      *
-     * <p>读的是**页面自身的状态**，不是 HTTP 接口 ——
-     * DSH 的服务端 API 走自定义 RPC（WebSocket），没有 REST 端点，
-     * 早先轮询 {@code /api/session/list} 的版本实际上从未生效过。
+     * <p>审批读页面可见状态；运行/空闲由 {@link SessionProbe} 捕获并重放
+     * DSH 页面自己发出的会话列表 RPC，不再构造错误的 REST GET。
      *
      * <p>三个判据取自 DSH 客户端插件的 locale 字典，是稳定的文案：
      * 「停止生成」「发送消息」「等待审批」。
@@ -2515,6 +2550,49 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("状态看板注入失败: " + t);
         }
+    }
+
+    /**
+     * 把原生工具入口放进 DSH 自己的侧边栏布局。
+     *
+     * <p>入口以 DSH 的「设置」按钮为语义锚点，克隆同一套行样式并参与正常布局，
+     * 不再使用覆盖 WebView 的悬浮 View。脚本仍只经控制台标记回传动作，避免向
+     * 页面暴露具有原生权限的 {@code JavascriptInterface}。</p>
+     */
+    private void installWebToolsEntry() {
+        try {
+            webView.evaluateJavascript(WebToolsEntry.script(), null);
+            log("已注入 WebUI 工具入口");
+        } catch (Throwable t) {
+            log("WebUI 工具入口注入失败: " + t);
+        }
+    }
+
+    /** 第一次确认入口成功时说明迁移位置；后续启动不再打扰。 */
+    private void onWebToolsEntryReady() {
+        log("WebUI 工具入口已挂载到 DSH 侧边栏");
+        try {
+            android.content.SharedPreferences prefs =
+                    getSharedPreferences(PREFS, MODE_PRIVATE);
+            if (!prefs.getBoolean("toolsEntryMigrationShown", false)) {
+                prefs.edit().putBoolean("toolsEntryMigrationShown", true).apply();
+                toast(UiText.t(
+                        "工具入口已移至 DSH 侧边栏底部",
+                        "App tools moved to the bottom of the DSH sidebar"));
+            }
+        } catch (Throwable t) {
+            log("记录工具入口迁移提示失败: " + t);
+        }
+    }
+
+    /** 锚点长期缺失时给出可操作的退路，但绝不恢复遮挡网页的悬浮按钮。 */
+    private void onWebToolsEntryMissing() {
+        log("警告: DSH 设置锚点未出现，WebUI 工具入口暂未挂载");
+        if (toolsEntryFallbackWarned) return;
+        toolsEntryFallbackWarned = true;
+        toast(UiText.t(
+                "工具入口暂未加载；可长按页面顶部 1.2 秒打开",
+                "App tools did not load. Long-press the page top for 1.2 seconds."));
     }
 
     /** 任务开始时间，用于在通知里显示运行时长。 */
@@ -2664,20 +2742,19 @@ public class MainActivity extends Activity {
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
     private void onSessionStatus(int state) {
         try {
-            if (state == SessionStatus.RUNNING && lastSessionStatus != SessionStatus.RUNNING
-                    && lastSessionStatus != SessionStatus.AWAITING_APPROVAL) {
-                taskStartedAt = System.currentTimeMillis();
-            }
+            long now = System.currentTimeMillis();
             // 顺带驱动「任务完成」通知。
             //
-            // 原来它轮询 /api/session/list —— 那个接口**不存在**
-            //（DSH 的服务端 API 是自定义 RPC，不是 REST），所以那条链
-            // 实际上从未生效过。现在改用同一个页面状态源。
+            // 原来它把 /api/session/list 当普通 REST GET，实际会 404。
+            // 现在改用 SessionProbe 捕获的真实 RPC 状态源。
             if (state == SessionStatus.RUNNING || state == SessionStatus.AWAITING_APPROVAL) {
-                taskNotifier.onEvent("start", "", System.currentTimeMillis(), inForeground);
+                // 重复的运行心跳不得重置起点；即使状态曾短暂降为 UNKNOWN，
+                // TaskNotifier 仍保留同一轮任务的开始时间。
+                taskNotifier.onEvent("start", "", now, inForeground);
+                taskStartedAt = taskNotifier.startedAt();
             } else if (state == SessionStatus.IDLE) {
-                String done = taskNotifier.onEvent("done", "",
-                        System.currentTimeMillis(), inForeground);
+                String done = taskNotifier.onEvent("done", "", now, inForeground);
+                taskStartedAt = 0L;
                 if (done != null) notifyTaskDone(done);
             }
             lastSessionStatus = state;
@@ -2730,6 +2807,9 @@ public class MainActivity extends Activity {
         try {
             boolean[] net = networkState();
             log("网络环境已变化: " + SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
+            // 不能只写日志。通知正文包含网络状态，同一任务运行期间网络变化时
+            // 也必须重新发布，否则会一直显示旧网络信息。
+            pushStatus(lastSessionStatus);
         } catch (Throwable t) {
             log("处理网络变化失败: " + t);
         }
@@ -2740,6 +2820,10 @@ public class MainActivity extends Activity {
     private volatile int pushedState = -2;
     /** 是否已经推送过一次网络状态。 */
     private volatile boolean networkInited;
+    /** 上次推送使用的任务起点与网络内容，用于精确去重。 */
+    private volatile long pushedSince = -1L;
+    private volatile boolean pushedNetworkOk;
+    private volatile String pushedNetworkLabel = "";
 
     /**
      * 把状态推给前台服务更新通知。
@@ -2751,17 +2835,20 @@ public class MainActivity extends Activity {
      */
     private void pushStatus(int state) {
         try {
-            // 状态没变 → 什么都不用做
-            if (state == pushedState && networkInited) return;
-
             boolean[] net = networkState();
+            String netLabel = SessionStatus.networkLabel(net[1], net[2], net[3], net[0]);
+            long since = SessionStatus.useChronometer(state) ? taskStartedAt : 0L;
+            // 状态、计时起点和网络内容都没变才跳过。只看 state 会漏掉
+            // 网络切换，也会让新任务复用上一轮的系统计时器。
+            if (state == pushedState && networkInited && since == pushedSince
+                    && net[0] == pushedNetworkOk && netLabel.equals(pushedNetworkLabel)) return;
+
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
             i.putExtra(HarnessService.EXTRA_STATUS_STATE, state);
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK, net[0]);
-            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL,
-                    SessionStatus.networkLabel(net[1], net[2], net[3], net[0]));
-            i.putExtra(HarnessService.EXTRA_STATUS_SINCE, taskStartedAt);
+            i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL, netLabel);
+            i.putExtra(HarnessService.EXTRA_STATUS_SINCE, since);
             startService(i);
             // **推送成功之后**才记下状态。
             //
@@ -2771,6 +2858,9 @@ public class MainActivity extends Activity {
             // 这个 catch 之前是空的，连日志都没有。
             pushedState = state;
             networkInited = true;
+            pushedSince = since;
+            pushedNetworkOk = net[0];
+            pushedNetworkLabel = netLabel;
         } catch (Throwable t) {
             log("警告: 状态推送失败（通知栏将停在旧状态）: " + t);
         }
@@ -2816,6 +2906,20 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- 网络诊断
     /**
+     * 在页面最早期安装只读会话状态探针。
+     *
+     * <p>必须同时在 {@code onPageStarted} 和 {@code onPageFinished} 调用：前者保证
+     * 不错过首次会话列表请求，后者是在极少数 WebView 尚未提供 fetch 时的幂等兜底。</p>
+     */
+    private void installSessionProbe(WebView view) {
+        try {
+            if (view != null) view.evaluateJavascript(SessionProbe.script(), null);
+        } catch (Throwable t) {
+            log("警告: 会话状态探针注入失败: " + t);
+        }
+    }
+
+    /**
      * 注入一段 JS，把失败的 fetch 响应体打到浏览器控制台。
      *
      * <p>为什么需要：DSH 的接口在出错时返回结构化 JSON，
@@ -2832,20 +2936,12 @@ public class MainActivity extends Activity {
             "(function(){"
           + "if(window.__dshDiag)return;window.__dshDiag=1;"
           + "var of=window.fetch;"
-          + "var sessReq=null,sessLogged=0;"
           + "function isAsset(u){return /\\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map)(\\?|$)/i.test(u);}"
           + "window.fetch=function(){"
           + "  var a=arguments[0];"
           + "  var u='';"
           + "  try{u=(typeof a==='string')?a:(a&&a.url?a.url:String(a));}catch(x){}"
           + "  var p=of.apply(this,arguments);"
-          + "  try{"
-          + "    var ini=arguments[1];"
-          + "    if(u.indexOf('/api/session/list')>=0&&ini&&ini.body){"
-          + "      sessReq={m:(ini.method||'POST'),h:ini.headers,b:String(ini.body)};"
-          + "      if(!sessLogged){sessLogged=1;console.log('[dsh-sess-src] captured len='+sessReq.b.length);}"
-          + "    }"
-          + "  }catch(x){}"
           + "  try{"
           + "    p.then(function(r){"
           + "      try{"
@@ -2856,15 +2952,6 @@ public class MainActivity extends Activity {
           + "          console.log('[dsh-api] '+r.status+' '+u+' ('+ct.split(';')[0]+')');return;"
           + "        }"
           + "        r.clone().text().then(function(t){"
-          + "          try{"
-          + "            if(u.indexOf('/api/session/list')>=0){"
-          + "              var j=JSON.parse(t);"
-          + "              var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
-          + "              var rn=0,q;"
-          + "              for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)rn++;}"
-          + "              console.log('[dsh-sess] r='+rn);"
-          + "            }"
-          + "          }catch(e2){}"
           + "          console.log('[dsh-api] '+r.status+' '+u+' :: '+String(t).slice(0,700));"
           + "        }).catch(function(){});"
           + "      }catch(e){}"
@@ -2874,40 +2961,6 @@ public class MainActivity extends Activity {
           + "  }catch(e){}"
           + "  return p;"
           + "};"
-          // 定时重放会话列表请求。
-          //
-          // 为什么必须自己重放：`running` 是判断「有没有任务在跑」的**唯一权威依据**，
-          // 而 DSH 自己请求 /api/session/list 的频率极低（实测一次启动只请求一两次）。
-          // 结果就是证据过期 —— 任务早就结束了，App 却还拿着几分钟前的旧值。
-          //
-          // 这里记下 DSH 发过的那个请求（方法/头/体），每 5 秒用新的 rpcId 重放一次。
-          // 它是只读的本地 RPC，不会改变任何状态；响应由我们自己的 promise 接收，
-          // DSH 的客户端拿不到、也不受影响。
-          + "setInterval(function(){"
-          + "  if(!sessReq)return;"
-          + "  try{"
-          + "    var o=JSON.parse(sessReq.b);"
-          + "    o.rpcId='probe-'+Date.now()+'-'+Math.floor(Math.random()*1e6);"
-          + "    var hh={};"
-          + "    try{"
-          + "      if(sessReq.h&&typeof sessReq.h.forEach==='function'){sessReq.h.forEach(function(v,k){hh[k]=v;});}"
-          + "      else if(sessReq.h){for(var k in sessReq.h){hh[k]=sessReq.h[k];}}"
-          + "    }catch(x){}"
-          + "    if(!hh['Content-Type']&&!hh['content-type'])hh['Content-Type']='application/json';"
-          + "    of.call(window,'/api/session/list',{method:sessReq.m,headers:hh,"
-          + "      body:JSON.stringify(o),credentials:'same-origin'})"
-          + "      .then(function(r){return r.text();})"
-          + "      .then(function(t){"
-          + "        try{"
-          + "          var j=JSON.parse(t);"
-          + "          var it=(j&&j.result&&j.result.value&&j.result.value.items)||[];"
-          + "          var n=0,q;"
-          + "          for(q=0;q<it.length;q++){if(it[q]&&it[q].running===true)n++;}"
-          + "          console.log('[dsh-sess] r='+n);"
-          + "        }catch(x){}"
-          + "      }).catch(function(){});"
-          + "  }catch(x){}"
-          + "},5000);"
           + "})();"
           // 应用内设置入口：长按顶部区域 1.2 秒。
           //
@@ -3470,13 +3523,31 @@ public class MainActivity extends Activity {
     /** 版本号比较：a>b 返回正，a<b 返回负。 */
     /** 检查 App 更新；interactive=true 时把结果显示在给定文本上/弹提示。 */
     private void checkAppUpdate(final boolean interactive, final android.widget.TextView status) {
+        checkAppUpdate(interactive, status, null);
+    }
+
+    private void checkAppUpdate(final boolean interactive,
+                                final android.widget.TextView status,
+                                final android.widget.Button button) {
+        if (!maintenanceGate.tryStart(OperationGate.APP_UPDATE)) {
+            String active = maintenanceGate.active();
+            String message = "已有维护任务正在进行："
+                    + (active == null ? "请稍候" : active);
+            setStatus(status, message);
+            if (interactive) toast(message);
+            return;
+        }
+        setMaintenanceBusy(button, "检查 App 更新并安装", "正在检查…", true);
         new Thread(new Runnable() {
             @Override public void run() {
+                boolean success = false;
+                String outcome = "检查失败";
                 setStatus(status, "正在检查更新…");
                 log("开始检查 App 更新（当前 " + appVersion() + "）…");
                 try {
                     final String[] rel = latestRelease();
                     if (rel == null) {
+                        outcome = "未找到版本";
                         setStatus(status, "未找到可用的发布版本");
                         return;
                     }
@@ -3484,6 +3555,8 @@ public class MainActivity extends Activity {
                     final String apkName = rel[2];
                     final String local = appVersion();
                     if (!isNewer(rel[0], local)) {
+                        success = true;
+                        outcome = "已是最新";
                         log("已是最新版本: " + local + "（远端 " + rel[0] + "）");
                         setStatus(status, "已是最新版本 " + local);
                         if (interactive) toast("已是最新版本");
@@ -3508,6 +3581,8 @@ public class MainActivity extends Activity {
                     // （实测踩过：0.23.4 重发时是我手工删掉缓存才通的。）
                     if (cachedVer != null && !isNewer(rel[0], cachedVer)
                             && cachedApkInstallable(apk)) {
+                        success = true;
+                        outcome = "准备安装";
                         log("本地已有最新安装包 " + cachedVer
                                 + "（此前下载后未安装），直接调起安装，跳过下载");
                         setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
@@ -3533,12 +3608,20 @@ public class MainActivity extends Activity {
                                 "下载的 APK 版本、包名或签名与当前应用不匹配");
                     }
                     log("更新包已下载: " + (apk.length() / 1048576) + " MB");
+                    success = true;
+                    outcome = "准备安装";
                     setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
                     installApk(apk);
                 } catch (Throwable t) {
+                    success = false;
+                    outcome = "检查失败";
                     log("错误: 检查更新失败: " + t);
                     setStatus(status, "检查失败：" + shorten(t));
                     if (interactive) toast("检查更新失败");
+                } finally {
+                    maintenanceGate.finish(OperationGate.APP_UPDATE);
+                    setMaintenanceResult(button, "检查 App 更新并安装",
+                            outcome, success);
                 }
             }
         }).start();
@@ -3548,6 +3631,28 @@ public class MainActivity extends Activity {
         if (tv == null) return;
         runOnUiThread(new Runnable() {
             @Override public void run() { tv.setText(text); }
+        });
+    }
+
+    private void setMaintenanceBusy(final android.widget.Button button,
+                                    final String idle, final String busy,
+                                    final boolean on) {
+        if (button == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                DshUi.setBusy(button, idle, busy, on);
+            }
+        });
+    }
+
+    private void setMaintenanceResult(final android.widget.Button button,
+                                      final String idle, final String outcome,
+                                      final boolean success) {
+        if (button == null) return;
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                DshUi.finishBusy(button, idle, outcome, success);
+            }
         });
     }
 
@@ -3688,9 +3793,22 @@ public class MainActivity extends Activity {
     }
 
     /** 手动更新运行包（重新走清单校验，然后重启 agent）。 */
-    private void updatePayloadNow(final android.widget.TextView status) {
+    private void updatePayloadNow(final android.widget.TextView status,
+                                  final android.widget.Button button) {
+        if (!maintenanceGate.tryStart(OperationGate.PAYLOAD_UPDATE)) {
+            String active = maintenanceGate.active();
+            String message = "已有维护任务正在进行："
+                    + (active == null ? "请稍候" : active);
+            setStatus(status, message);
+            toast(message);
+            return;
+        }
+        setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
+                "正在更新…", true);
         new Thread(new Runnable() {
             @Override public void run() {
+                boolean success = false;
+                String outcome = "更新失败";
                 payloadLastError = "";
                 setStatus(status, "正在检查运行包…");
                 try {
@@ -3698,6 +3816,8 @@ public class MainActivity extends Activity {
                     File node = new File(root, "node");
                     boolean upToDate = ensurePayload(node, root,
                             new File(root, "dsh"), new File(root, "tools"));
+                    success = true;
+                    outcome = upToDate ? "已是最新" : "更新完成";
                     setStatus(status, upToDate ? "运行包已是最新" : "运行包已更新，正在重启…");
                     if (upToDate) {
                         toast("运行包已是最新");
@@ -3705,9 +3825,15 @@ public class MainActivity extends Activity {
                         restartAgent();
                     }
                 } catch (Throwable t) {
+                    success = false;
+                    outcome = "更新失败";
                     log("错误: 更新运行包失败: " + t);
                     payloadLastError = shorten(t);
                     setStatus(status, "运行包更新失败，可再次点击重试：" + payloadLastError);
+                } finally {
+                    maintenanceGate.finish(OperationGate.PAYLOAD_UPDATE);
+                    setMaintenanceResult(button, "更新运行包（DSH / 工具链）",
+                            outcome, success);
                 }
             }
         }).start();
@@ -4388,19 +4514,19 @@ public class MainActivity extends Activity {
         fillUpdateChannelRow(channelRow, status);
         body.addView(channelRow, DshUi.fullWidth(this, 8));
 
-        android.widget.Button payload =
+        final android.widget.Button payload =
                 DshUi.button(this, "更新运行包（DSH / 工具链）", false);
         payload.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                log("用户点击: 更新运行包"); updatePayloadNow(status);
+                log("用户点击: 更新运行包"); updatePayloadNow(status, payload);
             }
         });
         body.addView(payload, DshUi.fullWidth(this, 12));
-        android.widget.Button app =
+        final android.widget.Button app =
                 DshUi.button(this, "检查 App 更新并安装", false);
         app.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                log("用户点击: 检查 App 更新"); checkAppUpdate(true, status);
+                log("用户点击: 检查 App 更新"); checkAppUpdate(true, status, app);
             }
         });
         body.addView(app, DshUi.fullWidth(this, 8));
@@ -4571,15 +4697,13 @@ public class MainActivity extends Activity {
         name.setHint("例如：语文备课、南溟项目");
         name.setSingleLine(true);
         body.addView(name, DshUi.fullWidth(this, 6));
-        android.widget.Button create = DshUi.button(this, "新建并切换", true);
+        final android.widget.Button create = DshUi.button(this, "新建并切换", true);
         body.addView(create, DshUi.fullWidth(this, 6));
 
         body.addView(DshUi.sectionLabel(this, "已有项目"), DshUi.fullWidth(this, 22));
         final android.widget.LinearLayout list = new android.widget.LinearLayout(this);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         body.addView(list, DshUi.fullWidth(this, 6));
-        fillWorkspaceProjectList(list, root);
-
         android.widget.Button browse = DshUi.button(this, "浏览当前项目", false);
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
@@ -4606,23 +4730,25 @@ public class MainActivity extends Activity {
                     toast("无法创建项目目录");
                     return;
                 }
-                dialog.dismiss();
-                switchWorkspaceProject(normalized);
+                requestWorkspaceProjectSwitch(normalized, dialog, create, "新建并切换");
             }
         });
+        fillWorkspaceProjectList(list, root, dialog);
         dialog.show();
     }
 
-    private void fillWorkspaceProjectList(android.widget.LinearLayout list, File root) {
+    private void fillWorkspaceProjectList(android.widget.LinearLayout list, File root,
+                                          android.app.Dialog dialog) {
         list.removeAllViews();
-        addWorkspaceProjectRow(list, root, WorkspaceProjects.DEFAULT);
+        addWorkspaceProjectRow(list, root, WorkspaceProjects.DEFAULT, dialog);
         for (String project : WorkspaceProjects.list(root)) {
-            addWorkspaceProjectRow(list, root, project);
+            addWorkspaceProjectRow(list, root, project, dialog);
         }
     }
 
     private void addWorkspaceProjectRow(android.widget.LinearLayout list, File root,
-                                        final String project) {
+                                        final String project,
+                                        final android.app.Dialog dialog) {
         boolean active = project.equals(activeProjectName());
         android.widget.LinearLayout row = new android.widget.LinearLayout(this);
         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -4634,27 +4760,41 @@ public class MainActivity extends Activity {
         android.widget.Button button = DshUi.toggleButton(this,
                 active ? "正在使用" : "切换", active);
         button.setEnabled(!active);
+        final android.widget.Button switchButton = button;
         button.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { switchWorkspaceProject(project); }
+            @Override public void onClick(android.view.View v) {
+                requestWorkspaceProjectSwitch(project, dialog, switchButton, "切换");
+            }
         });
         row.addView(button, new android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         list.addView(row, DshUi.fullWidth(this, 4));
     }
 
-    private void switchWorkspaceProject(final String project) {
+    private void requestWorkspaceProjectSwitch(final String project,
+                                               final android.app.Dialog origin,
+                                               final android.widget.Button button,
+                                               final String idleLabel) {
+        DshUi.setBusy(button, idleLabel, "切换中…", true);
         final Runnable apply = new Runnable() {
             @Override public void run() {
+                if (origin != null) origin.dismiss();
                 rememberActiveProject(project);
-                toast("正在切换到" + WorkspaceProjects.displayName(project) + "…");
-                restartAgent();
+                String display = UiText.text(WorkspaceProjects.displayName(project));
+                restartAgent(UiText.t("正在切换到“" + display + "”…",
+                        "Switching to \"" + display + "\"…"));
+            }
+        };
+        final Runnable cancel = new Runnable() {
+            @Override public void run() {
+                DshUi.setBusy(button, idleLabel, "切换中…", false);
             }
         };
         if (lastSessionStatus == SessionStatus.RUNNING
                 || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
             DshUi.confirm(this, "切换项目会中断当前任务",
                     "agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
-                    "切换并重启", apply);
+                    "切换并重启", apply, cancel);
         } else {
             apply.run();
         }
@@ -4712,6 +4852,10 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent() {
+        restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
+    }
+
+    private void restartAgent(final String progressMessage) {
         HarnessService.stopManagedProcess();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .remove("dshPort").remove("dshToken").apply();
@@ -4719,8 +4863,13 @@ public class MainActivity extends Activity {
         splashHidden = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                if (splashView != null) splashView.setVisibility(android.view.View.VISIBLE);
-                if (splashStatus != null) splashStatus.setText("正在重启服务…");
+                if (splashView != null) {
+                    splashView.clearAnimation();
+                    splashView.setAlpha(1f);
+                    splashView.setVisibility(android.view.View.VISIBLE);
+                }
+                if (splashStatus != null) splashStatus.setText(progressMessage);
+                startSplashAnimation();
             }
         });
         bootInBackground("重启");
@@ -4948,6 +5097,15 @@ public class MainActivity extends Activity {
      * 若 adjustResize 已生效，系统会把 IME 这块 inset 消耗掉，这里读到的
      * 只有导航栏高度 → 内边距为 0；反之则由这里兜住。
      */
+    private void applyRootInsets() {
+        if (rootView == null) return;
+        rootView.setPadding(
+                UiPolicy.safeSide(safeInsetLeft, 0),
+                statusBarHeight(),
+                UiPolicy.safeSide(safeInsetRight, 0),
+                UiPolicy.mergedIme(imeInsetPadding, imeFramePadding));
+    }
+
     private void installImeInsetHandler() {
         try {
             rootView.setOnApplyWindowInsetsListener(
@@ -4961,30 +5119,35 @@ public class MainActivity extends Activity {
                     try {
                         int bottom = insets.getSystemWindowInsetBottom();
                         int nav = navigationBarHeight();
-                        int pad = Math.max(0, bottom - nav);
-                        if (pad != lastPad) {
-                            lastPad = pad;
-                            log("键盘内边距 " + pad + "px（底部 inset=" + bottom
-                                    + ", 导航栏=" + nav + "）");
-                            // 左右内边距来自系统窗口 inset 与刘海安全区。
-                            // 横屏时刘海在侧面：不预留会挡内容，预留了又怕留黑边 ——
-                            // 两者必须同时处理，所以这里显式取最大值。
-                            int left = insets.getSystemWindowInsetLeft();
-                            int right = insets.getSystemWindowInsetRight();
-                            if (android.os.Build.VERSION.SDK_INT >= 28) {
-                                android.view.DisplayCutout cut = insets.getDisplayCutout();
-                                if (cut != null) {
-                                    left = Math.max(left, cut.getSafeInsetLeft());
-                                    right = Math.max(right, cut.getSafeInsetRight());
-                                }
+                        int left = insets.getSystemWindowInsetLeft();
+                        int right = insets.getSystemWindowInsetRight();
+                        int cutoutLeft = 0;
+                        int cutoutRight = 0;
+                        if (android.os.Build.VERSION.SDK_INT >= 28) {
+                            android.view.DisplayCutout cut = insets.getDisplayCutout();
+                            if (cut != null) {
+                                cutoutLeft = cut.getSafeInsetLeft();
+                                cutoutRight = cut.getSafeInsetRight();
                             }
-                            if (left != lastLeft || right != lastRight) {
-                                lastLeft = left;
-                                lastRight = right;
-                                log("左右内边距 " + left + " / " + right + "px（刘海/导航栏）");
-                            }
-                            v.setPadding(left, statusBarHeight(), right, pad);
                         }
+                        safeInsetLeft = UiPolicy.safeSide(left, cutoutLeft);
+                        safeInsetRight = UiPolicy.safeSide(right, cutoutRight);
+                        imeInsetPadding = UiPolicy.imeFromInsets(bottom, nav);
+
+                        if (imeInsetPadding != lastPad) {
+                            lastPad = imeInsetPadding;
+                            log("键盘内边距 " + imeInsetPadding
+                                    + "px（底部 inset=" + bottom + ", 导航栏=" + nav + "）");
+                        }
+                        if (safeInsetLeft != lastLeft || safeInsetRight != lastRight) {
+                            lastLeft = safeInsetLeft;
+                            lastRight = safeInsetRight;
+                            log("左右内边距 " + safeInsetLeft + " / "
+                                    + safeInsetRight + "px（刘海/导航栏）");
+                        }
+                        // 无论变化的是底部还是左右安全区都重新应用，
+                        // 避免横竖屏时因键盘高度未变而保留旧侧边距。
+                        applyRootInsets();
                     } catch (Throwable t) {
                         log("inset 处理失败: " + t);
                     }
@@ -4996,8 +5159,8 @@ public class MainActivity extends Activity {
             log("警告: 无法注册 inset 监听: " + t);
         }
 
-        // 第二条路（更经典可靠）：比较窗口可见区域与根视图高度来推断键盘高度。
-        // 即使 inset 未派发（edge-to-edge 下可能发生），这条也能拿到数值。
+        // 可见窗口是第二条键盘探测路径。两者取较大值，但这里绝不
+        // 改写左右 padding，否则会在横屏键盘弹出时把刘海安全区清零。
         try {
             final android.view.View decor = getWindow().getDecorView();
             decor.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -5008,17 +5171,15 @@ public class MainActivity extends Activity {
                         android.graphics.Rect visible = new android.graphics.Rect();
                         decor.getWindowVisibleDisplayFrame(visible);
                         int screenH = decor.getRootView().getHeight();
-                        int hidden = screenH - visible.bottom;      // 被遮挡的高度
                         int nav = navigationBarHeight();
-                        int kb = hidden - nav;
-                        if (kb < 0) kb = 0;
-                        // 小于 15% 视为噪声（状态栏/导航栏抖动）
-                        if (kb < screenH * 0.15) kb = 0;
+                        int kb = UiPolicy.imeFromVisibleFrame(
+                                screenH, visible.bottom, nav);
                         if (kb != lastKb) {
                             lastKb = kb;
+                            imeFramePadding = kb;
                             log("键盘检测: 高 " + kb + "px（窗口 " + screenH
                                     + ", 可见底 " + visible.bottom + ", 导航栏 " + nav + "）");
-                            rootView.setPadding(0, statusBarHeight(), 0, kb);
+                            applyRootInsets();
                         }
                     } catch (Throwable ignored) { }
                 }
@@ -5066,6 +5227,7 @@ public class MainActivity extends Activity {
 
         // 鲸鱼标志
         android.widget.ImageView logo = new android.widget.ImageView(this);
+        splashLogo = logo;
         int id = getResources().getIdentifier(
                 "ic_launcher_foreground", "mipmap", getPackageName());
         if (id > 0) logo.setImageResource(id);
@@ -5074,22 +5236,6 @@ public class MainActivity extends Activity {
                 android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         int boxSize = (int) (196 * d);          // 前景里鲸鱼约占 58%，故视图取得大些
         col.addView(logo, new android.widget.LinearLayout.LayoutParams(boxSize, boxSize));
-
-        // 呼吸动画：透明度 + 轻微缩放
-        try {
-            android.animation.PropertyValuesHolder a =
-                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
-            android.animation.PropertyValuesHolder sx =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
-            android.animation.PropertyValuesHolder sy =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
-            android.animation.ObjectAnimator anim =
-                    android.animation.ObjectAnimator.ofPropertyValuesHolder(logo, a, sx, sy);
-            anim.setDuration(1150);
-            anim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            anim.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-            anim.start();
-        } catch (Throwable ignored) { }
 
         // 转圈
         android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
@@ -5129,7 +5275,45 @@ public class MainActivity extends Activity {
         // 默认不接收点击：正常启动时应由 onPageFinished 自动收起。
         // 只有启动失败时才挂上"点击查看日志"（见 boot 的 catch）。
         box.setClickable(false);
+        startSplashAnimation();
         return box;
+    }
+
+    /** 启动开屏呼吸动画；系统关闭动画时保持静态。 */
+    private void startSplashAnimation() {
+        stopSplashAnimation();
+        if (splashLogo == null || !DshUi.animationsEnabled(this)) return;
+        try {
+            android.animation.PropertyValuesHolder a =
+                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
+            android.animation.PropertyValuesHolder sx =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
+            android.animation.PropertyValuesHolder sy =
+                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
+            splashAnimator = android.animation.ObjectAnimator.ofPropertyValuesHolder(
+                    splashLogo, a, sx, sy);
+            splashAnimator.setDuration(1150);
+            splashAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            splashAnimator.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            splashAnimator.start();
+        } catch (Throwable ignored) {
+            splashAnimator = null;
+        }
+    }
+
+    /** 取消无限动画并复位，避免开屏隐藏后继续消耗 CPU/GPU。 */
+    private void stopSplashAnimation() {
+        try {
+            if (splashAnimator != null) splashAnimator.cancel();
+        } catch (Throwable ignored) { }
+        splashAnimator = null;
+        try {
+            if (splashLogo != null) {
+                splashLogo.setAlpha(1f);
+                splashLogo.setScaleX(1f);
+                splashLogo.setScaleY(1f);
+            }
+        } catch (Throwable ignored) { }
     }
 
     /** 更新开屏文案（友好措辞，不暴露日志）。 */
@@ -5150,9 +5334,15 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 final android.view.View sv = splashView;
                 if (sv == null) return;
+                stopSplashAnimation();
                 // 立即停止接收触摸：即使动画因故未结束，也不会再挡住界面
                 sv.setClickable(false);
                 sv.setFocusable(false);
+                if (!DshUi.animationsEnabled(MainActivity.this)) {
+                    sv.clearAnimation();
+                    sv.setVisibility(android.view.View.GONE);
+                    return;
+                }
                 try {
                     android.view.animation.AlphaAnimation fade =
                             new android.view.animation.AlphaAnimation(1f, 0f);
@@ -6467,12 +6657,19 @@ public class MainActivity extends Activity {
 
             final File wsFinal = ws;
             final String stampFinal = stamp;
-            int totalItems = streams.size() + (text != null && text.length() > 0 ? 1 : 0);
-            toast("正在接收 " + totalItems + " 项分享内容…");
+            final int totalItems = streams.size()
+                    + (text != null && text.length() > 0 ? 1 : 0);
+            final DshUi.TaskProgress importProgress = DshUi.taskProgress(this,
+                    UiText.t("正在接收分享内容", "Receiving shared items"),
+                    UiText.t("准备接收 0 / " + totalItems + " 项",
+                            "Preparing 0 / " + totalItems + " items"),
+                    totalItems);
+            shareImportProgresses.add(importProgress);
             new Thread(new Runnable() {
                 @Override public void run() {
                     synchronized (SHARE_IMPORT_LOCK) {
                         int saved = 0;
+                        int completed = 0;
                         java.util.List<File> savedFiles = new java.util.ArrayList<File>();
                         java.util.List<String> failures = new java.util.ArrayList<String>();
                         for (android.net.Uri stream : streams) {
@@ -6485,6 +6682,8 @@ public class MainActivity extends Activity {
                                 failures.add(shorten(t));
                                 log("错误: 保存分享文件失败: " + t);
                             }
+                            completed++;
+                            updateShareImportProgress(importProgress, completed, totalItems);
                         }
                         if (text != null && text.length() > 0) {
                             try {
@@ -6496,14 +6695,10 @@ public class MainActivity extends Activity {
                                 failures.add(shorten(t));
                                 log("错误: 保存分享文本失败: " + t);
                             }
+                            completed++;
+                            updateShareImportProgress(importProgress, completed, totalItems);
                         }
-                        if (failures.isEmpty()) {
-                            toast("已将 " + saved + " 项内容放入工作区");
-                        } else {
-                            toast("已保存 " + saved + " 项，失败 " + failures.size()
-                                    + " 项：" + failures.get(0));
-                        }
-                        if (!savedFiles.isEmpty()) offerSharedTask(savedFiles);
+                        finishShareImport(importProgress, saved, savedFiles, failures);
                     }
                 }
             }, "share-import").start();
@@ -6511,6 +6706,47 @@ public class MainActivity extends Activity {
             log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
         }
+    }
+
+    private void updateShareImportProgress(final DshUi.TaskProgress progress,
+                                           final int completed, final int total) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                progress.update(UiText.t("正在接收 " + completed + " / " + total + " 项",
+                        "Receiving " + completed + " / " + total + " items"), completed);
+            }
+        });
+    }
+
+    private void finishShareImport(final DshUi.TaskProgress progress, final int saved,
+                                   java.util.List<File> savedFiles,
+                                   java.util.List<String> failures) {
+        final java.util.List<File> files =
+                new java.util.ArrayList<File>(savedFiles);
+        final int failed = failures.size();
+        final String firstFailure = failed > 0 ? failures.get(0) : "";
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                final String summary;
+                final int result;
+                if (failed == 0) {
+                    summary = UiText.t("已将 " + saved + " 项内容放入工作区",
+                            saved + " item(s) saved to the workspace");
+                    result = DshUi.RESULT_SUCCESS;
+                } else {
+                    summary = UiText.t("已保存 " + saved + " 项，失败 " + failed
+                                    + " 项：" + firstFailure,
+                            saved + " saved, " + failed + " failed: " + firstFailure);
+                    result = saved > 0 ? DshUi.RESULT_WARNING : DshUi.RESULT_ERROR;
+                }
+                progress.finish(summary, result, new Runnable() {
+                    @Override public void run() {
+                        shareImportProgresses.remove(progress);
+                        if (!files.isEmpty()) offerSharedTask(files);
+                    }
+                });
+            }
+        });
     }
 
     /** 分享导入成功后让用户决定：只保存，或直接交给当前 DSH 会话处理。 */
@@ -6537,21 +6773,60 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void dispatchShareTaskPrompt(String prompt) {
+    private void dispatchShareTaskPrompt(final String prompt) {
         if (prompt == null || prompt.length() == 0) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() { dispatchShareTaskPrompt(prompt); }
+            });
+            return;
+        }
         if (webView == null || !dshPageLoaded) {
             pendingSharedTaskPrompt = prompt;
             toast("任务已排队，DSH 界面就绪后自动提交");
             return;
         }
+        if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
+        final int generation = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        shareSubmitGeneration = generation;
+        shareSubmitProgress = DshUi.taskProgress(this,
+                UiText.t("正在提交任务", "Submitting task"),
+                UiText.t("正在写入当前 DSH 会话…",
+                        "Writing to the current DSH session…"), 0);
         try {
             webView.evaluateJavascript(ShareTask.javascript(prompt), null);
             log("正在把分享内容提交到当前 DSH 会话");
+            webView.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (!InteractionFeedback.isCurrent(
+                            generation, shareSubmitGeneration)) return;
+                    finishShareTaskSubmission(
+                            UiText.t("提交状态未确认，请检查输入框",
+                                    "Submission was not confirmed. Check the task editor."),
+                            DshUi.RESULT_WARNING);
+                }
+            }, InteractionFeedback.SUBMIT_TIMEOUT_MS);
         } catch (Throwable t) {
             pendingSharedTaskPrompt = prompt;
             log("分享任务提交失败，已保留待重试: " + t);
-            toast("文件已保存，任务将在界面就绪后重试");
+            finishShareTaskSubmission(
+                    UiText.t("文件已保存，任务将在界面就绪后重试",
+                            "Files saved. The task will retry when the interface is ready."),
+                    DshUi.RESULT_ERROR);
         }
+    }
+
+    private void finishShareTaskSubmission(final String message, final int result) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() { finishShareTaskSubmission(message, result); }
+            });
+            return;
+        }
+        shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        DshUi.TaskProgress progress = shareSubmitProgress;
+        shareSubmitProgress = null;
+        if (progress != null) progress.finish(message, result, null);
     }
 
     /** 同时读取 EXTRA_STREAM 与 ClipData，兼容各类分享来源。 */
@@ -6725,13 +7000,9 @@ public class MainActivity extends Activity {
      */
     @Override
     public void onBackPressed() {
-        // 已经退到后台（用户连按两次）就直接退，不再重复弹框
-        long now = System.currentTimeMillis();
-        if (now - lastBackPressed < 2000) {
-            super.onBackPressed();
-            return;
-        }
-        lastBackPressed = now;
+        // 快速连按只保留一个确认框。不能在第二次直接调用
+        // super.onBackPressed()：那会销毁 Activity，与“退到后台、保留会话”的文案矛盾。
+        if (exitDialog != null && exitDialog.isShowing()) return;
 
         android.widget.LinearLayout box = DshUi.paddedBody(this);
         box.addView(DshUi.title(this, "退出 DeepSeek Harness？"));
@@ -6742,6 +7013,12 @@ public class MainActivity extends Activity {
         android.widget.Button exit = DshUi.button(this, "退出", true);
         final android.app.Dialog d = DshUi.dialog(this, box,
                 DshUi.footer(this, cancel, exit), 360);
+        exitDialog = d;
+        d.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            @Override public void onDismiss(android.content.DialogInterface dialog) {
+                if (exitDialog == d) exitDialog = null;
+            }
+        });
         cancel.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) { d.dismiss(); }
         });
@@ -6756,11 +7033,15 @@ public class MainActivity extends Activity {
         d.show();
     }
 
-    /** 上一次按返回键的时间（用于「再按一次退出」与防止重复弹框）。 */
-    private long lastBackPressed;
-
     @Override
     protected void onDestroy() {
+        stopSplashAnimation();
+        exitDialog = null;
+        shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
+        if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
+        shareSubmitProgress = null;
+        for (DshUi.TaskProgress progress : shareImportProgresses) progress.dismiss();
+        shareImportProgresses.clear();
         HarnessService.clearListener(harnessListener);
         super.onDestroy();
     }

@@ -261,6 +261,7 @@ public final class NetworkDiag {
                         } else {
                             verdict = "网络不可用：请检查 WiFi / 移动数据 / VPN";
                         }
+                        final boolean healthy = dlOk > 0 && manifestOk > 0;
                         rd.post(new Runnable() {
                             @Override public void run() {
                                 summary.setText(verdict);
@@ -270,7 +271,8 @@ public final class NetworkDiag {
                                 results.addView(v);
                                 // 只有最新一轮能恢复按钮：被取代的那一轮，
                                 // 它的这条回调在 Round 里就已经被丢掉了
-                                DshUi.setBusy(rerun, "重新检测", "检测中…", false);
+                                DshUi.finishBusy(rerun, "重新检测",
+                                        healthy ? "检测完成" : "发现问题", healthy);
                             }
                         });
                         for (String l : lines) DshUi.log("  " + l);
@@ -485,7 +487,7 @@ public final class NetworkDiag {
         val.setTextSize(11.5f);
         val.setTypeface(android.graphics.Typeface.MONOSPACE);
         // 失败用橙色标出：这是整页里唯一需要一眼找到的信息
-        val.setTextColor(value.contains("失败") ? 0xFFB26A00 : DshUi.TEXT());
+        val.setTextColor(value.contains("失败") ? DshUi.WARN() : DshUi.TEXT());
         val.setSingleLine(true);
         val.setEllipsize(android.text.TextUtils.TruncateAt.END);
         val.setGravity(Gravity.END);

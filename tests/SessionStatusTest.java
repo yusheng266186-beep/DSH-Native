@@ -61,6 +61,21 @@ public class SessionStatusTest {
         check("approval title shows state",
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L).contains("等待批准"),
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L));
+        String runKey1 = SessionStatus.notificationSignature(
+                SessionStatus.RUNNING, true, "Wi-Fi", 1_000L);
+        String runKey2 = SessionStatus.notificationSignature(
+                SessionStatus.RUNNING, true, "Wi-Fi", 2_000L);
+        check("new task start invalidates notification cache", !runKey1.equals(runKey2),
+                runKey1 + " / " + runKey2);
+        String idleKey1 = SessionStatus.notificationSignature(
+                SessionStatus.IDLE, true, "Wi-Fi", 1_000L);
+        String idleKey2 = SessionStatus.notificationSignature(
+                SessionStatus.IDLE, true, "Wi-Fi", 2_000L);
+        check("idle ignores stale task start", idleKey1.equals(idleKey2),
+                idleKey1 + " / " + idleKey2);
+        check("network change invalidates notification cache",
+                !runKey1.equals(SessionStatus.notificationSignature(
+                        SessionStatus.RUNNING, false, "未连接", 1_000L)), runKey1);
 
         System.out.println("=== 5. network problem must be visible ===");
         String offline = SessionStatus.text(SessionStatus.RUNNING, false, "未连接");
@@ -143,7 +158,9 @@ public class SessionStatusTest {
 
         System.out.println("=== 11. console parsing ===");
         check("parse approval", SessionStatus.parseStatusConsole("[dsh-appr] a") == SessionStatus.AWAITING_APPROVAL, "wrong");
-        check("no approval -> ignored", SessionStatus.parseStatusConsole("[dsh-appr] -") == -1, "wrong");
+        check("approval cleared -> fresh unknown DOM signal",
+                SessionStatus.parseStatusConsole("[dsh-appr] -") == SessionStatus.UNKNOWN,
+                "旧审批状态会继续压住空闲状态");
         check("unrelated line ignored", SessionStatus.parseStatusConsole("[web] hello") == -1, "wrong");
         check("null safe", SessionStatus.parseStatusConsole(null) == -1, "wrong");
         check("empty payload ignored", SessionStatus.parseStatusConsole("[dsh-appr] ") == -1, "wrong");
