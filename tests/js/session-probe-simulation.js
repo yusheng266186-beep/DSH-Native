@@ -63,6 +63,10 @@ async function main() {
   if (!String(replayBody.rpcId).startsWith('probe-')) throw new Error('rpcId was not refreshed');
   if (!messages.includes('[dsh-sess] r=0')) throw new Error('idle response not reported');
 
+  if (typeof context.window.__dshSessionProbeRefresh !== 'function') {
+    throw new Error('manual refresh hook missing');
+  }
+
   await wrapped('https://127.0.0.1/api/session/list?refresh=1', {
     method: 'POST',
     body: JSON.stringify({ rpcId: 'absolute', input: {} }),

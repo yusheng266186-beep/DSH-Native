@@ -28,6 +28,8 @@ final class TaskNotifier {
     private boolean running;
     /** 本轮任务的开始时间。 */
     private long startedAt;
+    /** 本轮任务的会话标识；只用于恢复和诊断，不进入通知正文。 */
+    private String sessionId = "";
 
     /**
      * 收到一次状态变化。
@@ -43,6 +45,9 @@ final class TaskNotifier {
             if (!running) {
                 running = true;
                 startedAt = now;
+                this.sessionId = cleanSessionId(sessionId);
+            } else if (this.sessionId.length() == 0) {
+                this.sessionId = cleanSessionId(sessionId);
             }
             return null;
         }
@@ -57,6 +62,7 @@ final class TaskNotifier {
         long elapsed = now - startedAt;
         running = false;
         startedAt = 0;
+        this.sessionId = "";
 
         // 用户就在看着屏幕：界面上本来就能看到结果，不需要再弹一条
         if (foreground) return null;
@@ -75,10 +81,40 @@ final class TaskNotifier {
     /** 当前任务的稳定起始时间；未运行时为 0。 */
     long startedAt() { return running ? startedAt : 0L; }
 
+    /** 当前会话标识；没有可靠标识时为空。 */
+    String sessionId() { return running ? sessionId : ""; }
+
+    /**
+     * Activity 或进程重建后恢复同一轮计时。恢复不产生通知，也不会把未来时间
+     * 当成起点；真正的运行/结束状态仍由下一条会话探针确认。
+     */
+    boolean restoreRunning(String sessionId, long startedAt, long now) {
+        if (startedAt <= 0L || now <= 0L) return false;
+        this.running = true;
+        this.startedAt = Math.min(startedAt, now);
+        this.sessionId = cleanSessionId(sessionId);
+        return true;
+    }
+
     /** 把毫秒时长变成人话：{@code 1 分 24 秒} / {@code 2 小时 3 分}。 */
     static String duration(long ms) {
-        if (ms < 0) return "0 秒";
+        return duration(ms, false);
+    }
+
+    static String duration(long ms, boolean english) {
+        if (ms < 0) return english ? "0 sec" : "0 秒";
         long sec = ms / 1000;
+        if (english) {
+            if (sec < 60) return sec + " sec";
+            long min = sec / 60;
+            if (min < 60) {
+                long remain = sec % 60;
+                return remain == 0 ? min + " min" : min + " min " + remain + " sec";
+            }
+            long hours = min / 60;
+            long remain = min % 60;
+            return remain == 0 ? hours + " hr" : hours + " hr " + remain + " min";
+        }
         if (sec < 60) return sec + " 秒";
         long min = sec / 60;
         if (min < 60) {
@@ -109,5 +145,11 @@ final class TaskNotifier {
             return new String[]{ kind, id };
         }
         return null;
+    }
+
+    private static String cleanSessionId(String value) {
+        if (value == null) return "";
+        String clean = value.trim();
+        return clean.length() <= 64 && !clean.startsWith("<") ? clean : "";
     }
 }

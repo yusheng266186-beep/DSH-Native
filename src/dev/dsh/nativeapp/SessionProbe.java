@@ -36,7 +36,7 @@ final class SessionProbe {
                 + "request={u:u,m:ini.method||'POST',h:ini.headers,b:String(ini.body),"
                 + "c:ini.credentials||'same-origin'};}}catch(x){}"
                 + "var p=original.apply(this,arguments);observe(p,u);return p;};"
-                + "setInterval(function(){if(!request)return;try{"
+                + "function replay(){if(!request)return;try{"
                 + "var body=JSON.parse(request.b);"
                 + "body.rpcId='probe-'+Date.now()+'-'+Math.floor(Math.random()*1000000);"
                 + "var headers={};try{if(request.h&&typeof request.h.forEach==='function'){"
@@ -47,7 +47,14 @@ final class SessionProbe {
                 + "original.call(window,request.u,{method:request.m,headers:headers,"
                 + "body:JSON.stringify(body),credentials:request.c})"
                 + ".then(function(r){return r.text();}).then(report).catch(function(){});"
-                + "}catch(x){}},5000);"
+                + "}catch(x){}}"
+                + "window.__dshSessionProbeRefresh=replay;setInterval(replay,5000);"
                 + "})();";
+    }
+
+    /** 让已安装的探针立即重放一次最近的只读会话列表请求。 */
+    static String refreshScript() {
+        return "(function(){try{if(window.__dshSessionProbeRefresh)"
+                + "window.__dshSessionProbeRefresh();}catch(e){}})();";
     }
 }

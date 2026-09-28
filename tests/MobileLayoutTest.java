@@ -21,6 +21,12 @@ public class MobileLayoutTest {
         check("session probe embedded before app modules", once != null
                 && once.contains("dsh-native-session-probe")
                 && once.indexOf("dsh-native-session-probe") < once.indexOf("</head>"), "missing");
+        check("connection watcher embedded early", once != null
+                && once.contains("dsh-native-connection-watch")
+                && once.indexOf("dsh-native-connection-watch") < once.indexOf("</head>"), "missing");
+        check("draft recovery embedded early", once != null
+                && once.contains("dsh-native-draft-recovery")
+                && once.indexOf("dsh-native-draft-recovery") < once.indexOf("</head>"), "missing");
         check("settings switches keep native size", once != null
                 && once.contains("[role=switch]{flex-shrink:0!important;}"), "missing");
         check("global button height override removed", once != null
@@ -33,6 +39,12 @@ public class MobileLayoutTest {
                 == twice.lastIndexOf("dsh-native-responsive"), String.valueOf(twice));
         check("probe idempotent", twice != null && twice.indexOf("dsh-native-session-probe")
                 == twice.lastIndexOf("dsh-native-session-probe"), String.valueOf(twice));
+        check("connection watcher idempotent", twice != null
+                && twice.indexOf("dsh-native-connection-watch")
+                == twice.lastIndexOf("dsh-native-connection-watch"), String.valueOf(twice));
+        check("draft recovery idempotent", twice != null
+                && twice.indexOf("dsh-native-draft-recovery")
+                == twice.lastIndexOf("dsh-native-draft-recovery"), String.valueOf(twice));
         check("width can change", twice != null && twice.contains("width=869"), String.valueOf(twice));
         String oldScale = "<html><head><meta name=\"viewport\" "
                 + "content=\"width=480, initial-scale=0.8333\"></head></html>";

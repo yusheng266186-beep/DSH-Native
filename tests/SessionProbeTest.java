@@ -37,7 +37,9 @@ public class SessionProbeTest {
         check("uses original fetch for replay", script.contains("original.call(window"),
                 "recursive replay");
         check("refreshes rpc id", script.contains("body.rpcId='probe-'"), "stale id");
-        check("low frequency replay", script.contains("},5000)"), "wrong interval");
+        check("low frequency replay", script.contains("setInterval(replay,5000)"), "wrong interval");
+        check("manual refresh hook", script.contains("__dshSessionProbeRefresh")
+                && SessionProbe.refreshScript().contains("__dshSessionProbeRefresh"), "missing");
         check("no native bridge", !script.contains("addJavascriptInterface"), "unsafe bridge");
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
