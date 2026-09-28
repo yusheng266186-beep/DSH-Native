@@ -24,7 +24,7 @@ import java.io.FileNotFoundException;
 public class UpdateProvider extends ContentProvider {
 
     /** 与清单里 android:authorities 保持一致。 */
-    public static final String AUTHORITY = "dev.dsh.native.updates";
+    public static final String AUTHORITY = ProviderRoute.AUTHORITY;
 
     /**
      * 允许通过本 Provider 分享出去的根。
@@ -56,6 +56,10 @@ public class UpdateProvider extends ContentProvider {
      * @return 文件；不是分享 URI、格式不合法或不在白名单内时返回 null
      */
     private File shareTarget(Uri uri, boolean enforceWhitelist) {
+        if (uri == null || ProviderRoute.classify(
+                uri.getAuthority(), uri.getEncodedPath()) != ProviderRoute.SHARED_FILE) {
+            return null;
+        }
         String encoded = uri == null ? null : uri.getEncodedPath();
         if (encoded == null) return null;
         String head = "/" + ShareTargets.PREFIX;
@@ -67,7 +71,7 @@ public class UpdateProvider extends ContentProvider {
     }
 
     /** 更新包在缓存目录中的固定文件名。 */
-    public static final String APK_NAME = "update.apk";
+    public static final String APK_NAME = ProviderRoute.APK_NAME;
 
     /** 更新包以 content URI 形式交给系统安装器。 */
     public static Uri contentUri() {
@@ -87,16 +91,22 @@ public class UpdateProvider extends ContentProvider {
     public ParcelFileDescriptor openFile(Uri uri, String mode)
             throws FileNotFoundException {
         if (getContext() == null) throw new FileNotFoundException("no context");
+        int route = ProviderRoute.classify(uri == null ? null : uri.getAuthority(),
+                uri == null ? null : uri.getEncodedPath());
 
         // 分享路径：content://<authority>/f/<转义后的绝对路径>
         //
         // 解码成功不代表可以分享：URI 是**外部应用**传进来的，
         // 对方能自己构造路径来读任意文件 —— 白名单必须独立再校验一遍。
-        if (uri != null && uri.getEncodedPath() != null
-                && uri.getEncodedPath().startsWith("/" + ShareTargets.PREFIX)) {
+        if (route == ProviderRoute.SHARED_FILE) {
             File target = shareTarget(uri, true);
             if (target == null) throw new FileNotFoundException("not shareable: " + uri);
             return ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+
+        // 未知路径必须明确拒绝，不能静默回退成 update.apk。
+        if (route != ProviderRoute.UPDATE_APK) {
+            throw new FileNotFoundException("unknown provider path: " + uri);
         }
 
         File f = apkFile(getContext());
@@ -107,9 +117,13 @@ public class UpdateProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
+        int route = ProviderRoute.classify(uri == null ? null : uri.getAuthority(),
+                uri == null ? null : uri.getEncodedPath());
+        if (route == ProviderRoute.INVALID) return null;
         File target = shareTarget(uri, false);
         if (target != null) return ShareTargets.mimeOf(target.getName());
-        return "application/vnd.android.package-archive";
+        return route == ProviderRoute.UPDATE_APK
+                ? "application/vnd.android.package-archive" : null;
     }
 
     /**

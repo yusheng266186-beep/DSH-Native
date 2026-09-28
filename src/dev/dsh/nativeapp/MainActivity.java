@@ -113,6 +113,12 @@ public class MainActivity extends Activity {
     /** 私有运行日志；只有用户主动导出诊断时才复制到共享存储。 */
     private File sharedLog;
     private final Object logLock = new Object();
+    /** Activity 销毁时统一停止会永久等待的后台线程，避免主题重建后泄漏旧界面。 */
+    private final WorkerRegistry activityWorkers = new WorkerRegistry();
+    /** 静态 DshUi 日志入口必须能按实例解除，不能永久持有旧 Activity。 */
+    private final DshUi.LogSink dshUiLogSink = new DshUi.LogSink() {
+        @Override public void log(String msg) { MainActivity.this.log(msg); }
+    };
 
     /**
      * Service 只弱引用这个监听器；Activity 重建时旧界面不会被进程输出线程持有。
@@ -622,9 +628,7 @@ public class MainActivity extends Activity {
         }
 
         // 让各 UI 组件（文件浏览、编辑器等）能把诊断信息写进统一日志
-        DshUi.setLogSink(new DshUi.LogSink() {
-            @Override public void log(String msg) { log(msg); }
-        });
+        DshUi.setLogSink(dshUiLogSink);
 
         setContentView(root);
 
@@ -742,16 +746,19 @@ public class MainActivity extends Activity {
         dialog.setCancelable(false);
         auto.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.AUTO); showFirstRunGuide();
             }
         });
         zh.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.ZH); showFirstRunGuide();
             }
         });
         en.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
+                DshUi.choiceActivated(v);
                 dialog.dismiss(); applyUiLanguage(UiText.EN); showFirstRunGuide();
             }
         });
@@ -1188,10 +1195,12 @@ public class MainActivity extends Activity {
         statusPageLoading = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
+                WebView view = webView;
+                if (view == null || isFinishing() || isDestroyed()) return;
                 // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
                 // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
-                webView.setInitialScale(0);
-                webView.loadUrl(target);
+                view.setInitialScale(0);
+                view.loadUrl(target);
                 // 复用已有实例时，开屏要在加载完成后收起；
                 // 这里先排一个兜底，避免任何情况下被永久挡住
                 new android.os.Handler(android.os.Looper.getMainLooper())
@@ -1832,8 +1841,10 @@ public class MainActivity extends Activity {
             android.widget.Button b = DshUi.toggleButton(this, pct + "%", cur);
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     applyZoom(pct);
                     fillZoomRow(row);          // 重建 → 状态必然一致
+                    DshUi.animateChoiceChange(row);
                     toast("显示缩放已设为 " + pct + "%");
                 }
             });
@@ -2537,8 +2548,8 @@ public class MainActivity extends Activity {
     /**
      * 注入状态采集脚本。
      *
-     * <p>审批读页面可见状态；运行/空闲由 {@link SessionProbe} 捕获并重放
-     * DSH 页面自己发出的会话列表 RPC，不再构造错误的 REST GET。
+     * <p>会话列表由 {@link SessionProbe} 捕获并重放；页面可见状态同时作为独立兜底，
+     * 避免 API 地址或请求格式变化时通知栏失去运行/空闲状态。
      *
      * <p>三个判据取自 DSH 客户端插件的 locale 字典，是稳定的文案：
      * 「停止生成」「发送消息」「等待审批」。
@@ -2700,9 +2711,10 @@ public class MainActivity extends Activity {
      *
      * <p>现在的规则：
      * <ol>
-     *   <li>任何一方说「在跑」就是在跑；</li>
-     *   <li>「空闲」必须有明确证据（全量会话列表，或 DOM 上确实只有发送按钮）；</li>
-     *   <li>完全没有新鲜证据时返回 -1 —— 保持上一次状态，不猜、也不降级。</li>
+     *   <li>等待批准优先，因为它需要用户动作；</li>
+     *   <li>新鲜会话列表是运行/空闲的权威证据；</li>
+     *   <li>列表暂不可用时，才用可见的停止/发送按钮兜底；</li>
+     *   <li>完全没有新鲜证据时保持现状，过久的运行态改为「同步中」。</li>
      * </ol>
      *
      * @return 推导出的状态；无新鲜证据时返回 -1
@@ -2710,33 +2722,10 @@ public class MainActivity extends Activity {
     private int deriveStatus(long now) {
         boolean domFresh = domSignalAt > 0 && now - domSignalAt <= SIGNAL_TTL_MS;
         boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
-
-        // 1) 等待批准优先级最高 —— 这是唯一仍然读页面的状态
-        if (domFresh && domSignalState == SessionStatus.AWAITING_APPROVAL) {
-            return SessionStatus.AWAITING_APPROVAL;
-        }
-        // 2) 运行 / 空闲**只认会话列表**（页面侧解析的完整 JSON）。
-        //
-        //    不再用页面上的「停止生成 / 发送消息」按钮推断运行状态：
-        //    那两个按钮的文案匹配一旦失效（换成图标、文案改字），就解析成
-        //    「无依据」；更糟的是**误命中时会把状态钉死** —— 实测过一次：
-        //    对话早已结束，通知栏却一直停在「运行中」。
-        //    按钮从此只保留一个用途：识别「等待批准」（见上一步）。
-        if (sessFresh) {
-            return sessSignalState == SessionStatus.RUNNING
-                    ? SessionStatus.RUNNING : SessionStatus.IDLE;
-        }
-        // 3) 刚过期不久：保持上一次状态，避免无谓抖动
-        if (sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS) {
-            return -1;
-        }
-        // 4) 长时间拿不到权威数据：宁可报「未知」，也不要把旧状态一直挂着。
-        //    「通知里显示错误的状态比不显示更糟」是项目的既有约定。
-        if (lastSessionStatus == SessionStatus.RUNNING
-                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-            return SessionStatus.UNKNOWN;
-        }
-        return -1;
+        boolean sessRecent = sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS;
+        return SessionStatus.resolveSignals(lastSessionStatus,
+                sessSignalState, sessFresh, sessRecent,
+                domSignalState, domFresh);
     }
 
     /** 收到一次页面状态上报，推给前台服务更新通知。 */
@@ -3514,8 +3503,9 @@ public class MainActivity extends Activity {
         if (best == null) {
             log("版本清单获取失败（" + sources.length + " 个源均不可用）");
         } else if (ok > 1) {
-            log("版本清单: " + ReleaseChannel.label(updateChannelPreference())
-                    + "，从 " + ok + " 个源取得，采用最高版本 " + best[0]);
+            log("更新通道: " + ReleaseChannel.label(updateChannelPreference())
+                    + "（仅决定检查更新源，当前安装包 " + appVersion() + "）"
+                    + "；从 " + ok + " 个源取得，采用最高版本 " + best[0]);
         }
         return best;
     }
@@ -3581,13 +3571,22 @@ public class MainActivity extends Activity {
                     // （实测踩过：0.23.4 重发时是我手工删掉缓存才通的。）
                     if (cachedVer != null && !isNewer(rel[0], cachedVer)
                             && cachedApkInstallable(apk)) {
-                        success = true;
-                        outcome = "准备安装";
                         log("本地已有最新安装包 " + cachedVer
                                 + "（此前下载后未安装），直接调起安装，跳过下载");
                         setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
                         if (interactive) toast("使用已下载的 " + cachedVer + " 安装包");
-                        installApk(apk);
+                        int install = installApk(apk);
+                        success = install == INSTALL_LAUNCHED;
+                        outcome = install == INSTALL_LAUNCHED ? "等待确认"
+                                : install == INSTALL_PERMISSION_REQUIRED ? "等待授权"
+                                : "无法安装";
+                        if (install == INSTALL_PERMISSION_REQUIRED) {
+                            setStatus(status, "安装包已就绪；授权后请返回并再次点击检查更新");
+                        } else if (install == INSTALL_FAILED) {
+                            setStatus(status, "安装包已就绪，但无法打开系统安装器");
+                        } else {
+                            setStatus(status, "已打开安装界面，请确认覆盖安装");
+                        }
                         return;
                     }
                     if (apk.exists()) {
@@ -3608,10 +3607,18 @@ public class MainActivity extends Activity {
                                 "下载的 APK 版本、包名或签名与当前应用不匹配");
                     }
                     log("更新包已下载: " + (apk.length() / 1048576) + " MB");
-                    success = true;
-                    outcome = "准备安装";
-                    setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
-                    installApk(apk);
+                    int install = installApk(apk);
+                    success = install == INSTALL_LAUNCHED;
+                    outcome = install == INSTALL_LAUNCHED ? "等待确认"
+                            : install == INSTALL_PERMISSION_REQUIRED ? "等待授权"
+                            : "无法安装";
+                    if (install == INSTALL_PERMISSION_REQUIRED) {
+                        setStatus(status, "下载完成；授权后请返回并再次点击检查更新");
+                    } else if (install == INSTALL_FAILED) {
+                        setStatus(status, "下载完成，但无法打开系统安装器");
+                    } else {
+                        setStatus(status, "已打开安装界面，请确认覆盖安装");
+                    }
                 } catch (Throwable t) {
                     success = false;
                     outcome = "检查失败";
@@ -3676,9 +3683,13 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private static final int INSTALL_FAILED = -1;
+    private static final int INSTALL_PERMISSION_REQUIRED = 0;
+    private static final int INSTALL_LAUNCHED = 1;
+
     /** 调起系统安装器覆盖安装。 */
-    private void installApk(File apk) {
-        if (!ensureInstallPermission()) return;
+    private int installApk(File apk) {
+        if (!ensureInstallPermission()) return INSTALL_PERMISSION_REQUIRED;
         try {
             android.content.Intent i = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW);
@@ -3688,9 +3699,11 @@ public class MainActivity extends Activity {
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             toast("请在安装界面确认覆盖安装");
+            return INSTALL_LAUNCHED;
         } catch (Throwable t) {
             log("错误: 调起安装器失败: " + t);
             toast("无法调起安装器: " + shorten(t));
+            return INSTALL_FAILED;
         }
     }
 
@@ -4319,27 +4332,37 @@ public class MainActivity extends Activity {
             });
             account.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showAccountSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showAccountSettings(); }
+                    });
                 }
             });
             display.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDisplaySettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDisplaySettings(); }
+                    });
                 }
             });
             updates.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showUpdateSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showUpdateSettings(); }
+                    });
                 }
             });
             data.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDataSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDataSettings(); }
+                    });
                 }
             });
             diagnostics.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
-                    dialog.dismiss(); showDiagnosticsSettings();
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDiagnosticsSettings(); }
+                    });
                 }
             });
             dialog.show();
@@ -4394,7 +4417,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back, save), 660);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         save.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4464,7 +4489,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back, apply), 560);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         apply.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4489,8 +4516,10 @@ public class MainActivity extends Activity {
                     value.equals(choice[0]));
             b.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     choice[0] = value;
                     fillLanguageRow(row, choice);
+                    DshUi.animateChoiceChange(row);
                 }
             });
             addEqualButton(row, b, i == 0 ? 0 : 6);
@@ -4507,7 +4536,8 @@ public class MainActivity extends Activity {
 
         body.addView(DshUi.sectionLabel(this, "更新通道"), DshUi.fullWidth(this, 18));
         body.addView(DshUi.hint(this,
-                "稳定版只接收正式发布；测试版可提前安装新功能，可能存在尚未真机验证的问题。"),
+                "此选项只决定检查哪个更新源，不代表当前安装包类型。稳定版只接收正式发布；"
+                        + "测试版可提前安装新功能。当前安装包：" + appVersion()),
                 DshUi.fullWidth(this, 5));
         final android.widget.LinearLayout channelRow = new android.widget.LinearLayout(this);
         channelRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -4541,7 +4571,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back), 620);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -4559,8 +4591,10 @@ public class MainActivity extends Activity {
                     value.equals(current));
             button.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
+                    DshUi.choiceActivated(v);
                     setUpdateChannelPreference(value);
                     fillUpdateChannelRow(row, status);
+                    DshUi.animateChoiceChange(row);
                     setStatus(status, "已切换到" + ReleaseChannel.label(value)
                             + "，下次检查立即生效");
                 }
@@ -4604,10 +4638,7 @@ public class MainActivity extends Activity {
                 "当前：" + WorkspaceProjects.displayName(activeProjectName())
                         + "。每个项目使用独立工作目录，切换时会重启 agent。"),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button projects = DshUi.button(this, "管理项目", false);
-        projects.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showWorkspaceProjects(); }
-        });
+        final android.widget.Button projects = DshUi.button(this, "管理项目", false);
         body.addView(projects, DshUi.fullWidth(this, 8));
 
         body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
@@ -4671,9 +4702,24 @@ public class MainActivity extends Activity {
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, back), 650);
+        projects.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                File availableRoot = workspaceRoot != null
+                        ? workspaceRoot : resolveWorkspaceRoot();
+                if (availableRoot == null) {
+                    toast("工作区不可用");
+                    return;
+                }
+                DshUi.swapDialog(dialog, false, new Runnable() {
+                    @Override public void run() { showWorkspaceProjects(); }
+                });
+            }
+        });
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -4716,7 +4762,9 @@ public class MainActivity extends Activity {
         });
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showDataSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showDataSettings(); }
+                });
             }
         });
         create.setOnClickListener(new android.view.View.OnClickListener() {
@@ -4835,7 +4883,9 @@ public class MainActivity extends Activity {
                 DshUi.scroll(this, body), DshUi.footer(this, back), 560);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                dialog.dismiss(); showSettings();
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
             }
         });
         dialog.show();
@@ -5565,22 +5615,7 @@ public class MainActivity extends Activity {
     private void installCrashHandler() {
         try {
             crashFile = new File(getFilesDir(), "crash.log");
-            final Thread.UncaughtExceptionHandler def =
-                    Thread.getDefaultUncaughtExceptionHandler();
-            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                @Override
-                public void uncaughtException(Thread t, Throwable e) {
-                    try {
-                        java.io.PrintWriter pw = new java.io.PrintWriter(
-                                new java.io.FileWriter(crashFile, true));
-                        pw.println("=== " + new java.util.Date() + " / thread " + t.getName() + " ===");
-                        e.printStackTrace(pw);
-                        pw.flush();
-                        pw.close();
-                    } catch (Throwable ignored) { }
-                    if (def != null) def.uncaughtException(t, e);
-                }
-            });
+            CrashReporter.install(crashFile);
         } catch (Throwable ignored) { }
     }
 
@@ -6242,7 +6277,9 @@ public class MainActivity extends Activity {
                 + "</head><body><h1>" + title + "</h1><p>" + detail + "</p></body></html>";
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
+                WebView view = webView;
+                if (view == null || isFinishing() || isDestroyed()) return;
+                view.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
             }
         });
     }
@@ -6308,6 +6345,8 @@ public class MainActivity extends Activity {
     private void log(final String msg) {
         Log.i(TAG, msg);
         if (msg == null) return;
+        // onDestroy 之后只保留 logcat，不再复活会持有旧 Activity 的写盘线程。
+        if (activityWorkers.isStopped()) return;
         if (!logWorkerStarted) startLogWorker();
         // offer 而非 put：队列满时立即返回，绝不阻塞调用方（尤其是 UI 线程）
         if (!logQueue.offer(msg)) {
@@ -6331,16 +6370,16 @@ public class MainActivity extends Activity {
                 new android.os.Handler(android.os.Looper.getMainLooper());
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
-                while (true) {
-                    final long sent = System.currentTimeMillis();
-                    final java.util.concurrent.CountDownLatch done =
-                            new java.util.concurrent.CountDownLatch(1);
-                    if (!ui.post(new Runnable() {
-                        @Override public void run() { done.countDown(); }
-                    })) {
-                        return;   // 主线程已退出
-                    }
-                    try {
+                try {
+                    while (!activityWorkers.isStopped()) {
+                        final long sent = System.currentTimeMillis();
+                        final java.util.concurrent.CountDownLatch done =
+                                new java.util.concurrent.CountDownLatch(1);
+                        if (!ui.post(new Runnable() {
+                            @Override public void run() { done.countDown(); }
+                        })) {
+                            return;   // 主线程已退出
+                        }
                         if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
                             long ms = System.currentTimeMillis() - sent;
                             log("[卡顿] 主线程已阻塞 " + (ms / 1000) + " 秒（看门狗）");
@@ -6348,43 +6387,49 @@ public class MainActivity extends Activity {
                             done.await(60, java.util.concurrent.TimeUnit.SECONDS);
                         }
                         Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        return;
                     }
+                } catch (InterruptedException ignored) {
+                    // Activity 销毁时由 WorkerRegistry 主动中断。
+                } finally {
+                    activityWorkers.finished(Thread.currentThread());
                 }
             }
         }, "dsh-ui-watchdog");
         t.setDaemon(true);
-        t.start();
-        log("已启动主线程卡顿看门狗（阻塞超过 5 秒会记日志）");
+        if (activityWorkers.start(t)) {
+            log("已启动主线程卡顿看门狗（阻塞超过 5 秒会记日志）");
+        }
     }
 
     private synchronized void startLogWorker() {
-        if (logWorkerStarted) return;
+        if (logWorkerStarted || activityWorkers.isStopped()) return;
         logWorkerStarted = true;
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
-                while (true) {
-                    String m;
-                    try {
+                try {
+                    while (!activityWorkers.isStopped()) {
+                        String m;
                         m = logQueue.take();
-                    } catch (InterruptedException e) {
-                        return;
-                    }
-                    try {
-                        int dropped = droppedLogLines.getAndSet(0);
-                        if (dropped > 0) {
-                            appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
+                        try {
+                            int dropped = droppedLogLines.getAndSet(0);
+                            if (dropped > 0) {
+                                appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
+                            }
+                            appendSharedLog(m);
+                        } catch (Throwable ignored) {
+                            // 日志写失败不能反过来影响功能
                         }
-                        appendSharedLog(m);
-                    } catch (Throwable ignored) {
-                        // 日志写失败不能反过来影响功能
                     }
+                } catch (InterruptedException ignored) {
+                    // Activity 销毁时由 WorkerRegistry 主动中断。
+                } finally {
+                    logWorkerStarted = false;
+                    activityWorkers.finished(Thread.currentThread());
                 }
             }
         }, "dsh-log-writer");
         t.setDaemon(true);
-        t.start();
+        if (!activityWorkers.start(t)) logWorkerStarted = false;
     }
 
     /** 初始化应用私有日志文件；共享存储只用于用户主动导出的脱敏诊断。 */
@@ -6409,7 +6454,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.26.0\n");
+            w.write("APK 版本: 0.26.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7036,13 +7081,43 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopSplashAnimation();
+        android.app.Dialog exiting = exitDialog;
         exitDialog = null;
+        if (exiting != null) {
+            try { exiting.dismiss(); } catch (Throwable ignored) { }
+        }
         shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
         if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
         shareSubmitProgress = null;
         for (DshUi.TaskProgress progress : shareImportProgresses) progress.dismiss();
         shareImportProgresses.clear();
+
+        if (pendingFileCallback != null) {
+            try { pendingFileCallback.onReceiveValue(null); }
+            catch (Throwable ignored) { }
+            pendingFileCallback = null;
+        }
+
         HarnessService.clearListener(harnessListener);
+        DshUi.clearLogSink(dshUiLogSink);
+        activityWorkers.stop();
+
+        // WebView 持有 Activity、回调和渲染线程。主题切换会重建 Activity，
+        // 旧实例若不显式销毁，会与看门狗一样累积到进程结束。
+        WebView oldWebView = webView;
+        webView = null;
+        if (oldWebView != null) {
+            try { oldWebView.stopLoading(); } catch (Throwable ignored) { }
+            try { oldWebView.setWebChromeClient(null); } catch (Throwable ignored) { }
+            try { oldWebView.setWebViewClient(null); } catch (Throwable ignored) { }
+            try {
+                if (oldWebView.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) oldWebView.getParent()).removeView(oldWebView);
+                }
+            } catch (Throwable ignored) { }
+            try { oldWebView.removeAllViews(); } catch (Throwable ignored) { }
+            try { oldWebView.destroy(); } catch (Throwable ignored) { }
+        }
         super.onDestroy();
     }
 }

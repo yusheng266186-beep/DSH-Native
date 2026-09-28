@@ -222,22 +222,28 @@ assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').leng
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'repeat injection must not duplicate the row');
 
-tree.button.rectWidth = 36;
+// 48px reproduces the real-device failure: the old >44px heuristic mistook
+// this collapsed control for an expanded sidebar and left the native gear active.
+tree.button.rectWidth = 48;
 tree.button.className = 'trigger VOzbGW_rail';
 tree.row.className = 'triggerRow VOzbGW_railRow';
 observerCallback();
 runShortTimers();
-assert(toolsRows().length === 1 && toolsRows()[0].hidden === true,
-  'collapsed sidebar should hide the ambiguous cloned gear');
+assert(toolsRows().length === 0,
+  'collapsed sidebar should remove the ambiguous cloned gear');
 assert(tree.button.getAttribute('aria-haspopup') === 'dialog',
   'collapsed Settings button must remain the original WebUI action');
+const nativeOpenCount = messages.filter((item) => item === '[dsh-native] open-settings').length;
+tree.button.dispatch('click');
+assert(messages.filter((item) => item === '[dsh-native] open-settings').length === nativeOpenCount,
+  'collapsed original Settings must not open native tools');
 
 tree.button.rectWidth = 164;
 tree.button.className = 'trigger wide';
 tree.row.className = 'triggerRow wide';
 observerCallback();
 runShortTimers();
-assert(toolsRows()[0].hidden === false,
+assert(toolsRows().length === 1,
   'expanding the sidebar should restore App tools without a reload');
 
 const next = settingsTree('en', false);
@@ -254,4 +260,4 @@ assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').leng
   'rerender should not repeat the migration event');
 assert(errors.length === 0, 'normal mounting should not report a missing anchor');
 
-console.log('WebToolsEntrySimulation: 16 pass / 0 fail');
+console.log('WebToolsEntrySimulation: 17 pass / 0 fail');

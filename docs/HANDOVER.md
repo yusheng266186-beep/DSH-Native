@@ -114,7 +114,7 @@
 ### 能自动化的（每次构建都跑）
 
 ```bash
-bash scripts/run_tests.sh     # 765 项纯逻辑断言 + 16 项入口 DOM + 8 项状态探针模拟
+bash scripts/run_tests.sh     # 774 项纯逻辑断言 + 17 项入口 DOM + 18 项状态脚本模拟
 ```
 
 ### 需要手工跑的

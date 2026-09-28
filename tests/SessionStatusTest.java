@@ -18,6 +18,10 @@ public class SessionStatusTest {
     }
 
     public static void main(String[] args) {
+        if (args.length > 0 && "--dump-script".equals(args[0])) {
+            System.out.print(SessionStatus.pollScript());
+            return;
+        }
         System.out.println("=== 1. state priority ===");
         check("approval beats running",
                 SessionStatus.fromDom(true, false, true, true) == SessionStatus.AWAITING_APPROVAL,
@@ -44,7 +48,8 @@ public class SessionStatusTest {
         check("running label", "运行中".equals(SessionStatus.label(SessionStatus.RUNNING)), "wrong");
         check("approval label", "等待批准".equals(SessionStatus.label(SessionStatus.AWAITING_APPROVAL)), "wrong");
         check("idle label", "空闲".equals(SessionStatus.label(SessionStatus.IDLE)), "wrong");
-        check("unknown label", SessionStatus.label(SessionStatus.UNKNOWN).contains("未知"), "wrong");
+        check("transitional label avoids misleading unknown",
+                "同步中".equals(SessionStatus.label(SessionStatus.UNKNOWN)), "wrong");
 
         System.out.println("=== 4. title carries elapsed time ===");
         String t = SessionStatus.title(SessionStatus.RUNNING, 134_000L);
@@ -128,12 +133,11 @@ public class SessionStatusTest {
 
         System.out.println("=== 10. injected script ===");
         String js = SessionStatus.pollScript();
-        // 注入脚本只做一件事：检测待批准。
-        // 运行/空闲由 App 从 DSH 自己的 /api/session/list 响应里读 ——
-        // 那个接口是 RPC 式 POST，注入脚本用 GET 调只会 404
-        //（实测 109 次 404 全是这么来的，28 次 200 都是 DSH 自己发的）。
+        // 会话列表仍是权威来源；DOM 同时上报运行/空闲/审批作为独立兜底。
         check("does NOT self-poll the API",
                 !js.contains("fetch("), "自己轮询会 404，还白耗电");
+        check("detects running and idle fallback",
+                js.contains("停止生成") && js.contains("发送消息"), "missing");
         check("keeps approval detection",
                 js.contains("允许一次") && js.contains("等待审批"), "missing");
         check("approval uses exact match",
@@ -144,7 +148,9 @@ public class SessionStatusTest {
         check("requires visibility",
                 js.contains("getBoundingClientRect") && js.contains("function visible"),
                 "隐藏的旧面板会导致误报");
-        check("reports only on change", js.contains("a!==last"), "会刷日志");
+        check("reports all DOM facts", js.contains("[dsh-dom]")
+                && js.contains("s='") && js.contains(" n="), "missing");
+        check("reports only on change", js.contains("now!==last"), "会刷日志");
         check("idempotent guard", js.contains("__dshStatusWatch"), "missing");
         check("has interval", js.contains("setInterval"), "missing");
 
@@ -187,6 +193,33 @@ public class SessionStatusTest {
         check("dom indeterminate", SessionStatus.parseDomConsole("[dsh-dom] s=0 n=0 p=0") == SessionStatus.UNKNOWN, "wrong");
         check("dom ignores other lines", SessionStatus.parseDomConsole("[web] hi") == -1, "wrong");
         check("dom null safe", SessionStatus.parseDomConsole(null) == -1, "wrong");
+
+        System.out.println("=== 13. signal resolution ===");
+        check("approval beats authoritative idle",
+                SessionStatus.resolveSignals(SessionStatus.IDLE,
+                        SessionStatus.IDLE, true, true,
+                        SessionStatus.AWAITING_APPROVAL, true)
+                        == SessionStatus.AWAITING_APPROVAL, "wrong");
+        check("fresh session beats stale-looking DOM",
+                SessionStatus.resolveSignals(SessionStatus.IDLE,
+                        SessionStatus.RUNNING, true, true,
+                        SessionStatus.IDLE, true) == SessionStatus.RUNNING, "wrong");
+        check("DOM idle is fallback before first session list",
+                SessionStatus.resolveSignals(SessionStatus.UNKNOWN,
+                        SessionStatus.UNKNOWN, false, false,
+                        SessionStatus.IDLE, true) == SessionStatus.IDLE, "wrong");
+        check("DOM running is fallback before first session list",
+                SessionStatus.resolveSignals(SessionStatus.UNKNOWN,
+                        SessionStatus.UNKNOWN, false, false,
+                        SessionStatus.RUNNING, true) == SessionStatus.RUNNING, "wrong");
+        check("brief gap keeps previous state",
+                SessionStatus.resolveSignals(SessionStatus.RUNNING,
+                        SessionStatus.RUNNING, false, true,
+                        SessionStatus.UNKNOWN, false) == -1, "wrong");
+        check("stale running becomes syncing",
+                SessionStatus.resolveSignals(SessionStatus.RUNNING,
+                        SessionStatus.RUNNING, false, false,
+                        SessionStatus.UNKNOWN, false) == SessionStatus.UNKNOWN, "wrong");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

@@ -4,7 +4,7 @@ package dev.dsh.nativeapp;
  * 页面最早期安装的会话状态探针。
  *
  * <p>它只包装页面已有的 {@code fetch}，记住 DSH 自己发出的只读
- * {@code /api/session/list} 请求并低频重放。脚本只向控制台上报运行中会话数，
+ * {@code api/session/list} 请求并低频重放。脚本只向控制台上报运行中会话数，
  * 不向网页暴露任何原生能力。</p>
  */
 final class SessionProbe {
@@ -19,17 +19,20 @@ final class SessionProbe {
                 + "var original=window.fetch,request=null;"
                 + "function urlOf(a){try{return typeof a==='string'?a:"
                 + "(a&&a.url?a.url:String(a));}catch(x){return '';}}"
+                + "function isList(u){return /(^|\\/)api\\/session\\/list(?:[?#]|$)/.test(String(u));}"
                 + "function rows(j){var x=j;"
                 + "if(x&&x.result)x=x.result;if(x&&x.value)x=x.value;"
-                + "return x&&Array.isArray(x.items)?x.items:[];}"
-                + "function report(t){try{var it=rows(JSON.parse(t)),n=0;"
+                + "if(Array.isArray(x))return x;"
+                + "if(x&&Array.isArray(x.items))return x.items;"
+                + "if(x&&Array.isArray(x.sessions))return x.sessions;return null;}"
+                + "function report(t){try{var it=rows(JSON.parse(t));if(!it)return;var n=0;"
                 + "for(var i=0;i<it.length;i++){if(it[i]&&it[i].running===true)n++;}"
                 + "console.log('[dsh-sess] r='+n);}catch(x){}}"
-                + "function observe(p,u){try{if(u.indexOf('/api/session/list')<0)return;"
+                + "function observe(p,u){try{if(!isList(u))return;"
                 + "p.then(function(r){try{r.clone().text().then(report).catch(function(){});"
                 + "}catch(x){}}).catch(function(){});}catch(x){}}"
                 + "window.fetch=function(){var a=arguments[0],ini=arguments[1]||{},u=urlOf(a);"
-                + "try{if(u.indexOf('/api/session/list')>=0&&ini.body){"
+                + "try{if(isList(u)&&ini.body){"
                 + "request={u:u,m:ini.method||'POST',h:ini.headers,b:String(ini.body),"
                 + "c:ini.credentials||'same-origin'};}}catch(x){}"
                 + "var p=original.apply(this,arguments);observe(p,u);return p;};"

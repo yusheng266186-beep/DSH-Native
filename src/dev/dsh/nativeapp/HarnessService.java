@@ -192,7 +192,7 @@ public class HarnessService extends Service {
             // 实测踩过：App 更新后服务被重建，这条占位通知一直挂着，
             // 而用户看到的正是「对话早就结束了，通知栏还显示运行中」。
             startForeground(NOTIFICATION_ID,
-                    buildNotification("正在获取状态 · 展开可设置", null, false));
+                    buildNotification("正在同步任务状态 · 展开可设置", null, false));
 
         } catch (Throwable t) {
             Log.w(TAG, "startForeground 失败", t);
