@@ -679,7 +679,7 @@ public final class FileBrowser {
                     : "共 " + entries.size() + " 项。恢复时若原位置已有同名文件，会自动保留两份。"),
                     DshUi.fullWidth(act, 6));
             final Dialog[] holder = new Dialog[1];
-            int limit = Math.min(entries.size(), 100);
+            int limit = entries.size();
             for (int i = 0; i < limit; i++) {
                 final FileTrash.Entry entry = entries.get(i);
                 LinearLayout row = new LinearLayout(act);
