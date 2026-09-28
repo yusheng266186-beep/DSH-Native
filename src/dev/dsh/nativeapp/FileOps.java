@@ -205,7 +205,7 @@ final class FileOps {
     /**
      * 只判断当前路径项本身是否为符号链接；父目录即使也是链接也不会造成误判。
      */
-    private static boolean isSymbolicLink(File file) throws IOException {
+    static boolean isSymbolicLink(File file) throws IOException {
         File parent = file.getParentFile();
         File normalized = parent == null ? file : new File(parent.getCanonicalFile(), file.getName());
         return !normalized.getCanonicalFile().equals(normalized.getAbsoluteFile());

@@ -324,6 +324,7 @@ public final class DshUi {
         tv.setTextSize(17f);
         tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
+        if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
         return tv;
     }
 
@@ -334,6 +335,7 @@ public final class DshUi {
         tv.setTextSize(13f);
         tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
+        if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
         return tv;
     }
 
@@ -363,6 +365,7 @@ public final class DshUi {
         tv.setTextSize(11.5f);
         tv.setTextColor(TEXT_2());
         tv.setLineSpacing(dp(c, 2), 1f);
+        tv.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         return tv;
     }
 
@@ -406,7 +409,7 @@ public final class DshUi {
         // 低于 Android 无障碍建议的 48dp；6.8 寸屏单手操作容易点错。
         // （setMinimumHeight(0) 的作用是清掉 Material 主题的默认值，必须保留，
         //   但清完要设回一个合理的下限，而不是放任成 0。）
-        b.setMinimumHeight(dp(c, 44));
+        b.setMinimumHeight(dp(c, DeviceLayout.MIN_TOUCH_TARGET_DP));
         b.setMinimumWidth(0);
         installButtonMotion(b);
         return b;
@@ -751,13 +754,15 @@ public final class DshUi {
                         animationsEnabled(c), custom, android.R.style.Animation_Dialog);
                 w.setWindowAnimations(animation);
             } catch (Throwable ignored) { }
-            int screenW = c.getResources().getDisplayMetrics().widthPixels;
-            int screenH = c.getResources().getDisplayMetrics().heightPixels;
+            android.util.DisplayMetrics metrics = c.getResources().getDisplayMetrics();
+            int screenW = metrics.widthPixels;
+            int screenH = metrics.heightPixels;
             // 宽度：两侧各留 24dp，上限放宽到 720dp。
             // 早先上限 520dp，横屏时（屏幕宽约 869dp）只能用到六成，很浪费；
             // 竖屏仍受屏幕限制（400dp 屏 → 352dp），几乎满宽。
-            int width = Math.min(screenW - dp(c, 24), dp(c, 720));
-            int maxH = Math.min(dp(c, maxHeightDp), (int) (screenH * 0.86f));
+            int width = DeviceLayout.dialogWidthPx(screenW, metrics.density);
+            int maxH = DeviceLayout.dialogHeightPx(
+                    screenH, maxHeightDp, metrics.density);
 
             int height = maxH;
             if (!fillHeight) {
@@ -835,8 +840,11 @@ public final class DshUi {
     /** 底部操作区：右对齐的按钮行。 */
     public static LinearLayout footer(Context c, Button... buttons) {
         LinearLayout row = new LinearLayout(c);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        android.content.res.Configuration config = c.getResources().getConfiguration();
+        boolean stacked = DeviceLayout.stackFooter(config.screenWidthDp,
+                config.fontScale, buttons == null ? 0 : buttons.length);
+        row.setOrientation(stacked ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        row.setGravity(stacked ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL);
         int pad = dp(c, 14);
         row.setPadding(pad, dp(c, 12), pad, pad);
         // **等权重分配**，不用 WRAP_CONTENT。
@@ -848,15 +856,23 @@ public final class DshUi {
         // 常用位置那一行六个按钮就是这么做，从未出问题。
         for (int i = 0; i < buttons.length; i++) {
             Button b = buttons[i];
-            b.setSingleLine(true);      // 双保险：即使标签偏长也只省略，不换行
-            b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            b.setSingleLine(!stacked);
+            b.setMaxLines(stacked ? 2 : 1);
+            b.setEllipsize(stacked ? null : android.text.TextUtils.TruncateAt.END);
             // 统一紧凑内边距：底部按钮数量会变（文件浏览已是 5 个），
             // 若沿用 dp(16) 的默认边距，两字标签就要 64dp，
             // 等权重分到的宽度会不够。收到 dp(6) 后两字只需 44dp。
             b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            if (i > 0) lp.leftMargin = dp(c, 8);
+            LinearLayout.LayoutParams lp = stacked
+                    ? new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT)
+                    : new LinearLayout.LayoutParams(
+                            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) {
+                if (stacked) lp.topMargin = dp(c, 8);
+                else lp.leftMargin = dp(c, 8);
+            }
             row.addView(b, lp);
         }
         return row;

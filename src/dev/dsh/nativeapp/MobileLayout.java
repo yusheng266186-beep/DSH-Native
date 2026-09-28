@@ -41,12 +41,15 @@ final class MobileLayout {
         String out = matcher.replaceFirst(Matcher.quoteReplacement(viewport));
 
         String style = STYLE_OPEN
+                + "html{-webkit-text-size-adjust:100%;}"
                 + "@media(max-width:840px){"
                 + "[role=dialog]{box-sizing:border-box!important;"
                 + "max-width:calc(100vw - 16px)!important;max-height:calc(100vh - 16px)!important;}"
                 + "textarea,input,select{box-sizing:border-box;max-width:100%;}"
                 + "[data-shortcut-modal=\"settings\"] [role=switch]{flex-shrink:0!important;}"
                 + "pre,code{max-width:100%;overflow-wrap:anywhere;}"
+                + "[role=dialog] button,[role=dialog] [role=button]{"
+                + "max-width:100%;overflow-wrap:anywhere;}"
                 + "}"
                 + "@media(max-width:520px){"
                 + "[data-shortcut-modal=\"settings\"][role=dialog]{"
@@ -67,6 +70,15 @@ final class MobileLayout {
                 + "}"
                 + "@media(max-height:520px) and (orientation:landscape){"
                 + "[role=dialog]{max-height:calc(100vh - 8px)!important;}"
+                + "}"
+                + "@media(pointer:coarse){"
+                + "button:not([role=switch]),[role=button]:not([role=switch]){"
+                + "min-height:44px;}"
+                + "}"
+                + "@media(prefers-reduced-motion:reduce){"
+                + "*,*::before,*::after{animation-duration:.01ms!important;"
+                + "animation-iteration-count:1!important;transition-duration:.01ms!important;"
+                + "scroll-behavior:auto!important;}"
                 + "}"
                 + STYLE_CLOSE;
 

@@ -10,6 +10,7 @@ package dev.dsh.nativeapp;
 final class OperationGate {
     static final String APP_UPDATE = "App 更新";
     static final String PAYLOAD_UPDATE = "运行包更新";
+    static final String PAYLOAD_ROLLBACK = "运行环境恢复";
 
     private String active;
 

@@ -34,6 +34,16 @@ public class MobileLayoutTest {
         check("narrow settings use vertical layout", once != null
                 && once.contains("max-width:520px")
                 && once.contains("flex-direction:column!important"), "missing");
+        check("coarse pointer touch targets", once != null
+                && once.contains("@media(pointer:coarse)")
+                && once.contains("button:not([role=switch])"), "missing");
+        check("switch excluded from touch override", once != null
+                && once.contains(":not([role=switch])"), "missing");
+        check("reduced motion respected", once != null
+                && once.contains("prefers-reduced-motion:reduce")
+                && once.contains("transition-duration:.01ms"), "missing");
+        check("dialog actions may wrap safely", once != null
+                && once.contains("overflow-wrap:anywhere"), "missing");
         String twice = MobileLayout.patchHtml(once, 869);
         check("patch idempotent", twice != null && twice.indexOf("dsh-native-responsive")
                 == twice.lastIndexOf("dsh-native-responsive"), String.valueOf(twice));

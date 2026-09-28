@@ -58,8 +58,11 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
      $JAVA_DIR/SecretMasker.java
+     $JAVA_DIR/DiagnosticReport.java
      $JAVA_DIR/UiText.java
      $JAVA_DIR/MobileLayout.java
+     $JAVA_DIR/DeviceLayout.java
+     $JAVA_DIR/PayloadRollback.java
      $JAVA_DIR/WorkspaceProjects.java
      $JAVA_DIR/ShareTask.java
      $JAVA_DIR/PluginPermissions.java
@@ -97,8 +100,11 @@ TESTS="tests/FileListingTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
        tests/SecretMaskerTest.java
+       tests/DiagnosticReportTest.java
        tests/UiTextTest.java
        tests/MobileLayoutTest.java
+       tests/DeviceLayoutTest.java
+       tests/PayloadRollbackTest.java
        tests/WorkspaceProjectsTest.java
        tests/ShareTaskTest.java
        tests/PluginPermissionsTest.java
@@ -127,7 +133,7 @@ fi
 
 rc=0
 seen_tests=" "
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -155,6 +161,19 @@ else
     elif ! out=$(node tests/js/web-tools-entry-simulation.js "$WEB_TOOLS_JS" 2>&1); then
         echo "$out"
         echo "  [FAIL] WebToolsEntry DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# 运行环境快照必须能由 App 自带脚本创建，并由同一 unpack.js 完整恢复。
+# 测真实目录、可执行位、长文件名和符号链接，不只做字符串断言。
+if command -v node >/dev/null 2>&1; then
+    if ! out=$(node tests/js/payload-rollback-simulation.js \
+            "$ROOT/payload/snapshot.js" "$ROOT/payload/unpack.js" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] 运行环境快照与恢复模拟失败" >&2
         rc=1
     else
         echo "  $out"
@@ -314,6 +333,18 @@ elif grep -q 'chat/completions' "$JAVA_DIR/ModelCenterPanel.java" \
     rc=1
 else
     echo "  Phase5CModelOnboardingWiring: read-only check / project override / resumable onboarding"
+fi
+
+# 阶段五 D：更新前快照、失败自动回滚、诊断包分享和多设备布局必须接线。
+if ! grep -q 'createPayloadRollback' "$MAIN_ACTIVITY" \
+        || ! grep -q 'restorePayloadRollback' "$MAIN_ACTIVITY" \
+        || ! grep -q 'DiagnosticReport.Builder' "$MAIN_ACTIVITY" \
+        || ! grep -q 'ACTION_SEND' "$MAIN_ACTIVITY" \
+        || ! grep -q 'DeviceLayout.stackFooter' "$JAVA_DIR/DshUi.java"; then
+    echo "  [FAIL] 阶段五 D 回滚、诊断或多设备布局接线不完整" >&2
+    rc=1
+else
+    echo "  Phase5DRollbackDiagnosticsWiring: snapshot / automatic restore / share / adaptive footer"
 fi
 
 # 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并
