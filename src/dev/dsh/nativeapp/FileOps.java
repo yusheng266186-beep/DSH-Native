@@ -191,6 +191,12 @@ final class FileOps {
         return null;
     }
 
+    /** 返回包含目标的白名单根；供批处理和回收站复用同一安全边界。 */
+    static File containingRootFile(File target, List<File> allowedRoots) {
+        String path = containingRoot(target, allowedRoots);
+        return path == null ? null : new File(path);
+    }
+
     private static boolean within(String path, String root) {
         if (path == null || root == null) return false;
         return path.equals(root) || path.startsWith(root.endsWith("/") ? root : root + "/");
