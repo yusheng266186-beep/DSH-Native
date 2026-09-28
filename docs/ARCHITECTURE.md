@@ -111,7 +111,7 @@
 > （sharp 的各平台实现，而 App 用 Pillow 整体替换了 sharp）。
 > 想删掉它们，靠哨兵是发现不了的。
 
-### 第三代：分片修订号 + 删除清单（当前）
+### 第三代：分片修订号 + 删除清单
 
 ```json
 {
@@ -148,6 +148,23 @@
 如果下载中途失败（校验不过、解压出错）却已经记下了修订号，
 下次启动会误判为「已应用」，那些该删的文件就永远补不回来了。
 
+### 第四代：验证后修改 + 上一环境快照（当前）
+
+第三代解决了“下什么、删什么”，但解压仍直接覆盖现有目录。下载虽然全部先校验，
+真正解压时若遇到空间耗尽、文件系统异常或进程中断，旧环境可能已经被部分覆盖。
+
+当前流程增加事务式恢复层：
+
+1. 先下载并校验所有变化分片；
+2. 停止受管进程，为涉及的 `dsh` / `tools` 创建 tar.zst 快照；
+3. 记录快照大小、SHA-256、目标白名单与更新前修订号；
+4. 再执行解压与显式删除；
+5. 任一步失败，先把当前目录改名保留，再从已验证快照恢复；恢复失败则把保留目录放回；
+6. 更新成功后保留一次手动恢复出口；恢复后暂停后台自动重试，等待用户主动更新。
+
+快照明确不包含 `.dsh`、工作区和缓存。空间预检按更新所需空间、目标目录未压缩大小
+与额外余量保守计算；不足会在运行目录发生任何变化前停止。
+
 ---
 
 ## 4. 纯逻辑层：为什么值得单独抽出来
@@ -177,22 +194,23 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `ShareTargets` | 路径编解码往返、MIME 映射 | 55 |
 | `PluginSpecs` | 命令注入防护、YAML 生成 | 98 |
 | `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
+| `PayloadRollback` | 快照记录、目标白名单、严格解析与空间溢出 | 23 |
 | `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 103 |
 | `SessionProbe` / `SessionOrganizer` | 会话请求捕获、只读重放与官方搜索入口 | 24 |
 | `ModelConfig` / `ProviderCheck` / `ProjectModelSettings` | 模型配置、只读检测与项目覆盖 | 61 |
 | `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
-| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 28 |
-| `MobileLayout` | 初始缩放、响应式设置弹窗与探针嵌入 | 21 |
+| `SecretMasker` / `DiagnosticReport` / `UiText` | 脱敏、诊断摘要、语言回退与引导判定 | 36 |
+| `MobileLayout` / `DeviceLayout` | WebUI 初始缩放、响应式补丁与原生多设备布局 | 38 |
 | `WorkspaceProjects` | 命名项目与路径约束 | 19 |
 | `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
 | `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
 | `ReleaseChannel` | 稳定/测试通道规则 | 8 |
 | `WebToolsEntry` | WebUI 入口注入、收起隐藏、语言与状态标记 | 21 |
 | `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
-| `OperationGate` | 维护任务互斥与并发竞争 | 12 |
+| `OperationGate` | 更新、恢复维护任务互斥与并发竞争 | 13 |
 | `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 43 |
 | `CrashReporter` / `WorkerRegistry` / `ProviderRoute` | 崩溃记录、线程生命周期与 URI 路由 | 23 |
-| | **合计** | **987** |
+| | **合计** | **1036** |
 
 ### 强制手段
 

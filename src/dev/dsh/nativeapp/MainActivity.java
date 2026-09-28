@@ -1033,7 +1033,11 @@ public class MainActivity extends Activity {
         // 若后台发现有更新，记一个标记，**下次启动时**再真正应用。
         boolean locallyComplete = payloadLocallyComplete(dshDir, toolsDir);
         boolean updatePending = payloadUpdatePending();
-        if (locallyComplete && !updatePending) {
+        boolean rollbackHold = payloadRollbackHold();
+        if (locallyComplete && rollbackHold) {
+            log("运行包已恢复到上一版本，自动更新暂缓；可在更新与维护中手动重试");
+            setSplashStatus("正在使用已恢复的运行环境…");
+        } else if (locallyComplete && !updatePending) {
             log("本地运行包完整，直接启动（更新检查移至后台）");
             checkPayloadInBackground(node, root, dshDir, toolsDir);
             setSplashStatus("正在准备运行环境…");
@@ -1049,7 +1053,9 @@ public class MainActivity extends Activity {
             } catch (Throwable updateError) {
                 // 已有一套完整环境时，更新失败不能把 App 一起锁死。
                 // 保留旧运行包继续启动，后台稍后会重新检查；首次安装则仍要报错。
-                if (!locallyComplete) {
+                // 五 D 的自动恢复完成后再复核关键文件；若恢复本身也失败，绝不能
+                // 继续拿“更新前曾经完整”这个旧结论启动一套可能已损坏的环境。
+                if (!locallyComplete || !payloadLocallyComplete(dshDir, toolsDir)) {
                     if (updateError instanceof Exception) throw (Exception) updateError;
                     throw new Exception(updateError);
                 }
@@ -2309,6 +2315,23 @@ public class MainActivity extends Activity {
         setPayloadUpdatePending(false);
     }
 
+    /** 回滚后暂停后台自动重试，避免每次启动重复进入同一个失败循环。 */
+    private boolean payloadRollbackHold() {
+        try {
+            return getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getBoolean("payloadRollbackHold", false);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void setPayloadRollbackHold(boolean hold) {
+        try {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putBoolean("payloadRollbackHold", hold).apply();
+        } catch (Throwable ignored) { }
+    }
+
     /**
      * 后台检查运行包更新。
      *
@@ -2318,6 +2341,10 @@ public class MainActivity extends Activity {
      */
     private void checkPayloadInBackground(final File node, final File root,
                                           final File dshDir, final File toolsDir) {
+        if (payloadRollbackHold()) {
+            log("后台检查：运行环境处于回滚暂缓状态，等待用户手动重试");
+            return;
+        }
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
                 try {
@@ -2365,18 +2392,229 @@ public class MainActivity extends Activity {
         t.start();
     }
 
-    /** 递归删除目录（仅用于清空运行包，不动配置）。 */
-    private static void deleteTree(File dir) {
-        if (dir == null || !dir.exists()) return;
-        File[] kids = dir.listFiles();
-        if (kids != null) {
-            for (File k : kids) deleteTree(k);
+    /** 统计运行目录大小，不跟随符号链接；溢出时饱和到 Long.MAX_VALUE。 */
+    private static long directorySizeNoFollow(File file) {
+        if (file == null || !file.exists()) return 0L;
+        try {
+            if (FileOps.isSymbolicLink(file)) return 0L;
+        } catch (Throwable ignored) {
+            return 0L;
         }
-        if (!dir.delete()) {
-            // 删不掉不阻断：后续解压会覆盖同名文件，
-            // 只是被移除的那些会残留 —— 记下来便于排查
-            android.util.Log.w("dsh", "无法删除: " + dir.getAbsolutePath());
+        if (file.isFile()) return Math.max(0L, file.length());
+        long total = 0L;
+        File[] children = file.listFiles();
+        if (children == null) return 0L;
+        for (File child : children) {
+            long size = directorySizeNoFollow(child);
+            if (total >= Long.MAX_VALUE - size) return Long.MAX_VALUE;
+            total += size;
         }
+        return total;
+    }
+
+    /** 删除清单中的单项；复用 FileOps 的规范路径与符号链接边界。 */
+    private static void deletePayloadEntry(File target, File runtimeRoot) throws IOException {
+        if (target == null || !target.exists()) return;
+        java.util.List<File> roots = java.util.Collections.singletonList(runtimeRoot);
+        String error = FileOps.delete(target, roots);
+        if (error != null || target.exists()) {
+            throw new IOException("无法安全移除运行包文件: " + target.getName()
+                    + (error == null ? "" : "（" + error + "）"));
+        }
+    }
+
+    /** 只删除 appRoot 的明确维护子目录，绝不接受任意路径或 .dsh 用户数据。 */
+    private static void deleteRuntimeChild(File target, File root) throws IOException {
+        if (target == null || root == null || !target.exists()) return;
+        String name = target.getName();
+        boolean allowed = "dsh".equals(name) || "tools".equals(name)
+                || "payload-rollback".equals(name)
+                || "payload-rollback.next".equals(name)
+                || "payload-rollback.old".equals(name)
+                || ".rollback-current-dsh".equals(name)
+                || ".rollback-current-tools".equals(name);
+        if (!allowed || target.getParentFile() == null
+                || !target.getParentFile().getCanonicalFile().equals(root.getCanonicalFile())) {
+            throw new IOException("拒绝删除运行目录边界外的路径");
+        }
+        String error = FileOps.delete(target, java.util.Collections.singletonList(root));
+        if (error != null || target.exists()) {
+            throw new IOException("无法清理维护目录 " + name
+                    + (error == null ? "" : "（" + error + "）"));
+        }
+    }
+
+    /**
+     * 为将要变化的 dsh/tools 目录创建压缩快照，并在全部校验后原子替换旧快照。
+     */
+    private void createPayloadRollback(File node, File root,
+                                       java.util.Set<String> changedTargets,
+                                       java.util.Set<String> previousRevisions)
+            throws Exception {
+        File stage = new File(root, "payload-rollback.next");
+        File active = new File(root, "payload-rollback");
+        File old = new File(root, "payload-rollback.old");
+        deleteRuntimeChild(stage, root);
+        if (!stage.mkdirs()) throw new IOException("无法创建运行环境快照目录");
+
+        java.util.List<PayloadRollback.Target> saved =
+                new java.util.ArrayList<PayloadRollback.Target>();
+        try {
+            for (String target : changedTargets) {
+                if (!PayloadRollback.isSafeTarget(target)) {
+                    throw new IOException("快照目标不安全: " + target);
+                }
+                File source = new File(root, target);
+                if (!source.isDirectory()) {
+                    throw new IOException("上一运行环境缺少目录: " + target);
+                }
+                String archiveName = PayloadRollback.snapshotName(target);
+                File archive = new File(stage, archiveName);
+                log("保存上一运行环境: " + target + " …");
+                run(node, root, new String[]{
+                        new File(root, "snapshot.js").getAbsolutePath(),
+                        source.getAbsolutePath(), archive.getAbsolutePath()}, null);
+                if (!archive.isFile() || archive.length() <= 0L) {
+                    throw new IOException("运行环境快照为空: " + target);
+                }
+                saved.add(new PayloadRollback.Target(target, archiveName,
+                        archive.length(), sha256(archive)));
+            }
+            String journalText = PayloadRollback.serialize(new PayloadRollback.Journal(
+                    System.currentTimeMillis(), saved, previousRevisions));
+            if (journalText == null) throw new IOException("无法生成回滚记录");
+            File journal = new File(stage, PayloadRollback.JOURNAL_FILE);
+            writeText(journal, journalText);
+            if (PayloadRollback.parse(readText(journal)) == null) {
+                throw new IOException("回滚记录写入后校验失败");
+            }
+
+            deleteRuntimeChild(old, root);
+            if (active.exists() && !active.renameTo(old)) {
+                throw new IOException("无法轮换上一份运行环境快照");
+            }
+            if (!stage.renameTo(active)) {
+                if (old.exists() && !old.renameTo(active)) {
+                    throw new IOException("无法启用新的运行环境快照，且无法恢复原快照");
+                }
+                throw new IOException("无法启用新的运行环境快照");
+            }
+            deleteRuntimeChild(old, root);
+            log("上一运行环境已保存（" + saved.size() + " 个目录）");
+        } catch (Throwable error) {
+            try { deleteRuntimeChild(stage, root); } catch (Throwable ignored) { }
+            if (error instanceof Exception) throw (Exception) error;
+            throw new IOException("创建运行环境快照失败", error);
+        }
+    }
+
+    /** 读取回滚记录；真正恢复前必须校验摘要，设置页只做快速的结构与大小检查。 */
+    private PayloadRollback.Journal readPayloadRollback(File root, boolean verifyDigest) {
+        try {
+            File dir = new File(root, "payload-rollback");
+            File journalFile = new File(dir, PayloadRollback.JOURNAL_FILE);
+            if (!journalFile.isFile()) return null;
+            PayloadRollback.Journal journal = PayloadRollback.parse(readText(journalFile));
+            if (journal == null) return null;
+            for (PayloadRollback.Target target : journal.targets) {
+                File archive = new File(dir, target.archive);
+                if (!archive.isFile() || archive.length() != target.size
+                        || (verifyDigest
+                        && !target.sha256.equalsIgnoreCase(sha256(archive)))) return null;
+            }
+            return journal;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private PayloadRollback.Journal loadPayloadRollback(File root) {
+        return readPayloadRollback(root, true);
+    }
+
+    private String payloadRollbackSummary() {
+        File root = appRoot;
+        PayloadRollback.Journal journal = root == null
+                ? null : readPayloadRollback(root, false);
+        if (journal == null) return "没有可恢复的上一运行环境";
+        String when = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd HH:mm", java.util.Locale.ROOT)
+                .format(new java.util.Date(journal.createdAt));
+        return "可恢复 " + when + " 保存的运行环境（"
+                + journal.targets.size() + " 个目录）";
+    }
+
+    /** 把修订号精确恢复为快照前的集合，并使下次启动重新执行环境自检。 */
+    private void restorePayloadRevisionState(java.util.Set<String> revisions)
+            throws IOException {
+        java.util.Set<String> safe = new java.util.HashSet<String>();
+        if (revisions != null) {
+            for (String revision : revisions) {
+                if (PayloadRollback.isSafeRevision(revision)) safe.add(revision);
+            }
+        }
+        boolean saved = getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putStringSet("payloadRevisions", safe)
+                .remove("preflightKey")
+                .putBoolean("payloadUpdatePending", false)
+                .putBoolean("payloadRollbackHold", true)
+                .commit();
+        if (!saved) throw new IOException("无法保存恢复后的运行环境状态");
+    }
+
+    private static boolean restoredTargetLooksUsable(File root, String target) {
+        if ("dsh".equals(target)) return new File(root, "dsh/lib/bin.js").isFile();
+        if ("tools".equals(target)) {
+            return new File(root, "tools/bin/git").exists()
+                    || new File(root, "tools/bin/bash").exists();
+        }
+        return false;
+    }
+
+    /**
+     * 恢复已验证的上一运行环境。每个目录先保留当前副本；解压或哨兵失败时，
+     * 立即把当前副本原位放回，避免“恢复失败”再次破坏可用环境。
+     */
+    private void restorePayloadRollback(File node, File root, boolean automatic)
+            throws IOException {
+        PayloadRollback.Journal journal = loadPayloadRollback(root);
+        if (journal == null) throw new IOException("没有完整且可信的运行环境快照");
+        File rollback = new File(root, "payload-rollback");
+        HarnessService.stopManagedProcess();
+
+        for (PayloadRollback.Target target : journal.targets) {
+            File current = new File(root, target.name);
+            File previousCurrent = new File(root, ".rollback-current-" + target.name);
+            deleteRuntimeChild(previousCurrent, root);
+            boolean moved = current.exists();
+            if (moved && !current.renameTo(previousCurrent)) {
+                throw new IOException("无法暂存当前运行目录: " + target.name);
+            }
+            try {
+                File archive = new File(rollback, target.archive);
+                run(node, root, new String[]{
+                        new File(root, "unpack.js").getAbsolutePath(),
+                        archive.getAbsolutePath(), current.getAbsolutePath()}, null);
+                if (!restoredTargetLooksUsable(root, target.name)) {
+                    throw new IOException("恢复后的关键文件缺失: " + target.name);
+                }
+            } catch (Throwable restoreError) {
+                try { deleteRuntimeChild(current, root); } catch (Throwable ignored) { }
+                if (moved && !previousCurrent.renameTo(current)) {
+                    throw new IOException("恢复失败且无法放回当前运行目录: "
+                            + target.name, restoreError);
+                }
+                throw new IOException("恢复运行目录失败: " + target.name, restoreError);
+            }
+            deleteRuntimeChild(previousCurrent, root);
+        }
+
+        restorePayloadRevisionState(journal.revisions);
+        try { deleteRuntimeChild(rollback, root); }
+        catch (Throwable cleanupError) {
+            log("回滚完成，但无法清理已使用的快照: " + shorten(cleanupError));
+        }
+        log((automatic ? "自动" : "手动") + "恢复上一运行环境完成");
     }
 
     /** 运行包摘要（供设置页显示）。 */
@@ -2530,15 +2768,18 @@ public class MainActivity extends Activity {
         recoveryBannerView = null;
     }
 
-    /** 导出最近一段启动日志与恢复现场，便于用户直接从手机提交诊断。 */
+    /**
+     * 导出可直接分享的 ZIP 诊断包。只包含系统/运行环境摘要与脱敏日志，
+     * 不包含 settings.yaml、凭据、会话正文、附件或项目文件。
+     */
     private void exportDiagnostics() {
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
                     java.util.List<File> dirs = new java.util.ArrayList<File>();
                     dirs.add(new File("/sdcard/DSHNative"));
-                    dirs.add(new File("/sdcard/Download/DSHNative"));
-                    dirs.add(new File("/storage/emulated/0/DSHNative"));
+                    // 无共享存储权限时仍能导出到应用缓存，并通过 UpdateProvider 分享。
+                    dirs.add(new File(getCacheDir(), "diagnostics"));
 
                     File out = null;
                     String stamp = new java.text.SimpleDateFormat(
@@ -2548,7 +2789,8 @@ public class MainActivity extends Activity {
                         if (dir == null) continue;
                         try {
                             if (!dir.exists() && !dir.mkdirs()) continue;
-                            File candidate = new File(dir, "diagnostics-" + stamp + ".txt");
+                            File candidate = new File(dir,
+                                    "dsh-native-diagnostics-" + stamp + ".zip");
                             writeText(candidate, "");
                             out = candidate;
                             break;
@@ -2559,30 +2801,99 @@ public class MainActivity extends Activity {
                     String tail = "";
                     if (sharedLog != null && sharedLog.exists()) {
                         tail = readText(sharedLog);
-                        int max = 480 * 1024;
+                        int max = 512 * 1024;
                         if (tail.length() > max) tail = tail.substring(tail.length() - max);
                     }
-                    StringBuilder body = new StringBuilder();
-                    body.append("DSH Native diagnostics\n");
-                    body.append("App: ").append(appVersion()).append('\n');
-                    body.append("Payload: ").append(payloadSummary()).append('\n');
-                    if (payloadLastError.length() > 0) {
-                        body.append("Last payload update error: ")
-                                .append(maskSecrets(payloadLastError)).append('\n');
+
+                    android.content.res.Configuration config =
+                            getResources().getConfiguration();
+                    android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+                    boolean[] network = networkState();
+                    String webViewVersion = "unknown";
+                    if (android.os.Build.VERSION.SDK_INT >= 26) {
+                        android.content.pm.PackageInfo web =
+                                android.webkit.WebView.getCurrentWebViewPackage();
+                        if (web != null) webViewVersion = web.packageName + " " + web.versionName;
                     }
-                    if (lastRecoveryRaw.length() > 0) {
-                        // 原始恢复文本可能包含会话内容，不进入可分享的诊断文件。
-                        body.append("Last session recovery error: present, content omitted\n");
-                    }
-                    body.append("\n--- launch.log tail ---\n").append(maskSecrets(tail));
+                    boolean notifications = false;
+                    try {
+                        android.app.NotificationManager nm =
+                                (android.app.NotificationManager) getSystemService(
+                                        NOTIFICATION_SERVICE);
+                        notifications = nm != null && (android.os.Build.VERSION.SDK_INT < 24
+                                || nm.areNotificationsEnabled());
+                    } catch (Throwable ignored) { }
+
+                    long now = System.currentTimeMillis();
+                    DiagnosticReport.Builder report = new DiagnosticReport.Builder()
+                            .title("DSH Native diagnostics")
+                            .section("App")
+                            .add("Package", getPackageName())
+                            .add("Version", appVersion())
+                            .add("Update channel", updateChannelPreference())
+                            .add("UI language", UiText.isEnglish() ? "en" : "zh")
+                            .add("Text zoom", currentZoom() + "%")
+                            .add("Web page loaded", dshPageLoaded)
+                            .section("Device")
+                            .add("Manufacturer", android.os.Build.MANUFACTURER)
+                            .add("Model", android.os.Build.MODEL)
+                            .add("Android SDK", android.os.Build.VERSION.SDK_INT)
+                            .add("ABIs", java.util.Arrays.toString(
+                                    android.os.Build.SUPPORTED_ABIS))
+                            .add("Display px", metrics.widthPixels + "x" + metrics.heightPixels)
+                            .add("Display dp", config.screenWidthDp + "x" + config.screenHeightDp)
+                            .add("Density", metrics.density)
+                            .add("Layout profile", DeviceLayout.profile(config.screenWidthDp,
+                                    config.screenHeightDp, config.fontScale))
+                            .add("WebView", webViewVersion)
+                            .section("Runtime")
+                            .add("Payload", payloadSummary())
+                            .add("Payload revisions", payloadRevisionKey())
+                            .add("Update pending", payloadUpdatePending())
+                            .add("Rollback hold", payloadRollbackHold())
+                            .add("Rollback", payloadRollbackSummary())
+                            .add("DSH directory size", appRoot == null ? "unknown"
+                                    : FileListing.humanSize(directorySizeNoFollow(
+                                            new File(appRoot, "dsh"))))
+                            .add("Tools directory size", appRoot == null ? "unknown"
+                                    : FileListing.humanSize(directorySizeNoFollow(
+                                            new File(appRoot, "tools"))))
+                            .section("Status")
+                            .add("Task", SessionStatus.title(lastSessionStatus,
+                                    taskStartedAt > 0 ? now - taskStartedAt : 0L,
+                                    connectionState))
+                            .add("Connection", ConnectionRecovery.label(
+                                    connectionState, true))
+                            .add("Network", SessionStatus.networkLabel(
+                                    network[1], network[2], network[3], network[0], true))
+                            .add("Notifications enabled", notifications)
+                            .add("Maintenance operation", maintenanceGate.active() == null
+                                    ? "none" : maintenanceGate.active())
+                            .section("Recent errors")
+                            .add("Payload update", payloadLastError.length() == 0
+                                    ? "none" : payloadLastError)
+                            .add("Session recovery", lastRecoveryRaw.length() == 0
+                                    ? "none" : "present; content omitted")
+                            .add("Patch checks", patchReport.size());
+
                     File staged = new File(out.getAbsolutePath() + ".tmp");
-                    writeText(staged, maskSecrets(body.toString()));
+                    java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+                            new java.io.BufferedOutputStream(new FileOutputStream(staged)));
+                    try {
+                        writeDiagnosticEntry(zip, "summary.txt", report.build());
+                        writeDiagnosticEntry(zip, "launch-log-tail.txt", maskSecrets(tail));
+                        writeDiagnosticEntry(zip, "privacy.txt",
+                                "This bundle omits credentials, settings files, session content, "
+                                        + "attachments and project files. Log text is masked.\n");
+                    } finally {
+                        zip.close();
+                    }
                     TransferState.atomicReplace(staged, out);
-                    final String path = out.getAbsolutePath();
-                    log("诊断已导出: " + path);
+                    final File exported = out;
+                    log("诊断包已导出: " + exported.getAbsolutePath());
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
-                            toast("诊断已导出到 " + path);
+                            shareDiagnosticBundle(exported);
                         }
                     });
                 } catch (Throwable t) {
@@ -2591,6 +2902,43 @@ public class MainActivity extends Activity {
                 }
             }
         }, "dsh-diagnostics").start();
+    }
+
+    private static void writeDiagnosticEntry(java.util.zip.ZipOutputStream zip,
+                                             String name, String text) throws IOException {
+        java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(name);
+        entry.setTime(0L);
+        zip.putNextEntry(entry);
+        byte[] data = (text == null ? "" : text).getBytes("UTF-8");
+        zip.write(data);
+        zip.closeEntry();
+    }
+
+    /** 导出完成后直接打开系统分享面板；失败时仍保留共享存储中的文件。 */
+    private void shareDiagnosticBundle(File file) {
+        if (file == null || !file.isFile()) {
+            toast("诊断包未生成");
+            return;
+        }
+        try {
+            android.net.Uri uri = android.net.Uri.parse("content://"
+                    + UpdateProvider.AUTHORITY + "/"
+                    + ShareTargets.PREFIX + ShareTargets.encode(file));
+            android.content.Intent send = new android.content.Intent(
+                    android.content.Intent.ACTION_SEND);
+            send.setType("application/zip");
+            send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+            send.putExtra(android.content.Intent.EXTRA_TITLE, file.getName());
+            send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            android.content.Intent chooser = android.content.Intent.createChooser(
+                    send, UiText.t("分享诊断包", "Share diagnostics"));
+            chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(chooser);
+            toast("诊断包已生成，可选择应用分享");
+        } catch (Throwable shareError) {
+            log("打开诊断分享面板失败: " + shareError);
+            toast("诊断包已保存到 " + file.getAbsolutePath());
+        }
     }
 
     // ---------------------------------------------------------------- 任务完成通知
@@ -3995,6 +4343,8 @@ public class MainActivity extends Activity {
         }
         setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
                 "正在更新…", true);
+        // 用户主动重试即解除回滚后的自动更新暂缓；失败时恢复流程会重新设回。
+        setPayloadRollbackHold(false);
         new Thread(new Runnable() {
             @Override public void run() {
                 boolean success = false;
@@ -4008,6 +4358,7 @@ public class MainActivity extends Activity {
                             new File(root, "dsh"), new File(root, "tools"));
                     success = true;
                     outcome = upToDate ? "已是最新" : "更新完成";
+                    clearPayloadUpdatePending();
                     setStatus(status, upToDate ? "运行包已是最新" : "运行包已更新，正在重启…");
                     if (upToDate) {
                         toast("运行包已是最新");
@@ -4027,6 +4378,45 @@ public class MainActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    /** 用户确认后恢复最近一次更新前保存的运行环境。 */
+    private void restorePayloadNow(final android.widget.TextView status,
+                                   final android.widget.Button button) {
+        if (!maintenanceGate.tryStart(OperationGate.PAYLOAD_ROLLBACK)) {
+            String active = maintenanceGate.active();
+            String message = "已有维护任务正在进行："
+                    + (active == null ? "请稍候" : active);
+            setStatus(status, message);
+            toast(message);
+            return;
+        }
+        setMaintenanceBusy(button, "恢复上一运行环境", "正在恢复…", true);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                boolean success = false;
+                String outcome = "恢复失败";
+                try {
+                    File root = appRoot;
+                    if (root == null) throw new IOException("运行目录尚未就绪");
+                    setStatus(status, "正在验证并恢复上一运行环境…");
+                    restorePayloadRollback(new File(root, "node"), root, false);
+                    success = true;
+                    outcome = "恢复完成";
+                    setStatus(status, "上一运行环境已恢复，正在重启…");
+                    restartAgent(UiText.t("已恢复上一运行环境，正在重启服务…",
+                            "Previous runtime restored. Restarting…"));
+                } catch (Throwable error) {
+                    payloadLastError = shorten(error);
+                    log("恢复上一运行环境失败: " + error);
+                    setStatus(status, "恢复失败：" + payloadLastError);
+                } finally {
+                    maintenanceGate.finish(OperationGate.PAYLOAD_ROLLBACK);
+                    setMaintenanceResult(button, "恢复上一运行环境",
+                            outcome, success);
+                }
+            }
+        }, "payload-rollback").start();
     }
 
     // ---------------------------------------------------------------- 运行包
@@ -4175,6 +4565,8 @@ public class MainActivity extends Activity {
         // 判定逻辑在纯逻辑类 PayloadUpdate 里（55 项测试）。
         java.util.Set<String> appliedRevs = appliedRevisions();
         java.util.List<String> missing = new java.util.ArrayList<String>();
+        java.util.LinkedHashSet<String> changedTargets =
+                new java.util.LinkedHashSet<String>();
         java.util.LinkedHashMap<String, java.util.List<String>> removals =
                 new java.util.LinkedHashMap<String, java.util.List<String>>();
         for (int i = 0; i < parts.length(); i++) {
@@ -4197,6 +4589,7 @@ public class MainActivity extends Activity {
             PayloadUpdate.Part info = new PayloadUpdate.Part(name, rev, matched, rm);
             if (PayloadUpdate.needsWork(info, applied)) {
                 missing.add(name);
+                changedTargets.add(part.getString("target"));
                 java.util.List<String> del = PayloadUpdate.removalsFor(info, applied);
                 if (!del.isEmpty()) removals.put(name, del);
             }
@@ -4225,10 +4618,21 @@ public class MainActivity extends Activity {
                     partial.isFile() ? partial.length() : 0L);
             cachedBytes += Math.min(expectedSize, present);
         }
-        long requiredBytes = PayloadUpdate.requiredFreeBytes(compressedBytes, cachedBytes);
+        long updateRequiredBytes = PayloadUpdate.requiredFreeBytes(
+                compressedBytes, cachedBytes);
+        boolean rollbackNeeded = payloadLocallyComplete(dshDir, toolsDir);
+        long liveTargetBytes = 0L;
+        if (rollbackNeeded) {
+            if (changedTargets.contains("dsh")) liveTargetBytes += directorySizeNoFollow(dshDir);
+            if (changedTargets.contains("tools")) liveTargetBytes += directorySizeNoFollow(toolsDir);
+        }
+        long requiredBytes = rollbackNeeded
+                ? PayloadRollback.requiredFreeBytes(updateRequiredBytes, liveTargetBytes)
+                : updateRequiredBytes;
         long usableBytes = root.getUsableSpace();
         log("运行包空间预检: 预计至少需要 " + formatMib(requiredBytes)
-                + "，当前可用 " + formatMib(usableBytes));
+                + "，当前可用 " + formatMib(usableBytes)
+                + (rollbackNeeded ? "（含上一运行环境快照）" : ""));
         if (usableBytes > 0L && usableBytes < requiredBytes) {
             throw new IOException("存储空间不足：运行包更新至少需要 "
                     + formatMib(requiredBytes) + "，当前可用 " + formatMib(usableBytes));
@@ -4278,32 +4682,61 @@ public class MainActivity extends Activity {
             log("  " + name + " 校验通过");
         }
 
-        // 第三遍：所有输入都可信之后再逐项解压。
-        for (int i = 0; i < parts.length(); i++) {
-            org.json.JSONObject part = parts.getJSONObject(i);
-            String name = part.getString("name");
-            if (!missing.contains(name)) continue;
-            File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
-            File archive = archives.get(name);
+        // 第三遍：所有输入都可信之后，先保存上一套可运行环境，再开始修改。
+        // 任何解压或删除失败都会自动恢复；首次安装没有旧环境，因此不创建快照。
+        boolean rollbackCreated = false;
+        if (rollbackNeeded) {
+            setSplashStatus("正在保存上一运行环境…");
+            HarnessService.stopManagedProcess();
+            createPayloadRollback(node, root, changedTargets, appliedRevs);
+            rollbackCreated = true;
+        }
+        try {
+            for (int i = 0; i < parts.length(); i++) {
+                org.json.JSONObject part = parts.getJSONObject(i);
+                String name = part.getString("name");
+                if (!missing.contains(name)) continue;
+                File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
+                File archive = archives.get(name);
 
-            setSplashStatus("正在解压运行包…");
-            log("解压 " + name + " …");
-            run(node, root, new String[]{
-                    new File(root, "unpack.js").getAbsolutePath(),
-                    archive.getAbsolutePath(),
-                    dir.getAbsolutePath()}, null);
+                setSplashStatus("正在解压运行包…");
+                log("解压 " + name + " …");
+                run(node, root, new String[]{
+                        new File(root, "unpack.js").getAbsolutePath(),
+                        archive.getAbsolutePath(),
+                        dir.getAbsolutePath()}, null);
 
-            // 删除清单放在成功解压之后执行。即使解压失败，旧环境里原有文件也还在。
-            java.util.List<String> del = removals.get(name);
-            if (del != null && !del.isEmpty()) {
-                for (String rel : del) {
-                    File victim = new File(dir, rel);
-                    if (victim.exists()) {
-                        deleteTree(victim);
-                        log("  已移除 " + rel);
+                // 删除清单放在成功解压之后执行。快照已落盘，删除失败也能完整恢复。
+                java.util.List<String> del = removals.get(name);
+                if (del != null && !del.isEmpty()) {
+                    for (String rel : del) {
+                        File victim = new File(dir, rel);
+                        if (victim.exists()) {
+                            deletePayloadEntry(victim, dir);
+                            log("  已移除 " + rel);
+                        }
                     }
                 }
             }
+        } catch (Throwable updateFailure) {
+            if (rollbackCreated) {
+                try {
+                    setSplashStatus("更新失败，正在恢复上一运行环境…");
+                    restorePayloadRollback(node, root, true);
+                    setPayloadRollbackHold(true);
+                    throw new IOException("运行包更新失败，已自动恢复上一运行环境："
+                            + shorten(updateFailure), updateFailure);
+                } catch (IOException restored) {
+                    if (restored.getCause() == updateFailure) throw restored;
+                    IOException combined = new IOException(
+                            "运行包更新失败，自动恢复也失败；请导出诊断包："
+                                    + shorten(restored), updateFailure);
+                    combined.addSuppressed(restored);
+                    throw combined;
+                }
+            }
+            if (updateFailure instanceof Exception) throw (Exception) updateFailure;
+            throw new IOException("运行包更新失败", updateFailure);
         }
         // 全部分片成功后才清理归档；中途失败则保留，重试时无需重复下载。
         for (File archive : archives.values()) archive.delete();
@@ -4311,6 +4744,7 @@ public class MainActivity extends Activity {
         // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
         // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
         rememberPayloadRevisions(parts, dshDir, toolsDir);
+        setPayloadRollbackHold(false);
         return false;
     }
 
@@ -4953,6 +5387,32 @@ public class MainActivity extends Activity {
             }
         });
         body.addView(payload, DshUi.fullWidth(this, 12));
+        final android.widget.TextView rollbackInfo =
+                DshUi.hint(this, payloadRollbackSummary()
+                        + (payloadRollbackHold()
+                        ? "。自动更新已暂缓，手动更新成功后会解除。" : ""));
+        body.addView(rollbackInfo, DshUi.fullWidth(this, 8));
+        final android.widget.Button rollback =
+                DshUi.button(this, "恢复上一运行环境", false);
+        final boolean rollbackAvailable = appRoot != null
+                && readPayloadRollback(appRoot, false) != null;
+        rollback.setEnabled(rollbackAvailable);
+        rollback.setAlpha(rollbackAvailable ? 1f : 0.58f);
+        rollback.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                if (!rollbackAvailable) return;
+                DshUi.confirm(MainActivity.this, "恢复上一运行环境？",
+                        "仅恢复 DSH 与工具链，不改动会话、账户密钥、项目文件或 App。"
+                                + "恢复后会重启服务，并暂缓自动更新，直到你手动重试。",
+                        "恢复并重启", new Runnable() {
+                            @Override public void run() {
+                                log("用户确认: 恢复上一运行环境");
+                                restorePayloadNow(status, rollback);
+                            }
+                        });
+            }
+        });
+        body.addView(rollback, DshUi.fullWidth(this, 8));
         final android.widget.Button app =
                 DshUi.button(this, "检查 App 更新并安装", false);
         app.setOnClickListener(new android.view.View.OnClickListener() {
@@ -5280,6 +5740,10 @@ public class MainActivity extends Activity {
             @Override public void onClick(android.view.View v) { showLog(); }
         });
         body.addView(logButton, DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this,
+                "诊断包包含设备、布局、网络、通知、运行环境与回滚状态，以及脱敏后的"
+                        + "最近日志；不会包含凭据、会话正文、附件或项目文件。"),
+                DshUi.fullWidth(this, 6));
         android.widget.Button export = DshUi.button(this, "导出诊断包", false);
         export.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
@@ -6876,7 +7340,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.29.0\n");
+            w.write("APK 版本: 0.30.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

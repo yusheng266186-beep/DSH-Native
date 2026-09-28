@@ -110,12 +110,15 @@ bootstrap/src/dev/dsh/nativeapp/
 ├── ShareTargets.java      分享路径编解码 + MIME 映射
 ├── PluginSpecs.java       插件规格校验（命令注入防护）+ patch YAML 生成
 ├── PayloadUpdate.java     运行包更新决策（分片修订号 + 删除清单）
+├── PayloadRollback.java   运行环境快照记录、校验与空间策略
 ├── SessionStatus.java     通知栏状态看板的判定（状态优先级、文案、渠道）
 ├── SessionRecovery.java   会话恢复错误与用户出口
 ├── ProcessSupervisor.java 进程退避重启与失败判定
 ├── TransferState.java     下载进度与停滞判定
 ├── SecretMasker.java      日志与诊断包敏感信息脱敏
+├── DiagnosticReport.java  可分享诊断摘要的结构与清理
 ├── MobileLayout.java      手机、横屏、平板 viewport 与响应式补丁
+├── DeviceLayout.java      原生对话框、字体与操作区多设备策略
 ├── WorkspaceProjects.java 命名项目、目录约束与默认工作区兼容
 ├── ShareTask.java         分享导入后的任务提示词与网页提交脚本
 ├── PluginPermissions.java 插件能力披露与版本指纹授权

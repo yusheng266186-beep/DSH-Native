@@ -26,6 +26,8 @@ public class OperationGateTest {
         check("rejects duplicate", !gate.tryStart(OperationGate.APP_UPDATE), "accepted");
         check("rejects competing", !gate.tryStart(OperationGate.PAYLOAD_UPDATE), "accepted");
         gate.finish(OperationGate.PAYLOAD_UPDATE);
+        check("rollback constant distinct",
+                !OperationGate.PAYLOAD_ROLLBACK.equals(OperationGate.PAYLOAD_UPDATE), "same");
         check("wrong finish ignored", gate.isActive(OperationGate.APP_UPDATE), "released");
         gate.finish(OperationGate.APP_UPDATE);
         check("matching finish releases", gate.active() == null, "active");

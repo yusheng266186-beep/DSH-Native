@@ -17,7 +17,7 @@
 >
 > 首次启动会请求**存储权限**，用于共享工作区、文件导入和诊断导出。
 > 常驻运行日志只保存在 App 私有目录；只有主动点「导出诊断包」时，
-> 才会把已脱敏的诊断文件写入共享存储。
+> 才会生成不含凭据、会话正文和项目文件的脱敏 ZIP，并打开系统分享面板。
 >
 > SHA-256：`4c6285df7c228dd0e1d2e83459d832c23e7c58611bceada842d868419506c29f`
 
@@ -40,8 +40,9 @@
 | [docs/PHASE4B-EXPERIENCE.md](docs/PHASE4B-EXPERIENCE.md) | 阶段四 B 交互稳定性、可访问性与真机验收清单 |
 | [docs/PHASE4C-INTERACTIONS.md](docs/PHASE4C-INTERACTIONS.md) | 阶段四 C 持续进度、交互反馈、统一动效与真机验收清单 |
 | [docs/PHASE4D-RELEASE.md](docs/PHASE4D-RELEASE.md) | 阶段四 D 真机反馈修复、发布边界与覆盖安装验收清单 |
+| [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | 阶段五 D 安全回滚、诊断中心、无障碍、多设备适配与真机验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 987 项纯逻辑断言、17 项入口 DOM 模拟、
+**测试**：`bash scripts/run_tests.sh` —— 1036 项纯逻辑断言、17 项入口 DOM 模拟、
 11 项状态探针 fetch 模拟及 7 项状态 DOM 模拟，构建期强制执行。
 
 **当前版本：0.26.3**（运行包 payload-v9）
@@ -87,6 +88,7 @@ DSH 自己的设置；长按页面顶部、通知栏「设置」和桌面快捷�
 | 按钮 | 作用 |
 |---|---|
 | 更新运行包 | 检查 DSH / 工具链更新（走分片清单，只下变化部分），完成后自动重启 agent |
+| 恢复上一运行环境 | 真实运行包更新后可恢复更新前的 DSH / 工具链，不改动会话、密钥和项目 |
 | 检查 App 更新并安装 | 读取 `latest.json` → 下载新 APK → 调起系统安装器覆盖安装 |
 
 更新页可以选择**稳定版**或**测试版**。稳定版只读取 `latest.json`；测试版同时读取

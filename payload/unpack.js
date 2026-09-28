@@ -33,10 +33,31 @@ function readOctal(buf, off, len) {
 }
 
 let pos = 0;
-let files = 0, dirs = 0, links = 0, longName = null;
+let files = 0, dirs = 0, links = 0, longName = null, longLink = null;
 const pendingLinks = [];
 
 fs.mkdirSync(dest, { recursive: true });
+const destRoot = fs.realpathSync(dest);
+
+function safeTarget(name) {
+  if (!name || path.isAbsolute(name) || name.indexOf('\0') >= 0) return null;
+  const pieces = name.replace(/\\/g, '/').split('/');
+  if (pieces.some(p => p === '..')) return null;
+  const target = path.resolve(destRoot, name);
+  if (target !== destRoot && !target.startsWith(destRoot + path.sep)) return null;
+  // 已存在的父目录若是符号链接，后续 writeFileSync 会跟随到运行目录之外。
+  // 每一级都用 lstat 检查；ENOENT 代表后续可安全创建。
+  let current = path.dirname(target);
+  while (current !== destRoot && current.startsWith(destRoot + path.sep)) {
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) return null;
+    } catch (e) {
+      if (e.code !== 'ENOENT') return null;
+    }
+    current = path.dirname(current);
+  }
+  return target;
+}
 
 while (pos + 512 <= tar.length) {
   const header = tar.subarray(pos, pos + 512);
@@ -51,15 +72,17 @@ while (pos + 512 <= tar.length) {
   const prefix = readString(header, 345, 155);
   if (prefix) name = prefix + '/' + name;
   if (longName !== null) { name = longName; longName = null; }
+  const effectiveLink = longLink !== null ? longLink : linkname;
+  longLink = null;
 
   pos += 512;
   const dataStart = pos;
   const dataEnd = pos + size;
   pos = dataEnd + ((512 - (size % 512)) % 512);   // 512 字节对齐
 
-  const target = path.join(dest, name);
-  // 防目录穿越
-  if (!path.resolve(target).startsWith(path.resolve(dest))) {
+  const target = safeTarget(name);
+  // 防目录穿越与父级符号链接逃逸
+  if (target === null) {
     log('跳过越界路径: ' + name); continue;
   }
 
@@ -67,18 +90,26 @@ while (pos + 512 <= tar.length) {
     longName = tar.toString('utf8', dataStart, dataEnd).replace(/\0+$/, '');
     continue;
   }
+  if (type === 'K') {            // GNU 长链接目标
+    longLink = tar.toString('utf8', dataStart, dataEnd).replace(/\0+$/, '');
+    continue;
+  }
   if (type === '5') {            // 目录
+    // 目录本身也可能是旧环境留下的符号链接。只检查父级不足以防止
+    // mkdirSync 跟随它写到目标目录之外，因此先原位移除链接。
+    try { if (fs.lstatSync(target).isSymbolicLink()) fs.unlinkSync(target); } catch (e) {}
     fs.mkdirSync(target, { recursive: true });
     dirs++;
     continue;
   }
   if (type === '2') {            // 符号链接 —— 记录，稍后处理
-    pendingLinks.push([target, linkname]);
+    pendingLinks.push([target, effectiveLink]);
     links++;
     continue;
   }
   if (type === '0' || type === '\0' || type === '') {   // 普通文件
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    try { if (fs.lstatSync(target).isSymbolicLink()) fs.unlinkSync(target); } catch (e) {}
     fs.writeFileSync(target, tar.subarray(dataStart, dataEnd));
     try { fs.chmodSync(target, mode & 0o777); } catch (e) {}
     files++;
