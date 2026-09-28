@@ -369,7 +369,7 @@ final class ModelCenterPanel {
             dialog.show();
         } catch (Throwable error) {
             host.log("打开模型中心失败: " + error);
-            DshUi.toast(activity, UiText.t("打开模型中心失败", "Could not open model center"));
+            DshUi.toast(act, UiText.t("打开模型中心失败", "Could not open model center"));
             host.closeModelCenter(onboarding, false);
         }
     }
