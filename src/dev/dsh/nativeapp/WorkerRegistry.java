@@ -14,7 +14,7 @@ import java.util.Set;
 final class WorkerRegistry {
 
     private final Set<Thread> workers = new HashSet<Thread>();
-    private boolean stopped;
+    private volatile boolean stopped;
 
     /** 登记并启动线程；注册表已停止时不再启动。 */
     synchronized boolean start(Thread worker) {
@@ -48,7 +48,7 @@ final class WorkerRegistry {
         }
     }
 
-    synchronized boolean isStopped() {
+    boolean isStopped() {
         return stopped;
     }
 
