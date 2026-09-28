@@ -380,6 +380,11 @@ public final class DshUi {
         if (secret) {
             et.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                     | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            // API 密钥不是网站登录密码，不能进入系统/输入法的自动填充候选。
+            // 部分 ROM 会忽略 inputType 的语义，必须显式退出 Autofill。
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                et.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+            }
         }
         return et;
     }
@@ -586,6 +591,13 @@ public final class DshUi {
 
     /** 注册日志接收方（宿主启动时调用一次）。 */
     public static void setLogSink(LogSink sink) { logSink = sink; }
+
+    /**
+     * 仅当仍是指定接收方时清除，避免旧 Activity 销毁时误删新 Activity 的接线。
+     */
+    public static synchronized void clearLogSink(LogSink sink) {
+        if (logSink == sink) logSink = null;
+    }
 
     /**
      * 记录一条日志。

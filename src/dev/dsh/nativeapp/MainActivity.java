@@ -113,6 +113,12 @@ public class MainActivity extends Activity {
     /** 私有运行日志；只有用户主动导出诊断时才复制到共享存储。 */
     private File sharedLog;
     private final Object logLock = new Object();
+    /** Activity 销毁时统一停止会永久等待的后台线程，避免主题重建后泄漏旧界面。 */
+    private final WorkerRegistry activityWorkers = new WorkerRegistry();
+    /** 静态 DshUi 日志入口必须能按实例解除，不能永久持有旧 Activity。 */
+    private final DshUi.LogSink dshUiLogSink = new DshUi.LogSink() {
+        @Override public void log(String msg) { MainActivity.this.log(msg); }
+    };
 
     /**
      * Service 只弱引用这个监听器；Activity 重建时旧界面不会被进程输出线程持有。
@@ -622,9 +628,7 @@ public class MainActivity extends Activity {
         }
 
         // 让各 UI 组件（文件浏览、编辑器等）能把诊断信息写进统一日志
-        DshUi.setLogSink(new DshUi.LogSink() {
-            @Override public void log(String msg) { log(msg); }
-        });
+        DshUi.setLogSink(dshUiLogSink);
 
         setContentView(root);
 
@@ -1191,10 +1195,12 @@ public class MainActivity extends Activity {
         statusPageLoading = false;
         runOnUiThread(new Runnable() {
             @Override public void run() {
+                WebView view = webView;
+                if (view == null || isFinishing() || isDestroyed()) return;
                 // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
                 // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
-                webView.setInitialScale(0);
-                webView.loadUrl(target);
+                view.setInitialScale(0);
+                view.loadUrl(target);
                 // 复用已有实例时，开屏要在加载完成后收起；
                 // 这里先排一个兜底，避免任何情况下被永久挡住
                 new android.os.Handler(android.os.Looper.getMainLooper())
@@ -3565,13 +3571,22 @@ public class MainActivity extends Activity {
                     // （实测踩过：0.23.4 重发时是我手工删掉缓存才通的。）
                     if (cachedVer != null && !isNewer(rel[0], cachedVer)
                             && cachedApkInstallable(apk)) {
-                        success = true;
-                        outcome = "准备安装";
                         log("本地已有最新安装包 " + cachedVer
                                 + "（此前下载后未安装），直接调起安装，跳过下载");
                         setStatus(status, "使用已下载的 " + cachedVer + " 安装包");
                         if (interactive) toast("使用已下载的 " + cachedVer + " 安装包");
-                        installApk(apk);
+                        int install = installApk(apk);
+                        success = install == INSTALL_LAUNCHED;
+                        outcome = install == INSTALL_LAUNCHED ? "等待确认"
+                                : install == INSTALL_PERMISSION_REQUIRED ? "等待授权"
+                                : "无法安装";
+                        if (install == INSTALL_PERMISSION_REQUIRED) {
+                            setStatus(status, "安装包已就绪；授权后请返回并再次点击检查更新");
+                        } else if (install == INSTALL_FAILED) {
+                            setStatus(status, "安装包已就绪，但无法打开系统安装器");
+                        } else {
+                            setStatus(status, "已打开安装界面，请确认覆盖安装");
+                        }
                         return;
                     }
                     if (apk.exists()) {
@@ -3592,10 +3607,18 @@ public class MainActivity extends Activity {
                                 "下载的 APK 版本、包名或签名与当前应用不匹配");
                     }
                     log("更新包已下载: " + (apk.length() / 1048576) + " MB");
-                    success = true;
-                    outcome = "准备安装";
-                    setStatus(status, "下载完成，请在弹出的安装界面确认覆盖安装");
-                    installApk(apk);
+                    int install = installApk(apk);
+                    success = install == INSTALL_LAUNCHED;
+                    outcome = install == INSTALL_LAUNCHED ? "等待确认"
+                            : install == INSTALL_PERMISSION_REQUIRED ? "等待授权"
+                            : "无法安装";
+                    if (install == INSTALL_PERMISSION_REQUIRED) {
+                        setStatus(status, "下载完成；授权后请返回并再次点击检查更新");
+                    } else if (install == INSTALL_FAILED) {
+                        setStatus(status, "下载完成，但无法打开系统安装器");
+                    } else {
+                        setStatus(status, "已打开安装界面，请确认覆盖安装");
+                    }
                 } catch (Throwable t) {
                     success = false;
                     outcome = "检查失败";
@@ -3660,9 +3683,13 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private static final int INSTALL_FAILED = -1;
+    private static final int INSTALL_PERMISSION_REQUIRED = 0;
+    private static final int INSTALL_LAUNCHED = 1;
+
     /** 调起系统安装器覆盖安装。 */
-    private void installApk(File apk) {
-        if (!ensureInstallPermission()) return;
+    private int installApk(File apk) {
+        if (!ensureInstallPermission()) return INSTALL_PERMISSION_REQUIRED;
         try {
             android.content.Intent i = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW);
@@ -3672,9 +3699,11 @@ public class MainActivity extends Activity {
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             toast("请在安装界面确认覆盖安装");
+            return INSTALL_LAUNCHED;
         } catch (Throwable t) {
             log("错误: 调起安装器失败: " + t);
             toast("无法调起安装器: " + shorten(t));
+            return INSTALL_FAILED;
         }
     }
 
@@ -5586,22 +5615,7 @@ public class MainActivity extends Activity {
     private void installCrashHandler() {
         try {
             crashFile = new File(getFilesDir(), "crash.log");
-            final Thread.UncaughtExceptionHandler def =
-                    Thread.getDefaultUncaughtExceptionHandler();
-            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                @Override
-                public void uncaughtException(Thread t, Throwable e) {
-                    try {
-                        java.io.PrintWriter pw = new java.io.PrintWriter(
-                                new java.io.FileWriter(crashFile, true));
-                        pw.println("=== " + new java.util.Date() + " / thread " + t.getName() + " ===");
-                        e.printStackTrace(pw);
-                        pw.flush();
-                        pw.close();
-                    } catch (Throwable ignored) { }
-                    if (def != null) def.uncaughtException(t, e);
-                }
-            });
+            CrashReporter.install(crashFile);
         } catch (Throwable ignored) { }
     }
 
@@ -6263,7 +6277,9 @@ public class MainActivity extends Activity {
                 + "</head><body><h1>" + title + "</h1><p>" + detail + "</p></body></html>";
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
+                WebView view = webView;
+                if (view == null || isFinishing() || isDestroyed()) return;
+                view.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
             }
         });
     }
@@ -6329,6 +6345,8 @@ public class MainActivity extends Activity {
     private void log(final String msg) {
         Log.i(TAG, msg);
         if (msg == null) return;
+        // onDestroy 之后只保留 logcat，不再复活会持有旧 Activity 的写盘线程。
+        if (activityWorkers.isStopped()) return;
         if (!logWorkerStarted) startLogWorker();
         // offer 而非 put：队列满时立即返回，绝不阻塞调用方（尤其是 UI 线程）
         if (!logQueue.offer(msg)) {
@@ -6352,16 +6370,16 @@ public class MainActivity extends Activity {
                 new android.os.Handler(android.os.Looper.getMainLooper());
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
-                while (true) {
-                    final long sent = System.currentTimeMillis();
-                    final java.util.concurrent.CountDownLatch done =
-                            new java.util.concurrent.CountDownLatch(1);
-                    if (!ui.post(new Runnable() {
-                        @Override public void run() { done.countDown(); }
-                    })) {
-                        return;   // 主线程已退出
-                    }
-                    try {
+                try {
+                    while (!activityWorkers.isStopped()) {
+                        final long sent = System.currentTimeMillis();
+                        final java.util.concurrent.CountDownLatch done =
+                                new java.util.concurrent.CountDownLatch(1);
+                        if (!ui.post(new Runnable() {
+                            @Override public void run() { done.countDown(); }
+                        })) {
+                            return;   // 主线程已退出
+                        }
                         if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
                             long ms = System.currentTimeMillis() - sent;
                             log("[卡顿] 主线程已阻塞 " + (ms / 1000) + " 秒（看门狗）");
@@ -6369,43 +6387,49 @@ public class MainActivity extends Activity {
                             done.await(60, java.util.concurrent.TimeUnit.SECONDS);
                         }
                         Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        return;
                     }
+                } catch (InterruptedException ignored) {
+                    // Activity 销毁时由 WorkerRegistry 主动中断。
+                } finally {
+                    activityWorkers.finished(Thread.currentThread());
                 }
             }
         }, "dsh-ui-watchdog");
         t.setDaemon(true);
-        t.start();
-        log("已启动主线程卡顿看门狗（阻塞超过 5 秒会记日志）");
+        if (activityWorkers.start(t)) {
+            log("已启动主线程卡顿看门狗（阻塞超过 5 秒会记日志）");
+        }
     }
 
     private synchronized void startLogWorker() {
-        if (logWorkerStarted) return;
+        if (logWorkerStarted || activityWorkers.isStopped()) return;
         logWorkerStarted = true;
         Thread t = new Thread(new Runnable() {
             @Override public void run() {
-                while (true) {
-                    String m;
-                    try {
+                try {
+                    while (!activityWorkers.isStopped()) {
+                        String m;
                         m = logQueue.take();
-                    } catch (InterruptedException e) {
-                        return;
-                    }
-                    try {
-                        int dropped = droppedLogLines.getAndSet(0);
-                        if (dropped > 0) {
-                            appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
+                        try {
+                            int dropped = droppedLogLines.getAndSet(0);
+                            if (dropped > 0) {
+                                appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
+                            }
+                            appendSharedLog(m);
+                        } catch (Throwable ignored) {
+                            // 日志写失败不能反过来影响功能
                         }
-                        appendSharedLog(m);
-                    } catch (Throwable ignored) {
-                        // 日志写失败不能反过来影响功能
                     }
+                } catch (InterruptedException ignored) {
+                    // Activity 销毁时由 WorkerRegistry 主动中断。
+                } finally {
+                    logWorkerStarted = false;
+                    activityWorkers.finished(Thread.currentThread());
                 }
             }
         }, "dsh-log-writer");
         t.setDaemon(true);
-        t.start();
+        if (!activityWorkers.start(t)) logWorkerStarted = false;
     }
 
     /** 初始化应用私有日志文件；共享存储只用于用户主动导出的脱敏诊断。 */
@@ -6430,7 +6454,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.26.2\n");
+            w.write("APK 版本: 0.26.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7057,13 +7081,43 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopSplashAnimation();
+        android.app.Dialog exiting = exitDialog;
         exitDialog = null;
+        if (exiting != null) {
+            try { exiting.dismiss(); } catch (Throwable ignored) { }
+        }
         shareSubmitGeneration = InteractionFeedback.nextGeneration(shareSubmitGeneration);
         if (shareSubmitProgress != null) shareSubmitProgress.dismiss();
         shareSubmitProgress = null;
         for (DshUi.TaskProgress progress : shareImportProgresses) progress.dismiss();
         shareImportProgresses.clear();
+
+        if (pendingFileCallback != null) {
+            try { pendingFileCallback.onReceiveValue(null); }
+            catch (Throwable ignored) { }
+            pendingFileCallback = null;
+        }
+
         HarnessService.clearListener(harnessListener);
+        DshUi.clearLogSink(dshUiLogSink);
+        activityWorkers.stop();
+
+        // WebView 持有 Activity、回调和渲染线程。主题切换会重建 Activity，
+        // 旧实例若不显式销毁，会与看门狗一样累积到进程结束。
+        WebView oldWebView = webView;
+        webView = null;
+        if (oldWebView != null) {
+            try { oldWebView.stopLoading(); } catch (Throwable ignored) { }
+            try { oldWebView.setWebChromeClient(null); } catch (Throwable ignored) { }
+            try { oldWebView.setWebViewClient(null); } catch (Throwable ignored) { }
+            try {
+                if (oldWebView.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) oldWebView.getParent()).removeView(oldWebView);
+                }
+            } catch (Throwable ignored) { }
+            try { oldWebView.removeAllViews(); } catch (Throwable ignored) { }
+            try { oldWebView.destroy(); } catch (Throwable ignored) { }
+        }
         super.onDestroy();
     }
 }
