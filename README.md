@@ -2,7 +2,7 @@
 
 > ## ⬇直接下载
 >
-> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.26.0-bootstrap/DSHNative-bootstrap.apk)**（33.6 MiB）
+> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.26.3-bootstrap/DSHNative-bootstrap.apk)**（33.6 MiB）
 >
 > 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
 > 然后经 **GitHub 镜像**分块下载约 117.2 MiB 运行包（视网络而定）。
@@ -19,7 +19,7 @@
 > 常驻运行日志只保存在 App 私有目录；只有主动点「导出诊断包」时，
 > 才会把已脱敏的诊断文件写入共享存储。
 >
-> SHA-256：`523f746a9ea8e00eb561f5fff65468ab80f33e798872630e9d2827124dc2d038`
+> SHA-256：`4c6285df7c228dd0e1d2e83459d832c23e7c58611bceada842d868419506c29f`
 
 
 ---
@@ -44,7 +44,7 @@
 **测试**：`bash scripts/run_tests.sh` —— 774 项纯逻辑断言、17 项入口 DOM 模拟、
 11 项状态探针 fetch 模拟及 7 项状态 DOM 模拟，构建期强制执行。
 
-**当前版本：0.26.0**（运行包 payload-v9）
+**当前版本：0.26.3**（运行包 payload-v9）
 
 **把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
 
@@ -54,7 +54,7 @@
 
 | 版本 | 说明 | 体积 |
 |---|---|---|
-| **[v0.26.0 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.26.0-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 33.6 MiB + 首启约 117.2 MiB |
+| **[v0.26.3 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.26.3-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 33.6 MiB + 首启约 117.2 MiB |
 | [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
 
 ### 使用步骤
