@@ -322,3 +322,15 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 * 备份方式：`tar -cf /sdcard/DSHNative/backup/dot-dsh.tar -C <root> .dsh`
   （`/sdcard` 是 FUSE，**不支持符号链接**，所以必须用 tar 而不是 `cp -r`）
 * 恢复：`tar -xf <备份> -C <root>`
+
+## 8.8 阶段五 A 候选状态（0.27.0）
+
+阶段五 A 新增任务中心、持久化任务时间线、WebSocket 生命周期状态和同源草稿恢复。详细设计、安全边界与真机步骤见 `docs/PHASE5A-TASK-RECOVERY.md`。
+
+接手时特别注意：
+
+- 活动任务从偏好设置恢复后必须先标为“恢复状态中”，不能在没有新证据时直接报运行或结束；
+- “设备有网”与“DSH WebSocket 已连接”是两件事，通知签名必须同时包含两者；
+- 任务运行或等待批准时不得为了修复连接而自动刷新页面；
+- 草稿只允许写 DSH localhost origin 的 localStorage，不得加原生权限桥，也不得自动发送；
+- 0.27.0 当前是验收候选，合并与正式发布必须等 Android CI 和真机清单完成。

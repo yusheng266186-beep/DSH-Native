@@ -55,6 +55,7 @@ public class HarnessService extends Service {
     public static final String EXTRA_STATUS_NETWORK = "networkOk";
     public static final String EXTRA_STATUS_NETWORK_LABEL = "networkLabel";
     public static final String EXTRA_STATUS_SINCE = "since";
+    public static final String EXTRA_CONNECTION_STATE = "connectionState";
 
     /** Node 进程由 Service 侧的监管器持有，不再属于任何 Activity 实例。 */
     private static final ProcessSupervisor PROCESS = new ProcessSupervisor();
@@ -214,9 +215,12 @@ public class HarnessService extends Service {
             boolean netOk = intent.getBooleanExtra(EXTRA_STATUS_NETWORK, true);
             String netLabel = intent.getStringExtra(EXTRA_STATUS_NETWORK_LABEL);
             long since = intent.getLongExtra(EXTRA_STATUS_SINCE, 0L);
+            int connectionState = intent.getIntExtra(
+                    EXTRA_CONNECTION_STATE, ConnectionRecovery.UNKNOWN);
 
-            String title = SessionStatus.title(state, System.currentTimeMillis() - since);
-            String text = SessionStatus.text(state, netOk, netLabel);
+            String title = SessionStatus.title(state,
+                    System.currentTimeMillis() - since, connectionState);
+            String text = SessionStatus.text(state, netOk, netLabel, connectionState);
 
             NotificationManager nm =
                     (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -227,12 +231,13 @@ public class HarnessService extends Service {
             // 运行时长由系统计时器自己走、网络变化由系统回调驱动，
             // 所以「内容没变」是常态，不需要更新。
             String sig = SessionStatus.notificationSignature(
-                    state, netOk, netLabel, since);
+                    state, netOk, netLabel, since, connectionState);
             if (sig.equals(lastNotificationSig)) return;
             lastNotificationSig = sig;
 
             nm.notify(NOTIFICATION_ID,
-                    buildNotification(text, title, SessionStatus.useChronometer(state), since));
+                    buildNotification(text, title,
+                            SessionStatus.useChronometer(state, since), since));
 
             // 进入「等待批准」时额外发一条高优先级提醒 ——
             // 这是唯一真的需要用户动手的状态，其余变化不该打扰

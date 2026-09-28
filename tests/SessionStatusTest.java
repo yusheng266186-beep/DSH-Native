@@ -63,6 +63,10 @@ public class SessionStatusTest {
                 SessionStatus.useChronometer(SessionStatus.AWAITING_APPROVAL), "wrong");
         check("no chronometer when idle",
                 !SessionStatus.useChronometer(SessionStatus.IDLE), "wrong");
+        check("syncing keeps known active timer",
+                SessionStatus.useChronometer(SessionStatus.UNKNOWN, 1_000L), "timer disappeared");
+        check("syncing without known start has no timer",
+                !SessionStatus.useChronometer(SessionStatus.UNKNOWN, 0L), "invented timer");
         check("approval title shows state",
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L).contains("等待批准"),
                 SessionStatus.title(SessionStatus.AWAITING_APPROVAL, 60_000L));
@@ -81,6 +85,16 @@ public class SessionStatusTest {
         check("network change invalidates notification cache",
                 !runKey1.equals(SessionStatus.notificationSignature(
                         SessionStatus.RUNNING, false, "未连接", 1_000L)), runKey1);
+        String reconnectKey = SessionStatus.notificationSignature(
+                SessionStatus.RUNNING, true, "Wi-Fi", 1_000L,
+                ConnectionRecovery.RETRYING);
+        check("connection change invalidates notification cache",
+                !runKey1.equals(reconnectKey), reconnectKey);
+        check("running title keeps task and recovery context",
+                SessionStatus.title(SessionStatus.RUNNING, 0L,
+                        ConnectionRecovery.RETRYING).contains("运行中")
+                && SessionStatus.title(SessionStatus.RUNNING, 0L,
+                        ConnectionRecovery.RETRYING).contains("连接"), "wrong");
 
         System.out.println("=== 5. network problem must be visible ===");
         String offline = SessionStatus.text(SessionStatus.RUNNING, false, "未连接");
@@ -95,6 +109,10 @@ public class SessionStatusTest {
                 SessionStatus.text(SessionStatus.IDLE, false, "已连接但无法访问外网")
                         .contains("无法访问外网"),
                 SessionStatus.text(SessionStatus.IDLE, false, "已连接但无法访问外网"));
+        String reconnecting = SessionStatus.text(SessionStatus.RUNNING, true, "Wi-Fi",
+                ConnectionRecovery.RETRYING);
+        check("websocket loss visible while system network works",
+                reconnecting.contains("连接中断") && reconnecting.contains("任务"), reconnecting);
 
         System.out.println("=== 6. importance: only approval should interrupt ===");
         check("approval is high", SessionStatus.importance(SessionStatus.AWAITING_APPROVAL, true) == 3, "wrong");
@@ -130,6 +148,8 @@ public class SessionStatusTest {
         check("connected but no internet",
                 SessionStatus.networkLabel(true, true, false, false).contains("无法访问外网"),
                 SessionStatus.networkLabel(true, true, false, false));
+        check("english network label", "Mobile data".equals(
+                SessionStatus.networkLabel(true, false, true, true, true)), "wrong");
 
         System.out.println("=== 10. injected script ===");
         String js = SessionStatus.pollScript();

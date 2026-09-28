@@ -9,6 +9,10 @@ final class MobileLayout {
     private static final String STYLE_CLOSE = "</style>";
     private static final String PROBE_OPEN = "<script id=\"dsh-native-session-probe\">";
     private static final String PROBE_CLOSE = "</script>";
+    private static final String CONNECTION_OPEN =
+            "<script id=\"dsh-native-connection-watch\">";
+    private static final String DRAFT_OPEN =
+            "<script id=\"dsh-native-draft-recovery\">";
     private static final Pattern VIEWPORT = Pattern.compile(
             "content=\\\"width=(?:device-width|[0-9]+)"
             + "(?:,\\s*initial-scale=[0-9]+(?:\\.[0-9]+)?)?\\\"");
@@ -93,6 +97,29 @@ final class MobileLayout {
             if (head < 0) return null;
             out = out.substring(0, head) + probe + out.substring(head);
         }
+
+        // 连接生命周期与草稿监听同样必须早于前端模块。两者只观察同源页面：
+        // 前者不读取 WebSocket URL/消息，后者只写该 localhost origin 的
+        // localStorage；均不向页面暴露原生权限。
+        out = upsertScript(out, CONNECTION_OPEN, ConnectionRecovery.script());
+        if (out == null) return null;
+        out = upsertScript(out, DRAFT_OPEN, DraftRecovery.script());
         return out;
+    }
+
+    /** 在 head 尾部插入或原位替换一个具名脚本，确保补丁可重复应用。 */
+    private static String upsertScript(String html, String open, String body) {
+        if (html == null) return null;
+        String script = open + body + PROBE_CLOSE;
+        int oldStart = html.indexOf(open);
+        if (oldStart >= 0) {
+            int oldEnd = html.indexOf(PROBE_CLOSE, oldStart);
+            if (oldEnd < 0) return null;
+            return html.substring(0, oldStart) + script
+                    + html.substring(oldEnd + PROBE_CLOSE.length());
+        }
+        int head = html.indexOf("</head>");
+        if (head < 0) return null;
+        return html.substring(0, head) + script + html.substring(head);
     }
 }

@@ -165,6 +165,10 @@ public class MainActivity extends Activity {
             DshUi.applyTheme(this);
         }
 
+        // 任务计时与历史不再绑定 Activity 实例。若上次进程在任务中被系统回收，
+        // 先恢复同一轮起点，随后由页面的权威会话状态确认「继续」或「结束」。
+        restoreTaskState();
+
         // 双保险：即使主题未被 ROM 正确解析，也确保没有标题栏、
         // 且窗口底色与页面底色一致（否则默认主题会露出黑色，形成顶部黑边）。
         try {
@@ -337,6 +341,23 @@ public class MainActivity extends Activity {
                         onWebTheme(m.indexOf("dark=1") >= 0);
                         return true;
                     }
+                    // WebSocket 生命周期由最早期只读包装器上报。它不包含 URL、
+                    // 消息或令牌，只用于让通知栏和任务中心区分「系统有网」与
+                    // 「DSH 长连接真的可用」。
+                    int connection = ConnectionRecovery.parseConsole(m);
+                    if (connection >= 0) {
+                        onConnectionState(connection, "页面探针");
+                        return true;
+                    }
+                    if (DraftRecovery.isRestored(m)) {
+                        log("[草稿] 已恢复未发送内容");
+                        if (!draftRestoreToastShown) {
+                            draftRestoreToastShown = true;
+                            toast(UiText.t("已恢复上次未发送的草稿",
+                                    "Restored your unsent draft"));
+                        }
+                        return true;
+                    }
                     // 任务事件单独分流：不写进日志（每 4 秒一次的轮询若都记，
                     // 日志会被刷爆），只用于通知判定
                     String[] ev = TaskNotifier.parseConsole(m);
@@ -460,7 +481,10 @@ public class MainActivity extends Activity {
                     // 在这里先接管 fetch，才能可靠获得任务开始时间与结束状态。
                     if (url != null && url.indexOf("127.0.0.1") >= 0) {
                         view.setInitialScale(0);
+                        connectionState = ConnectionRecovery.CONNECTING;
                         installSessionProbe(view);
+                        installConnectionWatcher(view);
+                        installDraftRecovery(view);
                     }
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
                 } catch (Throwable ignored) { }
@@ -510,6 +534,8 @@ public class MainActivity extends Activity {
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
                 installSessionProbe(view);
+                installConnectionWatcher(view);
+                installDraftRecovery(view);
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
                 installWebToolsEntry();
@@ -1533,34 +1559,66 @@ public class MainActivity extends Activity {
     /** 自己刷新之后，这段时间内的连接事件不算「新故障」。 */
     private static final long RELOAD_SUPPRESS_MS = 30000;
     /** 连续自动刷新的上限。超过它说明刷新解决不了问题，再刷只会更糟。 */
-    private static final int MAX_AUTO_RELOADS = 2;
+    private static final int MAX_AUTO_RELOADS = ConnectionRecovery.MAX_AUTO_RELOADS;
     /** 断开多久后才考虑自动刷新。DSH 自己会重连，给它足够时间。 */
-    private static final long RELOAD_AFTER_MS = 30000;
+    private static final long RELOAD_AFTER_MS = ConnectionRecovery.RELOAD_AFTER_MS;
 
     private void onConnectionEvent(String message) {
         try {
             if (message.indexOf("connection lost") >= 0) {
-                long now = System.currentTimeMillis();
-                // 刚才是我们自己刷新的 → 这次断开是刷新的后果，不是新故障
-                if (now - selfReloadAt < RELOAD_SUPPRESS_MS) {
-                    log("[连接] WebSocket 断开（本次刷新引起，已忽略）：" + message);
-                    return;
-                }
-                connectionLostAt = now;
-                log("[连接] WebSocket 断开：" + message);
-                scheduleReloadIfStuck();
-            } else {
-                // restored / reconnect 之类：认为恢复了
-                if (connectionLostAt != 0) {
-                    log("[连接] WebSocket 已恢复");
-                    // 真的恢复过，说明刷新策略有效，计数归零重新开始
-                    autoReloadCount = 0;
-                }
-                connectionLostAt = 0;
-                reloadScheduled = false;
+                onConnectionState(ConnectionRecovery.RETRYING, "运行日志");
+            } else if (message.indexOf("connection restored") >= 0) {
+                onConnectionState(ConnectionRecovery.CONNECTED, "运行日志");
+            } else if (message.indexOf("reconnect") >= 0) {
+                onConnectionState(ConnectionRecovery.RETRYING, "运行日志");
             }
         } catch (Throwable t) {
             log("处理连接事件失败: " + t);
+        }
+    }
+
+    /** 合并页面探针与旧日志嗅探的连接状态，并同步任务中心与通知栏。 */
+    private void onConnectionState(int state, String source) {
+        try {
+            long now = System.currentTimeMillis();
+            int previous = connectionState;
+            if (ConnectionRecovery.isProblem(state)) {
+                // 页面由 App 自己刷新时，旧连接的 close 是预期结果。显示为
+                // 「正在连接」即可，不能再启动一轮看门狗形成刷新循环。
+                if (now - selfReloadAt < RELOAD_SUPPRESS_MS) {
+                    connectionState = ConnectionRecovery.CONNECTING;
+                    if (previous != connectionState) {
+                        log("[连接] 页面刷新后正在重建连接（" + source + "）");
+                    }
+                    pushStatus(lastSessionStatus);
+                    return;
+                }
+                connectionState = state;
+                if (connectionLostAt == 0L) connectionLostAt = now;
+                if (taskTimeline.onConnectionState(state)) persistTaskTimeline();
+                if (previous != state) {
+                    log("[连接] " + ConnectionRecovery.label(state, false)
+                            + "（" + source + "）");
+                }
+                scheduleReloadIfStuck();
+            } else if (state == ConnectionRecovery.CONNECTED) {
+                connectionState = state;
+                if (previous != state || connectionLostAt != 0L) {
+                    log("[连接] WebSocket 已连接（" + source + "）");
+                }
+                connectionLostAt = 0L;
+                reloadScheduled = false;
+                autoReloadCount = 0;
+            } else {
+                connectionState = state;
+                if (previous != state) {
+                    log("[连接] " + ConnectionRecovery.label(state, false)
+                            + "（" + source + "）");
+                }
+            }
+            pushStatus(lastSessionStatus);
+        } catch (Throwable t) {
+            log("处理连接状态失败: " + t);
         }
     }
 
@@ -1576,15 +1634,16 @@ public class MainActivity extends Activity {
                     if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
                     long sec = (System.currentTimeMillis() - lostAt) / 1000;
 
+                    boolean taskActive = lastSessionStatus == SessionStatus.RUNNING
+                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL
+                            || taskTimeline.active() != null;
                     // 任务正在跑时**绝不刷新**。
                     // 刷新会丢掉滚动位置、输入框内容和展开的面板，而 agent
                     // 在 node 进程里照常干活 —— 用户看到的就是「窗口自己重启/闪烁，
                     // 但任务其实正常进行」。DSH 自身的重连足以应付这种情况。
-                    if (lastSessionStatus == SessionStatus.RUNNING
-                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+                    if (taskActive) {
                         log("[连接] 断开 " + sec + " 秒，但任务正在运行 —— 不刷新页面"
                                 + "（避免打断界面；DSH 会自行重连）");
-                        connectionLostAt = 0;
                         reloadScheduled = false;
                         return;
                     }
@@ -1592,18 +1651,25 @@ public class MainActivity extends Activity {
                     if (autoReloadCount >= MAX_AUTO_RELOADS) {
                         log("[连接] 已自动刷新 " + autoReloadCount + " 次仍不稳定 —— "
                                 + "停止自动刷新，请下拉通知栏或在设置里手动处理");
-                        connectionLostAt = 0;
+                        reloadScheduled = false;
+                        pushStatus(lastSessionStatus);
+                        return;
+                    }
+                    if (!ConnectionRecovery.shouldReload(false,
+                            System.currentTimeMillis() - lostAt, autoReloadCount)) {
                         reloadScheduled = false;
                         return;
                     }
                     autoReloadCount++;
                     selfReloadAt = System.currentTimeMillis();
+                    connectionState = ConnectionRecovery.CONNECTING;
                     log("[连接] 断开 " + sec + " 秒仍未恢复，自动刷新页面重建连接"
                             + "（第 " + autoReloadCount + "/" + MAX_AUTO_RELOADS + " 次）");
                     statusPageLoading = false;
                     if (webView != null) webView.reload();
                     connectionLostAt = 0;
                     reloadScheduled = false;
+                    pushStatus(lastSessionStatus);
                 } catch (Throwable t) {
                     log("自动刷新失败: " + t);
                 }
@@ -1746,6 +1812,13 @@ public class MainActivity extends Activity {
 
     /** 后台任务完成通知的判定（纯逻辑在 TaskNotifier 里并由离线测试覆盖）。 */
     private final TaskNotifier taskNotifier = new TaskNotifier();
+    /** 最近任务的持久化时间线；在 onCreate 里从偏好设置恢复。 */
+    private TaskTimeline taskTimeline = new TaskTimeline();
+    private static final String PREF_TASK_TIMELINE = "taskTimelineV1";
+    /** WebSocket 生命周期状态，与 Android 网络是否联网是两套独立证据。 */
+    private volatile int connectionState = ConnectionRecovery.UNKNOWN;
+    /** 一次 Activity 生命周期只提示一次草稿恢复。 */
+    private boolean draftRestoreToastShown;
     /** App 是否在前台：在前台时界面本来就看得见结果，不必再弹通知。 */
     private volatile boolean inForeground = true;
     /** 任务完成通知的通知 id（与前台服务通知区分开）。 */
@@ -2484,10 +2557,44 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- 任务完成通知
+    /** 从偏好设置恢复任务计时与最近历史。损坏数据由纯逻辑层安全忽略。 */
+    private void restoreTaskState() {
+        try {
+            long now = System.currentTimeMillis();
+            String raw = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString(PREF_TASK_TIMELINE, "");
+            taskTimeline = TaskTimeline.restore(raw, now);
+            TaskTimeline.Entry active = taskTimeline.active();
+            if (active != null
+                    && taskNotifier.restoreRunning(
+                            active.sessionId(), active.startedAt(), now)) {
+                taskStartedAt = taskNotifier.startedAt();
+                log("[任务] 已恢复上次任务计时，等待页面确认状态");
+            }
+        } catch (Throwable t) {
+            taskTimeline = new TaskTimeline();
+            log("[任务] 历史恢复失败，已使用空时间线: " + t);
+        }
+    }
+
+    /** 任务状态变化后立即持久化，避免进程在下一帧被回收时再次丢失。 */
+    private void persistTaskTimeline() {
+        try {
+            boolean saved = getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString(PREF_TASK_TIMELINE, taskTimeline.serialize()).commit();
+            if (!saved) log("[任务] 历史保存未落盘");
+        } catch (Throwable t) {
+            log("[任务] 历史保存失败: " + t);
+        }
+    }
+
     /** 处理来自注入脚本的任务事件。 */
     private void onTaskEvent(String kind, String sessionId) {
         try {
             long now = System.currentTimeMillis();
+            if (taskTimeline.onTaskEvent(kind, sessionId, now)) {
+                persistTaskTimeline();
+            }
             String msg = taskNotifier.onEvent(kind, sessionId, now, inForeground);
             taskStartedAt = taskNotifier.startedAt();
             if (msg == null) return;
@@ -2732,6 +2839,9 @@ public class MainActivity extends Activity {
     private void onSessionStatus(int state) {
         try {
             long now = System.currentTimeMillis();
+            if (taskTimeline.onSessionState(state, taskNotifier.sessionId(), now)) {
+                persistTaskTimeline();
+            }
             // 顺带驱动「任务完成」通知。
             //
             // 原来它把 /api/session/list 当普通 REST GET，实际会 404。
@@ -2748,6 +2858,12 @@ public class MainActivity extends Activity {
             }
             lastSessionStatus = state;
             pushStatus(state);
+            // 断线时为保护运行任务而跳过了自动刷新；一旦权威状态确认任务已
+            // 结束，就可以在仍未恢复连接的情况下重新启动安全恢复计时器。
+            if (state == SessionStatus.IDLE && connectionLostAt > 0L
+                    && ConnectionRecovery.isProblem(connectionState)) {
+                scheduleReloadIfStuck();
+            }
         } catch (Throwable t) {
             // 状态更新失败不该影响使用，也不该刷日志
         }
@@ -2813,6 +2929,7 @@ public class MainActivity extends Activity {
     private volatile long pushedSince = -1L;
     private volatile boolean pushedNetworkOk;
     private volatile String pushedNetworkLabel = "";
+    private volatile int pushedConnectionState = -2;
 
     /**
      * 把状态推给前台服务更新通知。
@@ -2826,11 +2943,14 @@ public class MainActivity extends Activity {
         try {
             boolean[] net = networkState();
             String netLabel = SessionStatus.networkLabel(net[1], net[2], net[3], net[0]);
-            long since = SessionStatus.useChronometer(state) ? taskStartedAt : 0L;
+            // 状态证据短暂过期进入 UNKNOWN 时，TaskNotifier 仍持有同一轮的
+            // 可靠起点；继续把它交给系统计时器，避免通知里的运行时间突然消失。
+            long since = taskNotifier.isRunning() ? taskStartedAt : 0L;
             // 状态、计时起点和网络内容都没变才跳过。只看 state 会漏掉
             // 网络切换，也会让新任务复用上一轮的系统计时器。
             if (state == pushedState && networkInited && since == pushedSince
-                    && net[0] == pushedNetworkOk && netLabel.equals(pushedNetworkLabel)) return;
+                    && net[0] == pushedNetworkOk && netLabel.equals(pushedNetworkLabel)
+                    && connectionState == pushedConnectionState) return;
 
             android.content.Intent i = new android.content.Intent(this, HarnessService.class);
             i.setAction(HarnessService.ACTION_STATUS);
@@ -2838,6 +2958,7 @@ public class MainActivity extends Activity {
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK, net[0]);
             i.putExtra(HarnessService.EXTRA_STATUS_NETWORK_LABEL, netLabel);
             i.putExtra(HarnessService.EXTRA_STATUS_SINCE, since);
+            i.putExtra(HarnessService.EXTRA_CONNECTION_STATE, connectionState);
             startService(i);
             // **推送成功之后**才记下状态。
             //
@@ -2850,6 +2971,7 @@ public class MainActivity extends Activity {
             pushedSince = since;
             pushedNetworkOk = net[0];
             pushedNetworkLabel = netLabel;
+            pushedConnectionState = connectionState;
         } catch (Throwable t) {
             log("警告: 状态推送失败（通知栏将停在旧状态）: " + t);
         }
@@ -2905,6 +3027,24 @@ public class MainActivity extends Activity {
             if (view != null) view.evaluateJavascript(SessionProbe.script(), null);
         } catch (Throwable t) {
             log("警告: 会话状态探针注入失败: " + t);
+        }
+    }
+
+    /** 安装不读取消息内容的 WebSocket 生命周期探针。 */
+    private void installConnectionWatcher(WebView view) {
+        try {
+            if (view != null) view.evaluateJavascript(ConnectionRecovery.script(), null);
+        } catch (Throwable t) {
+            log("警告: 连接状态探针注入失败: " + t);
+        }
+    }
+
+    /** 安装同源 localStorage 草稿恢复；脚本不具备任何原生权限。 */
+    private void installDraftRecovery(WebView view) {
+        try {
+            if (view != null) view.evaluateJavascript(DraftRecovery.script(), null);
+        } catch (Throwable t) {
+            log("警告: 草稿恢复注入失败: " + t);
         }
     }
 
@@ -4303,6 +4443,10 @@ public class MainActivity extends Activity {
                             "Common actions are grouped here. Each page contains one type of task.")),
                     DshUi.fullWidth(this, 5));
 
+            final android.widget.Button tasks = addSettingsAction(body,
+                    UiText.t("任务中心", "Task center"),
+                    UiText.t("当前任务、运行时间、连接恢复与最近记录",
+                            "Current task, elapsed time, recovery, and recent history"));
             final android.widget.Button account = addSettingsAction(body,
                     UiText.t("账号与模型", "Account & model"),
                     UiText.t("API Key、默认模型与 Command Code 用量",
@@ -4329,6 +4473,13 @@ public class MainActivity extends Activity {
                     DshUi.scroll(this, body), DshUi.footer(this, close), 650);
             close.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) { dialog.dismiss(); }
+            });
+            tasks.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showTaskCenter(); }
+                    });
+                }
             });
             account.setOnClickListener(new android.view.View.OnClickListener() {
                 @Override public void onClick(android.view.View v) {
@@ -4378,6 +4529,151 @@ public class MainActivity extends Activity {
         body.addView(button, DshUi.fullWidth(this, 14));
         body.addView(DshUi.hint(this, detail), DshUi.fullWidth(this, 4));
         return button;
+    }
+
+    /** 当前任务、连接恢复与最近记录的统一入口。 */
+    private void showTaskCenter() {
+        final long openedAt = System.currentTimeMillis();
+        final android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, UiText.t("任务中心", "Task center")));
+        body.addView(DshUi.hint(this,
+                UiText.t("状态来自 DSH 会话列表与页面探针；历史最多保留 30 条。",
+                        "Status comes from the DSH session list and page probes. Up to 30 records are kept.")),
+                DshUi.fullWidth(this, 8));
+
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("连接", "Connection")), DshUi.fullWidth(this, 4));
+        boolean[] network = networkState();
+        String networkLabel = SessionStatus.networkLabel(
+                network[1], network[2], network[3], network[0], UiText.isEnglish());
+        final android.widget.TextView connection = DshUi.status(this,
+                ConnectionRecovery.label(connectionState, UiText.isEnglish())
+                        + " · " + networkLabel);
+        body.addView(connection, DshUi.fullWidth(this, 10));
+
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("当前任务", "Current task")), DshUi.fullWidth(this, 4));
+        final android.widget.TextView current = DshUi.status(this,
+                currentTaskText(openedAt));
+        body.addView(current, DshUi.fullWidth(this, 10));
+
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("最近记录", "Recent history")), DshUi.fullWidth(this, 4));
+        java.util.List<TaskTimeline.Entry> history = taskTimeline.newestFirst();
+        int shown = 0;
+        boolean hasFinished = false;
+        for (TaskTimeline.Entry entry : history) {
+            if (!entry.isActive()) hasFinished = true;
+            if (shown >= 10 || entry.isActive()) continue;
+            body.addView(DshUi.status(this, taskEntryText(entry, openedAt)),
+                    DshUi.fullWidth(this, 6));
+            shown++;
+        }
+        if (shown == 0) {
+            body.addView(DshUi.hint(this,
+                    UiText.t("暂无已结束记录", "No finished tasks yet")),
+                    DshUi.fullWidth(this, 6));
+        }
+
+        android.widget.Button back = DshUi.button(this,
+                UiText.t("返回", "Back"), false);
+        android.widget.Button sync = DshUi.button(this,
+                UiText.t("重新同步", "Resync"), true);
+        final android.widget.Button clear = DshUi.button(this,
+                UiText.t("清理历史", "Clear history"), false);
+        clear.setEnabled(hasFinished);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back, sync, clear), 680);
+
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
+            }
+        });
+        sync.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                try {
+                    installSessionProbe(webView);
+                    installConnectionWatcher(webView);
+                    installStatusWatcher();
+                    if (webView != null) {
+                        webView.evaluateJavascript(SessionProbe.refreshScript(), null);
+                    }
+                    pushStatus(lastSessionStatus);
+                    toast(UiText.t("已请求重新同步任务状态",
+                            "Task status resync requested"));
+                } catch (Throwable t) {
+                    log("任务中心重新同步失败: " + t);
+                    toast(UiText.t("重新同步失败", "Resync failed"));
+                }
+            }
+        });
+        clear.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.confirm(MainActivity.this,
+                        UiText.t("清理任务历史？", "Clear task history?"),
+                        UiText.t("只删除已结束记录；正在运行或恢复中的任务会保留。",
+                                "Only finished records are removed. Active and recovering tasks are kept."),
+                        UiText.t("清理", "Clear"), new Runnable() {
+                            @Override public void run() {
+                                if (taskTimeline.clearFinished()) persistTaskTimeline();
+                                dialog.dismiss();
+                                showTaskCenter();
+                            }
+                        });
+            }
+        });
+
+        final android.os.Handler timer =
+                new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable tick = new Runnable() {
+            @Override public void run() {
+                if (!dialog.isShowing()) return;
+                current.setText(currentTaskText(System.currentTimeMillis()));
+                boolean[] net = networkState();
+                connection.setText(ConnectionRecovery.label(
+                        connectionState, UiText.isEnglish()) + " · "
+                        + SessionStatus.networkLabel(
+                                net[1], net[2], net[3], net[0], UiText.isEnglish()));
+                timer.postDelayed(this, 1000L);
+            }
+        };
+        dialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+            @Override public void onDismiss(android.content.DialogInterface ignored) {
+                timer.removeCallbacks(tick);
+            }
+        });
+        dialog.show();
+        timer.postDelayed(tick, 1000L);
+    }
+
+    private String currentTaskText(long now) {
+        TaskTimeline.Entry active = taskTimeline.active();
+        return active == null
+                ? UiText.t("当前没有任务在运行", "No task is currently running")
+                : taskEntryText(active, now);
+    }
+
+    /** 任务中心的一行：状态、开始时间、持续时长和是否经历断线。 */
+    private String taskEntryText(TaskTimeline.Entry entry, long now) {
+        String time;
+        try {
+            time = android.text.format.DateFormat.getTimeFormat(this)
+                    .format(new java.util.Date(entry.startedAt()));
+        } catch (Throwable ignored) {
+            time = String.valueOf(entry.startedAt());
+        }
+        StringBuilder line = new StringBuilder();
+        line.append(TaskTimeline.label(entry.state(), UiText.isEnglish()))
+                .append(" · ").append(time)
+                .append(" · ").append(TaskNotifier.duration(
+                        entry.durationAt(now), UiText.isEnglish()));
+        if (entry.connectionInterrupted()) {
+            line.append(UiText.t(" · 曾发生断线", " · Connection interrupted"));
+        }
+        return line.toString();
     }
 
     private void showAccountSettings() {
@@ -6454,7 +6750,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.26.3\n");
+            w.write("APK 版本: 0.27.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

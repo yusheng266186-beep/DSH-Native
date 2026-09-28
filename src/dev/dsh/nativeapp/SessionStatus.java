@@ -75,12 +75,26 @@ final class SessionStatus {
      * <p>标题里带上运行时长：用户下拉时最想知道的是「跑了多久了」。
      */
     static String title(int state, long runningMs) {
+        return title(state, runningMs, ConnectionRecovery.CONNECTED);
+    }
+
+    /** 标题同时反映 DSH 长连接状态，但不掩盖任务本身。 */
+    static String title(int state, long runningMs, int connectionState) {
         // 不再把时长拼进标题。
         //
         // 原来每次推送都带一个当时算出来的秒数，而推送是每 2 秒一次 ——
         // 于是通知里的秒数两秒两秒地跳。
         // 现在改用系统计时器（setUsesChronometer + setWhen），
         // 由系统每秒自己走，与轮询周期完全无关。
+        if (ConnectionRecovery.isProblem(connectionState)) {
+            if (state == RUNNING || state == AWAITING_APPROVAL) {
+                return "DeepSeek Harness · " + label(state) + "（连接恢复中）";
+            }
+            return "DeepSeek Harness · 连接异常";
+        }
+        if (connectionState == ConnectionRecovery.CONNECTING && state == UNKNOWN) {
+            return "DeepSeek Harness · 正在连接";
+        }
         return "DeepSeek Harness · " + label(state);
     }
 
@@ -90,15 +104,32 @@ final class SessionStatus {
     }
 
     /**
+     * 状态证据暂时过期时，只要仍保留同一任务的可靠起点，系统计时器就继续走。
+     * 空闲状态由调用方传入 since=0，因此不会沿用上一轮任务的计时。
+     */
+    static boolean useChronometer(int state, long since) {
+        return useChronometer(state) || (state == UNKNOWN && since > 0L);
+    }
+
+    /**
      * 通知内容的稳定签名。运行状态必须包含任务起点，否则新一轮任务与上一轮
      * 文案相同的时候会被误判为重复，系统计时器继续沿用旧时间。
      */
     static String notificationSignature(int state, boolean networkOk,
                                         String networkDetail, long since) {
-        long timerStart = useChronometer(state) && since > 0L ? since : 0L;
-        return state + "|" + title(state, 0L) + "|"
-                + text(state, networkOk, networkDetail) + "|"
-                + useChronometer(state) + "|" + timerStart;
+        return notificationSignature(state, networkOk, networkDetail, since,
+                ConnectionRecovery.CONNECTED);
+    }
+
+    static String notificationSignature(int state, boolean networkOk,
+                                        String networkDetail, long since,
+                                        int connectionState) {
+        boolean chronometer = useChronometer(state, since);
+        long timerStart = chronometer && since > 0L ? since : 0L;
+        return state + "|" + connectionState + "|"
+                + title(state, 0L, connectionState) + "|"
+                + text(state, networkOk, networkDetail, connectionState) + "|"
+                + chronometer + "|" + timerStart;
     }
 
     /**
@@ -108,6 +139,11 @@ final class SessionStatus {
      * 最常见的原因就是网断了，不说的话只会以为是 agent 卡住。
      */
     static String text(int state, boolean networkOk, String networkDetail) {
+        return text(state, networkOk, networkDetail, ConnectionRecovery.CONNECTED);
+    }
+
+    static String text(int state, boolean networkOk, String networkDetail,
+                       int connectionState) {
         StringBuilder sb = new StringBuilder();
         if (!networkOk) {
             sb.append("网络不可用");
@@ -115,10 +151,15 @@ final class SessionStatus {
                 sb.append("（").append(networkDetail).append("）");
             }
             sb.append("　");
+        } else if (ConnectionRecovery.isProblem(connectionState)) {
+            sb.append("DSH 连接中断，正在重连　");
         }
         switch (state) {
             case RUNNING:
-                sb.append(networkOk ? "正在执行任务" : "任务可能已中断");
+                if (!networkOk) sb.append("任务可能已中断");
+                else if (ConnectionRecovery.isProblem(connectionState)) {
+                    sb.append("任务仍在后台，等待状态恢复");
+                } else sb.append("正在执行任务");
                 break;
             case AWAITING_APPROVAL:
                 sb.append("需要你的批准，点开处理");
@@ -127,7 +168,12 @@ final class SessionStatus {
                 sb.append(networkOk ? "当前没有任务在运行" : "网络恢复后可直接继续");
                 break;
             default:
-                sb.append(networkOk ? "正在同步任务状态" : "等待网络恢复后同步状态");
+                if (!networkOk) sb.append("等待网络恢复后同步状态");
+                else if (connectionState == ConnectionRecovery.CONNECTING) {
+                    sb.append("正在建立 DSH 连接");
+                } else if (ConnectionRecovery.isProblem(connectionState)) {
+                    sb.append("等待连接恢复后同步状态");
+                } else sb.append("正在同步任务状态");
                 break;
         }
         return sb.toString();
@@ -171,6 +217,18 @@ final class SessionStatus {
     /** 网络状态的可读描述。 */
     static String networkLabel(boolean connected, boolean wifi, boolean cellular,
                                boolean validated) {
+        return networkLabel(connected, wifi, cellular, validated, false);
+    }
+
+    static String networkLabel(boolean connected, boolean wifi, boolean cellular,
+                               boolean validated, boolean english) {
+        if (english) {
+            if (!connected) return "Offline";
+            if (!validated) return "Connected without internet access";
+            if (wifi) return "Wi-Fi";
+            if (cellular) return "Mobile data";
+            return "Connected";
+        }
         if (!connected) return "未连接";
         if (!validated) return "已连接但无法访问外网";
         if (wifi) return "Wi-Fi";

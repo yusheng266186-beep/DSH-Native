@@ -87,6 +87,8 @@ public class TaskNotifierTest {
         check("7380s -> 2 小时 3 分", "2 小时 3 分".equals(TaskNotifier.duration(7_380_000)), TaskNotifier.duration(7_380_000));
         check("zero -> 0 秒", "0 秒".equals(TaskNotifier.duration(0)), TaskNotifier.duration(0));
         check("negative safe", TaskNotifier.duration(-5) != null, "null");
+        check("english duration", "1 min 24 sec".equals(
+                TaskNotifier.duration(84_000, true)), TaskNotifier.duration(84_000, true));
 
         System.out.println("=== 6. console parsing ===");
         String[] a = TaskNotifier.parseConsole("[dsh-task] start abc123");
@@ -100,6 +102,23 @@ public class TaskNotifierTest {
         check("null safe", TaskNotifier.parseConsole(null) == null, "should be null");
         String[] c = TaskNotifier.parseConsole("[dsh-task] done");
         check("done without id still parses", c != null && "done".equals(c[0]), "wrong");
+
+        System.out.println("=== 7. process restore ===");
+        TaskNotifier restored = new TaskNotifier();
+        check("valid active task restores",
+                restored.restoreRunning("restored-session", t0, t0 + 40_000L), "rejected");
+        check("restore keeps original start", restored.startedAt() == t0,
+                String.valueOf(restored.startedAt()));
+        check("restore keeps safe session id", "restored-session".equals(restored.sessionId()),
+                restored.sessionId());
+        String restoredDone = restored.onEvent("done", "", t0 + 70_000L, false);
+        check("restored task can notify on finish", restoredDone != null
+                && restoredDone.contains("1 分 10 秒"), String.valueOf(restoredDone));
+        check("done clears restored session id", restored.sessionId().length() == 0, restored.sessionId());
+        TaskNotifier future = new TaskNotifier();
+        check("future start is clamped", future.restoreRunning("x", t0 + 10_000L, t0)
+                && future.startedAt() == t0, String.valueOf(future.startedAt()));
+        check("invalid restore rejected", !new TaskNotifier().restoreRunning("x", 0L, t0), "accepted");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

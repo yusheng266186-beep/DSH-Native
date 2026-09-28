@@ -37,6 +37,9 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/Version.java
      $JAVA_DIR/CommandCodeUsage.java
      $JAVA_DIR/TaskNotifier.java
+     $JAVA_DIR/TaskTimeline.java
+     $JAVA_DIR/ConnectionRecovery.java
+     $JAVA_DIR/DraftRecovery.java
      $JAVA_DIR/FileOps.java
      $JAVA_DIR/ConfigBackup.java
      $JAVA_DIR/ShareTargets.java
@@ -66,6 +69,9 @@ TESTS="tests/FileListingTest.java
        tests/VersionTest.java
        tests/CommandCodeUsageTest.java
        tests/TaskNotifierTest.java
+       tests/TaskTimelineTest.java
+       tests/ConnectionRecoveryTest.java
+       tests/DraftRecoveryTest.java
        tests/FileOpsTest.java
        tests/ConfigBackupTest.java
        tests/ShareTargetsTest.java
@@ -106,7 +112,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
     name="${t##*.}"
     if ! out=$(java -Dfile.encoding=UTF-8 -cp "$OUT" "$t" 2>&1); then
         echo "$out" | grep -aE 'FAIL|Error|Exception' | head -10
@@ -132,6 +138,40 @@ else
     elif ! out=$(node tests/js/web-tools-entry-simulation.js "$WEB_TOOLS_JS" 2>&1); then
         echo "$out"
         echo "  [FAIL] WebToolsEntry DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# WebSocket 探针必须保持原型/常量，不得把 URL 或消息内容写进日志。
+if command -v node >/dev/null 2>&1; then
+    CONNECTION_JS="$OUT/connection-recovery.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.ConnectionRecoveryTest --dump-script > "$CONNECTION_JS"
+    if ! node --check "$CONNECTION_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] ConnectionRecovery JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/connection-recovery-simulation.js "$CONNECTION_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] ConnectionRecovery WebSocket 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
+# 草稿恢复必须真实覆盖保存、重载恢复与清空，且永远不自动发送。
+if command -v node >/dev/null 2>&1; then
+    DRAFT_JS="$OUT/draft-recovery.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.DraftRecoveryTest --dump-script > "$DRAFT_JS"
+    if ! node --check "$DRAFT_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] DraftRecovery JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/draft-recovery-simulation.js "$DRAFT_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] DraftRecovery DOM 模拟失败" >&2
         rc=1
     else
         echo "  $out"
@@ -198,6 +238,19 @@ if ! grep -q 'installSessionProbe(view);' "$MAIN_ACTIVITY" \
     rc=1
 else
     echo "  SessionStatusWiring: early probe / stable timer / completion channel"
+fi
+
+# 阶段五 A：任务历史必须持久化，连接与草稿探针必须随每次页面加载恢复，
+# 任务中心需要从设置首页可达；仍禁止高权限 JavascriptInterface。
+if ! grep -q 'showTaskCenter();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'PREF_TASK_TIMELINE' "$MAIN_ACTIVITY" \
+        || ! grep -q 'installConnectionWatcher(view);' "$MAIN_ACTIVITY" \
+        || ! grep -q 'installDraftRecovery(view);' "$MAIN_ACTIVITY" \
+        || ! grep -q 'EXTRA_CONNECTION_STATE' "$JAVA_DIR/HarnessService.java"; then
+    echo "  [FAIL] 阶段五 A 任务中心、恢复持久化或页面探针接线不完整" >&2
+    rc=1
+else
+    echo "  Phase5ATaskRecoveryWiring: timeline persisted / connection visible / draft restored"
 fi
 
 # 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并
