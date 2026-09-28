@@ -494,6 +494,15 @@ public final class DshUi {
         return b;
     }
 
+    /** Refresh an existing segmented-choice button without rebuilding its whole row. */
+    public static void setToggleState(Button button, boolean selected) {
+        if (button == null) return;
+        button.setBackground(buttonSurface(button.getContext(), selected));
+        button.setTextColor(selected ? ON_ACCENT() : TEXT());
+        button.setAlpha(button.isEnabled() ? 1f : 0.62f);
+        markToggleState(button, selected);
+    }
+
     private static void markToggleState(Button b, boolean selected) {
         b.setSelected(selected);
         String state = UiText.t(selected ? "已选中" : "未选中",

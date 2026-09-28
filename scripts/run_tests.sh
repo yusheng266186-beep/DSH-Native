@@ -52,6 +52,9 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/SessionProbe.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/SessionOrganizer.java
+     $JAVA_DIR/ModelConfig.java
+     $JAVA_DIR/ProviderCheck.java
+     $JAVA_DIR/ProjectModelSettings.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
      $JAVA_DIR/SecretMasker.java
@@ -88,6 +91,9 @@ TESTS="tests/FileListingTest.java
        tests/SessionProbeTest.java
        tests/SessionRecoveryTest.java
        tests/SessionOrganizerTest.java
+       tests/ModelConfigTest.java
+       tests/ProviderCheckTest.java
+       tests/ProjectModelSettingsTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
        tests/SecretMaskerTest.java
@@ -121,7 +127,7 @@ fi
 
 rc=0
 seen_tests=" "
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -291,6 +297,23 @@ elif grep -q 'workspace.archiveSession' "$JAVA_DIR/SessionOrganizer.java" \
     rc=1
 else
     echo "  Phase5BFileSessionWiring: batch / preview / trash / official session UI"
+fi
+
+# 阶段五 C：模型选择必须结构化写入 agent-default-model，服务商检测只读模型列表；
+# 项目覆盖随切换应用，首次配置标记只能由新安装引导创建。
+if ! grep -q 'ModelCenterPanel.show' "$MAIN_ACTIVITY" \
+        || ! grep -q 'applyProjectModelConfig(project)' "$MAIN_ACTIVITY" \
+        || ! grep -q 'modelOnboardingPending' "$MAIN_ACTIVITY" \
+        || ! grep -q 'ProviderCheck.endpoint' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'ProjectModelSettings.FILE_NAME' "$JAVA_DIR/ConfigBackup.java"; then
+    echo "  [FAIL] 阶段五 C 模型中心、项目覆盖、首次向导或备份接线不完整" >&2
+    rc=1
+elif grep -q 'chat/completions' "$JAVA_DIR/ModelCenterPanel.java" \
+        || grep -q 'addJavascriptInterface' "$JAVA_DIR/ModelCenterPanel.java"; then
+    echo "  [FAIL] 服务商检测不得产生模型调用或新增 WebView 权限桥" >&2
+    rc=1
+else
+    echo "  Phase5CModelOnboardingWiring: read-only check / project override / resumable onboarding"
 fi
 
 # 阶段四 B 接线回归：维护任务必须互斥，两条键盘路径必须合并并

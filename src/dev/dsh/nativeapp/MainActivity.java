@@ -579,15 +579,16 @@ public class MainActivity extends Activity {
                 log("DSH 界面已加载，收起开屏");
                 final String act = pendingAction;
                 pendingAction = "";
-                if (pendingOpenSettings || act.length() > 0) {
+                final boolean resumeOnboarding = shouldResumeModelOnboarding();
+                if (pendingOpenSettings || act.length() > 0 || resumeOnboarding) {
                     pendingOpenSettings = false;
                     new android.os.Handler(android.os.Looper.getMainLooper())
                             .postDelayed(new Runnable() {
                         @Override public void run() {
                             if ("log".equals(act)) {
                                 showLog();
-                            } else if ("account".equals(act)) {
-                                showAccountSettings();
+                            } else if ("onboarding".equals(act) || resumeOnboarding) {
+                                showModelOnboarding();
                             } else {
                                 showSettings();
                                 if ("update".equals(act)) checkAppUpdate(true, null);
@@ -737,6 +738,18 @@ public class MainActivity extends Activity {
         return show;
     }
 
+    /** 新安装下载中断后仍应恢复真正的账号配置；升级用户从不写入此标记。 */
+    private boolean shouldResumeModelOnboarding() {
+        try {
+            android.content.SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            return UiText.shouldResumeModelSetup(
+                    p.getBoolean("modelOnboardingPending", false),
+                    p.getBoolean("modelOnboardingCompleted", false));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /**
      * First-run guide shown before the large runtime download begins.
      * Language changes rebuild only this dialog; the agent process is not started or restarted.
@@ -759,8 +772,8 @@ public class MainActivity extends Activity {
                         "Shared storage enables the workspace, imports, and diagnostic exports. Notifications show background task status. Private storage still works if you decline."));
         addFirstRunStep(body, "3",
                 UiText.t("填写账号", "Add your account"),
-                UiText.t("运行环境就绪后会自动打开“账号与模型”，保存密钥即可开始使用。",
-                        "When the runtime is ready, Account & model opens automatically so you can save a key and start."));
+                UiText.t("运行环境就绪后会自动打开“模型中心”，完成连接检测即可开始使用。",
+                        "When the runtime is ready, Model center opens so you can check the provider and start."));
 
         body.addView(DshUi.sectionLabel(this,
                 UiText.t("选择界面语言", "Choose interface language")),
@@ -805,8 +818,10 @@ public class MainActivity extends Activity {
         start.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putBoolean("firstRunGuideCompleted", true).apply();
-                pendingAction = "account";
+                        .putBoolean("firstRunGuideCompleted", true)
+                        .putBoolean("modelOnboardingPending", true)
+                        .apply();
+                pendingAction = "onboarding";
                 dialog.dismiss();
                 requestStoragePermission();
                 bootInBackground("首次配置");
@@ -2002,6 +2017,7 @@ public class MainActivity extends Activity {
             // 表现为发图片被拒。这里以预设为准整块同步（幂等）。
             syncProviderConfig(root, settings);
         }
+        applyProjectModelConfig(activeProjectName(), settings);
 
         // 2) 凭据 —— 同理，DSH 会自建 .credentials.yaml 存放浏览器会话授权，
         //    因此要把 refs 段「合并」进去，而不是文件存在就跳过。
@@ -2124,6 +2140,13 @@ public class MainActivity extends Activity {
             log("默认模型: " + (provider.length() == 0 ? "?" : provider)
                     + " / " + (model.length() == 0 ? "?" : model));
             if (model.length() == 0) return;
+
+            // DeepSeek 官方路由使用 DSH 内置目录，不在 llm-pi-ai 的自定义模型块里。
+            // 把它硬拿去搜 commandcode 清单会制造“模型不存在”的假警报。
+            if (ModelConfig.DEEPSEEK.equals(provider)) {
+                log("  使用 DSH 内置 DeepSeek 官方模型目录");
+                return;
+            }
 
             if (txt.indexOf("- id: \"" + model + "\"") < 0
                     && txt.indexOf("- id: " + model) < 0
@@ -4366,6 +4389,51 @@ public class MainActivity extends Activity {
                 .putString("activeProject", normalized).apply();
     }
 
+    /** 将项目覆盖写入 DSH 的当前默认模型；没有覆盖时恢复全局默认。 */
+    private boolean applyProjectModelConfig(String project, File settings) {
+        try {
+            if (settings == null || !settings.isFile()) return true;
+            File home = settings.getParentFile();
+            File projectFile = new File(home, ProjectModelSettings.FILE_NAME);
+            String yaml = ProjectModelSettings.readFile(settings);
+            ModelConfig.Selection current = ModelConfig.readSelection(yaml);
+            if (!current.valid()) {
+                log("项目模型配置跳过：当前默认模型无效");
+                return true;
+            }
+            ProjectModelSettings.State state = ProjectModelSettings.parse(
+                    ProjectModelSettings.readFile(projectFile));
+            boolean changedState = false;
+            if (state.global == null || !state.global.valid()) {
+                ProjectModelSettings.setGlobal(state, current);
+                changedState = true;
+            }
+            ModelConfig.Selection effective = ProjectModelSettings.effective(
+                    state, project, current);
+            if (!effective.equals(current)) {
+                ProjectModelSettings.writeFileAtomic(settings,
+                        ModelConfig.updateSelection(yaml, effective));
+                log("已应用项目模型: " + WorkspaceProjects.displayName(project)
+                        + " → " + effective.provider + " / " + effective.model
+                        + " / " + effective.effort);
+            }
+            if (changedState) {
+                ProjectModelSettings.writeFileAtomic(projectFile,
+                        ProjectModelSettings.serialize(state));
+            }
+            return true;
+        } catch (Throwable t) {
+            log("项目模型配置失败: " + shorten(t));
+            return false;
+        }
+    }
+
+    private boolean applyProjectModelConfig(String project) {
+        if (appRoot == null) return true;
+        return applyProjectModelConfig(project,
+                new File(new File(appRoot, ".dsh"), "settings.yaml"));
+    }
+
     /** 工作区说明的标题行（用于判断文件是否由本应用生成）。 */
     private static final String WORKSPACE_README_HEAD =
             "这是 DeepSeek Harness 的工作目录。";
@@ -4466,9 +4534,9 @@ public class MainActivity extends Activity {
                     UiText.t("搜索历史会话、查看归档与恢复入口",
                             "Search session history, view archives, and restore sessions"));
             final android.widget.Button account = addSettingsAction(body,
-                    UiText.t("账号与模型", "Account & model"),
-                    UiText.t("API Key、默认模型与 Command Code 用量",
-                            "API keys, default model, and Command Code usage"));
+                    UiText.t("模型中心", "Model center"),
+                    UiText.t("服务商检测、默认模型、项目覆盖与 Command Code 用量",
+                            "Provider checks, default model, project overrides, and Command Code usage"));
             final android.widget.Button display = addSettingsAction(body,
                     UiText.t("显示与语言", "Display & language"),
                     UiText.t("中文 / English 与文字缩放",
@@ -4747,82 +4815,49 @@ public class MainActivity extends Activity {
     }
 
     private void showAccountSettings() {
-        final File dshHome = new File(appRoot, ".dsh");
-        final File creds = new File(dshHome, ".credentials.yaml");
-        final File settings = new File(dshHome, "settings.yaml");
-        final String oldCc = readRef(creds, "COMMANDCODE_API_KEY");
-        final String oldDs = readRef(creds, "DEEPSEEK_API_KEY");
-        final String oldModel = readScalar(settings, "model");
+        ModelCenterPanel.show(this, modelCenterHost(false), false);
+    }
 
-        android.widget.LinearLayout body = DshUi.paddedBody(this);
-        body.addView(DshUi.title(this, UiText.t("账号与模型", "Account & model")));
-        body.addView(DshUi.hint(this, "密钥仅保存在 App 私有目录，不会外传。"),
-                DshUi.fullWidth(this, 4));
-        final android.widget.EditText ccField =
-                addField(body, "Command Code API Key", oldCc, true);
-        final android.widget.EditText dsField =
-                addField(body, "DeepSeek API Key", oldDs, true);
-        final android.widget.EditText modelField =
-                addField(body, "默认模型", oldModel, false);
+    private void showModelOnboarding() {
+        ModelCenterPanel.show(this, modelCenterHost(false), true);
+    }
 
-        body.addView(DshUi.sectionLabel(this, "订阅"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this, "查看 Command Code 账户余额、滚动窗口与本期用量"),
-                DshUi.fullWidth(this, 6));
-        android.widget.Button usage = DshUi.button(this, "Command Code 用量", false);
-        usage.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                CommandCodePanel.show(MainActivity.this,
-                        ccField.getText().toString().trim());
+    private void showProjectModelSettings(String project) {
+        ModelCenterPanel.showProject(this, modelCenterHost(true), project);
+    }
+
+    private ModelCenterPanel.Host modelCenterHost(final boolean returnToProjects) {
+        return new ModelCenterPanel.Host() {
+            @Override public File dshHome() {
+                return new File(appRoot, ".dsh");
             }
-        });
-        body.addView(usage, DshUi.fullWidth(this, 8));
 
-        android.widget.Button back = DshUi.button(this, "返回", false);
-        android.widget.Button save = DshUi.button(this, "保存并重启", true);
-        final android.app.Dialog dialog = DshUi.dialog(this,
-                DshUi.scroll(this, body), DshUi.footer(this, back, save), 660);
-        back.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                DshUi.swapDialog(dialog, true, new Runnable() {
-                    @Override public void run() { showSettings(); }
-                });
+            @Override public String activeProject() { return activeProjectName(); }
+
+            @Override public void log(String message) { MainActivity.this.log(message); }
+
+            @Override public void openCommandCodeUsage(String key) {
+                CommandCodePanel.show(MainActivity.this, key);
             }
-        });
-        save.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                try {
-                    String cc = ccField.getText().toString().trim();
-                    String ds = dsField.getText().toString().trim();
-                    String model = modelField.getText().toString().trim();
-                    if (cc.equals(oldCc) && ds.equals(oldDs) && model.equals(oldModel)) {
-                        dialog.dismiss();
-                        toast(UiText.t("没有需要保存的改动", "No changes to save"));
-                        showSettings();
-                        return;
-                    }
-                    writeRefs(creds, cc, ds);
-                    if (model.length() > 0) setScalar(settings, "model", model);
-                    dialog.dismiss();
-                    if (lastSessionStatus == SessionStatus.RUNNING
-                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-                        DshUi.confirm(MainActivity.this,
-                                "有任务正在运行",
-                                "重启会中断当前正在执行的任务，确定要重启吗？",
-                                "重启", new Runnable() {
-                            @Override public void run() {
-                                toast("正在重启服务…"); restartAgent();
-                            }
-                        });
-                    } else {
-                        toast("已保存，正在重启服务…");
-                        restartAgent();
-                    }
-                } catch (Throwable t) {
-                    toast("保存失败: " + t.getMessage());
+
+            @Override public void closeModelCenter(boolean onboarding, boolean saved) {
+                if (onboarding) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putBoolean("modelOnboardingPending", false)
+                            .putBoolean("modelOnboardingCompleted", true)
+                            .apply();
+                    toast(saved
+                            ? UiText.t("配置已保存，可以开始使用", "Setup saved. You can start using the app.")
+                            : UiText.t("可随时从“模型中心”继续配置", "Continue setup any time from Model center."));
+                    return;
                 }
+                if (saved) {
+                    toast(UiText.t("已保存；新会话使用新模型", "Saved. New sessions will use the new model."));
+                }
+                if (returnToProjects) showWorkspaceProjects();
+                else showSettings();
             }
-        });
-        dialog.show();
+        };
     }
 
     private void showDisplaySettings() {
@@ -5174,7 +5209,22 @@ public class MainActivity extends Activity {
         android.widget.Button button = DshUi.toggleButton(this,
                 active ? "正在使用" : "切换", active);
         button.setEnabled(!active);
+        android.widget.Button modelButton = DshUi.button(this,
+                UiText.t("模型", "Model"), false);
+        android.widget.LinearLayout.LayoutParams modelParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT);
+        modelParams.rightMargin = DshUi.dp(this, 6);
+        row.addView(modelButton, modelParams);
         final android.widget.Button switchButton = button;
+        modelButton.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.swapDialog(dialog, false, new Runnable() {
+                    @Override public void run() { showProjectModelSettings(project); }
+                });
+            }
+        });
         button.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 requestWorkspaceProjectSwitch(project, dialog, switchButton, "切换");
@@ -5192,6 +5242,12 @@ public class MainActivity extends Activity {
         DshUi.setBusy(button, idleLabel, "切换中…", true);
         final Runnable apply = new Runnable() {
             @Override public void run() {
+                if (!applyProjectModelConfig(project)) {
+                    toast(UiText.t("无法应用项目模型配置，项目未切换",
+                            "Could not apply the project model; the project was not switched."));
+                    DshUi.setBusy(button, idleLabel, "切换中…", false);
+                    return;
+                }
                 if (origin != null) origin.dismiss();
                 rememberActiveProject(project);
                 String display = UiText.text(WorkspaceProjects.displayName(project));
@@ -6820,7 +6876,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.28.0\n");
+            w.write("APK 版本: 0.29.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

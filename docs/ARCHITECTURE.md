@@ -169,17 +169,20 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `TextCodec` | 编码探测、换行符、二进制判定 | 31 |
 | `Version` | 版本号比较（含溢出饱和） | 23 |
 | `CommandCodeUsage` | 余额解析与格式化 | 38 |
-| `TaskNotifier` | 何时该发完成通知、稳定任务起点 | 30 |
+| `TaskNotifier` / `TaskTimeline` | 完成通知、稳定任务起点与持久化任务历史 | 60 |
+| `ConnectionRecovery` / `DraftRecovery` | 连接恢复状态与同源草稿恢复 | 26 |
+| `FileBatch` / `FileTrash` / `FilePreview` | 批处理、回收站和图片预览边界 | 34 |
 | `FileOps` | 写入白名单、符号链接逃逸、名称校验 | 52 |
 | `ConfigBackup` | zip-slip 防护、白名单进出 | 40 |
 | `ShareTargets` | 路径编解码往返、MIME 映射 | 55 |
 | `PluginSpecs` | 命令注入防护、YAML 生成 | 98 |
 | `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
-| `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 89 |
-| `SessionProbe` | 首次会话请求捕获与只读 RPC 重放脚本 | 10 |
+| `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 103 |
+| `SessionProbe` / `SessionOrganizer` | 会话请求捕获、只读重放与官方搜索入口 | 24 |
+| `ModelConfig` / `ProviderCheck` / `ProjectModelSettings` | 模型配置、只读检测与项目覆盖 | 61 |
 | `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
-| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 25 |
-| `MobileLayout` | 初始缩放、响应式设置弹窗与探针嵌入 | 17 |
+| `SecretMasker` / `UiText` | 脱敏、语言回退与引导判定 | 28 |
+| `MobileLayout` | 初始缩放、响应式设置弹窗与探针嵌入 | 21 |
 | `WorkspaceProjects` | 命名项目与路径约束 | 19 |
 | `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
 | `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
@@ -187,8 +190,9 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `WebToolsEntry` | WebUI 入口注入、收起隐藏、语言与状态标记 | 21 |
 | `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
 | `OperationGate` | 维护任务互斥与并发竞争 | 12 |
-| `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 30 |
-| | **合计** | **765** |
+| `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 43 |
+| `CrashReporter` / `WorkerRegistry` / `ProviderRoute` | 崩溃记录、线程生命周期与 URI 路由 | 23 |
+| | **合计** | **987** |
 
 ### 强制手段
 
