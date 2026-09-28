@@ -305,6 +305,20 @@ public class MainActivity extends Activity {
                         onWebToolsEntryMissing();
                         return true;
                     }
+                    if (SessionOrganizer.isSearchReady(m)) {
+                        log("会话管理：已聚焦搜索框");
+                        return true;
+                    }
+                    if (SessionOrganizer.isArchiveReady(m)) {
+                        log("会话管理：已打开归档筛选");
+                        return true;
+                    }
+                    if (SessionOrganizer.isUnsupported(m)) {
+                        log("会话管理：当前 DSH 页面未找到对应入口");
+                        toast(UiText.t("未找到会话入口，请先展开左侧栏",
+                                "Session control not found. Expand the sidebar first."));
+                        return true;
+                    }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
                         log("WebUI / 手势入口：打开工具与设置");
@@ -4447,6 +4461,10 @@ public class MainActivity extends Activity {
                     UiText.t("任务中心", "Task center"),
                     UiText.t("当前任务、运行时间、连接恢复与最近记录",
                             "Current task, elapsed time, recovery, and recent history"));
+            final android.widget.Button sessions = addSettingsAction(body,
+                    UiText.t("会话管理", "Session manager"),
+                    UiText.t("搜索历史会话、查看归档与恢复入口",
+                            "Search session history, view archives, and restore sessions"));
             final android.widget.Button account = addSettingsAction(body,
                     UiText.t("账号与模型", "Account & model"),
                     UiText.t("API Key、默认模型与 Command Code 用量",
@@ -4478,6 +4496,13 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) {
                     DshUi.swapDialog(dialog, false, new Runnable() {
                         @Override public void run() { showTaskCenter(); }
+                    });
+                }
+            });
+            sessions.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showSessionManager(); }
                     });
                 }
             });
@@ -4529,6 +4554,51 @@ public class MainActivity extends Activity {
         body.addView(button, DshUi.fullWidth(this, 14));
         body.addView(DshUi.hint(this, detail), DshUi.fullWidth(this, 4));
         return button;
+    }
+
+    /** 使用 DSH 官方会话搜索与归档界面，避免复制不稳定的内部 RPC。 */
+    private void showSessionManager() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, UiText.t("会话管理", "Session manager")));
+        body.addView(DshUi.hint(this, UiText.t(
+                "搜索覆盖会话标题与可用的历史索引。归档不会删除记录；已归档会话可恢复。",
+                "Search uses session titles and the available history index. Archiving keeps the record and can be undone.")),
+                DshUi.fullWidth(this, 7));
+        android.widget.Button search = DshUi.button(this,
+                UiText.t("搜索会话", "Search sessions"), false);
+        android.widget.Button archived = DshUi.button(this,
+                UiText.t("查看已归档会话", "View archived sessions"), false);
+        body.addView(search, DshUi.fullWidth(this, 16));
+        body.addView(archived, DshUi.fullWidth(this, 8));
+        body.addView(DshUi.hint(this, UiText.t(
+                "归档方法：在侧栏打开会话的更多操作并选择“归档会话”。任务运行中时，DSH 会要求确认停止后再归档。",
+                "To archive, open a session's More menu in the sidebar and choose Archive session. DSH asks before stopping active work.")),
+                DshUi.fullWidth(this, 14));
+        android.widget.Button back = DshUi.button(this, UiText.t("返回", "Back"), true);
+        final android.app.Dialog dialog = DshUi.dialog(this,
+                DshUi.scroll(this, body), DshUi.footer(this, back), 520);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.swapDialog(dialog, true, new Runnable() {
+                    @Override public void run() { showSettings(); }
+                });
+            }
+        });
+        search.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss();
+                try { webView.evaluateJavascript(SessionOrganizer.focusSearchScript(), null); }
+                catch (Throwable t) { toast(UiText.t("会话搜索暂不可用", "Session search is unavailable")); }
+            }
+        });
+        archived.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                dialog.dismiss();
+                try { webView.evaluateJavascript(SessionOrganizer.showArchivedScript(), null); }
+                catch (Throwable t) { toast(UiText.t("归档入口暂不可用", "Archive view is unavailable")); }
+            }
+        });
+        dialog.show();
     }
 
     /** 当前任务、连接恢复与最近记录的统一入口。 */
@@ -6750,7 +6820,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.27.0\n");
+            w.write("APK 版本: 0.28.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

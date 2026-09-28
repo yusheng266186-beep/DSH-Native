@@ -24,7 +24,9 @@ import android.widget.TextView;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -121,6 +123,8 @@ public final class FileBrowser {
         final LinearLayout listBox;
         final Button hiddenToggle;
         final Button sortToggle;
+        final Button batchButton;
+        final Button trashButton;
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -170,6 +174,12 @@ public final class FileBrowser {
         File cwd;
         boolean showHidden = false;
         int sortMode = FileListing.SORT_NAME;
+        final Map<String, FileListing.Entry> selected =
+                new LinkedHashMap<String, FileListing.Entry>();
+        List<FileListing.Entry> currentEntries = new ArrayList<FileListing.Entry>();
+        final List<File> pendingSources = new ArrayList<File>();
+        boolean pendingMove;
+        boolean selectionMode;
         /** 每次导航自增，用于丢弃过期的后台结果。 */
         int generation = 0;
 
@@ -191,6 +201,8 @@ public final class FileBrowser {
             // 因为 DshUi.footer 会把每个按钮的样式统一覆盖一遍。
             hiddenToggle = DshUi.toggleButton(act, "隐藏文件", false);
             sortToggle = DshUi.toggleButton(act, "排序", false);
+            batchButton = DshUi.button(act, "多选", false);
+            trashButton = DshUi.button(act, "回收站", false);
             rowRadius = DshUi.dp(act, 8);
         }
 
@@ -198,6 +210,9 @@ public final class FileBrowser {
         void navigate(File dir) {
             if (dir == null) return;
             cwd = dir;
+            selected.clear();
+            selectionMode = false;
+            updateBatchButton();
             final int gen = ++generation;
             renderChrome();
             // **不清空列表**：清空会让界面白一下再重建，点按钮时像在闪。
@@ -469,6 +484,311 @@ public final class FileBrowser {
             return FileOps.isWritable(cwd, writeRoots);
         }
 
+        void updateBatchButton() {
+            if (!pendingSources.isEmpty()) {
+                batchButton.setText("粘贴 " + pendingSources.size());
+                return;
+            }
+            if (selectionMode) {
+                batchButton.setText(selected.isEmpty() ? "取消多选" : "操作 " + selected.size());
+                return;
+            }
+            batchButton.setText("多选");
+        }
+
+        void toggleSelection(FileListing.Entry entry) {
+            if (entry == null || !FileOps.isWritable(entry.file, writeRoots)) {
+                DshUi.toast(act, "只读位置不能批量修改");
+                return;
+            }
+            selectionMode = true;
+            String key = entry.file.getAbsolutePath();
+            if (selected.containsKey(key)) selected.remove(key); else selected.put(key, entry);
+            updateBatchButton();
+            renderSelectionState();
+        }
+
+        void renderSelectionState() {
+            for (int i = 0; i < listBox.getChildCount(); i++) {
+                View row = listBox.getChildAt(i);
+                Object tag = row.getTag();
+                if (!(tag instanceof FileListing.Entry)) continue;
+                FileListing.Entry entry = (FileListing.Entry) tag;
+                boolean on = selected.containsKey(entry.file.getAbsolutePath());
+                row.setActivated(on);
+                row.setContentDescription((on ? "已选择，" : "") + (entry.dir
+                        ? entry.name + "，文件夹" : entry.name + "，文件，" + FileListing.infoText(entry)));
+            }
+        }
+
+        void onBatchButton() {
+            if (!pendingSources.isEmpty()) {
+                pastePending();
+                return;
+            }
+            if (!selectionMode) {
+                selectionMode = true;
+                selected.clear();
+                updateBatchButton();
+                DshUi.toast(act, "点选文件或文件夹，完成后点“操作”");
+                return;
+            }
+            if (selected.isEmpty()) {
+                selectionMode = false;
+                updateBatchButton();
+                return;
+            }
+            showBatchActions();
+        }
+
+        void showBatchActions() {
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, "已选择 " + selected.size() + " 项"));
+            Button all = DshUi.button(act, "选择当前目录全部可写项目", false);
+            Button copy = DshUi.button(act, "复制到其他目录", false);
+            Button move = DshUi.button(act, "移动到其他目录", false);
+            Button trash = DshUi.button(act, "移到回收站", false);
+            box.addView(all, DshUi.fullWidth(act, 12));
+            box.addView(copy, DshUi.fullWidth(act, 8));
+            box.addView(move, DshUi.fullWidth(act, 8));
+            box.addView(trash, DshUi.fullWidth(act, 8));
+            Button cancel = DshUi.button(act, "取消", true);
+            final Dialog dialog = DshUi.dialog(act, box, DshUi.footer(act, cancel), 520);
+            cancel.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { dialog.dismiss(); }
+            });
+            all.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    selected.clear();
+                    for (FileListing.Entry entry : currentEntries) {
+                        if (FileOps.isWritable(entry.file, writeRoots)) {
+                            selected.put(entry.file.getAbsolutePath(), entry);
+                        }
+                    }
+                    dialog.dismiss(); updateBatchButton(); renderSelectionState();
+                }
+            });
+            copy.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { dialog.dismiss(); prepareTransfer(false); }
+            });
+            move.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { dialog.dismiss(); prepareTransfer(true); }
+            });
+            trash.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    dialog.dismiss();
+                    DshUi.confirm(act, "移到回收站？",
+                            "将 " + selected.size() + " 项移到回收站，可在文件浏览顶部恢复。",
+                            "移到回收站", new Runnable() {
+                        @Override public void run() { trashSelected(); }
+                    });
+                }
+            });
+            dialog.show();
+        }
+
+        void prepareTransfer(boolean move) {
+            pendingSources.clear();
+            for (FileListing.Entry entry : selected.values()) pendingSources.add(entry.file);
+            pendingMove = move;
+            selected.clear();
+            selectionMode = false;
+            updateBatchButton();
+            renderSelectionState();
+            DshUi.toast(act, move ? "请选择目标目录后点“粘贴”" : "请选择目标目录后点“粘贴”");
+        }
+
+        void pastePending() {
+            if (!cwdWritable()) { DshUi.toast(act, "当前目录只读"); return; }
+            final List<File> sources = new ArrayList<File>(pendingSources);
+            final boolean move = pendingMove;
+            final Dialog progress = progressDialog(move ? "正在移动…" : "正在复制…",
+                    sources.size() + " 个项目 → " + cwd.getAbsolutePath());
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    final FileBatch.Result result = FileBatch.transfer(sources, cwd, move, writeRoots);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (closed) return;
+                            pendingSources.clear(); updateBatchButton();
+                            String text = result.failed == 0
+                                    ? (move ? "已移动 " : "已复制 ") + result.succeeded + " 项"
+                                    : "完成 " + result.succeeded + " 项，失败 " + result.failed + " 项";
+                            DshUi.toast(act, text);
+                            if (!result.errors.isEmpty()) DshUi.log("批量文件操作: " + result.errors);
+                            refresh();
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
+        }
+
+        void trashSelected() {
+            final List<File> sources = new ArrayList<File>();
+            for (FileListing.Entry entry : selected.values()) sources.add(entry.file);
+            final Dialog progress = progressDialog("正在移到回收站…", sources.size() + " 个项目");
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    int success = 0; final List<String> errors = new ArrayList<String>();
+                    for (File source : sources) {
+                        String error = FileTrash.move(source, writeRoots);
+                        if (error == null) success++; else errors.add(source.getName() + "：" + error);
+                    }
+                    final int ok = success;
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (closed) return;
+                            selected.clear(); selectionMode = false; updateBatchButton();
+                            DshUi.toast(act, errors.isEmpty() ? "已移到回收站 " + ok + " 项"
+                                    : "已移动 " + ok + " 项，失败 " + errors.size() + " 项");
+                            if (!errors.isEmpty()) DshUi.log("批量回收: " + errors);
+                            refresh();
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
+        }
+
+        void showTrash() {
+            final Dialog progress = progressDialog("正在读取回收站…", "可恢复或永久删除文件");
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    final List<FileTrash.Entry> entries = FileTrash.list(writeRoots);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (!closed) showTrashEntries(entries);
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
+        }
+
+        void showTrashEntries(List<FileTrash.Entry> entries) {
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, "回收站"));
+            box.addView(DshUi.hint(act, entries.isEmpty() ? "回收站为空"
+                    : "共 " + entries.size() + " 项。恢复时若原位置已有同名文件，会自动保留两份。"),
+                    DshUi.fullWidth(act, 6));
+            final Dialog[] holder = new Dialog[1];
+            int limit = Math.min(entries.size(), 100);
+            for (int i = 0; i < limit; i++) {
+                final FileTrash.Entry entry = entries.get(i);
+                LinearLayout row = new LinearLayout(act);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                TextView label = DshUi.hint(act, entry.name() + "\n" + entry.originalPath);
+                row.addView(label, new LinearLayout.LayoutParams(0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                Button restore = DshUi.button(act, "恢复", false);
+                Button purge = DshUi.button(act, "删除", false);
+                row.addView(restore); row.addView(purge);
+                box.addView(row, DshUi.fullWidth(act, 10));
+                restore.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        if (holder[0] != null) holder[0].dismiss();
+                        trashEntryAsync(entry, false);
+                    }
+                });
+                purge.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        DshUi.confirm(act, "永久删除？", entry.name() + " 将无法恢复。",
+                                "永久删除", new Runnable() {
+                            @Override public void run() {
+                                if (holder[0] != null) holder[0].dismiss();
+                                trashEntryAsync(entry, true);
+                            }
+                        });
+                    }
+                });
+            }
+            Button close = DshUi.button(act, "关闭", true);
+            holder[0] = DshUi.dialog(act, DshUi.scroll(act, box), DshUi.footer(act, close), 720);
+            close.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { holder[0].dismiss(); }
+            });
+            holder[0].show();
+        }
+
+        void trashEntryAsync(final FileTrash.Entry entry, final boolean purge) {
+            final Dialog progress = progressDialog(purge ? "正在永久删除…" : "正在恢复…", entry.name());
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    final String error = purge ? FileTrash.purge(entry, writeRoots)
+                            : FileTrash.restore(entry, writeRoots);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (closed) return;
+                            DshUi.toast(act, error == null ? (purge ? "已永久删除" : "已恢复") : error);
+                            refresh();
+                            showTrash();
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
+        }
+
+        void showImagePreview(final File file) {
+            if (!FilePreview.canDecodeImage(file.length())) {
+                DshUi.toast(act, "图片为空或超过 64 MB，无法预览");
+                return;
+            }
+            final Dialog progress = progressDialog("正在预览…", file.getName());
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+                    bounds.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+                    int sample = 1;
+                    while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2;
+                    android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+                    opts.inSampleSize = sample;
+                    final android.graphics.Bitmap bitmap =
+                            android.graphics.BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (closed) { if (bitmap != null) bitmap.recycle(); return; }
+                            if (bitmap == null) { DshUi.toast(act, "无法解码这张图片"); return; }
+                            LinearLayout body = DshUi.paddedBody(act);
+                            body.addView(DshUi.title(act, file.getName()));
+                            body.addView(DshUi.hint(act, bitmap.getWidth() + " × " + bitmap.getHeight()
+                                    + " · " + FileListing.humanSize(file.length())), DshUi.fullWidth(act, 5));
+                            android.widget.ImageView image = new android.widget.ImageView(act);
+                            image.setAdjustViewBounds(true);
+                            image.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                            image.setImageBitmap(bitmap);
+                            body.addView(image, DshUi.fullWidth(act, 12));
+                            Button close = DshUi.button(act, "关闭", true);
+                            final Dialog dialog = DshUi.dialogFill(act, DshUi.scroll(act, body),
+                                    DshUi.footer(act, close), 820);
+                            close.setOnClickListener(new View.OnClickListener() {
+                                @Override public void onClick(View v) { dialog.dismiss(); }
+                            });
+                            dialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+                                @Override public void onDismiss(android.content.DialogInterface d) {
+                                    try { bitmap.recycle(); } catch (Throwable ignored) { }
+                                }
+                            });
+                            dialog.show();
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
+        }
+
         /**
          * 长按条目的操作菜单。
          *
@@ -488,7 +808,7 @@ public final class FileBrowser {
             Button copy = DshUi.button(act, "复制路径", false);
             Button share = DshUi.button(act, "分享", false);
             Button rename = DshUi.button(act, "重命名", false);
-            Button del = DshUi.button(act, "删除", false);
+            Button del = DshUi.button(act, "回收", false);
             share.setEnabled(shareable);
             rename.setEnabled(writable);
             del.setEnabled(writable);
@@ -615,13 +935,13 @@ public final class FileBrowser {
          */
         void confirmDelete(final FileListing.Entry e) {
             LinearLayout box = DshUi.paddedBody(act);
-            box.addView(DshUi.title(act, "删除 " + e.name + "？"));
+            box.addView(DshUi.title(act, "移到回收站？"));
             final TextView detail = DshUi.hint(act, e.dir
-                    ? "这是一个文件夹，将删除其中的全部内容（正在统计条目数…）。\n此操作不可恢复。"
-                    : "此操作不可恢复。");
+                    ? "这是一个文件夹，正在统计其中的条目数。移动后可从回收站恢复。"
+                    : "移动后可从文件浏览顶部的回收站恢复。");
             box.addView(detail, DshUi.fullWidth(act, 8));
             Button cancel = DshUi.button(act, "取消", false);
-            Button ok = DshUi.button(act, "删除", true);
+            Button ok = DshUi.button(act, "移到回收站", true);
             final Dialog d = DshUi.dialog(act, box, DshUi.footer(act, cancel, ok), 340);
 
             // 统计结果（0 = 还没算出来）。删除完成后用它给出「已删除 N 个条目」的反馈。
@@ -637,7 +957,7 @@ public final class FileBrowser {
                                 counted[0] = n;
                                 if (d.isShowing()) {
                                     detail.setText("这是一个文件夹，将连同其中 " + n
-                                            + " 个条目一起删除。\n此操作不可恢复。");
+                                            + " 个条目一起移到回收站，可随时恢复。");
                                 }
                             }
                         });
@@ -650,11 +970,29 @@ public final class FileBrowser {
             ok.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     d.dismiss();
-                    // 递归删除同样在后台跑，界面交给进度框（见 deleteAsync 的说明）
-                    deleteAsync(e, counted[0]);
+                    trashOneAsync(e);
                 }
             });
             d.show();
+        }
+
+        void trashOneAsync(final FileListing.Entry e) {
+            final Dialog progress = progressDialog("正在移到回收站…", e.name);
+            progress.show();
+            boolean started = submit(new Runnable() {
+                @Override public void run() {
+                    final String error = FileTrash.move(e.file, writeRoots);
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            dismissQuietly(progress);
+                            if (closed) return;
+                            if (error == null) { DshUi.toast(act, "已移到回收站"); refresh(); }
+                            else DshUi.toast(act, error);
+                        }
+                    });
+                }
+            });
+            if (!started) dismissQuietly(progress);
         }
 
         /**
@@ -745,6 +1083,9 @@ public final class FileBrowser {
             // 先清掉上一次的入场动画：大目录逐行动画会把首屏拖慢，
             // 而 setLayoutAnimation 是"粘"的，不清就会跟着新列表继续跑。
             listBox.setLayoutAnimation(null);
+            currentEntries = listing.error == null
+                    ? new ArrayList<FileListing.Entry>(listing.entries)
+                    : new ArrayList<FileListing.Entry>();
             if (listing.error != null) {
                 meta.setText("无法读取");
                 listBox.addView(centeredHint(listing.error));
@@ -829,6 +1170,7 @@ public final class FileBrowser {
          */
         View buildRow(final FileListing.Entry e) {
             LinearLayout row = new LinearLayout(act);
+            row.setTag(e);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             int rp = DshUi.dp(act, 8);
@@ -893,22 +1235,31 @@ public final class FileBrowser {
 
             // 行背景：每行 1 个轻量 drawable（旧实现是每行 3 个 GradientDrawable）
             row.setBackground(new RowBgDrawable(rowRadius));
+            row.setActivated(selected.containsKey(e.file.getAbsolutePath()));
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
+                    if (selectionMode) {
+                        toggleSelection(e);
+                        return;
+                    }
                     if (e.dir) {
                         navigate(e.file);
                     } else {
-                        // 保存后刷新列表：否则大小与修改时间仍是旧的，
-                        // 看起来像没保存成功
-                        TextEditor.open(act, e.file, new Runnable() {
-                            @Override public void run() { refresh(); }
-                        });
+                        if (FilePreview.kind(e.name) == FilePreview.IMAGE) {
+                            showImagePreview(e.file);
+                        } else {
+                            // 保存后刷新列表：否则大小与修改时间仍是旧的，
+                            // 看起来像没保存成功
+                            TextEditor.open(act, e.file, new Runnable() {
+                                @Override public void run() { refresh(); }
+                            });
+                        }
                     }
                 }
             });
             row.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override public boolean onLongClick(View v) {
-                    showItemMenu(e);
+                    if (selectionMode) toggleSelection(e); else showItemMenu(e);
                     return true;
                 }
             });
@@ -970,6 +1321,7 @@ public final class FileBrowser {
             for (int i = 0; i < st.length; i++) {
                 if (st[i] == android.R.attr.state_pressed) return true;
                 if (st[i] == android.R.attr.state_focused) return true;
+                if (st[i] == android.R.attr.state_activated) return true;
             }
             return false;
         }
@@ -1045,7 +1397,27 @@ public final class FileBrowser {
                 + "（可用位置 " + b.roots.size() + " 个）");
 
         LinearLayout body = DshUi.paddedBody(act);
-        body.addView(DshUi.title(act, "文件浏览"));
+        LinearLayout titleRow = new LinearLayout(act);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = DshUi.title(act, "文件浏览");
+        titleRow.addView(title, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        b.trashButton.setTextSize(11.5f);
+        b.batchButton.setTextSize(11.5f);
+        titleRow.addView(b.trashButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams batchLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        batchLp.leftMargin = DshUi.dp(act, 6);
+        titleRow.addView(b.batchButton, batchLp);
+        body.addView(titleRow);
+        b.trashButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { b.showTrash(); }
+        });
+        b.batchButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { b.onBatchButton(); }
+        });
 
         // 路径：单行 + 中间省略。深路径换行会把列表往下挤。
         b.pathView.setTextSize(11f);
