@@ -32,6 +32,15 @@ cd "$ROOT"
 echo "项目根: $ROOT"
 echo "源码目录: $JAVA_DIR"
 
+# 仓库内脚本位于 <root>/payload；CI 的隔离构建工作区则把仓库源码
+# 放在 <root>/bootstrap 下。测试必须和真正进入 APK 的那份脚本使用
+# 同一路径，避免本地通过、CI 却在测试阶段找不到模块。
+PAYLOAD_DIR="$ROOT/payload"
+if [ ! -d "$PAYLOAD_DIR" ]; then
+    PAYLOAD_DIR="$ROOT/bootstrap/payload"
+fi
+[ -d "$PAYLOAD_DIR" ] || { echo "找不到 payload 目录" >&2; exit 1; }
+
 SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/TextCodec.java
      $JAVA_DIR/Version.java
@@ -171,7 +180,7 @@ fi
 # 测真实目录、可执行位、长文件名和符号链接，不只做字符串断言。
 if command -v node >/dev/null 2>&1; then
     if ! out=$(node tests/js/payload-rollback-simulation.js \
-            "$ROOT/payload/snapshot.js" "$ROOT/payload/unpack.js" 2>&1); then
+            "$PAYLOAD_DIR/snapshot.js" "$PAYLOAD_DIR/unpack.js" 2>&1); then
         echo "$out"
         echo "  [FAIL] 运行环境快照与恢复模拟失败" >&2
         rc=1
