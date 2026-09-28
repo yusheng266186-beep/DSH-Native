@@ -41,6 +41,7 @@ final class ConfigBackup {
     static final String[] FILES = {
         ".credentials.yaml",
         "settings.yaml",
+        ProjectModelSettings.FILE_NAME,
     };
 
     private static final String PREFIX = "dsh-config-";

@@ -24,6 +24,7 @@ public final class UiText {
         put("工具", "Tools");
         put("工具与设置", "Tools & settings");
         put("账号与模型", "Account & model");
+        put("模型中心", "Model center");
         put("显示与语言", "Display & language");
         put("更新与维护", "Updates & maintenance");
         put("数据与扩展", "Data & extensions");
@@ -267,5 +268,10 @@ public final class UiText {
     /** Existing users must never be forced through the new first-run guide after upgrading. */
     public static boolean shouldShowFirstRun(boolean completed, boolean existingDshHome) {
         return !completed && !existingDshHome;
+    }
+
+    /** A setup interrupted after the large download resumes until saved or explicitly skipped. */
+    public static boolean shouldResumeModelSetup(boolean pending, boolean completed) {
+        return pending && !completed;
     }
 }

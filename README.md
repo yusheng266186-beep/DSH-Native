@@ -41,7 +41,7 @@
 | [docs/PHASE4C-INTERACTIONS.md](docs/PHASE4C-INTERACTIONS.md) | 阶段四 C 持续进度、交互反馈、统一动效与真机验收清单 |
 | [docs/PHASE4D-RELEASE.md](docs/PHASE4D-RELEASE.md) | 阶段四 D 真机反馈修复、发布边界与覆盖安装验收清单 |
 
-**测试**：`bash scripts/run_tests.sh` —— 774 项纯逻辑断言、17 项入口 DOM 模拟、
+**测试**：`bash scripts/run_tests.sh` —— 987 项纯逻辑断言、17 项入口 DOM 模拟、
 11 项状态探针 fetch 模拟及 7 项状态 DOM 模拟，构建期强制执行。
 
 **当前版本：0.26.3**（运行包 payload-v9）

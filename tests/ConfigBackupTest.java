@@ -29,12 +29,13 @@ public class ConfigBackupTest {
         backups.mkdirs();
         write(new File(dsh, ".credentials.yaml"), "COMMANDCODE_API_KEY: user_secret123\n");
         write(new File(dsh, "settings.yaml"), "agent-default-model:\n  provider: commandcode\n");
+        write(new File(dsh, ProjectModelSettings.FILE_NAME), "DSHPM1\n");
         write(new File(dsh, "unrelated.txt"), "should not be backed up\n");
 
         System.out.println("=== 1. export ===");
         File zip = new File(backups, "dsh-config-legacy.zip");
         int n = ConfigBackup.exportTo(dsh, zip);
-        check("exports 2 files", n == 2, "got " + n);
+        check("exports 3 files", n == 3, "got " + n);
         check("zip exists and non-empty", zip.isFile() && zip.length() > 0, "missing");
         check("filename recognised as backup",
                 ConfigBackup.isBackupName(zip.getName()), zip.getName());
@@ -55,7 +56,7 @@ public class ConfigBackupTest {
         write(new File(dsh, ".credentials.yaml"), "TAMPERED\n");
         write(new File(dsh, "settings.yaml"), "TAMPERED\n");
         int r = ConfigBackup.restoreFrom(zip, dsh);
-        check("restores 2 files", r == 2, "got " + r);
+        check("restores 3 files", r == 3, "got " + r);
         check("credentials restored",
                 read(new File(dsh, ".credentials.yaml")).contains("user_secret123"),
                 read(new File(dsh, ".credentials.yaml")));
@@ -67,7 +68,7 @@ public class ConfigBackupTest {
         char[] password = "correct-horse".toCharArray();
         File encrypted = new File(backups, ConfigBackup.fileName(1_700_000_000_123L));
         int encryptedCount = ConfigBackup.exportEncrypted(dsh, encrypted, password);
-        check("encrypted export contains 2 files", encryptedCount == 2,
+        check("encrypted export contains 3 files", encryptedCount == 3,
                 String.valueOf(encryptedCount));
         check("encrypted format detected", ConfigBackup.isEncrypted(encrypted), "not detected");
         check("encrypted backup validates with password",
@@ -81,7 +82,7 @@ public class ConfigBackupTest {
 
         write(new File(dsh, ".credentials.yaml"), "CHANGED\n");
         int encryptedRestored = ConfigBackup.restoreEncrypted(encrypted, dsh, password);
-        check("encrypted restore writes both files", encryptedRestored == 2,
+        check("encrypted restore writes all files", encryptedRestored == 3,
                 String.valueOf(encryptedRestored));
         check("encrypted restore recovers credentials",
                 read(new File(dsh, ".credentials.yaml")).contains("user_secret123"), "not restored");

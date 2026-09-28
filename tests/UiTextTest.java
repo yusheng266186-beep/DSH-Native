@@ -42,6 +42,9 @@ public class UiTextTest {
         check("new install sees guide", UiText.shouldShowFirstRun(false, false), "hidden");
         check("completed guide stays hidden", !UiText.shouldShowFirstRun(true, false), "shown");
         check("upgraded install stays hidden", !UiText.shouldShowFirstRun(false, true), "shown");
+        check("pending model setup resumes", UiText.shouldResumeModelSetup(true, false), "hidden");
+        check("completed model setup stays hidden", !UiText.shouldResumeModelSetup(true, true), "shown");
+        check("upgrade without pending setup stays hidden", !UiText.shouldResumeModelSetup(false, false), "shown");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
