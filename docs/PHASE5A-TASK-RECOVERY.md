@@ -56,7 +56,7 @@
 
 - `TaskTimelineTest`：22 项，覆盖状态转换、断线、持久化、损坏输入、历史上限和安全清理。
 - `ConnectionRecoveryTest`：15 项，覆盖事件解析、刷新边界、标签与脚本安全契约。
-- `DraftRecoveryTest`：10 项，覆盖幂等、同源存储、期限/大小上限和禁止自动发送。
+- `DraftRecoveryTest`：11 项，覆盖幂等、同源存储、期限/大小上限、程序化清空和禁止自动发送。
 - JavaScript 引擎模拟：
   - WebSocket 构造、原型/常量、多个连接、生命周期与 URL 不泄漏；
   - 草稿保存、页面重载恢复、清空以及无自动发送；
