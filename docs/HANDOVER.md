@@ -355,7 +355,7 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 
 - Command Code 与 DeepSeek 的连接检测只允许读取官方 `/models`，不得改为发送测试提示词；
 - `.native-project-models` 保存全局基线与项目覆盖，切换项目前必须先成功应用，且已加入加密配置备份；
-- `/models` 返回的未知模型不得自动写进配置，因为列表不含可靠的图片、上下文与思考能力声明；
+- `/models` 返回的未知模型在未点击保存前不得写进配置；用户明确保存实时目录后，允许以安全的文本基础能力写进对应 DSH provider catalog，缺失能力只隐藏图片/思考提示，不得阻止使用；
 - 新模型只影响新会话，已有会话保留日志中记录的模型，不得静默重写历史；
 - `modelOnboardingPending` 只由新安装引导写入，升级用户不得补弹；
 - 0.29.0 是堆叠在 0.28.0 上的验收候选，不合并 main、不更新发布清单。
@@ -386,3 +386,16 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 - 模型中心、设置首页及核心子页使用 `DshUi.onBack(...)`，按钮和系统返回手势必须到同一父级，外侧点击不得静默丢失导航上下文；
 - `README.md` 与 `README.en.md` 是对外入口。新增用户功能时同步维护两份，不要再次留下只写中文的使用说明；
 - 阶段五 E 的维护修复目标版本为 `0.31.1`。用户已明确要求今后每轮修改完成后直接递增版本号并发布 stable；本轮上游返回的模型全部允许选择和保存，仍须先通过完整 Android CI，再合并 main，并通过 `release.yml` / `scripts/release.sh` 完成签名、资产、双下载路径和稳定清单校验。
+
+## 8.13 阶段五 F：上游目录写入 DSH（0.31.2）
+
+阶段五 F 修复原生模型中心与 DSH WebUI 的第二层数据源分裂。完整设计、测试、风险和真机步骤见 `docs/PHASE5F-MODEL-RUNTIME-SYNC.md`。
+
+接手时特别注意：
+
+- 原生选择器仍只能展示本次官方 `/models` 成功响应；只有用户点击保存后，`ModelCatalogSync` 才把完整目录写入 DSH provider catalog；
+- Command Code 动态目录位于 `llm-pi-ai.providers.commandcode.models`，官方直连位于 `llm-deepseek-api-key.models`；不要只更新 `agent-default-model`；
+- `# dsh-native-live-catalog: <provider>` 是升级保留标记。`MainActivity.syncProviderConfig` 合并静态传输字段时必须保留标记模型列表，不能恢复旧预设覆盖；
+- 空目录、失败响应和无效 ID不得清空上一份可用目录；密钥和响应正文不得进入 settings 或日志；
+- 保存后无活动任务才刷新 WebUI，活动任务只延后页面刷新，不能为了模型目录重启或打断任务；
+- 目标版本 `0.31.2` 仍须通过完整 Android CI、同签名校验和 `release.yml` stable 发布，禁止手工改清单或迁移签名。

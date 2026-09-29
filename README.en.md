@@ -54,6 +54,8 @@ The picker no longer presents a bundled preset as the provider's model list. It 
 
 The upstream catalog is authoritative for model IDs: every model returned by the provider's current `/models` response can be selected and saved, even when the bundled capability hints have not caught up yet. Image-input and reasoning labels are shown only when the installed runtime knows them; missing labels never block a model. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
 
+When you save a model, the app writes the complete successful upstream catalog into DSH's actual provider catalog: Command Code goes to `llm-pi-ai.providers.commandcode.models`, while DeepSeek direct goes to `llm-deepseek-api-key.models`. The default selection and the WebUI model picker therefore read the same data. The WebUI refreshes after saving (or waits until an active task finishes so the page is not disturbed). A small internal marker lets future app upgrades merge transport settings without restoring the old bundled model list.
+
 Model center also supports:
 
 - A global default plus per-project overrides
@@ -175,6 +177,7 @@ release-notes/           Published release notes
 - First installation requires a network connection to download the runtime.
 - `targetSdk 28` is required by the current private-directory execution design; a long-term migration needs `nativeLibraryDir` or another supported architecture.
 - Upstream `/models` responses usually expose IDs, not full image, context, and reasoning capabilities. Every ID returned by the live response is selectable; missing local capability metadata only hides the corresponding image/reasoning hint and never blocks use.
+- A model whose upstream response has no capability fields is written with safe text-only baseline metadata. It remains selectable and usable for new sessions; image and reasoning hints appear only when the app has reliable metadata.
 - The large Office-to-PDF conversion engine is not bundled to keep runtime size manageable.
 - Runtime restore rolls back DSH and its tools, not the Android APK.
 
@@ -192,6 +195,7 @@ release-notes/           Published release notes
 | [docs/PHASE5C-MODEL-ONBOARDING.md](docs/PHASE5C-MODEL-ONBOARDING.md) | Model center, project overrides, and first-run setup |
 | [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | Rollback, diagnostics, accessibility, and device adaptation |
 | [docs/PHASE5E-MODEL-CATALOG-I18N.md](docs/PHASE5E-MODEL-CATALOG-I18N.md) | Live provider catalogs, back navigation, and English completion |
+| [docs/PHASE5F-MODEL-RUNTIME-SYNC.md](docs/PHASE5F-MODEL-RUNTIME-SYNC.md) | Persisting live catalogs into DSH and WebUI synchronization |
 
 ## License and upstream projects
 

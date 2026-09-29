@@ -109,6 +109,10 @@ final class ModelConfig {
 
     static List<Model> modelsForProvider(String yaml, String provider) {
         if (DEEPSEEK.equals(normalizeProvider(provider))) {
+            String direct = topLevelBlock(yaml, "llm-deepseek-api-key");
+            if (direct == null) direct = topLevelBlock(yaml, "llm-deepseek");
+            List<Model> configured = ModelCatalogSync.readModels(direct);
+            if (!configured.isEmpty()) return configured;
             List<Model> out = new ArrayList<Model>();
             out.add(new Model("deepseek-v4-flash", "DeepSeek V4 Flash", true, true));
             out.add(new Model("deepseek-v4-pro", "DeepSeek V4 Pro", true, true));
