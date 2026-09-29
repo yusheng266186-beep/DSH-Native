@@ -28,6 +28,8 @@ final class ModelCenterPanel {
         String activeProject();
         void log(String message);
         void openCommandCodeUsage(String key);
+        /** 让 DSH WebUI 重新读取刚写入的模型目录；任务运行时由宿主自行延后。 */
+        void refreshModelCatalog();
         void closeModelCenter(boolean onboarding, boolean saved);
     }
 
@@ -333,8 +335,13 @@ final class ModelCenterPanel {
                             ProjectModelSettings.setOverride(latestState, project, selection);
                         }
                         ModelConfig.Selection effective = ProjectModelSettings.effective(
-                                latestState, host.activeProject(), latestFileSelection);
+                                latestState, project, latestFileSelection);
                         String nextSettings = ModelConfig.updateSelection(latestSettings, effective);
+                        List<LiveModelCatalog.Entry> liveEntries = draft.catalog(selection.provider);
+                        if (draft.catalogLoaded(selection.provider)) {
+                            nextSettings = ModelCatalogSync.writeLiveCatalog(nextSettings,
+                                    selection.provider, liveEntries);
+                        }
                         String nextCredentials = ModelConfig.updateCredentialRef(latestCredentials,
                                 "COMMANDCODE_API_KEY", ccKey.getText().toString().trim());
                         nextCredentials = ModelConfig.updateCredentialRef(nextCredentials,
@@ -343,6 +350,7 @@ final class ModelCenterPanel {
                                 ProjectModelSettings.serialize(latestState));
                         ProjectModelSettings.writeFileAtomic(settingsFile, nextSettings);
                         ProjectModelSettings.writeFileAtomic(credentialsFile, nextCredentials);
+                        host.refreshModelCatalog();
                         host.log("模型配置已保存: " + selection.provider + " / "
                                 + selection.model + " / " + selection.effort
                                 + (draft.globalScope || onboarding ? "（全局）"

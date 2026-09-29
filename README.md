@@ -54,6 +54,8 @@ SHA-256：`37b2400e5c16c24b606dc10b1b44a79e4ca0d5e1d6f68ba6c9850a5b63505aa0`
 
 上游目录是模型 ID 的权威来源：只要服务商在本次 `/models` 响应中返回，模型中心就允许直接选择和保存，不会因为本地能力目录尚未更新而禁用新模型。图片输入和思考能力标签仅在本地有声明时显示，缺少标签不会阻止使用。当前已保存的模型在临时断网时仍可原样保留；首次配置或切换到新模型必须完成一次实时目录读取。
 
+保存模型时，App 会把本次成功读取的完整上游目录同步写入 DSH 的实际 provider catalog：Command Code 写入 `llm-pi-ai.providers.commandcode.models`，DeepSeek 官方直连写入 `llm-deepseek-api-key.models`。默认模型选择和 WebUI 模型选择器因此使用同一份数据；保存后会刷新 WebUI（任务运行中则等任务结束，避免打断页面）。同步目录带有内部标记，后续 App 升级合并静态传输配置时不会把旧预设模型重新覆盖回来。
+
 模型中心还支持：
 
 - 全局默认模型与每个项目的独立覆盖
@@ -175,6 +177,7 @@ release-notes/           已发布版本说明
 - 首次安装必须联网下载运行包。
 - `targetSdk 28` 是现有私有目录执行方案的约束；长期需要迁移到 `nativeLibraryDir` 或其他受支持架构。
 - 上游 `/models` 通常只返回 ID，不提供完整图片、上下文和推理能力；未经当前运行环境声明的新模型会显示但不会被误标为可用。
+- 上游未提供能力字段的模型会以安全的文本基础能力写入 DSH；它们仍可直接选择和发起新会话，图片/思考提示仅在 App 已有可靠声明时显示。
 - Office 到 PDF 的大型转换引擎未打包，以控制运行包体积。
 - 运行环境恢复只恢复 DSH 与工具链，不是 APK 降级。
 
@@ -192,6 +195,7 @@ release-notes/           已发布版本说明
 | [docs/PHASE5C-MODEL-ONBOARDING.md](docs/PHASE5C-MODEL-ONBOARDING.md) | 模型中心、项目覆盖与首次配置 |
 | [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | 回滚、诊断、无障碍和多设备适配 |
 | [docs/PHASE5E-MODEL-CATALOG-I18N.md](docs/PHASE5E-MODEL-CATALOG-I18N.md) | 实时上游模型目录、返回导航与英文完善 |
+| [docs/PHASE5F-MODEL-RUNTIME-SYNC.md](docs/PHASE5F-MODEL-RUNTIME-SYNC.md) | 上游目录写入 DSH、WebUI 同步与真机验收 |
 
 ## 许可证与来源
 

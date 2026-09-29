@@ -62,6 +62,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/SessionOrganizer.java
      $JAVA_DIR/ModelConfig.java
+     $JAVA_DIR/ModelCatalogSync.java
      $JAVA_DIR/ProviderCheck.java
      $JAVA_DIR/LiveModelCatalog.java
      $JAVA_DIR/ProjectModelSettings.java
@@ -105,6 +106,7 @@ TESTS="tests/FileListingTest.java
        tests/SessionRecoveryTest.java
        tests/SessionOrganizerTest.java
        tests/ModelConfigTest.java
+       tests/ModelCatalogSyncTest.java
        tests/ProviderCheckTest.java
        tests/LiveModelCatalogTest.java
        tests/ProjectModelSettingsTest.java
@@ -144,7 +146,7 @@ fi
 
 rc=0
 seen_tests=" "
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -335,7 +337,10 @@ if ! grep -q 'ModelCenterPanel.show' "$MAIN_ACTIVITY" \
         || ! grep -q 'applyProjectModelConfig(project)' "$MAIN_ACTIVITY" \
         || ! grep -q 'modelOnboardingPending' "$MAIN_ACTIVITY" \
         || ! grep -q 'ProviderCheck.endpoint' "$JAVA_DIR/ModelCenterPanel.java" \
-        || ! grep -q 'ProjectModelSettings.FILE_NAME' "$JAVA_DIR/ConfigBackup.java"; then
+        || ! grep -q 'ProjectModelSettings.FILE_NAME' "$JAVA_DIR/ConfigBackup.java" \
+        || ! grep -q 'ModelCatalogSync.writeLiveCatalog' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'ModelCatalogSync.mergePresetProviderBlock' "$MAIN_ACTIVITY" \
+        || ! grep -q 'refreshModelCatalog' "$JAVA_DIR/ModelCenterPanel.java"; then
     echo "  [FAIL] 阶段五 C 模型中心、项目覆盖、首次向导或备份接线不完整" >&2
     rc=1
 elif grep -q 'chat/completions' "$JAVA_DIR/ModelCenterPanel.java" \

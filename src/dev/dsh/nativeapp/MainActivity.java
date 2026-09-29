@@ -2086,11 +2086,14 @@ public class MainActivity extends Activity {
                 return;
             }
 
+            // Keep the bundled transport settings, but preserve a live model
+            // catalog explicitly saved by ModelCenterPanel.
+            String mergedWant = ModelCatalogSync.mergePresetProviderBlock(want, have);
             String out;
             if (have == null) {
-                out = cur.endsWith("\n") ? cur + want : cur + "\n" + want;
+                out = cur.endsWith("\n") ? cur + mergedWant : cur + "\n" + mergedWant;
             } else {
-                out = cur.replace(have, want);
+                out = cur.replace(have, mergedWant);
             }
             writeText(settings, out);
 
@@ -5281,6 +5284,25 @@ public class MainActivity extends Activity {
                 CommandCodePanel.show(MainActivity.this, key);
             }
 
+            @Override public void refreshModelCatalog() {
+                boolean taskActive = lastSessionStatus == SessionStatus.RUNNING
+                        || lastSessionStatus == SessionStatus.AWAITING_APPROVAL
+                        || taskTimeline.active() != null;
+                if (taskActive) {
+                    log("模型目录已写入 DSH；当前任务运行中，暂不刷新 WebUI");
+                    return;
+                }
+                try {
+                    if (webView != null) {
+                        selfReloadAt = System.currentTimeMillis();
+                        webView.reload();
+                        log("模型目录已写入 DSH，正在刷新 WebUI 模型选择器");
+                    }
+                } catch (Throwable error) {
+                    log("刷新 WebUI 模型选择器失败: " + shorten(error));
+                }
+            }
+
             @Override public void closeModelCenter(boolean onboarding, boolean saved) {
                 if (onboarding) {
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -5293,7 +5315,8 @@ public class MainActivity extends Activity {
                     return;
                 }
                 if (saved) {
-                    toast(UiText.t("已保存；新会话使用新模型", "Saved. New sessions will use the new model."));
+                    toast(UiText.t("已保存并同步 WebUI 模型目录；新会话使用新模型",
+                            "Saved and synced to the WebUI catalog; new sessions use the new model."));
                 }
                 if (returnToProjects) showWorkspaceProjects();
                 else showSettings();
