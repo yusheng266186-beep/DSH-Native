@@ -1,341 +1,202 @@
-# DeepSeek Harness (Android)
+# DeepSeek Harness Native for Android
 
-> ## ⬇直接下载
->
-> **[DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.30.0-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
->
-> 安装后打开，保持联网。首启会先自检（3 秒内确认架构是否成立），
-> 然后经 **GitHub 镜像**分块下载约 117.2 MiB 运行包（视网络而定）。
-> 首次安装建议预留至少 550MiB 可用空间。
-> 新安装会先显示三步引导；运行环境就绪后自动打开「账号与模型」，
-> 填入 API Key 并保存即可使用。
->
-> **上传文件**：点输入框左下角 **** → **「文件 file」**（DSH 原生入口）。
->
-> **从其他 App 分享**：在任意应用里选「分享」→「DeepSeek Harness」，
-> 文件或文本会直接落到工作区，agent 立刻可用。
->
-> 首次启动会请求**存储权限**，用于共享工作区、文件导入和诊断导出。
-> 常驻运行日志只保存在 App 私有目录；只有主动点「导出诊断包」时，
-> 才会生成不含凭据、会话正文和项目文件的脱敏 ZIP，并打开系统分享面板。
->
-> SHA-256：`29f9ba3b4a99fe7d7d2dbbbeb58cd7858de85ba1b5ef3fb12354effeda884f25`
+[中文](README.md) | [English](README.en.md)
 
+把 Node.js 运行时、DeepSeek Harness（DSH）和常用开发工具直接带到 Android。无需 Termux、无需 proot，也不需要把项目交给远程服务器执行。
 
----
+**当前版本：0.30.0**（payload-v9）
 
-## 文档
+## 下载与安装
 
-| 文件 | 内容 |
-|---|---|
-| [AGENTS.md](AGENTS.md) | **接手先读这份**。项目是什么、红线、常用命令、代码结构 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与设计：两段式结构、运行包机制、运行时补丁、插件机制 |
-| [docs/GOTCHAS.md](docs/GOTCHAS.md) | 踩过的坑：静默失败、环境陷阱、Android 特有、布局、发布 |
-| [docs/HANDOVER.md](docs/HANDOVER.md) | 交接说明。**第八节是最新事实**：CI 构建与发布、签名事故与防护、新增红线、已知陷阱、未验证事项 |
-| [docs/BUILD.md](docs/BUILD.md) | 构建：工具链、步骤、三个构建期闸门、发布流程 |
-| [docs/PHASE1-HARDENING.md](docs/PHASE1-HARDENING.md) | 阶段一稳定性、安全改造与真机验收清单 |
-| [docs/PHASE2-EXPERIENCE.md](docs/PHASE2-EXPERIENCE.md) | 阶段二用户体验、功能增强与真机验收清单 |
-| [docs/PHASE3-PRODUCT.md](docs/PHASE3-PRODUCT.md) | 阶段三移动端产品能力、发布通道与真机验收清单 |
-| [docs/PHASE4A-WEBUI-TOOLS.md](docs/PHASE4A-WEBUI-TOOLS.md) | 阶段四 A WebUI 工具入口迁移、风险与真机验收清单 |
-| [docs/PHASE4B-EXPERIENCE.md](docs/PHASE4B-EXPERIENCE.md) | 阶段四 B 交互稳定性、可访问性与真机验收清单 |
-| [docs/PHASE4C-INTERACTIONS.md](docs/PHASE4C-INTERACTIONS.md) | 阶段四 C 持续进度、交互反馈、统一动效与真机验收清单 |
-| [docs/PHASE4D-RELEASE.md](docs/PHASE4D-RELEASE.md) | 阶段四 D 真机反馈修复、发布边界与覆盖安装验收清单 |
-| [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | 阶段五 D 安全回滚、诊断中心、无障碍、多设备适配与真机验收清单 |
+正式版 APK：
 
-**测试**：`bash scripts/run_tests.sh` —— 1036 项纯逻辑断言、17 项入口 DOM 模拟、
-11 项状态探针 fetch 模拟及 7 项状态 DOM 模拟，构建期强制执行。
+**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.30.0-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
 
-**当前版本：0.30.0**（运行包 payload-v9）
+SHA-256：`29f9ba3b4a99fe7d7d2dbbbeb58cd7858de85ba1b5ef3fb12354effeda884f25`
 
-**把 Node.js 运行时 + DeepSeek Harness agent 直接打包进一个 Android APK —— 不依赖 Termux，不使用 proot。**
+要求：
 
----
+- Android 7.0 或更高版本（minSdk 24）
+- ARM64 设备
+- 首次启动保持联网
+- 建议至少预留 550 MiB 可用空间
 
-## 两个版本
+首次启动流程：
 
-| 版本 | 说明 | 体积 |
+1. App 在 3 秒左右完成 Node 架构自检。
+2. 从 GitHub 镜像分块下载约 117.2 MiB 运行包，支持断点续传、块级重试和 SHA-256 校验。
+3. 解压 DSH 与工具链并执行运行环境自检。
+4. 打开模型中心，填写 Command Code 或 DeepSeek API Key。
+5. 从服务商实时目录选择模型，然后开始新会话。
+
+覆盖安装同签名新版不会删除会话、密钥、项目、任务历史或配置。不要先卸载旧版；卸载会清除 App 私有数据。
+
+## 主要能力
+
+### 完整 DSH 体验
+
+- 在 App 私有目录直接运行 Android 原生 Node.js 与 DSH WebUI。
+- agent 可使用内置 `git`、`rg`、`fd`、`jq`、`bash` 和 Python 工具链。
+- 前台服务保持任务在后台或锁屏时继续运行。
+- WebSocket 与页面探针共同判断空闲、运行、等待批准、恢复和结束状态。
+- 通知栏显示任务开始时间、已运行时长、连接状态，并在等待批准或后台完成时提醒。
+
+### 模型中心
+
+支持两条路由：
+
+| 服务商 | 模型目录来源 | 只读端点 |
 |---|---|---|
-| **[v0.30.0 引导式（推荐）](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.30.0-bootstrap)** | **完整 DSH agent**。APK 内置 Node，首启分块下载运行包（带断点续传与 SHA 校验） | APK 33.7 MiB + 首启约 117.2 MiB |
-| [v0.1.0 PoC](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.1.0-poc) | 仅运行时自检（验证可行性用） | 34MB |
+| Command Code | 每次打开或刷新时从 Command Code 上游读取 | `GET https://api.commandcode.ai/provider/v1/models` |
+| DeepSeek 官方直连 | 每次打开或刷新时从 DeepSeek 官方读取 | `GET https://api.deepseek.com/models` |
 
-### 使用步骤
+模型选择器不再把 App 内置预设直接当作服务商列表。它只展示本次上游响应中实际返回的模型 ID；读取仅请求模型目录，不发送提示词，也不会产生模型生成费用。
 
-1. 安装 APK（33.7 MiB）
-2. 打开 App，**保持联网** —— 首启分块下载约 117.2 MiB 运行包
-   （面板显示百分比 / 速率 / 重试次数；网络抖动会自动重试）
+DSH 仍需要可靠的图片、上下文和推理能力声明。若上游返回了当前运行环境尚未声明能力的新模型，模型中心会显示该项目及原因，但暂时禁止选择，避免“列表可见、实际会话失败”或错误放行图片。当前已保存的模型在临时断网时仍可原样保留；首次配置或切换到新模型必须完成一次实时目录读取。
 
-   启动前会先做一次**自检**（执行 `node --version`），
-   3 秒内即可确认架构是否成立，无需等下载完才知道。
-3. 等待解压与启动（约 1–2 分钟）
-4. 运行环境就绪后会自动打开 **账号与模型**，填入 API Key 并保存即可开始使用
+模型中心还支持：
 
-> **v0.2.1 修复了 v0.2.0 的一个真实缺陷**：原下载实现是单次流式下载，没有分块与重试。
-> 实测发现本机网络下 34MB 文件连续多次失败（`ETIMEDOUT` / `timeout`），
-> 且不校验完整性——移动网络中断会产生静默损坏的归档。
-> 现改为 2MB 分块 + 块级重试 + SHA-256 校验，策略已通过故障注入测试验证。
+- 全局默认模型与每个项目的独立覆盖
+- `off / low / medium / high / xhigh / max` 思考强度
+- Command Code 用量入口
+- 密钥拒绝、限流、端点变化、服务异常和无效响应的明确提示
+- 搜索上游模型 ID
+- 显式“返回工具与设置”按钮与 Android 返回手势
 
-> 引导式架构的原因：完整运行包解压后数百 MB，压缩后约 117.2 MiB，直接塞进 APK 会超过
-> GitHub 的 100MB 单文件上限，且构建迭代极慢。拆成「轻量 APK + 独立运行包」后，
-> APK 可快速迭代，且以后升级 agent 无需重装 App。
+模型变更用于新会话；已经发送过请求的会话继续保留其日志中记录的模型。
 
----
+### 项目、文件与会话
 
-## 应用内更新
+- 默认共享工作区：`/sdcard/DSHNative/workspace`
+- 可创建互相隔离的命名项目，并为每个项目设置独立模型
+- 文件浏览、文本编辑、图片预览、批量复制/移动和可恢复回收站
+- 从其他 App 分享文件或文本到当前项目，并可直接创建任务
+- 调用 DSH 官方会话搜索、归档和恢复入口，不复制不稳定的内部 RPC
+- 输入草稿在页面刷新或短暂断线后恢复，但不会自动发送
 
-**展开 DSH 侧边栏，在底部点「App 工具」→「更新与维护」**（侧栏收起时唯一的齿轮属于
-DSH 自己的设置；长按页面顶部、通知栏「设置」和桌面快捷方式仍可作为备用入口）：
+### 更新、回滚与诊断
 
-| 按钮 | 作用 |
+“工具与设置 → 更新与维护”提供：
+
+| 功能 | 行为 |
 |---|---|
-| 更新运行包 | 检查 DSH / 工具链更新（走分片清单，只下变化部分），完成后自动重启 agent |
-| 恢复上一运行环境 | 真实运行包更新后可恢复更新前的 DSH / 工具链，不改动会话、密钥和项目 |
-| 检查 App 更新并安装 | 读取 `latest.json` → 下载新 APK → 调起系统安装器覆盖安装 |
+| 更新运行包 | 按分片清单只下载变化的 DSH / 工具链内容，校验后重启 agent |
+| 恢复上一运行环境 | 恢复更新前快照，不修改会话、密钥、项目文件或 APK |
+| 检查 App 更新 | 校验版本、包名、签名和 SHA-256 后调用系统安装器覆盖安装 |
+| 稳定 / 测试通道 | 稳定通道只读 `latest.json`；测试通道同时比较 `latest-test.json` |
 
-更新页可以选择**稳定版**或**测试版**。稳定版只读取 `latest.json`；测试版同时读取
-`latest-test.json` 与稳定清单并采用版本较高者，既可提前验收新功能，也不会错过更高的正式版。
+运行包更新采用“先快照、后替换、失败自动恢复”。诊断中心可以导出脱敏 ZIP，内容包括设备、布局、网络、通知、运行环境、回滚状态和最近日志，但不包含凭据、会话正文、附件或项目文件。
 
-> 发版时必须通过发布工作流同步对应清单，不能手工改版本信息。
-> 详见 [scripts/release_checklist.md](scripts/release_checklist.md)。
+### 中文与 English
 
-更新链路会先验证 APK 内置的运行包清单摘要，再验证每个分片的大小与 SHA-256；
-App 更新包下载后还会核对版本、包名及签名，校验失败不会调起安装器。
+在“工具与设置 → 显示与语言”选择跟随系统、中文或 English。原生设置首页、模型中心、任务中心、项目管理、更新、诊断和桌面快捷方式均支持英文。DSH WebUI 的语言由网页设置单独控制。
 
-## ⚡ 增量更新
+新安装会显示语言与环境引导；已存在 `.dsh` 数据的升级用户不会被强制补弹首次向导。
 
-运行包按功能切分为五个分片（DSH / 基础工具 / 共享库 / Python / npm），
-启动时用**哨兵文件**校验各分片，**只下载变化的部分**：
+## 如何打开 App 工具
 
-| 改动 | 下载量 |
-|---|---|
-| 加一个 npm 包 | 2.2 MB |
-| 加一个 bash 工具 | 13.6 MB |
-| Python 升版本 | 4.9 MB |
-| DSH 升版本 | 33.6 MB |
+推荐入口：展开 DSH 侧边栏，在底部点击“App 工具 / App tools”。
 
-且哨兵机制不需要状态文件，本地文件损坏时会自动修复对应分片。
+侧边栏收起时，页面上的齿轮属于 DSH WebUI 自己的设置，不会被原生 App 劫持。以下入口可作为备用：
 
-## 工作区（重要）
+- 长按页面顶部
+- 通知栏中的“设置”操作
+- 桌面图标长按后的“设置”“运行日志”“检查更新”快捷方式
 
-agent 的工作目录是 **`/sdcard/DSHNative/workspace`** —— 位于手机共享存储，
-任何文件管理器都能访问。**把项目或文档放进去，agent 就能直接读写，
-它生成的产物也会出现在这里。**
+原生设置子页均提供可见返回按钮；Android 返回键和边缘返回手势执行相同的父级导航，不会静默关掉子页或直接触发 App 退出确认。
 
-「工具 → 数据与扩展 → 管理项目」可建立互相隔离的命名项目。旧文件继续留在默认工作区，
-不会自动移动或删除。切换项目需要重启 agent；有任务运行时会先二次确认。
+## 文件、隐私与安全边界
 
-从其他 App 分享文件或文本后，可选择直接创建 DSH 任务；若页面暂未就绪，任务会排队，
-文件始终先保存到当前项目，不会因取消创建任务而删除。
+- API Key 只保存在 App 私有目录的 `.credentials.yaml`。
+- 模型目录请求使用当前服务商的官方 HTTPS 地址；日志不记录密钥、请求头或响应正文。
+- 原生层没有新增高权限 `JavascriptInterface`；WebUI 辅助入口使用受限脚本注入。
+- 文件写入限制在 App 私有目录和 `/sdcard/DSHNative` 白名单内。
+- 配置备份包含密钥，因此导出文件必须设置至少 8 位口令并使用认证加密。
+- 更新 APK 必须保持包名与发布签名一致，否则 Android 会拒绝覆盖安装。
 
-## 它要解决什么问题
+## 架构
 
-在手机上跑 Node/CLI 类工具，通行做法是 **Termux + proot-distro**：Termux 提供 Linux 用户空间，
-proot 用 `ptrace` 逐系统调用翻译路径和 UID，在中间套一个 Debian 容器。
-
-这套方案能用，但代价是：
-
-| 代价 | 说明 |
-|---|---|
-| 三层嵌套 | Android → Termux → proot → Debian，任一环出问题都难排查 |
-| 进程创建变慢 | 实测 **+55%**（每次 spawn 多约 1.4ms） |
-| 两个 App | Termux 本体 + 你的前端 App，靠 `am start` 互相拉起 |
-| 配置脆弱 | Termux 认 uid 0 就拒绝运行包管理器，`/proc` 被虚拟化导致读数不可信 |
-
-**DSH Native 的思路**：既然目标是"跑一个 Node 程序"，那就只打包 Node 本身，
-把它当作 App 的资源随 APK 分发，启动时解压到私有目录直接执行。没有中间层。
-
----
-
-## 实测验证结果
-
-全部在 **Xiaomi 25128PNA1C / Android 17 (SDK 37) / arm64** 上完成，均为实测非推断。
-
-### 运行时基础能力
-
-| 验证项 | 结果 |
-|---|---|
-| Node 二进制可移植性 | 解释器为 `/system/bin/linker64`（Android 原生，非 Termux 私有路径） |
-| Node 版本 | `v26.4.0 (arm64)`，`libc = bionic` |
-| 自带库加载 | `LD_LIBRARY_PATH` 指向 App 内 `lib/`，10 个库全部生效 |
-| HTTP 服务 | `200 {"ok":true,"version":"v26.4.0"}` |
-| 加密 / HTTPS | 正常（调用模型 API 的前提） |
-| 子进程执行 | |
-| ESM 支持 | `require(esm)` 可用（DSH 是 ESM 包） |
-| 计算性能 | 3×10⁷ 循环 85–111ms（JIT 正常） |
-| ELF 页对齐 | **`p_align=0x4000`（16KB）**——设备当前 4KB 内核，但已为 16KB 做好准备 |
-| **私有目录 exec 权限** | **真机确认**（`targetSdk 28` 确实绕过 Android 10+ 的 `execve` 限制） |
-| **端到端启动** | **真机确认**（Node 自检 → 下载 → 解压 → 自检 11 项 → dsh web 启动 → 界面加载） |
-
-### agent 端到端
-
-```
-$ dsh --profile headless-test 'Run: rg --version && git --version...'
-
-dsh: reasoning:
-Both commands succeeded (exit code 0). The exact first line of each:
-- `rg --version` → `ripgrep 15.2.0`
-- `git --version` → `git version 2.55.0`
-退出码: 0
+```text
+Android Activity / WebView
+        |
+        +-- Native tools and settings
+        +-- Foreground task service and notifications
+        +-- Update, rollback, backup and diagnostics
+        |
+        +-- Node.js (Android/bionic, arm64)
+                |
+                +-- DeepSeek Harness WebUI
+                +-- git / rg / fd / jq / bash / Python
+                +-- Shared workspace
 ```
 
-**LLM 推理 + 工具链调用全部工作**，agent 还能正确解析输出、理解管道退出码语义。
+完整运行包解压后有数百 MiB，无法作为普通 GitHub 单文件稳定分发。因此 APK 只携带 Node、引导逻辑和清单，首次启动再下载经过哈希验证的分片。之后更新只替换变化分片。
 
-### Web 界面
+Android 10 起，targetSdk 29 及以上的普通 App 不能直接执行私有数据目录中的文件。本项目暂时固定 `targetSdkVersion 28` 以维持当前原生执行架构；这是一项明确的架构约束，不应在普通功能 PR 中随意提高。
 
+## 构建与测试
+
+仓库构建需要 JDK 17/21、Android SDK build-tools、`d8`、`aapt2` 与 `apksigner`。
+
+```bash
+bash scripts/run_tests.sh
+bash scripts/build_bootstrap.sh
 ```
-dsh web: http://127.0.0.1:3099/?token=…
-GET /?token=…  → 303 + set-cookie
-GET /          → 200, 31252B, <title>DeepSeek Harness</title>
-/assets/index-8VXBH-f-.js   → 200, 616090B
-/assets/vendor-CCJJTK99.js  → 200, 740575B
-```
 
-### 内置工具链（Termux bionic 构建，全部实测可用）
+当前回归包括：
 
-| 工具 | 版本 | 功能级验证 |
-|---|---|---|
-| ripgrep | 15.2.0 | 实际搜索命中 |
-| git | 2.55.0 | init → add → commit → log |
-| bash | 5.3.15 | 循环 / 算术 / 管道 / `PIPESTATUS` |
-| fd | 10.5.0 | |
-| jq | 1.8.2 | |
+- 1049 项纯逻辑断言
+- WebUI 工具入口 DOM 模拟
+- WebSocket 连接恢复模拟
+- 草稿恢复模拟
+- 会话状态 fetch 与 DOM 模拟
+- 运行包快照与恢复模拟
+- Java 架构、资源 XML、无 emoji、无系统 AlertDialog 和无高权限桥闸门
+- Android CI 的 javac、DEX、aapt2、签名、清单与 APK 产物验证
 
----
-
-## 三个关键 Android 补丁
-
-DSH 直接跑在 Android 上会撞到三个不兼容点，均已修复（见 `patch/`）：
-
-| # | 问题 | 修复 |
-|---|---|---|
-| 1 | `node-addon-require-builtin` **无 android 构建**，且 Android 无 glibc | 纯 JS 垫片替代 —— `--expose-internals` 下可直接 require Node 私有内部模块 |
-| 2 | 会话日志用硬 `link()` 发布，**bionic 拒绝并返回 EACCES** | 改为 `lstat` + `rename()`（同目录下同样原子） |
-| 3 | `flock` 平台白名单拒绝 android，且无原生绑定 | 放开 android + no-op 降级（单用户场景不需要跨进程锁） |
-
-另外 `node-pty` 用 npm 上的 `@mmmbuto/node-pty-android-arm64`（bionic 构建）替换；
-`koffi` 经排查**非必需**（仅 Windows 路径 + 可选强管控，缺失时自动降级并告警）。
-
----
-
-## 两个关键技术决策
-
-**1. `targetSdkVersion = 28`（核心）**
-
-Android 10 起，`targetSdk ≥ 29` 的 App **不允许对自身私有目录里的文件调用 `execve()`**
-（AOSP `app_neverallows.te`：`neverallow { all_untrusted_apps -untrusted_app_25 -untrusted_app_27 … } app_data_file:file execute_no_trans`）。
-
-不降 targetSdk，就没法执行自带的可执行文件。本方案选 **28** 是为了保留这条路径。
-
-**2. Node 二进制取自 Termux 仓库**
-
-Node.js 官方**不提供 Android 构建**（`BUILDING.md` 明确写 "Android is not a supported platform"）。
-Termux 的 `nodejs` 包是用 NDK r28 编译的 bionic 版本，解释器指向 `/system/bin/linker64`，
-因此可脱离 Termux 独立运行 —— 这是整个方案能成立的基础。
-
----
+发布必须使用 `.github/workflows/release.yml` 与 `scripts/release.sh`。不要手工上传 APK、手改更新清单或迁移签名密钥。
 
 ## 仓库结构
 
-```
-.
-├── DSHNative-bootstrap.apk              # 引导式 APK（34MB，由 Releases 提供）
-├── DSHNative-poc.apk                    # v0.1.0 自检 PoC（历史产物）
-├── src/dev/dsh/nativeapp/
-│   ├── MainActivity.java                # 引导、下载、启动、WebView 与分类设置页
-│   └── UiText.java                      # 原生外壳中英文与系统语言回退
-├── payload/
-│   ├── srv.js                           # PoC 的自检服务
-│   └── unpack.js                        # tar.zst 解压器（纯 Node，零依赖）
-├── patch/                               # 三个 Android 兼容补丁（含说明与 diff）
-├── scripts/
-│   ├── build.sh / build_bootstrap.sh    # 一键构建
-│   ├── mkmanifest.py                    # 纯 Python 生成二进制 AndroidManifest.xml
-│   ├── mkzip.py                         # 纯 Python 打包 APK
-│   └── AndroidManifest.xml
-└── docs/
-    ├── PHASE2-STATUS.md                 # Android 原生运行可行性实测记录（历史命名）
-    ├── PHASE2-EXPERIENCE.md             # 阶段二体验改造与真机验收
-    ├── PHASE3-PRODUCT.md                # 阶段三移动端产品能力与测试发布
-    ├── PHASE4A-WEBUI-TOOLS.md           # 阶段四 A 工具入口迁移与真机验收
-    ├── PHASE4B-EXPERIENCE.md            # 阶段四 B 交互稳定性与真机验收
-    ├── PHASE4C-INTERACTIONS.md          # 阶段四 C 交互反馈、动效与真机验收
-    └── PHASE4D-RELEASE.md               # 阶段四 D 真机反馈修复与正式版收口
+```text
+src/dev/dsh/nativeapp/   Android 原生外壳、模型中心、任务与工具面板
+payload/                 首启、解压、快照与运行时辅助脚本
+patch/                   DSH 在 Android/bionic 上运行所需补丁
+tests/                   纯逻辑测试与 JavaScript 模拟
+icon/                    图标、主题、动效与中英文快捷方式资源
+scripts/                 构建、CI、签名核验与发布脚本
+docs/                    架构、踩坑、交接和各阶段验收文档
+release-notes/           已发布版本说明
 ```
 
-### 为什么需要 `mkmanifest.py`
+## 已知限制
 
-常规 Android 构建靠 `aapt2` 把 XML 清单编译成二进制格式。本项目的构建环境（设备本地）
-`aapt2` 无法运行，因此改为**用纯 Python 直接生成二进制 AXML**。
+- 当前仅提供 ARM64 构建。
+- 首次安装必须联网下载运行包。
+- `targetSdk 28` 是现有私有目录执行方案的约束；长期需要迁移到 `nativeLibraryDir` 或其他受支持架构。
+- 上游 `/models` 通常只返回 ID，不提供完整图片、上下文和推理能力；未经当前运行环境声明的新模型会显示但不会被误标为可用。
+- Office 到 PDF 的大型转换引擎未打包，以控制运行包体积。
+- 运行环境恢复只恢复 DSH 与工具链，不是 APK 降级。
 
-该脚本经过 6 层独立验证：字节级结构审计、14 项负向对照测试、与 35 个真实 APK 清单的
-解析回归、以及用**真实 aapt2 `dump badging` 交叉复核**。
+## 文档索引
 
----
+| 文档 | 内容 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | 接手开发前必须阅读的红线、结构与命令 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 两段式架构、运行包、补丁和组件边界 |
+| [docs/GOTCHAS.md](docs/GOTCHAS.md) | Android、网络、布局、更新和发布踩坑 |
+| [docs/HANDOVER.md](docs/HANDOVER.md) | 当前主分支事实、签名与交接状态 |
+| [docs/BUILD.md](docs/BUILD.md) | 本地与 CI 构建、校验和发布流程 |
+| [docs/PHASE5A-TASK-RECOVERY.md](docs/PHASE5A-TASK-RECOVERY.md) | 任务状态、断线恢复与草稿保护 |
+| [docs/PHASE5B-FILES-SESSIONS.md](docs/PHASE5B-FILES-SESSIONS.md) | 文件工作流、回收站与会话管理 |
+| [docs/PHASE5C-MODEL-ONBOARDING.md](docs/PHASE5C-MODEL-ONBOARDING.md) | 模型中心、项目覆盖与首次配置 |
+| [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | 回滚、诊断、无障碍和多设备适配 |
+| [docs/PHASE5E-MODEL-CATALOG-I18N.md](docs/PHASE5E-MODEL-CATALOG-I18N.md) | 实时上游模型目录、返回导航与英文完善 |
 
-## 构建
+## 许可证与来源
 
-前置：JDK 21、`android.jar`、`d8.jar`、`apksigner.jar`、Termux 仓库的 `nodejs`/各 `lib*.deb`。
+本仓库采用 MIT License。Node.js Android 构建来自 Termux 发行版，并保留各上游组件原有许可证。
 
-```bash
-bash scripts/build_bootstrap.sh      # 引导式 APK
-bash scripts/build.sh                # PoC APK
-```
-
-流水线：
-
-```
-手写 AndroidManifest.xml           (mkmanifest.py)
-        ↓
-javac --release 8                  → class
-        ↓
-d8 --min-api 24                    → classes.dex
-        ↓
-内置 Node + 10 个共享库 + 引导脚本  → assets/payload (93MB)
-        ↓
-Python zip 打包（全部 DEFLATE）    → unsigned.apk (33MB)
-        ↓
-apksigner sign                     → DSHNative-bootstrap.apk (34MB)
-```
-
----
-
-## 局限（如实说明）
-
-1. **`targetSdk 28` 是过渡方案**
-   Android 已在收紧对低 targetSdk 的支持。长期应迁移到 `nativeLibraryDir` + `lib*.so` 方案。
-
-2. **首次启动需联网**
-   引导式架构的代价：APK 本体不含运行包。
-
-3. **Office→PDF 转换不可用**
-   已裁剪 `libreoffice-kit-wasm`（186MB 的 WASM 引擎），这是体积从 498MB 降到 312MB 的主因。
-
-4. **图片附件功能不可用**
-   `sharp` 无 android 预编译绑定。
-
-5. **运行时工具无法在线更新**
-   冻结式分发：升级工具只能重新打包运行包。
-
----
-
-## 后续计划
-
-- [ ] 你在手机上验证 `targetSdk 28` 下 exec 是否被 SELinux 放行（决定架构走向）
-- [ ] 若被拦截 → 迁移到 `nativeLibraryDir` + `lib*.so` 方案
-- [ ] 进一步裁剪 DSH（`@opentelemetry` 36MB、其他 provider SDK 45MB）
-- [ ] App 内 API Key 配置界面
-- [ ] 用 ICU small-icu 重编 Node（32MB → ~2MB）
-
----
-
-## 参考
-
-- Termux（Node 二进制来源、`nativeLibraryDir` 方案先例）：https://github.com/termux/termux-app
-- DSH 官方 Discussion #1588「dsh runs on Termux (Android) — with 5 small patches」：https://github.com/deepseek-ai/deepseek-harness/discussions/1588
-- `oonid/pr`（在 Android 16 上验证 `lib*.so` exec 路径）：https://github.com/oonid/pr
-- Android 10 行为变更（`execve()` 限制）：https://developer.android.com/about/versions/10/behavior-changes-10
-- Node.js 不支持 Android：https://github.com/nodejs/node/blob/main/BUILDING.md
-
-## 许可
-
-MIT（见 [LICENSE](LICENSE)）。内置的 Node.js 运行时来自 Termux 发行版，
-遵循其原有许可（Node.js MIT + 各依赖库许可）。
+- DeepSeek Harness：<https://github.com/deepseek-ai/deepseek-harness>
+- Termux：<https://github.com/termux/termux-app>
+- Android 10 行为变更：<https://developer.android.com/about/versions/10/behavior-changes-10>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize stable/test release metadata and the stable README.
+"""Synchronize stable/test release metadata and both stable READMEs.
 
 The release workflow owns the values.  Humans should not hand-edit version links,
 APK size, payload size, or checksum in README because all four have drifted before.
@@ -97,23 +97,38 @@ def update_readme(text: str, version: str, apk_bytes: int,
     text = re.sub(r"SHA-256：`[0-9a-f]{64,}`", f"SHA-256：`{sha256}`", text)
 
     # Current-release size locations only; historical examples are deliberately untouched.
-    text = replace_once(
-        text,
-        r"(首启分块下载运行包（带断点续传与 SHA 校验） \| APK )[^|\n]+( \|)",
-        rf"\g<1>{apk_size} + 首启约 {payload_size}\g<2>",
-        "release table sizes",
-    )
-    text = replace_once(
-        text,
-        r"(1\. 安装 APK（)[^）\n]+(）)",
-        rf"\g<1>{apk_size}\g<2>",
-        "install APK size",
-    )
     text = re.sub(r"约 [0-9]+(?:\.[0-9]+)?\s*MiB 运行包", f"约 {payload_size} 运行包", text)
     text = re.sub(r"首启分块下载约 [0-9]+(?:\.[0-9]+)?\s*MiB 运行包",
                   f"首启分块下载约 {payload_size} 运行包", text)
     text = re.sub(r"压缩后约 [0-9]+(?:\.[0-9]+)?\s*MiB",
                   f"压缩后约 {payload_size}", text)
+    return text
+
+
+def update_readme_en(text: str, version: str, apk_bytes: int,
+                     payload_bytes: int, sha256: str) -> str:
+    apk_size = mib(apk_bytes)
+    payload_size = mib(payload_bytes)
+    text = replace_once(
+        text,
+        r"(DSHNative-bootstrap\.apk\)\*\* \()[^)\n]+(\))",
+        rf"\g<1>{apk_size}\g<2>",
+        "English top APK size",
+    )
+    text = re.sub(
+        r"releases/download/v[0-9]+\.[0-9]+\.[0-9]+-bootstrap/DSHNative-bootstrap\.apk",
+        f"releases/download/v{version}-bootstrap/DSHNative-bootstrap.apk",
+        text,
+    )
+    text = replace_once(
+        text,
+        r"\*\*Current stable release: [0-9]+\.[0-9]+\.[0-9]+\*\*",
+        f"**Current stable release: {version}**",
+        "English current version",
+    )
+    text = re.sub(r"SHA-256: `[0-9a-f]{64,}`", f"SHA-256: `{sha256}`", text)
+    text = re.sub(r"roughly [0-9]+(?:\.[0-9]+)?\s*MiB runtime",
+                  f"roughly {payload_size} runtime", text)
     return text
 
 
@@ -149,9 +164,16 @@ def version_tuple(value: str) -> tuple[int, int, int]:
 
 def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
                       readme_path: pathlib.Path,
+                      readme_en_path: pathlib.Path | None = None,
                       allow_unpublished_source: bool = False) -> list[str]:
     errors: list[str] = []
     readme = readme_path.read_text(encoding="utf-8")
+    readme_en = ""
+    if readme_en_path is not None:
+        if readme_en_path.exists():
+            readme_en = readme_en_path.read_text(encoding="utf-8")
+        else:
+            errors.append("English README is missing")
     version = source_version()
     payload_tag = source_payload_tag()
     stable, stable_errors = validate_manifest(stable_path, payload_tag, "stable")
@@ -174,16 +196,25 @@ def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
     stable_version = stable.get("version")
     if isinstance(stable_version, str) and f"**当前版本：{stable_version}**" not in readme:
         errors.append("README current version differs from stable manifest")
+    if isinstance(stable_version, str) and readme_en \
+            and f"**Current stable release: {stable_version}**" not in readme_en:
+        errors.append("English README current version differs from stable manifest")
 
     apk_bytes = stable.get("apk_bytes")
     payload_bytes = stable.get("payload_bytes")
     sha = stable.get("sha256")
     if isinstance(apk_bytes, int) and mib(apk_bytes) not in readme:
         errors.append("README does not contain generated APK size")
+    if isinstance(apk_bytes, int) and readme_en and mib(apk_bytes) not in readme_en:
+        errors.append("English README does not contain generated APK size")
     if isinstance(payload_bytes, int) and mib(payload_bytes) not in readme:
         errors.append("README does not contain generated payload size")
+    if isinstance(payload_bytes, int) and readme_en and mib(payload_bytes) not in readme_en:
+        errors.append("English README does not contain generated payload size")
     if isinstance(sha, str) and f"SHA-256：`{sha}`" not in readme:
         errors.append("README checksum differs from latest.json")
+    if isinstance(sha, str) and readme_en and f"SHA-256: `{sha}`" not in readme_en:
+        errors.append("English README checksum differs from latest.json")
     return errors
 
 
@@ -200,6 +231,7 @@ def main() -> int:
     parser.add_argument("--test-latest", type=pathlib.Path,
                         default=ROOT / "latest-test.json")
     parser.add_argument("--readme", type=pathlib.Path, default=ROOT / "README.md")
+    parser.add_argument("--readme-en", type=pathlib.Path, default=ROOT / "README.en.md")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--allow-unpublished-source", action="store_true",
                         help="allow a strictly newer source version for pull-request APKs")
@@ -208,6 +240,7 @@ def main() -> int:
     if args.check:
         stable_path = args.latest or ROOT / "latest.json"
         errors = check_consistency(stable_path, args.test_latest, args.readme,
+                                   args.readme_en,
                                    args.allow_unpublished_source)
         if errors:
             for error in errors:
@@ -247,6 +280,11 @@ def main() -> int:
         readme = args.readme.read_text(encoding="utf-8")
         args.readme.write_text(update_readme(readme, version, int(apk_bytes),
                                              int(payload_bytes), sha256), encoding="utf-8")
+        if args.readme_en.exists():
+            readme_en = args.readme_en.read_text(encoding="utf-8")
+            args.readme_en.write_text(update_readme_en(
+                readme_en, version, int(apk_bytes), int(payload_bytes), sha256),
+                encoding="utf-8")
     print(f"[OK] {args.channel} metadata -> v{version}, "
           f"{mib(apk_bytes)} + {mib(payload_bytes)}")
     return 0

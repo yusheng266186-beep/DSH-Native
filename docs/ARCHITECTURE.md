@@ -197,7 +197,7 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `PayloadRollback` | 快照记录、目标白名单、严格解析与空间溢出 | 23 |
 | `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 103 |
 | `SessionProbe` / `SessionOrganizer` | 会话请求捕获、只读重放与官方搜索入口 | 24 |
-| `ModelConfig` / `ProviderCheck` / `ProjectModelSettings` | 模型配置、只读检测与项目覆盖 | 61 |
+| `ModelConfig` / `ProviderCheck` / `LiveModelCatalog` / `ProjectModelSettings` | 模型配置、上游目录、能力对齐与项目覆盖 | 74 |
 | `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
 | `SecretMasker` / `DiagnosticReport` / `UiText` | 脱敏、诊断摘要、语言回退与引导判定 | 36 |
 | `MobileLayout` / `DeviceLayout` | WebUI 初始缩放、响应式补丁与原生多设备布局 | 38 |
@@ -210,7 +210,7 @@ proot Debian 里完成的，没有模拟器、没有真机调试回路。
 | `OperationGate` | 更新、恢复维护任务互斥与并发竞争 | 13 |
 | `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 43 |
 | `CrashReporter` / `WorkerRegistry` / `ProviderRoute` | 崩溃记录、线程生命周期与 URI 路由 | 23 |
-| | **合计** | **1036** |
+| | **合计** | **1049** |
 
 ### 强制手段
 

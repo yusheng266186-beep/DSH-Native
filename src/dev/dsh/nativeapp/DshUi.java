@@ -827,6 +827,27 @@ public final class DshUi {
         }
     }
 
+    /**
+     * 让 Android 返回键/返回手势与界面上的返回按钮走同一条导航路径。
+     * 同时禁止点卡片外侧静默关闭，避免子页消失后丢失父页上下文。
+     */
+    public static void onBack(final android.app.Dialog dialog, final Runnable previous) {
+        if (dialog == null) return;
+        dialog.setCancelable(true);
+        dialog.setCanceledOnTouchOutside(false);
+        dialog.setOnKeyListener(new android.content.DialogInterface.OnKeyListener() {
+            @Override public boolean onKey(android.content.DialogInterface ignored,
+                                           int keyCode, android.view.KeyEvent event) {
+                if (keyCode != android.view.KeyEvent.KEYCODE_BACK) return false;
+                if (event != null && event.getAction() == android.view.KeyEvent.ACTION_UP
+                        && !event.isCanceled()) {
+                    swapDialog(dialog, true, previous);
+                }
+                return true;
+            }
+        });
+    }
+
     /** 把内容包进可滚动区域。 */
     public static ScrollView scroll(Context c, View content) {
         ScrollView sc = new ScrollView(c);

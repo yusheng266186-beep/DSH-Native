@@ -17,7 +17,9 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** 模型中心、服务商检测、项目覆盖和首次账号配置。 */
 final class ModelCenterPanel {
@@ -62,7 +64,7 @@ final class ModelCenterPanel {
             ModelConfig.Selection initial = draft.globalScope
                     ? projectState.global
                     : ProjectModelSettings.effective(projectState, project, fileSelection);
-            draft.apply(validOrDefault(settingsText, initial));
+            draft.apply(validOrDefault(initial));
 
             LinearLayout body = DshUi.paddedBody(act);
             body.addView(DshUi.title(act, onboarding
@@ -119,7 +121,7 @@ final class ModelCenterPanel {
             model.setSingleLine(true);
             model.setFocusable(false);
             model.setClickable(true);
-            model.setHint(UiText.t("从已配置模型中选择", "Choose a configured model"));
+            model.setHint(UiText.t("从服务商实时列表选择", "Choose from the provider's live catalog"));
             body.addView(model, DshUi.fullWidth(act, 6));
             final Button choose = DshUi.button(act,
                     UiText.t("选择模型", "Choose model"), false);
@@ -169,7 +171,8 @@ final class ModelCenterPanel {
             }
 
             final Button back = DshUi.button(act, onboarding
-                    ? UiText.t("稍后设置", "Set up later") : UiText.t("返回", "Back"), false);
+                    ? UiText.t("稍后设置", "Set up later")
+                    : UiText.t("返回工具与设置", "Back to tools & settings"), false);
             final Button save = DshUi.button(act, onboarding
                     ? UiText.t("保存并完成", "Save and finish") : UiText.t("保存", "Save"), true);
             final Dialog dialog = DshUi.dialog(act, DshUi.scroll(act, body),
@@ -203,22 +206,15 @@ final class ModelCenterPanel {
                 }
             };
 
-            TextWatcher keyChanged = new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int start, int count,
-                                                        int after) { }
-                @Override public void onTextChanged(CharSequence s, int start, int before,
-                                                    int count) {
-                    invalidateCheck.run();
-                }
-                @Override public void afterTextChanged(Editable s) { }
-            };
-            ccKey.addTextChangedListener(keyChanged);
-            dsKey.addTextChangedListener(keyChanged);
+            ccKey.addTextChangedListener(keyWatcher(draft, ModelConfig.COMMAND_CODE,
+                    invalidateCheck));
+            dsKey.addTextChangedListener(keyWatcher(draft, ModelConfig.DEEPSEEK,
+                    invalidateCheck));
 
             cc.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.followGlobal = false;
-                    selectProvider(settingsText, draft, ModelConfig.COMMAND_CODE);
+                    selectProvider(draft, ModelConfig.COMMAND_CODE);
                     refresh.run();
                     DshUi.choiceActivated(v);
                 }
@@ -226,7 +222,7 @@ final class ModelCenterPanel {
             ds.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.followGlobal = false;
-                    selectProvider(settingsText, draft, ModelConfig.DEEPSEEK);
+                    selectProvider(draft, ModelConfig.DEEPSEEK);
                     refresh.run();
                     DshUi.choiceActivated(v);
                 }
@@ -236,7 +232,7 @@ final class ModelCenterPanel {
                     draft.followGlobal = false;
                     if (projectOnly) return;
                     draft.globalScope = true;
-                    draft.apply(validOrDefault(settingsText, projectState.global));
+                    draft.apply(validOrDefault(projectState.global));
                     refresh.run();
                     DshUi.choiceActivated(v);
                 }
@@ -245,7 +241,7 @@ final class ModelCenterPanel {
                 @Override public void onClick(View v) {
                     draft.followGlobal = false;
                     draft.globalScope = false;
-                    draft.apply(validOrDefault(settingsText,
+                    draft.apply(validOrDefault(
                             ProjectModelSettings.effective(projectState, project, fileSelection)));
                     refresh.run();
                     DshUi.choiceActivated(v);
@@ -254,7 +250,7 @@ final class ModelCenterPanel {
             followGlobal.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.followGlobal = true;
-                    draft.apply(validOrDefault(settingsText, projectState.global));
+                    draft.apply(validOrDefault(projectState.global));
                     refresh.run();
                     DshUi.choiceActivated(v);
                 }
@@ -262,12 +258,14 @@ final class ModelCenterPanel {
             choose.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
-                    showModelChooser(act, settingsText, draft, model, invalidateCheck);
+                    showModelChooser(act, host, dialog, settingsText, draft, model,
+                            selectedKey(draft.provider, ccKey, dsKey), invalidateCheck);
                 }
             });
             model.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    showModelChooser(act, settingsText, draft, model, invalidateCheck);
+                    showModelChooser(act, host, dialog, settingsText, draft, model,
+                            selectedKey(draft.provider, ccKey, dsKey), invalidateCheck);
                 }
             });
             check.setOnClickListener(new View.OnClickListener() {
@@ -276,14 +274,8 @@ final class ModelCenterPanel {
                     String key = ModelConfig.DEEPSEEK.equals(draft.provider)
                             ? dsKey.getText().toString().trim()
                             : ccKey.getText().toString().trim();
-                    runCheck(act, host, dialog, draft, draft.checkRevision,
+                    runCheck(act, host, dialog, settingsText, draft, draft.checkRevision,
                             draft.provider, key, draft.model, checkStatus, check);
-                }
-            });
-            back.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    dialog.dismiss();
-                    host.closeModelCenter(onboarding, false);
                 }
             });
             save.setOnClickListener(new View.OnClickListener() {
@@ -300,9 +292,12 @@ final class ModelCenterPanel {
                                 "Choose a valid provider and model"));
                         return;
                     }
-                    if (!ModelConfig.containsModel(settingsText, selection.provider, selection.model)) {
-                        DshUi.toast(act, UiText.t("该模型不在当前配置清单中，请使用“选择模型”",
-                                "This model is not in the configured catalog. Use Choose model."));
+                    if (!LiveModelCatalog.canSave(draft.baseline, selection, onboarding,
+                            draft.catalogLoaded(selection.provider),
+                            draft.catalog(selection.provider))) {
+                        DshUi.toast(act, UiText.t(
+                                "请先刷新上游模型列表，并选择当前运行环境支持的模型",
+                                "Refresh the upstream catalog and choose a model supported by this runtime."));
                         return;
                     }
                     String selectedKey = ModelConfig.DEEPSEEK.equals(selection.provider)
@@ -364,8 +359,18 @@ final class ModelCenterPanel {
                 }
             });
 
+            final Runnable returnToParent = new Runnable() {
+                @Override public void run() {
+                    host.closeModelCenter(onboarding, false);
+                }
+            };
+            back.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    DshUi.swapDialog(dialog, true, returnToParent);
+                }
+            });
+            DshUi.onBack(dialog, returnToParent);
             refresh.run();
-            dialog.setCancelable(!onboarding);
             dialog.show();
         } catch (Throwable error) {
             host.log("打开模型中心失败: " + error);
@@ -374,45 +379,72 @@ final class ModelCenterPanel {
         }
     }
 
-    private static void showModelChooser(final Activity act, String settings,
+    private static void showModelChooser(final Activity act, final Host host,
+                                         final Dialog owner, final String settings,
                                          final Draft draft, final EditText target,
-                                         final Runnable onSelection) {
-        final List<ModelConfig.Model> models = ModelConfig.modelsForProvider(settings, draft.provider);
+                                         final String key, final Runnable onSelection) {
+        if (key.length() == 0) {
+            DshUi.toast(act, UiText.t("请先填写当前服务商的 API Key",
+                    "Add the API key for the selected provider"));
+            return;
+        }
+        final String provider = draft.provider;
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, UiText.t("选择模型", "Choose model")));
+        body.addView(DshUi.hint(act, UiText.t(
+                "列表直接从服务商网络接口读取，不使用 App 内置列表。灰色项目已被上游返回，"
+                        + "但当前运行环境没有足够的能力声明，暂不允许选择。",
+                "The list is fetched directly from the provider. Dimmed models were returned upstream "
+                        + "but lack capability metadata in this runtime, so they cannot be selected yet.")),
+                DshUi.fullWidth(act, 6));
+        final TextView status = DshUi.status(act,
+                UiText.t("准备读取上游模型列表…", "Preparing to load the upstream catalog…"));
+        body.addView(status, DshUi.fullWidth(act, 10));
         final EditText search = DshUi.input(act, "", false);
         search.setSingleLine(true);
-        search.setHint(UiText.t("搜索名称或模型 ID", "Search name or model ID"));
+        search.setHint(UiText.t("搜索上游模型 ID", "Search upstream model IDs"));
         body.addView(search, DshUi.fullWidth(act, 6));
         final TextView count = DshUi.hint(act, "");
         body.addView(count, DshUi.fullWidth(act, 5));
         final LinearLayout list = new LinearLayout(act);
         list.setOrientation(LinearLayout.VERTICAL);
         body.addView(list, DshUi.fullWidth(act, 5));
-        Button close = DshUi.button(act, UiText.t("关闭", "Close"), true);
+        Button back = DshUi.button(act, UiText.t("返回模型中心", "Back to model center"), false);
+        final Button reload = DshUi.button(act,
+                UiText.t("刷新上游列表", "Refresh upstream catalog"), true);
         final Dialog dialog = DshUi.dialog(act, DshUi.scroll(act, body),
-                DshUi.footer(act, close), 720);
+                DshUi.footer(act, back, reload), 720);
+        final CatalogDialogState state = new CatalogDialogState();
         final Runnable fill = new Runnable() {
             @Override public void run() {
                 list.removeAllViews();
                 String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
                 int matched = 0;
                 int shown = 0;
-                for (final ModelConfig.Model item : models) {
+                for (final LiveModelCatalog.Entry item : state.entries) {
                     String haystack = (item.id + " " + item.name).toLowerCase(java.util.Locale.ROOT);
                     if (query.length() > 0 && !haystack.contains(query)) continue;
                     matched++;
-                    if (shown >= 40) continue;
-                    String suffix = (item.image ? UiText.t(" · 图片", " · vision") : "")
-                            + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "");
-                    Button button = DshUi.button(act, item.name + "\n" + item.id + suffix,
-                            item.id.equals(draft.model));
+                    if (shown >= 80) continue;
+                    String suffix = item.selectable
+                            ? (item.image ? UiText.t(" · 图片", " · vision") : "")
+                                    + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "")
+                            : UiText.t(" · 当前运行环境未声明能力",
+                                    " · capability metadata unavailable");
+                    String label = item.name.equals(item.id)
+                            ? item.id + suffix : item.name + "\n" + item.id + suffix;
+                    Button button = DshUi.button(act, label,
+                            item.selectable && item.id.equals(draft.model));
                     button.setAllCaps(false);
                     button.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+                    button.setEnabled(item.selectable);
+                    button.setAlpha(item.selectable ? 1f : 0.58f);
                     button.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
+                            if (!item.selectable) return;
                             draft.followGlobal = false;
                             draft.model = item.id;
+                            draft.rememberChoice();
                             target.setText(item.id);
                             target.setSelection(target.getText().length());
                             if (onSelection != null) onSelection.run();
@@ -423,9 +455,10 @@ final class ModelCenterPanel {
                     list.addView(button, DshUi.fullWidth(act, 5));
                     shown++;
                 }
-                count.setText(UiText.t("找到 " + matched + " 个模型"
+                count.setText(UiText.t("匹配 " + matched + " 个上游模型"
                                 + (matched > shown ? "，显示前 " + shown + " 个" : ""),
-                        matched + " models" + (matched > shown ? ", showing first " + shown : "")));
+                        matched + " upstream models"
+                                + (matched > shown ? ", showing first " + shown : "")));
             }
         };
         search.addTextChangedListener(new TextWatcher() {
@@ -433,14 +466,70 @@ final class ModelCenterPanel {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { fill.run(); }
             @Override public void afterTextChanged(Editable s) { }
         });
-        close.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { dialog.dismiss(); }
+        final Runnable load = new Runnable() {
+            @Override public void run() {
+                final int generation = ++state.generation;
+                DshUi.setBusy(reload,
+                        UiText.t("刷新上游列表", "Refresh upstream catalog"),
+                        UiText.t("正在读取…", "Loading…"), true);
+                status.setText(UiText.t("正在从服务商读取模型列表…",
+                        "Loading models from the provider…"));
+                status.setTextColor(DshUi.TEXT_2());
+                requestCatalog(act, provider, key, new CatalogCallback() {
+                    @Override public void complete(ProviderCheck.Result result, Throwable error) {
+                        if (act.isFinishing() || act.isDestroyed() || !dialog.isShowing()
+                                || !owner.isShowing() || state.generation != generation) return;
+                        DshUi.setBusy(reload,
+                                UiText.t("刷新上游列表", "Refresh upstream catalog"),
+                                UiText.t("正在读取…", "Loading…"), false);
+                        if (error != null) {
+                            state.entries = new ArrayList<LiveModelCatalog.Entry>();
+                            status.setText(UiText.t("读取失败：", "Load failed: ")
+                                    + safeMessage(error));
+                            status.setTextColor(DshUi.ERROR());
+                            fill.run();
+                            host.log("上游模型目录读取失败: "
+                                    + error.getClass().getSimpleName());
+                            return;
+                        }
+                        if (result.state != ProviderCheck.READY) {
+                            state.entries = new ArrayList<LiveModelCatalog.Entry>();
+                            renderCatalogFailure(status, result);
+                            fill.run();
+                            host.log("上游模型目录读取失败: " + provider + " HTTP "
+                                    + result.httpCode);
+                            return;
+                        }
+                        state.entries = LiveModelCatalog.reconcile(result.models,
+                                ModelConfig.modelsForProvider(settings, provider));
+                        draft.putCatalog(provider, state.entries);
+                        int available = LiveModelCatalog.selectableCount(state.entries);
+                        status.setText(UiText.t(
+                                "上游返回 " + state.entries.size() + " 个模型，当前运行环境支持 "
+                                        + available + " 个。",
+                                "Upstream returned " + state.entries.size() + " models; "
+                                        + available + " are supported by this runtime."));
+                        status.setTextColor(available > 0 ? DshUi.SUCCESS() : DshUi.WARN());
+                        fill.run();
+                        host.log("上游模型目录读取完成: " + provider + "，返回 "
+                                + state.entries.size() + " 个，支持 " + available + " 个");
+                    }
+                });
+            }
+        };
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { DshUi.swapDialog(dialog, true, null); }
         });
-        fill.run();
+        reload.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { load.run(); }
+        });
+        DshUi.onBack(dialog, null);
         dialog.show();
+        load.run();
     }
 
     private static void runCheck(final Activity act, final Host host, final Dialog owner,
+                                 final String settings,
                                  final Draft draft, final int revision,
                                  final String provider,
                                  final String key, final String selectedModel,
@@ -454,69 +543,52 @@ final class ModelCenterPanel {
                 UiText.t("正在检测…", "Checking…"), true);
         status.setText(UiText.t("正在连接服务商…", "Connecting to provider…"));
         status.setTextColor(DshUi.TEXT_2());
-        new Thread(new Runnable() {
-            @Override public void run() {
-                ProviderCheck.Result result = null;
-                Throwable failure = null;
-                HttpURLConnection connection = null;
-                InputStream stream = null;
-                try {
-                    connection = (HttpURLConnection) new URL(ProviderCheck.endpoint(provider))
-                            .openConnection();
-                    connection.setConnectTimeout(12000);
-                    connection.setReadTimeout(15000);
-                    connection.setRequestMethod("GET");
-                    connection.setRequestProperty("Authorization", "Bearer " + key);
-                    connection.setRequestProperty("Accept", "application/json");
-                    connection.setRequestProperty("User-Agent", "DSHNative-ModelCheck");
-                    int code = connection.getResponseCode();
-                    stream = code >= 400
-                            ? connection.getErrorStream() : connection.getInputStream();
-                    result = ProviderCheck.classify(code, readLimited(stream, 1024 * 1024));
-                } catch (Throwable error) {
-                    failure = error;
-                } finally {
-                    if (stream != null) {
-                        try { stream.close(); } catch (Throwable ignored) { }
-                    }
-                    if (connection != null) connection.disconnect();
+        requestCatalog(act, provider, key, new CatalogCallback() {
+            @Override public void complete(ProviderCheck.Result checked, Throwable error) {
+                if (act.isFinishing() || act.isDestroyed() || !owner.isShowing()) return;
+                if (draft.checkRevision != revision) return;
+                DshUi.setBusy(button,
+                        UiText.t("检测连接与模型", "Check connection and model"),
+                        UiText.t("正在检测…", "Checking…"), false);
+                if (error != null) {
+                    status.setText(UiText.t("连接失败：", "Connection failed: ")
+                            + safeMessage(error));
+                    status.setTextColor(DshUi.ERROR());
+                    host.log("服务商检测失败: " + error.getClass().getSimpleName());
+                    return;
                 }
-                final ProviderCheck.Result checked = result;
-                final Throwable error = failure;
-                act.runOnUiThread(new Runnable() {
-                    @Override public void run() {
-                        if (act.isFinishing() || act.isDestroyed() || !owner.isShowing()) {
-                            return;
-                        }
-                        if (draft.checkRevision != revision) return;
-                        DshUi.setBusy(button,
-                                UiText.t("检测连接与模型", "Check connection and model"),
-                                UiText.t("正在检测…", "Checking…"), false);
-                        if (error != null) {
-                            status.setText(UiText.t("连接失败：", "Connection failed: ")
-                                    + safeMessage(error));
-                            status.setTextColor(DshUi.ERROR());
-                            host.log("服务商检测失败: " + error.getClass().getSimpleName());
-                            return;
-                        }
-                        renderCheck(status, checked, selectedModel);
-                        host.log("服务商检测完成: " + provider + " HTTP "
-                                + checked.httpCode + "，模型 " + checked.models.size() + " 个");
-                    }
-                });
+                List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(
+                        checked.models, ModelConfig.modelsForProvider(settings, provider));
+                if (checked.state == ProviderCheck.READY) draft.putCatalog(provider, entries);
+                renderCheck(status, checked, entries, selectedModel);
+                host.log("服务商检测完成: " + provider + " HTTP "
+                        + checked.httpCode + "，模型 " + checked.models.size() + " 个");
             }
-        }, "provider-check").start();
+        });
     }
 
-    private static void renderCheck(TextView status, ProviderCheck.Result result, String model) {
+    private static void renderCheck(TextView status, ProviderCheck.Result result,
+                                    List<LiveModelCatalog.Entry> entries, String model) {
         if (result.state == ProviderCheck.READY) {
             boolean present = ProviderCheck.contains(result, model);
-            status.setText(present
-                    ? UiText.t("连接正常，当前模型可用；共返回 " + result.models.size() + " 个模型。",
-                            "Connected. The selected model is available; " + result.models.size() + " models returned.")
-                    : UiText.t("连接正常，但服务商当前列表中没有所选模型。请重新选择。",
-                            "Connected, but the selected model is not in the provider's current catalog. Choose another model."));
-            status.setTextColor(present ? DshUi.SUCCESS() : DshUi.WARN());
+            boolean supported = LiveModelCatalog.selectable(entries, model);
+            if (present && supported) {
+                status.setText(UiText.t(
+                        "连接正常，当前模型同时存在于上游目录和本地能力目录；上游共返回 "
+                                + result.models.size() + " 个模型。",
+                        "Connected. The selected model is present upstream and supported locally; "
+                                + result.models.size() + " models were returned."));
+                status.setTextColor(DshUi.SUCCESS());
+            } else if (present) {
+                status.setText(UiText.t(
+                        "连接正常，上游也返回了当前模型，但当前运行环境没有它的完整能力声明。",
+                        "Connected, and the model exists upstream, but this runtime lacks its capability metadata."));
+                status.setTextColor(DshUi.WARN());
+            } else {
+                status.setText(UiText.t("连接正常，但服务商当前列表中没有所选模型。请重新选择。",
+                        "Connected, but the selected model is not in the provider's current catalog. Choose another model."));
+                status.setTextColor(DshUi.WARN());
+            }
         } else if (result.state == ProviderCheck.KEY_REJECTED) {
             status.setText(UiText.t("密钥被拒绝，请检查是否复制完整或是否具有 API 权限。",
                     "The key was rejected. Check that it is complete and has API access."));
@@ -540,27 +612,38 @@ final class ModelCenterPanel {
         }
     }
 
-    private static ModelConfig.Selection validOrDefault(String settings,
-                                                         ModelConfig.Selection selection) {
-        if (selection != null && selection.valid()
-                && ModelConfig.containsModel(settings, selection.provider, selection.model)) {
-            return selection;
-        }
-        List<ModelConfig.Model> command = ModelConfig.modelsForProvider(
-                settings, ModelConfig.COMMAND_CODE);
-        if (!command.isEmpty()) {
-            return new ModelConfig.Selection(ModelConfig.COMMAND_CODE,
-                    command.get(0).id, "medium");
-        }
-        return new ModelConfig.Selection(ModelConfig.DEEPSEEK, "deepseek-v4-flash", "medium");
+    private static void renderCatalogFailure(TextView status, ProviderCheck.Result result) {
+        renderCheck(status, result, new ArrayList<LiveModelCatalog.Entry>(), "");
     }
 
-    private static void selectProvider(String settings, Draft draft, String provider) {
-        draft.provider = provider;
-        if (!ModelConfig.containsModel(settings, provider, draft.model)) {
-            List<ModelConfig.Model> models = ModelConfig.modelsForProvider(settings, provider);
-            draft.model = models.isEmpty() ? "" : models.get(0).id;
-        }
+    private static ModelConfig.Selection validOrDefault(ModelConfig.Selection selection) {
+        if (selection != null && selection.valid()) return selection;
+        return new ModelConfig.Selection(ModelConfig.COMMAND_CODE, "", "medium");
+    }
+
+    private static void selectProvider(Draft draft, String provider) {
+        draft.rememberChoice();
+        draft.provider = ModelConfig.normalizeProvider(provider);
+        draft.model = draft.choice(draft.provider);
+    }
+
+    private static TextWatcher keyWatcher(final Draft draft, final String provider,
+                                          final Runnable invalidateCheck) {
+        return new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count,
+                                                    int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before,
+                                                int count) {
+                draft.clearCatalog(provider);
+                if (invalidateCheck != null) invalidateCheck.run();
+            }
+            @Override public void afterTextChanged(Editable s) { }
+        };
+    }
+
+    private static String selectedKey(String provider, EditText ccKey, EditText dsKey) {
+        return ModelConfig.DEEPSEEK.equals(provider)
+                ? dsKey.getText().toString().trim() : ccKey.getText().toString().trim();
     }
 
     private static void updateEfforts(List<Button> buttons, String selected) {
@@ -580,6 +663,51 @@ final class ModelCenterPanel {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         params.leftMargin = DshUi.dp(row.getContext(), leftMargin);
         row.addView(button, params);
+    }
+
+    private interface CatalogCallback {
+        void complete(ProviderCheck.Result result, Throwable error);
+    }
+
+    /** 发起只读 GET /models；回调始终回到主线程。 */
+    private static void requestCatalog(final Activity act, final String provider,
+                                       final String key, final CatalogCallback callback) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                ProviderCheck.Result result = null;
+                Throwable failure = null;
+                HttpURLConnection connection = null;
+                InputStream stream = null;
+                try {
+                    connection = (HttpURLConnection) new URL(ProviderCheck.endpoint(provider))
+                            .openConnection();
+                    connection.setConnectTimeout(12000);
+                    connection.setReadTimeout(15000);
+                    connection.setRequestMethod("GET");
+                    connection.setRequestProperty("Authorization", "Bearer " + key);
+                    connection.setRequestProperty("Accept", "application/json");
+                    connection.setRequestProperty("User-Agent", "DSHNative-ModelCatalog");
+                    int code = connection.getResponseCode();
+                    stream = code >= 400
+                            ? connection.getErrorStream() : connection.getInputStream();
+                    result = ProviderCheck.classify(code, readLimited(stream, 1024 * 1024));
+                } catch (Throwable error) {
+                    failure = error;
+                } finally {
+                    if (stream != null) {
+                        try { stream.close(); } catch (Throwable ignored) { }
+                    }
+                    if (connection != null) connection.disconnect();
+                }
+                final ProviderCheck.Result completed = result;
+                final Throwable error = failure;
+                act.runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (callback != null) callback.complete(completed, error);
+                    }
+                });
+            }
+        }, "provider-catalog").start();
     }
 
     private static String readLimited(InputStream input, int max) throws Exception {
@@ -604,6 +732,11 @@ final class ModelCenterPanel {
         return message.length() > 100 ? message.substring(0, 100) : message;
     }
 
+    private static final class CatalogDialogState {
+        int generation;
+        List<LiveModelCatalog.Entry> entries = new ArrayList<LiveModelCatalog.Entry>();
+    }
+
     private static final class Draft {
         boolean globalScope;
         boolean followGlobal;
@@ -611,11 +744,48 @@ final class ModelCenterPanel {
         String model;
         String effort;
         int checkRevision;
+        ModelConfig.Selection baseline;
+        final Map<String, String> choices = new LinkedHashMap<String, String>();
+        final Map<String, List<LiveModelCatalog.Entry>> catalogs =
+                new LinkedHashMap<String, List<LiveModelCatalog.Entry>>();
 
         void apply(ModelConfig.Selection selection) {
             provider = selection.provider;
             model = selection.model;
             effort = selection.effort;
+            baseline = selection;
+            rememberChoice();
+        }
+
+        void rememberChoice() {
+            if (ModelConfig.normalizeProvider(provider).length() > 0
+                    && ModelConfig.normalizeModel(model).length() > 0) {
+                choices.put(provider, model);
+            }
+        }
+
+        String choice(String selectedProvider) {
+            String value = choices.get(selectedProvider);
+            return value == null ? "" : value;
+        }
+
+        void putCatalog(String selectedProvider, List<LiveModelCatalog.Entry> entries) {
+            catalogs.put(selectedProvider,
+                    entries == null ? new ArrayList<LiveModelCatalog.Entry>()
+                            : new ArrayList<LiveModelCatalog.Entry>(entries));
+        }
+
+        void clearCatalog(String selectedProvider) {
+            catalogs.remove(selectedProvider);
+        }
+
+        boolean catalogLoaded(String selectedProvider) {
+            return catalogs.containsKey(selectedProvider);
+        }
+
+        List<LiveModelCatalog.Entry> catalog(String selectedProvider) {
+            List<LiveModelCatalog.Entry> entries = catalogs.get(selectedProvider);
+            return entries == null ? new ArrayList<LiveModelCatalog.Entry>() : entries;
         }
     }
 }

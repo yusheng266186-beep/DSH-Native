@@ -59,6 +59,7 @@ DSH 本身是一个 Node.js 写的 CLI/Web 应用。要在 Android 上跑它，
 | **注入脚本必须每次页面加载都执行** | 任何 reload 都会清空页面脚本；"只注入一次"会让状态看板、任务通知、接口诊断静默失效。 |
 | **多会话/多 agent 并行改这个仓库时，动手前先 `git fetch`** | 曾因本地克隆落后 5 个提交而误读状态。 |
 | **发布前必须拿到子任务的明确交回** | 不能拿"文件 N 秒没变"当完成信号 —— 曾据此发布，而任务仍在写。 |
+| **每轮用户要求的修改完成后都发布 stable 正式版并递增版本号** | 这是当前产品交付约定。仍必须先通过完整 Android CI，再合并 main，并且只允许使用 `release.yml` / `scripts/release.sh`；不得为赶发布绕过签名、下载路径或清单校验。 |
 
 ---
 
@@ -123,6 +124,10 @@ bootstrap/src/dev/dsh/nativeapp/
 ├── ShareTask.java         分享导入后的任务提示词与网页提交脚本
 ├── PluginPermissions.java 插件能力披露与版本指纹授权
 ├── ReleaseChannel.java    稳定/测试通道清单和标签规则
+├── ModelConfig.java       模型与凭据配置的定点读写
+├── ProviderCheck.java     两个服务商只读模型目录的端点、解析与状态分类
+├── LiveModelCatalog.java  上游可见目录与本地能力声明的安全对齐
+├── ProjectModelSettings.java 全局模型与项目覆盖的持久化
 │
 │  ── UI 层 ──
 ├── DshUi.java             设计系统：颜色、卡片、按钮、对话框、通知渠道

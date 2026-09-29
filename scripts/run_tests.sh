@@ -63,6 +63,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/SessionOrganizer.java
      $JAVA_DIR/ModelConfig.java
      $JAVA_DIR/ProviderCheck.java
+     $JAVA_DIR/LiveModelCatalog.java
      $JAVA_DIR/ProjectModelSettings.java
      $JAVA_DIR/ProcessSupervisor.java
      $JAVA_DIR/TransferState.java
@@ -105,6 +106,7 @@ TESTS="tests/FileListingTest.java
        tests/SessionOrganizerTest.java
        tests/ModelConfigTest.java
        tests/ProviderCheckTest.java
+       tests/LiveModelCatalogTest.java
        tests/ProjectModelSettingsTest.java
        tests/ProcessSupervisorTest.java
        tests/TransferStateTest.java
@@ -142,7 +144,7 @@ fi
 
 rc=0
 seen_tests=" "
-for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
+for t in dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -342,6 +344,24 @@ elif grep -q 'chat/completions' "$JAVA_DIR/ModelCenterPanel.java" \
     rc=1
 else
     echo "  Phase5CModelOnboardingWiring: read-only check / project override / resumable onboarding"
+fi
+
+# 阶段五 E：模型选择器的可见列表必须来自本次上游响应；本地目录只能做
+# 能力对齐。模型中心和设置子页的 Android 返回手势必须复用父级导航。
+if ! grep -q 'requestCatalog(act, provider, key' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'LiveModelCatalog.reconcile' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'DshUi.onBack(dialog, returnToParent)' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'public static void onBack' "$JAVA_DIR/DshUi.java" \
+        || ! grep -q 'DshUi.onBack(dialog' "$MAIN_ACTIVITY" \
+        || { [ -f "$ROOT/README.md" ] && [ ! -f "$ROOT/README.en.md" ]; }; then
+    echo "  [FAIL] 阶段五 E 实时模型目录、返回导航或英文 README 接线不完整" >&2
+    rc=1
+elif grep -q 'final List<ModelConfig.Model> models = ModelConfig.modelsForProvider' \
+        "$JAVA_DIR/ModelCenterPanel.java"; then
+    echo "  [FAIL] 模型选择器不得重新使用本地预设作为可见列表" >&2
+    rc=1
+else
+    echo "  Phase5ELiveCatalogWiring: upstream-only visibility / capability gate / back navigation / English README"
 fi
 
 # 阶段五 D：更新前快照、失败自动回滚、诊断包分享和多设备布局必须接线。
