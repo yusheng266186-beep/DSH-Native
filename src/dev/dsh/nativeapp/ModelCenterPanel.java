@@ -128,6 +128,13 @@ final class ModelCenterPanel {
             final Button choose = DshUi.button(act,
                     UiText.t("选择模型", "Choose model"), false);
             body.addView(choose, DshUi.fullWidth(act, 6));
+            final Button updateCatalog = DshUi.button(act,
+                    UiText.t("更新上游模型列表", "Update upstream model list"), false);
+            body.addView(updateCatalog, DshUi.fullWidth(act, 6));
+            body.addView(DshUi.hint(act, UiText.t(
+                    "更新后选择模型并保存，空闲中的 DSH 会自动重新读取并刷新 WebUI；运行任务期间会延后重启。",
+                    "After updating, choose a model and save. An idle DSH runtime reloads the catalog and refreshes the WebUI automatically; an active task is left uninterrupted.")),
+                    DshUi.fullWidth(act, 8));
 
             body.addView(DshUi.sectionLabel(act,
                     UiText.t("思考强度", "Reasoning effort")), DshUi.fullWidth(act, 20));
@@ -257,13 +264,15 @@ final class ModelCenterPanel {
                     DshUi.choiceActivated(v);
                 }
             });
-            choose.setOnClickListener(new View.OnClickListener() {
+            final View.OnClickListener openChooser = new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
                     showModelChooser(act, host, dialog, settingsText, draft, model,
                             selectedKey(draft.provider, ccKey, dsKey), invalidateCheck);
                 }
-            });
+            };
+            choose.setOnClickListener(openChooser);
+            updateCatalog.setOnClickListener(openChooser);
             model.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     showModelChooser(act, host, dialog, settingsText, draft, model,

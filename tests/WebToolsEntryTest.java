@@ -29,11 +29,14 @@ public class WebToolsEntryTest {
         check("English settings anchor", script.contains("/^settings$/i"), "missing");
         check("Chinese tools label", script.contains("App 工具"), "missing");
         check("English tools label", script.contains("App tools"), "missing");
+        check("Chinese model refresh label", script.contains("更新模型列表"), "missing");
+        check("English model refresh label", script.contains("Refresh models"), "missing");
         check("clones live WebUI styles", script.contains("trigger.cloneNode(false)")
                 && script.contains("settings.cloneNode(true)"), "not cloned");
         check("collapsed sidebar removes ambiguous gear",
                 script.contains("_rail(?:Row)?") && script.contains("r.width>64")
-                && script.contains("removeChild(row);return true"), "collapsed state missing");
+                && script.contains("removeChild(row);")
+                && script.contains("removeChild(modelRow);return true"), "collapsed state missing");
         check("expansion is observed", script.contains("'aria-expanded'")
                 && script.contains("'hidden'") && script.contains("'style'"), "observer incomplete");
         check("layout marker present", script.contains("data-dsh-native-tools"), "missing");
@@ -44,6 +47,7 @@ public class WebToolsEntryTest {
         check("ready marker present", script.contains(WebToolsEntry.READY_MARKER), "missing");
         check("missing marker present", script.contains(WebToolsEntry.MISSING_MARKER), "missing");
         check("open marker present", script.contains(WebToolsEntry.OPEN_MARKER), "missing");
+        check("refresh marker present", script.contains(WebToolsEntry.REFRESH_MODELS_MARKER), "missing");
         check("no fixed overlay", !script.contains("position:fixed")
                 && !script.contains("position: fixed"), "overlay found");
         check("no native bridge exposure", !script.contains("addJavascriptInterface"),

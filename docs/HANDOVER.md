@@ -399,3 +399,8 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 - 空目录、失败响应和无效 ID不得清空上一份可用目录；密钥和响应正文不得进入 settings 或日志；
 - 保存后无活动任务才刷新 WebUI，活动任务只延后页面刷新，不能为了模型目录重启或打断任务；
 - 目标版本 `0.31.2` 仍须通过完整 Android CI、同签名校验和 `release.yml` stable 发布，禁止手工改清单或迁移签名。
+
+
+## 8.14 阶段五 G：WebUI 上游模型刷新与运行时重载（0.31.3）
+
+本轮修复模型中心已拉取上游目录但 DSH WebUI 仍显示旧列表的问题。DSH 侧栏新增幂等的“更新模型列表 / Refresh models”入口，原生模型中心新增“更新上游模型列表”按钮；保存成功后，空闲状态会重启本地 DSH runtime 再加载 WebUI，使 provider topology、默认模型和目录从同一份 settings.yaml 构建。运行中的任务不会被重启打断，目录写入会保留并延后应用。详见 docs/PHASE5G-MODEL-WEBUI-REFRESH.md。
