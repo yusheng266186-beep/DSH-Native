@@ -296,8 +296,8 @@ final class ModelCenterPanel {
                             draft.catalogLoaded(selection.provider),
                             draft.catalog(selection.provider))) {
                         DshUi.toast(act, UiText.t(
-                                "请先刷新上游模型列表，并选择当前运行环境支持的模型",
-                                "Refresh the upstream catalog and choose a model supported by this runtime."));
+                                "请先刷新上游模型列表，并选择上游返回的模型",
+                                "Refresh the upstream catalog and choose a model returned by the provider."));
                         return;
                     }
                     String selectedKey = ModelConfig.DEEPSEEK.equals(selection.provider)
@@ -392,10 +392,10 @@ final class ModelCenterPanel {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, UiText.t("选择模型", "Choose model")));
         body.addView(DshUi.hint(act, UiText.t(
-                "列表直接从服务商网络接口读取，不使用 App 内置列表。灰色项目已被上游返回，"
-                        + "但当前运行环境没有足够的能力声明，暂不允许选择。",
-                "The list is fetched directly from the provider. Dimmed models were returned upstream "
-                        + "but lack capability metadata in this runtime, so they cannot be selected yet.")),
+                "列表直接从服务商网络接口读取，不使用 App 内置列表。上游返回的模型都可以直接选择；"
+                        + "图片和思考标签仅作为当前运行环境的能力提示。",
+                "The list is fetched directly from the provider. Every model returned upstream can be selected; "
+                        + "image and reasoning labels are only capability hints from this runtime.")),
                 DshUi.fullWidth(act, 6));
         final TextView status = DshUi.status(act,
                 UiText.t("准备读取上游模型列表…", "Preparing to load the upstream catalog…"));
@@ -426,22 +426,19 @@ final class ModelCenterPanel {
                     if (query.length() > 0 && !haystack.contains(query)) continue;
                     matched++;
                     if (shown >= 80) continue;
-                    String suffix = item.selectable
-                            ? (item.image ? UiText.t(" · 图片", " · vision") : "")
-                                    + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "")
-                            : UiText.t(" · 当前运行环境未声明能力",
-                                    " · capability metadata unavailable");
+                    String suffix = (item.image ? UiText.t(" · 图片", " · vision") : "")
+                            + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "")
+                            + UiText.t(" · 上游可用", " · upstream");
                     String label = item.name.equals(item.id)
                             ? item.id + suffix : item.name + "\n" + item.id + suffix;
                     Button button = DshUi.button(act, label,
                             item.selectable && item.id.equals(draft.model));
                     button.setAllCaps(false);
                     button.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
-                    button.setEnabled(item.selectable);
-                    button.setAlpha(item.selectable ? 1f : 0.58f);
+                    button.setEnabled(true);
+                    button.setAlpha(1f);
                     button.setOnClickListener(new View.OnClickListener() {
                         @Override public void onClick(View v) {
-                            if (!item.selectable) return;
                             draft.followGlobal = false;
                             draft.model = item.id;
                             draft.rememberChoice();
@@ -503,16 +500,14 @@ final class ModelCenterPanel {
                         state.entries = LiveModelCatalog.reconcile(result.models,
                                 ModelConfig.modelsForProvider(settings, provider));
                         draft.putCatalog(provider, state.entries);
-                        int available = LiveModelCatalog.selectableCount(state.entries);
                         status.setText(UiText.t(
-                                "上游返回 " + state.entries.size() + " 个模型，当前运行环境支持 "
-                                        + available + " 个。",
-                                "Upstream returned " + state.entries.size() + " models; "
-                                        + available + " are supported by this runtime."));
-                        status.setTextColor(available > 0 ? DshUi.SUCCESS() : DshUi.WARN());
+                                "上游返回 " + state.entries.size() + " 个模型，均可直接选择使用。",
+                                "The upstream returned " + state.entries.size()
+                                        + " models; all are available for selection."));
+                        status.setTextColor(state.entries.isEmpty() ? DshUi.WARN() : DshUi.SUCCESS());
                         fill.run();
                         host.log("上游模型目录读取完成: " + provider + "，返回 "
-                                + state.entries.size() + " 个，支持 " + available + " 个");
+                                + state.entries.size() + " 个，全部允许选择");
                     }
                 });
             }
@@ -571,19 +566,13 @@ final class ModelCenterPanel {
                                     List<LiveModelCatalog.Entry> entries, String model) {
         if (result.state == ProviderCheck.READY) {
             boolean present = ProviderCheck.contains(result, model);
-            boolean supported = LiveModelCatalog.selectable(entries, model);
-            if (present && supported) {
+            if (present) {
                 status.setText(UiText.t(
-                        "连接正常，当前模型同时存在于上游目录和本地能力目录；上游共返回 "
-                                + result.models.size() + " 个模型。",
-                        "Connected. The selected model is present upstream and supported locally; "
-                                + result.models.size() + " models were returned."));
+                        "连接正常，当前模型来自上游实时目录；共返回 "
+                                + result.models.size() + " 个模型，可直接使用。",
+                        "Connected. The selected model is in the live upstream catalog; "
+                                + result.models.size() + " models were returned and can be used."));
                 status.setTextColor(DshUi.SUCCESS());
-            } else if (present) {
-                status.setText(UiText.t(
-                        "连接正常，上游也返回了当前模型，但当前运行环境没有它的完整能力声明。",
-                        "Connected, and the model exists upstream, but this runtime lacks its capability metadata."));
-                status.setTextColor(DshUi.WARN());
             } else {
                 status.setText(UiText.t("连接正常，但服务商当前列表中没有所选模型。请重新选择。",
                         "Connected, but the selected model is not in the provider's current catalog. Choose another model."));

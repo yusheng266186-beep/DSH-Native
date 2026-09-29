@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 上游实时目录与当前运行环境能力目录的纯逻辑对齐。 */
+/** 上游实时目录与本地能力提示的纯逻辑对齐。 */
 final class LiveModelCatalog {
     private LiveModelCatalog() { }
 
@@ -26,8 +26,10 @@ final class LiveModelCatalog {
     }
 
     /**
-     * 只以上游返回的 ID 决定可见列表；本地目录只补充能力和兼容状态，
-     * 绝不能把上游没有返回的预置项混进界面。
+     * 只以上游返回的 ID 决定可见列表；本地目录只补充可选的能力提示，
+     * 绝不能把上游没有返回的预置项混进界面。上游已经返回的模型不再被
+     * 本地能力目录拦截：服务商目录是“可使用”的权威来源，能力字段只是
+     * 对图片/推理等 UI 提示的补充，不能把新模型误判成不可用。
      */
     static List<Entry> reconcile(List<String> upstream, List<ModelConfig.Model> configured) {
         Map<String, ModelConfig.Model> supported = new LinkedHashMap<String, ModelConfig.Model>();
@@ -45,7 +47,7 @@ final class LiveModelCatalog {
                 if (id.length() == 0 || result.containsKey(id)) continue;
                 ModelConfig.Model known = supported.get(id);
                 result.put(id, new Entry(id, known == null ? id : known.name,
-                        known != null, known != null && known.image,
+                        true, known != null && known.image,
                         known != null && known.reasoning));
             }
         }
@@ -76,8 +78,9 @@ final class LiveModelCatalog {
     }
 
     /**
-     * 新选择必须来自本次凭据拉到的实时目录并受当前运行环境支持。
-     * 非首次配置允许原样保存旧选择，避免临时断网把既有配置锁死。
+     * 新选择必须来自本次凭据拉到的实时目录。只要上游返回该 ID 就允许保存；
+     * 本地能力目录不再阻止使用未知的新模型。非首次配置允许原样保存旧选择，
+     * 避免临时断网把既有配置锁死。
      */
     static boolean canSave(ModelConfig.Selection baseline,
                            ModelConfig.Selection candidate,
@@ -85,7 +88,7 @@ final class LiveModelCatalog {
                            boolean catalogLoaded,
                            List<Entry> liveEntries) {
         if (candidate == null || !candidate.valid()) return false;
-        if (catalogLoaded && selectable(liveEntries, candidate.model)) return true;
+        if (catalogLoaded && contains(liveEntries, candidate.model)) return true;
         return !onboarding && !catalogLoaded && sameRoute(baseline, candidate);
     }
 

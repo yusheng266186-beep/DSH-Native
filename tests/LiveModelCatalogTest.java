@@ -26,9 +26,9 @@ public class LiveModelCatalogTest {
                 "metadata lost");
         check("upstream-only visible", LiveModelCatalog.contains(entries, "new-upstream"),
                 "missing");
-        check("upstream-only guarded", !LiveModelCatalog.selectable(entries, "new-upstream"),
-                "selectable");
-        check("selectable count", LiveModelCatalog.selectableCount(entries) == 1,
+        check("upstream-only selectable", LiveModelCatalog.selectable(entries, "new-upstream"),
+                "blocked");
+        check("all upstream entries selectable", LiveModelCatalog.selectableCount(entries) == 2,
                 String.valueOf(LiveModelCatalog.selectableCount(entries)));
 
         ModelConfig.Selection baseline = new ModelConfig.Selection(
@@ -47,8 +47,8 @@ public class LiveModelCatalogTest {
                 "accepted");
         check("onboarding requires live catalog", !LiveModelCatalog.canSave(
                 baseline, effortOnly, true, false, entries), "accepted");
-        check("unknown upstream model rejected", !LiveModelCatalog.canSave(
-                baseline, unknown, false, true, entries), "accepted");
+        check("unknown upstream model accepted", LiveModelCatalog.canSave(
+                baseline, unknown, false, true, entries), "rejected");
         check("changed route requires live catalog", !LiveModelCatalog.canSave(
                 baseline, new ModelConfig.Selection(ModelConfig.DEEPSEEK, "known", "medium"),
                 false, false, entries), "accepted");
