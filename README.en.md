@@ -4,15 +4,15 @@
 
 Run Node.js, DeepSeek Harness (DSH), and a practical development toolchain directly on Android. No Termux, no proot, and no remote execution server are required.
 
-**Current stable release: 0.30.0** (payload-v9)
+**Current stable release: 0.31.0** (payload-v9)
 
 ## Download and install
 
 Stable APK:
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.30.0-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.31.0-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
 
-SHA-256: `29f9ba3b4a99fe7d7d2dbbbeb58cd7858de85ba1b5ef3fb12354effeda884f25`
+SHA-256: `3eca32532c6bd5406e38e22a0d2badb8978fe203b6fb2d118344822bcb7001ff`
 
 Requirements:
 
