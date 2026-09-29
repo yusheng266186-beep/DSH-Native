@@ -168,8 +168,12 @@ def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
                       allow_unpublished_source: bool = False) -> list[str]:
     errors: list[str] = []
     readme = readme_path.read_text(encoding="utf-8")
-    readme_en = (readme_en_path.read_text(encoding="utf-8")
-                 if readme_en_path is not None and readme_en_path.exists() else "")
+    readme_en = ""
+    if readme_en_path is not None:
+        if readme_en_path.exists():
+            readme_en = readme_en_path.read_text(encoding="utf-8")
+        else:
+            errors.append("English README is missing")
     version = source_version()
     payload_tag = source_payload_tag()
     stable, stable_errors = validate_manifest(stable_path, payload_tag, "stable")

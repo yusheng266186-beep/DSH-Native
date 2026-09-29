@@ -353,7 +353,7 @@ if ! grep -q 'requestCatalog(act, provider, key' "$JAVA_DIR/ModelCenterPanel.jav
         || ! grep -q 'DshUi.onBack(dialog, returnToParent)' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'public static void onBack' "$JAVA_DIR/DshUi.java" \
         || ! grep -q 'DshUi.onBack(dialog' "$MAIN_ACTIVITY" \
-        || [ ! -f "$ROOT/README.en.md" ]; then
+        || { [ -f "$ROOT/README.md" ] && [ ! -f "$ROOT/README.en.md" ]; }; then
     echo "  [FAIL] 阶段五 E 实时模型目录、返回导航或英文 README 接线不完整" >&2
     rc=1
 elif grep -q 'final List<ModelConfig.Model> models = ModelConfig.modelsForProvider' \
