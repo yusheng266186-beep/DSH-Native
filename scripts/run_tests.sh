@@ -371,6 +371,19 @@ else
     echo "  Phase5ELiveCatalogWiring: upstream-only visibility / all upstream selectable / back navigation / English README"
 fi
 
+# 阶段五 G：WebUI 必须提供可见的上游模型刷新入口，保存目录后空闲 DSH
+# 需要重载运行时而不是只刷新 WebView；任务运行中不能被重启打断。
+if ! grep -q 'REFRESH_MODELS_MARKER' "$JAVA_DIR/WebToolsEntry.java" \
+        || ! grep -q '更新上游模型列表' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'restartAgent(UiText.t("正在应用上游模型目录' "$MAIN_ACTIVITY" \
+        || ! grep -q '当前任务运行中，暂不重启运行时' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 阶段五 G WebUI 模型刷新入口或运行时重载接线不完整" >&2
+    rc=1
+else
+    echo "  Phase5GModelWebUiRefresh: visible refresh entry / runtime reload / active-task guard"
+fi
+
+
 # 阶段五 D：更新前快照、失败自动回滚、诊断包分享和多设备布局必须接线。
 if ! grep -q 'createPayloadRollback' "$MAIN_ACTIVITY" \
         || ! grep -q 'restorePayloadRollback' "$MAIN_ACTIVITY" \

@@ -325,6 +325,11 @@ public class MainActivity extends Activity {
                         showSettings();
                         return true;
                     }
+                    if (m.indexOf(WebToolsEntry.REFRESH_MODELS_MARKER) >= 0) {
+                        log("WebUI / 更新模型列表：打开模型中心读取上游目录");
+                        showAccountSettings();
+                        return true;
+                    }
                     if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
                         log("分享任务已提交到 DSH");
                         finishShareTaskSubmission(
@@ -5285,21 +5290,25 @@ public class MainActivity extends Activity {
             }
 
             @Override public void refreshModelCatalog() {
+                // A plain WebView reload is not enough here: the long-lived DSH
+                // process can still hold the provider topology/model directory
+                // created at boot. Restart the idle runtime so the settings
+                // seam is read from disk before the WebUI builds its selector.
                 boolean taskActive = lastSessionStatus == SessionStatus.RUNNING
                         || lastSessionStatus == SessionStatus.AWAITING_APPROVAL
                         || taskTimeline.active() != null;
                 if (taskActive) {
-                    log("模型目录已写入 DSH；当前任务运行中，暂不刷新 WebUI");
+                    log("模型目录已写入 DSH；当前任务运行中，暂不重启运行时");
+                    toast(UiText.t("模型目录已保存，任务结束后重新打开 WebUI 即可更新",
+                            "Model catalog saved. Reopen the WebUI after the task finishes to apply it."));
                     return;
                 }
                 try {
-                    if (webView != null) {
-                        selfReloadAt = System.currentTimeMillis();
-                        webView.reload();
-                        log("模型目录已写入 DSH，正在刷新 WebUI 模型选择器");
-                    }
+                    restartAgent(UiText.t("正在应用上游模型目录…",
+                            "Applying the upstream model catalog…"));
+                    log("模型目录已写入 DSH，正在重启空闲运行时并刷新 WebUI");
                 } catch (Throwable error) {
-                    log("刷新 WebUI 模型选择器失败: " + shorten(error));
+                    log("重启 DSH 以刷新 WebUI 模型选择器失败: " + shorten(error));
                 }
             }
 
@@ -7442,7 +7451,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.31.2\n");
+            w.write("APK 版本: 0.31.3\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

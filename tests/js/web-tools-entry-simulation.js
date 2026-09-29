@@ -163,6 +163,10 @@ const document = {
       return descendants(documentElement).find((node) =>
         node.getAttribute('data-dsh-native-tools') === 'row') || null;
     }
+    if (selector === '[data-dsh-native-models="row"]') {
+      return descendants(documentElement).find((node) =>
+        node.getAttribute('data-dsh-native-models') === 'row') || null;
+    }
     return null;
   },
 };
@@ -201,14 +205,22 @@ function toolsRows() {
     node.getAttribute('data-dsh-native-tools') === 'row');
 }
 
+function modelRows() {
+  return descendants(documentElement).filter((node) =>
+    node.getAttribute('data-dsh-native-models') === 'row');
+}
+
 function runShortTimers() {
   for (const timer of timers.splice(0, timers.length)) if (timer.delay < 1000) timer.fn();
 }
 
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'one tools row should be inserted');
+assert(modelRows().length === 1, 'one model refresh row should be inserted');
 assert(tree.host.children[0].getAttribute('data-dsh-native-tools') === 'row',
   'tools row should participate in layout before Settings');
+assert(tree.host.children[1].getAttribute('data-dsh-native-models') === 'row',
+  'model refresh row should participate in layout before Settings');
 assert(toolsRows()[0].hidden === false, 'expanded sidebar should show App tools');
 let toolsButton = toolsRows()[0].children[0];
 assert(toolsButton.getAttribute('aria-label') === 'App 工具', 'Chinese label missing');
@@ -216,11 +228,15 @@ assert(toolsButton.getAttribute('aria-haspopup') === null, 'dialog state leaked 
 const click = toolsButton.dispatch('click');
 assert(click.prevented && click.stopped, 'click should stay in the native entry');
 assert(messages.includes('[dsh-native] open-settings'), 'open marker missing');
+const modelClick = modelRows()[0].children[0].dispatch('click');
+assert(modelClick.prevented && modelClick.stopped, 'model click should stay in the native entry');
+assert(messages.includes('[dsh-native] refresh-models'), 'model refresh marker missing');
 assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').length === 1,
   'ready marker should be emitted once');
 
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'repeat injection must not duplicate the row');
+assert(modelRows().length === 1, 'repeat injection must not duplicate model row');
 
 // 48px reproduces the real-device failure: the old >44px heuristic mistook
 // this collapsed control for an expanded sidebar and left the native gear active.
@@ -231,6 +247,8 @@ observerCallback();
 runShortTimers();
 assert(toolsRows().length === 0,
   'collapsed sidebar should remove the ambiguous cloned gear');
+assert(modelRows().length === 0,
+  'collapsed sidebar should remove the model refresh row');
 assert(tree.button.getAttribute('aria-haspopup') === 'dialog',
   'collapsed Settings button must remain the original WebUI action');
 const nativeOpenCount = messages.filter((item) => item === '[dsh-native] open-settings').length;
@@ -245,6 +263,8 @@ observerCallback();
 runShortTimers();
 assert(toolsRows().length === 1,
   'expanding the sidebar should restore App tools without a reload');
+assert(modelRows().length === 1,
+  'expanding the sidebar should restore the model refresh row without a reload');
 
 const next = settingsTree('en', false);
 tree.host.children = [];
@@ -254,6 +274,7 @@ tree = { host: tree.host, row: next.row, button: next.button };
 observerCallback();
 runShortTimers();
 assert(toolsRows().length === 1, 'React-style rerender should restore one row');
+assert(modelRows().length === 1, 'React-style rerender should restore the model row');
 toolsButton = toolsRows()[0].children[0];
 assert(toolsButton.getAttribute('aria-label') === 'App tools', 'English label missing');
 assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').length === 1,
