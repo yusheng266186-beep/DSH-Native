@@ -385,4 +385,4 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 - 改变任一服务商密钥必须废弃该服务商内存目录；异步回调必须继续检查 Dialog 生命周期与 generation/revision；
 - 模型中心、设置首页及核心子页使用 `DshUi.onBack(...)`，按钮和系统返回手势必须到同一父级，外侧点击不得静默丢失导航上下文；
 - `README.md` 与 `README.en.md` 是对外入口。新增用户功能时同步维护两份，不要再次留下只写中文的使用说明；
-- 本轮没有改变 0.30.0 正式版清单，也不授权直接发布。完成 Android CI 与真机验收后再决定版本号、合并和发布。
+- 阶段五 E 的正式版本为 `0.31.0`。用户已明确要求今后每轮修改完成后直接递增版本号并发布 stable；仍须先通过完整 Android CI，再合并 main，并通过 `release.yml` / `scripts/release.sh` 完成签名、资产、双下载路径和稳定清单校验。
