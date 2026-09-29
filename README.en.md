@@ -52,7 +52,7 @@ Two provider routes are available:
 
 The picker no longer presents a bundled preset as the provider's model list. It displays only model IDs returned by the current upstream response. Discovery reads the catalog only: it sends no prompt and makes no billed generation request.
 
-DSH still needs trustworthy declarations for image input, context size, and reasoning support. When upstream returns a new model that the installed runtime cannot describe safely, the picker shows the model and the reason it is dimmed, but does not mislabel it as usable. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
+The upstream catalog is authoritative for model IDs: every model returned by the provider's current `/models` response can be selected and saved, even when the bundled capability hints have not caught up yet. Image-input and reasoning labels are shown only when the installed runtime knows them; missing labels never block a model. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
 
 Model center also supports:
 
@@ -174,7 +174,7 @@ release-notes/           Published release notes
 - Only ARM64 builds are currently provided.
 - First installation requires a network connection to download the runtime.
 - `targetSdk 28` is required by the current private-directory execution design; a long-term migration needs `nativeLibraryDir` or another supported architecture.
-- Upstream `/models` responses usually expose IDs, not full image, context, and reasoning capabilities. New models without installed capability metadata are visible but are not falsely marked usable.
+- Upstream `/models` responses usually expose IDs, not full image, context, and reasoning capabilities. Every ID returned by the live response is selectable; missing local capability metadata only hides the corresponding image/reasoning hint and never blocks use.
 - The large Office-to-PDF conversion engine is not bundled to keep runtime size manageable.
 - Runtime restore rolls back DSH and its tools, not the Android APK.
 

@@ -346,10 +346,12 @@ else
     echo "  Phase5CModelOnboardingWiring: read-only check / project override / resumable onboarding"
 fi
 
-# 阶段五 E：模型选择器的可见列表必须来自本次上游响应；本地目录只能做
-# 能力对齐。模型中心和设置子页的 Android 返回手势必须复用父级导航。
+# 阶段五 E：模型选择器的可见列表和可选性必须来自本次上游响应；本地目录只能做
+# 能力提示。模型中心和设置子页的 Android 返回手势必须复用父级导航。
 if ! grep -q 'requestCatalog(act, provider, key' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'LiveModelCatalog.reconcile' "$JAVA_DIR/ModelCenterPanel.java" \
+        || ! grep -q 'true, known != null && known.image' "$JAVA_DIR/LiveModelCatalog.java" \
+        || grep -q 'setEnabled(item.selectable)' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'DshUi.onBack(dialog, returnToParent)' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'public static void onBack' "$JAVA_DIR/DshUi.java" \
         || ! grep -q 'DshUi.onBack(dialog' "$MAIN_ACTIVITY" \
@@ -361,7 +363,7 @@ elif grep -q 'final List<ModelConfig.Model> models = ModelConfig.modelsForProvid
     echo "  [FAIL] 模型选择器不得重新使用本地预设作为可见列表" >&2
     rc=1
 else
-    echo "  Phase5ELiveCatalogWiring: upstream-only visibility / capability gate / back navigation / English README"
+    echo "  Phase5ELiveCatalogWiring: upstream-only visibility / all upstream selectable / back navigation / English README"
 fi
 
 # 阶段五 D：更新前快照、失败自动回滚、诊断包分享和多设备布局必须接线。
