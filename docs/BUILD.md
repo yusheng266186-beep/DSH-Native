@@ -58,7 +58,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 1.   收集 APK 内置负载（node + lib/*.so + 引导脚本）
 2.   aapt2 compile/link 编译资源，导出资源 id
 3.   mkmanifest.py 手写二进制 AndroidManifest.xml（注入资源 id）
-3.4  run_tests.sh —— 1036 项纯逻辑断言 + 17 项入口 DOM 模拟
+3.4  run_tests.sh —— 1049 项纯逻辑断言 + 17 项入口 DOM 模拟
       + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟                   ← 失败则中止
 3.45 架构约束检查：纯逻辑层不得 import android.  ← 失败则中止
 3.5  UI 规范检查：不得使用 AlertDialog.Builder   ← 失败则中止
@@ -85,7 +85,7 @@ env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" link ...
 
 | 步骤 | 检查什么 | 为什么 |
 |---|---|---|
-| 3.4 | 1036 项纯逻辑断言 + 17 项入口 DOM 模拟 + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟 + 运行环境快照/恢复模拟 | 没有真机调试回路，测试是主要自动验证手段 |
+| 3.4 | 1049 项纯逻辑断言 + 17 项入口 DOM 模拟 + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟 + 运行环境快照/恢复模拟 | 没有真机调试回路，测试是主要自动验证手段 |
 | 3.45 | 纯逻辑层无 Android 依赖 | 否则测试跑不起来，「纯逻辑层」会慢慢失效 |
 | 3.5 | 不用系统 AlertDialog | 保证 UI 风格统一（走 `DshUi`） |
 

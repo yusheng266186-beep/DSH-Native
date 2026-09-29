@@ -4,12 +4,12 @@
 
 | 脚本 | 克隆里能跑吗 | 说明 |
 |---|---|---|
-| `run_tests.sh` | **能** | 1036 项纯逻辑断言 + 17 项入口 DOM 模拟 + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟，并真实模拟运行环境快照/恢复，依赖 JDK 与 Node。接手第一步就跑这个 |
+| `run_tests.sh` | **能** | 1049 项纯逻辑断言 + 17 项入口 DOM 模拟 + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟，并真实模拟运行环境快照/恢复，依赖 JDK 与 Node。接手第一步就跑这个 |
 | `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
 | `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
 | `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
 | `bump_version.sh` | 能 | 提升版本号（从源码读当前值，不失配）|
-| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步稳定/测试清单；稳定发布同时同步 README |
+| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步稳定/测试清单；稳定发布同时同步中英文 README |
 | `mkmanifest.py` | 需要构建工作区 | 手写二进制 AndroidManifest.xml |
 | `mkzip.py` | 需要构建工作区的产物 | 组装 APK |
 | `make_payload_parts.py` | 需要工具链目录 | 重建运行包分片 |

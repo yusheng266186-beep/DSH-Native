@@ -123,6 +123,10 @@ bootstrap/src/dev/dsh/nativeapp/
 ├── ShareTask.java         分享导入后的任务提示词与网页提交脚本
 ├── PluginPermissions.java 插件能力披露与版本指纹授权
 ├── ReleaseChannel.java    稳定/测试通道清单和标签规则
+├── ModelConfig.java       模型与凭据配置的定点读写
+├── ProviderCheck.java     两个服务商只读模型目录的端点、解析与状态分类
+├── LiveModelCatalog.java  上游可见目录与本地能力声明的安全对齐
+├── ProjectModelSettings.java 全局模型与项目覆盖的持久化
 │
 │  ── UI 层 ──
 ├── DshUi.java             设计系统：颜色、卡片、按钮、对话框、通知渠道

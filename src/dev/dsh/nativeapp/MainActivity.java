@@ -5043,6 +5043,7 @@ public class MainActivity extends Activity {
                     });
                 }
             });
+            DshUi.onBack(dialog, null);
             dialog.show();
         } catch (Throwable t) {
             log("错误: 打开工具与设置失败: " + t);
@@ -5099,6 +5100,9 @@ public class MainActivity extends Activity {
                 try { webView.evaluateJavascript(SessionOrganizer.showArchivedScript(), null); }
                 catch (Throwable t) { toast(UiText.t("归档入口暂不可用", "Archive view is unavailable")); }
             }
+        });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
         });
         dialog.show();
     }
@@ -5217,6 +5221,9 @@ public class MainActivity extends Activity {
                 timer.removeCallbacks(tick);
             }
         });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
+        });
         dialog.show();
         timer.postDelayed(tick, 1000L);
     }
@@ -5298,9 +5305,11 @@ public class MainActivity extends Activity {
         android.widget.LinearLayout body = DshUi.paddedBody(this);
         body.addView(DshUi.title(this,
                 UiText.t("显示与语言", "Display & language")));
-        body.addView(DshUi.sectionLabel(this, "界面语言"), DshUi.fullWidth(this, 12));
-        body.addView(DshUi.hint(this,
-                "原生工具界面使用此语言；DSH 网页语言可在网页设置中单独调整。"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("界面语言", "Interface language")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "原生工具界面使用此语言；DSH 网页语言可在网页设置中单独调整。",
+                "This controls the native tools. Change the DSH web language separately in web settings.")),
                 DshUi.fullWidth(this, 5));
 
         final String[] choice = { uiLanguagePreference() };
@@ -5309,9 +5318,11 @@ public class MainActivity extends Activity {
         fillLanguageRow(languageRow, choice);
         body.addView(languageRow, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "显示缩放"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this,
-                "界面会按手机、横屏和平板宽度响应式适配；文字偏小可在此放大（立即生效）"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("显示缩放", "Display scale")), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, UiText.t(
+                "界面会按手机、横屏和平板宽度响应式适配；文字偏小可在此放大（立即生效）",
+                "The layout adapts to phones, landscape, and tablets. Increase text size here; changes apply immediately.")),
                 DshUi.fullWidth(this, 6));
         android.widget.LinearLayout zoomRow = new android.widget.LinearLayout(this);
         zoomRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -5336,6 +5347,9 @@ public class MainActivity extends Activity {
                 toast(UiText.t("语言已切换", "Language changed"));
                 showSettings();
             }
+        });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
         });
         dialog.show();
     }
@@ -5366,13 +5380,18 @@ public class MainActivity extends Activity {
         body.addView(DshUi.title(this,
                 UiText.t("更新与维护", "Updates & maintenance")));
         final android.widget.TextView status =
-                DshUi.status(this, "当前 App 版本 " + appVersion());
+                DshUi.status(this, UiText.t("当前 App 版本 ", "Current app version ")
+                        + appVersion());
         body.addView(status, DshUi.fullWidth(this, 6));
 
-        body.addView(DshUi.sectionLabel(this, "更新通道"), DshUi.fullWidth(this, 18));
-        body.addView(DshUi.hint(this,
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("更新通道", "Update channel")), DshUi.fullWidth(this, 18));
+        body.addView(DshUi.hint(this, UiText.t(
                 "此选项只决定检查哪个更新源，不代表当前安装包类型。稳定版只接收正式发布；"
-                        + "测试版可提前安装新功能。当前安装包：" + appVersion()),
+                        + "测试版可提前安装新功能。当前安装包：" + appVersion(),
+                "This selects which update feed to check; it does not describe the installed build. "
+                        + "Stable receives public releases, while Test can receive previews. Installed build: "
+                        + appVersion())),
                 DshUi.fullWidth(this, 5));
         final android.widget.LinearLayout channelRow = new android.widget.LinearLayout(this);
         channelRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
@@ -5380,7 +5399,8 @@ public class MainActivity extends Activity {
         body.addView(channelRow, DshUi.fullWidth(this, 8));
 
         final android.widget.Button payload =
-                DshUi.button(this, "更新运行包（DSH / 工具链）", false);
+                DshUi.button(this, UiText.t("更新运行包（DSH / 工具链）",
+                        "Update runtime (DSH / toolchain)"), false);
         payload.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 log("用户点击: 更新运行包"); updatePayloadNow(status, payload);
@@ -5393,7 +5413,8 @@ public class MainActivity extends Activity {
                         ? "。自动更新已暂缓，手动更新成功后会解除。" : ""));
         body.addView(rollbackInfo, DshUi.fullWidth(this, 8));
         final android.widget.Button rollback =
-                DshUi.button(this, "恢复上一运行环境", false);
+                DshUi.button(this, UiText.t("恢复上一运行环境",
+                        "Restore previous runtime"), false);
         final boolean rollbackAvailable = appRoot != null
                 && readPayloadRollback(appRoot, false) != null;
         rollback.setEnabled(rollbackAvailable);
@@ -5401,10 +5422,13 @@ public class MainActivity extends Activity {
         rollback.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 if (!rollbackAvailable) return;
-                DshUi.confirm(MainActivity.this, "恢复上一运行环境？",
-                        "仅恢复 DSH 与工具链，不改动会话、账户密钥、项目文件或 App。"
-                                + "恢复后会重启服务，并暂缓自动更新，直到你手动重试。",
-                        "恢复并重启", new Runnable() {
+                DshUi.confirm(MainActivity.this,
+                        UiText.t("恢复上一运行环境？", "Restore the previous runtime?"),
+                        UiText.t("仅恢复 DSH 与工具链，不改动会话、账户密钥、项目文件或 App。"
+                                        + "恢复后会重启服务，并暂缓自动更新，直到你手动重试。",
+                                "Only DSH and its toolchain are restored. Sessions, account keys, project files, and the app are unchanged. "
+                                        + "The service restarts and automatic runtime updates pause until you retry manually."),
+                        UiText.t("恢复并重启", "Restore & restart"), new Runnable() {
                             @Override public void run() {
                                 log("用户确认: 恢复上一运行环境");
                                 restorePayloadNow(status, rollback);
@@ -5414,7 +5438,8 @@ public class MainActivity extends Activity {
         });
         body.addView(rollback, DshUi.fullWidth(this, 8));
         final android.widget.Button app =
-                DshUi.button(this, "检查 App 更新并安装", false);
+                DshUi.button(this, UiText.t("检查 App 更新并安装",
+                        "Check and install app update"), false);
         app.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 log("用户点击: 检查 App 更新"); checkAppUpdate(true, status, app);
@@ -5422,7 +5447,8 @@ public class MainActivity extends Activity {
         });
         body.addView(app, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "维护状态"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("维护状态", "Maintenance status")), DshUi.fullWidth(this, 22));
         android.widget.TextView patch = DshUi.hint(this, "");
         patch.setText(buildPatchReport());
         body.addView(patch, DshUi.fullWidth(this, 6));
@@ -5437,6 +5463,9 @@ public class MainActivity extends Activity {
                 });
             }
         });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
+        });
         dialog.show();
     }
 
@@ -5445,7 +5474,7 @@ public class MainActivity extends Activity {
         row.removeAllViews();
         String current = updateChannelPreference();
         String[] values = { ReleaseChannel.STABLE, ReleaseChannel.TEST };
-        String[] labels = { "稳定版", "测试版" };
+        String[] labels = { UiText.t("稳定版", "Stable"), UiText.t("测试版", "Test") };
         for (int i = 0; i < values.length; i++) {
             final String value = values[i];
             android.widget.Button button = DshUi.toggleButton(this, labels[i],
@@ -5456,8 +5485,10 @@ public class MainActivity extends Activity {
                     setUpdateChannelPreference(value);
                     fillUpdateChannelRow(row, status);
                     DshUi.animateChoiceChange(row);
-                    setStatus(status, "已切换到" + ReleaseChannel.label(value)
-                            + "，下次检查立即生效");
+                    setStatus(status, UiText.t(
+                            "已切换到" + ReleaseChannel.label(value) + "，下次检查立即生效",
+                            "Switched to " + (ReleaseChannel.TEST.equals(value) ? "Test" : "Stable")
+                                    + "; the next check uses this channel."));
                 }
             });
             addEqualButton(row, button, i == 0 ? 0 : 6);
@@ -5494,19 +5525,26 @@ public class MainActivity extends Activity {
         body.addView(DshUi.title(this,
                 UiText.t("数据与扩展", "Data & extensions")));
 
-        body.addView(DshUi.sectionLabel(this, "项目与工作区"), DshUi.fullWidth(this, 12));
-        body.addView(DshUi.hint(this,
-                "当前：" + WorkspaceProjects.displayName(activeProjectName())
-                        + "。每个项目使用独立工作目录，切换时会重启 agent。"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("项目与工作区", "Projects & workspace")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "当前：" + UiText.text(WorkspaceProjects.displayName(activeProjectName()))
+                        + "。每个项目使用独立工作目录，切换时会重启 agent。",
+                "Current: " + UiText.text(WorkspaceProjects.displayName(activeProjectName()))
+                        + ". Each project has its own working directory; switching restarts the agent.")),
                 DshUi.fullWidth(this, 6));
-        final android.widget.Button projects = DshUi.button(this, "管理项目", false);
+        final android.widget.Button projects = DshUi.button(this,
+                UiText.t("管理项目", "Manage projects"), false);
         body.addView(projects, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "文件"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this,
-                "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("文件", "Files")), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, UiText.t(
+                "浏览应用私有目录、工作区与共享存储；文本文件可直接编辑",
+                "Browse app storage, workspaces, and shared storage; edit text files directly.")),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button files = DshUi.button(this, "浏览文件", false);
+        android.widget.Button files = DshUi.button(this,
+                UiText.t("浏览文件", "Browse files"), false);
         files.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 FileBrowser.show(MainActivity.this, appRoot);
@@ -5514,11 +5552,14 @@ public class MainActivity extends Activity {
         });
         body.addView(files, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "配置备份"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this,
-                "把账户密钥与模型配置导出到共享存储；重装或换机后可恢复"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("配置备份", "Configuration backup")), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, UiText.t(
+                "把账户密钥与模型配置导出到共享存储；重装或换机后可恢复",
+                "Export encrypted account and model settings for reinstall or device migration.")),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button backup = DshUi.button(this, "备份与恢复", false);
+        android.widget.Button backup = DshUi.button(this,
+                UiText.t("备份与恢复", "Backup & restore"), false);
         backup.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 ConfigBackupPanel.show(MainActivity.this, appRoot, dshHome);
@@ -5526,16 +5567,20 @@ public class MainActivity extends Activity {
         });
         body.addView(backup, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "插件"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this,
-                "启用内置插件，或从 npm 安装社区插件（重启后生效）"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("插件", "Plugins")), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, UiText.t(
+                "启用内置插件，或从 npm 安装社区插件（重启后生效）",
+                "Enable built-in plugins or install community plugins from npm. Restart to apply changes.")),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button plugins = DshUi.button(this, "管理插件", false);
+        android.widget.Button plugins = DshUi.button(this,
+                UiText.t("管理插件", "Manage plugins"), false);
         final File pluginDshDir = dshDirRef;
         plugins.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 if (pluginDshDir == null || toolsDirRef == null || nodeRef == null) {
-                    toast("运行环境尚未就绪，请稍后再试");
+                    toast(UiText.t("运行环境尚未就绪，请稍后再试",
+                            "The runtime is not ready yet. Try again shortly."));
                     return;
                 }
                 PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
@@ -5568,7 +5613,7 @@ public class MainActivity extends Activity {
                 File availableRoot = workspaceRoot != null
                         ? workspaceRoot : resolveWorkspaceRoot();
                 if (availableRoot == null) {
-                    toast("工作区不可用");
+                    toast(UiText.t("工作区不可用", "Workspace unavailable"));
                     return;
                 }
                 DshUi.swapDialog(dialog, false, new Runnable() {
@@ -5583,35 +5628,47 @@ public class MainActivity extends Activity {
                 });
             }
         });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
+        });
         dialog.show();
     }
 
     private void showWorkspaceProjects() {
         final File root = workspaceRoot != null ? workspaceRoot : resolveWorkspaceRoot();
         if (root == null) {
-            toast("工作区不可用");
+            toast(UiText.t("工作区不可用", "Workspace unavailable"));
             return;
         }
         workspaceRoot = root;
         android.widget.LinearLayout body = DshUi.paddedBody(this);
-        body.addView(DshUi.title(this, "项目与工作区"));
-        body.addView(DshUi.hint(this,
+        body.addView(DshUi.title(this,
+                UiText.t("项目与工作区", "Projects & workspace")));
+        body.addView(DshUi.hint(this, UiText.t(
                 "命名项目保存在工作区的 projects 目录。默认工作区保留原有文件，"
-                        + "不会自动迁移或删除。"), DshUi.fullWidth(this, 5));
+                        + "不会自动迁移或删除。",
+                "Named projects are stored under the workspace's projects directory. "
+                        + "Existing files remain in the default workspace and are never moved or deleted automatically.")),
+                DshUi.fullWidth(this, 5));
 
-        body.addView(DshUi.sectionLabel(this, "新建项目"), DshUi.fullWidth(this, 18));
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("新建项目", "New project")), DshUi.fullWidth(this, 18));
         final android.widget.EditText name = DshUi.input(this, "", false);
-        name.setHint("例如：语文备课、南溟项目");
+        name.setHint(UiText.t("例如：语文备课、南溟项目",
+                "For example: Lesson plans or My project"));
         name.setSingleLine(true);
         body.addView(name, DshUi.fullWidth(this, 6));
-        final android.widget.Button create = DshUi.button(this, "新建并切换", true);
+        final android.widget.Button create = DshUi.button(this,
+                UiText.t("新建并切换", "Create & switch"), true);
         body.addView(create, DshUi.fullWidth(this, 6));
 
-        body.addView(DshUi.sectionLabel(this, "已有项目"), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("已有项目", "Existing projects")), DshUi.fullWidth(this, 22));
         final android.widget.LinearLayout list = new android.widget.LinearLayout(this);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         body.addView(list, DshUi.fullWidth(this, 6));
-        android.widget.Button browse = DshUi.button(this, "浏览当前项目", false);
+        android.widget.Button browse = DshUi.button(this,
+                UiText.t("浏览当前项目", "Browse current project"), false);
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, browse, back), 680);
@@ -5632,17 +5689,23 @@ public class MainActivity extends Activity {
             @Override public void onClick(android.view.View v) {
                 String normalized = WorkspaceProjects.normalize(name.getText().toString());
                 if (normalized == null || normalized.length() == 0) {
-                    toast("项目名需为 1 至 48 个字符，且不能包含路径符号");
+                    toast(UiText.t("项目名需为 1 至 48 个字符，且不能包含路径符号",
+                            "Use 1–48 characters and no path separators."));
                     return;
                 }
                 if (!WorkspaceProjects.create(root, normalized)) {
-                    toast("无法创建项目目录");
+                    toast(UiText.t("无法创建项目目录",
+                            "Could not create the project directory."));
                     return;
                 }
-                requestWorkspaceProjectSwitch(normalized, dialog, create, "新建并切换");
+                requestWorkspaceProjectSwitch(normalized, dialog, create,
+                        UiText.t("新建并切换", "Create & switch"));
             }
         });
         fillWorkspaceProjectList(list, root, dialog);
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showDataSettings(); }
+        });
         dialog.show();
     }
 
@@ -5667,7 +5730,7 @@ public class MainActivity extends Activity {
         row.addView(label, new android.widget.LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         android.widget.Button button = DshUi.toggleButton(this,
-                active ? "正在使用" : "切换", active);
+                active ? UiText.t("正在使用", "Active") : UiText.t("切换", "Switch"), active);
         button.setEnabled(!active);
         android.widget.Button modelButton = DshUi.button(this,
                 UiText.t("模型", "Model"), false);
@@ -5687,7 +5750,8 @@ public class MainActivity extends Activity {
         });
         button.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                requestWorkspaceProjectSwitch(project, dialog, switchButton, "切换");
+                requestWorkspaceProjectSwitch(project, dialog, switchButton,
+                        UiText.t("切换", "Switch"));
             }
         });
         row.addView(button, new android.widget.LinearLayout.LayoutParams(
@@ -5699,13 +5763,14 @@ public class MainActivity extends Activity {
                                                final android.app.Dialog origin,
                                                final android.widget.Button button,
                                                final String idleLabel) {
-        DshUi.setBusy(button, idleLabel, "切换中…", true);
+        DshUi.setBusy(button, idleLabel, UiText.t("切换中…", "Switching…"), true);
         final Runnable apply = new Runnable() {
             @Override public void run() {
                 if (!applyProjectModelConfig(project)) {
                     toast(UiText.t("无法应用项目模型配置，项目未切换",
                             "Could not apply the project model; the project was not switched."));
-                    DshUi.setBusy(button, idleLabel, "切换中…", false);
+                    DshUi.setBusy(button, idleLabel,
+                            UiText.t("切换中…", "Switching…"), false);
                     return;
                 }
                 if (origin != null) origin.dismiss();
@@ -5717,14 +5782,18 @@ public class MainActivity extends Activity {
         };
         final Runnable cancel = new Runnable() {
             @Override public void run() {
-                DshUi.setBusy(button, idleLabel, "切换中…", false);
+                DshUi.setBusy(button, idleLabel,
+                        UiText.t("切换中…", "Switching…"), false);
             }
         };
         if (lastSessionStatus == SessionStatus.RUNNING
                 || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
-            DshUi.confirm(this, "切换项目会中断当前任务",
-                    "agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
-                    "切换并重启", apply, cancel);
+            DshUi.confirm(this,
+                    UiText.t("切换项目会中断当前任务",
+                            "Switching projects interrupts the current task"),
+                    UiText.t("agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
+                            "The agent must restart to use the new working directory. The running task will be interrupted. Continue?"),
+                    UiText.t("切换并重启", "Switch & restart"), apply, cancel);
         } else {
             apply.run();
         }
@@ -5735,16 +5804,20 @@ public class MainActivity extends Activity {
         body.addView(DshUi.title(this,
                 UiText.t("诊断与日志", "Diagnostics & logs")));
 
-        android.widget.Button logButton = DshUi.button(this, "查看运行日志", false);
+        android.widget.Button logButton = DshUi.button(this,
+                UiText.t("查看运行日志", "View runtime log"), false);
         logButton.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) { showLog(); }
         });
         body.addView(logButton, DshUi.fullWidth(this, 12));
-        body.addView(DshUi.hint(this,
+        body.addView(DshUi.hint(this, UiText.t(
                 "诊断包包含设备、布局、网络、通知、运行环境与回滚状态，以及脱敏后的"
-                        + "最近日志；不会包含凭据、会话正文、附件或项目文件。"),
+                        + "最近日志；不会包含凭据、会话正文、附件或项目文件。",
+                "The diagnostic bundle includes device, layout, network, notification, runtime, rollback, "
+                        + "and redacted recent-log details. It excludes credentials, session content, attachments, and project files.")),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button export = DshUi.button(this, "导出诊断包", false);
+        android.widget.Button export = DshUi.button(this,
+                UiText.t("导出诊断包", "Export diagnostic bundle"), false);
         export.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 log("用户点击: 导出诊断包"); exportDiagnostics();
@@ -5752,11 +5825,14 @@ public class MainActivity extends Activity {
         });
         body.addView(export, DshUi.fullWidth(this, 8));
 
-        body.addView(DshUi.sectionLabel(this, "网络"), DshUi.fullWidth(this, 22));
-        body.addView(DshUi.hint(this,
-                "检测更新功能依赖的各个源是否可用（直连与镜像分开报告）"),
+        body.addView(DshUi.sectionLabel(this,
+                UiText.t("网络", "Network")), DshUi.fullWidth(this, 22));
+        body.addView(DshUi.hint(this, UiText.t(
+                "检测更新功能依赖的各个源是否可用（直连与镜像分开报告）",
+                "Check every update source and report direct and mirror connectivity separately.")),
                 DshUi.fullWidth(this, 6));
-        android.widget.Button network = DshUi.button(this, "网络诊断", false);
+        android.widget.Button network = DshUi.button(this,
+                UiText.t("网络诊断", "Network diagnostics"), false);
         network.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 NetworkDiag.show(MainActivity.this, apkDownloadUrl());
@@ -5773,6 +5849,9 @@ public class MainActivity extends Activity {
                     @Override public void run() { showSettings(); }
                 });
             }
+        });
+        DshUi.onBack(dialog, new Runnable() {
+            @Override public void run() { showSettings(); }
         });
         dialog.show();
     }
