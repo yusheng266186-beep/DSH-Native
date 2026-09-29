@@ -4,15 +4,15 @@
 
 把 Node.js 运行时、DeepSeek Harness（DSH）和常用开发工具直接带到 Android。无需 Termux、无需 proot，也不需要把项目交给远程服务器执行。
 
-**当前版本：0.31.1**（payload-v9）
+**当前版本：0.31.2**（payload-v9）
 
 ## 下载与安装
 
 正式版 APK：
 
-**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.31.1-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
+**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.31.2-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
 
-SHA-256：`37b2400e5c16c24b606dc10b1b44a79e4ca0d5e1d6f68ba6c9850a5b63505aa0`
+SHA-256：`8246f522882ea19765883ea8a261e5be76af9c19db94c7a931bf5d646570355f`
 
 要求：
 
