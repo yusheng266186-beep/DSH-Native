@@ -15,7 +15,7 @@ PY
 )"
 gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
     --pattern dsh.tar.zst --pattern SHA256SUMS.txt --dir "$PROBE"
-(cd "$PROBE"; awk '$2 == "dsh.tar.zst" || $2 == "*dsh.tar.zst"' SHA256SUMS.txt > dsh.sha256;
+(cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
     test -s dsh.sha256; sha256sum -c dsh.sha256)
 mkdir "$PROBE/runtime" "$PROBE/classes"
 tar --zstd -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
