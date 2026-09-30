@@ -52,9 +52,9 @@ SHA-256：`aa6043a057fe1688cdebd5a57a3a392c510de32aad1515d40b1409ede958437c`
 
 模型选择器不再把 App 内置预设直接当作服务商列表。它只展示本次上游响应中实际返回的模型 ID；读取仅请求模型目录，不发送提示词，也不会产生模型生成费用。
 
-上游目录是模型 ID 的权威来源：只要服务商在本次 `/models` 响应中返回，模型中心就允许直接选择和保存，不会因为本地能力目录尚未更新而禁用新模型。图片输入和思考能力标签仅在本地有声明时显示，缺少标签不会阻止使用。当前已保存的模型在临时断网时仍可原样保留；首次配置或切换到新模型必须完成一次实时目录读取。
+上游目录是模型 ID 的权威来源：只要服务商在本次 `/models` 响应中返回，模型中心就允许直接选择和保存，不会因为本地能力目录尚未更新而禁用新模型。视觉能力优先读取上游结构化声明，再使用已有配置提示；图片、仅文字和未知分别标注，未知能力不会阻止选择模型。当前已保存的模型在临时断网时仍可原样保留；首次配置或切换到新模型必须完成一次实时目录读取。
 
-保存模型时，App 会把本次成功读取的完整上游目录同步写入 DSH 的实际 provider catalog：Command Code 写入 `llm-pi-ai.providers.commandcode.models`，DeepSeek 官方直连写入 `llm-deepseek-api-key.models`。默认模型选择和 WebUI 模型选择器因此使用同一份数据；保存后会刷新 WebUI（任务运行中则等任务结束，避免打断页面）。同步目录带有内部标记，后续 App 升级合并静态传输配置时不会把旧预设模型重新覆盖回来。
+点击“更新模型列表”会直接把已配置服务商成功返回的完整上游目录同步写入 DSH 的实际 provider catalog，无须修改默认模型或再次保存：Command Code 写入 `llm-pi-ai.providers.commandcode.models`，DeepSeek 官方直连写入 `llm-deepseek-api-key.models`。DSH 与原生模型中心使用同一份模型目录；空闲时自动应用并刷新 WebUI，运行中或状态未知时先保存，确认空闲后自动应用。改变默认模型仍需选择并保存。同步目录带有内部标记，后续 App 升级合并静态传输配置时不会把旧预设模型重新覆盖回来。
 
 模型中心还支持：
 
@@ -176,7 +176,7 @@ release-notes/           已发布版本说明
 - 当前仅提供 ARM64 构建。
 - 首次安装必须联网下载运行包。
 - `targetSdk 28` 是现有私有目录执行方案的约束；长期需要迁移到 `nativeLibraryDir` 或其他受支持架构。
-- 上游 `/models` 通常只返回 ID，不提供完整图片、上下文和推理能力；未经当前运行环境声明的新模型会显示但不会被误标为可用。
+- 上游 `/models` 通常只返回 ID，不提供完整图片、上下文和推理能力；缺少视觉声明的新模型仍可使用，但不会被误标为支持图片。
 - 上游未提供能力字段的模型会以安全的文本基础能力写入 DSH；它们仍可直接选择和发起新会话，图片/思考提示仅在 App 已有可靠声明时显示。
 - Office 到 PDF 的大型转换引擎未打包，以控制运行包体积。
 - 运行环境恢复只恢复 DSH 与工具链，不是 APK 降级。
@@ -204,3 +204,4 @@ release-notes/           已发布版本说明
 - DeepSeek Harness：<https://github.com/deepseek-ai/deepseek-harness>
 - Termux：<https://github.com/termux/termux-app>
 - Android 10 行为变更：<https://developer.android.com/about/versions/10/behavior-changes-10>
+

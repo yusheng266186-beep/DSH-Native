@@ -52,12 +52,21 @@ final class ModelConfig {
         final String name;
         final boolean image;
         final boolean reasoning;
+        final boolean imageKnown;
+        final String details;
 
         Model(String id, String name, boolean image, boolean reasoning) {
+            this(id, name, image, reasoning, true, "");
+        }
+
+        Model(String id, String name, boolean image, boolean reasoning,
+              boolean imageKnown, String details) {
             this.id = id;
             this.name = name == null || name.length() == 0 ? id : name;
             this.image = image;
             this.reasoning = reasoning;
+            this.imageKnown = imageKnown;
+            this.details = details == null ? "" : details;
         }
     }
 
@@ -114,8 +123,8 @@ final class ModelConfig {
             List<Model> configured = ModelCatalogSync.readModels(direct);
             if (!configured.isEmpty()) return configured;
             List<Model> out = new ArrayList<Model>();
-            out.add(new Model("deepseek-v4-flash", "DeepSeek V4 Flash", true, true));
-            out.add(new Model("deepseek-v4-pro", "DeepSeek V4 Pro", true, true));
+            out.add(new Model("deepseek-flash", "DeepSeek V41 Flash", true, true));
+            out.add(new Model("deepseek-v4-pro", "DeepSeek V4 Pro", false, true));
             return out;
         }
         String llm = topLevelBlock(yaml, "llm-pi-ai");
@@ -146,6 +155,8 @@ final class ModelConfig {
             String name = id;
             boolean image = false;
             boolean reasoning = false;
+            boolean imageKnown = false;
+            StringBuilder details = new StringBuilder();
             int j = i + 1;
             for (; j < lines.length; j++) {
                 String next = lines[j];
@@ -153,11 +164,13 @@ final class ModelConfig {
                 int ni = indent(next);
                 if (nt.length() > 0 && ni <= providerIndent) break;
                 if (ni == itemIndent && nt.startsWith("- id:")) break;
+                details.append(next.substring(Math.min(next.length(), itemIndent + 2))).append('\n');
                 if (nt.startsWith("name:")) name = unquote(nt.substring(5).trim());
+                if (nt.startsWith("input:")) imageKnown = true;
                 if (nt.startsWith("input:") && nt.toLowerCase(Locale.ROOT).contains("image")) image = true;
                 if (nt.startsWith("reasoningEfforts:")) reasoning = !nt.endsWith("false");
             }
-            result.add(new Model(id, name, image, reasoning));
+            result.add(new Model(id, name, image, reasoning, imageKnown, details.toString()));
             i = j - 1;
         }
         return result;

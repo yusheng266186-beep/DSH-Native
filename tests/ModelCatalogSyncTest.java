@@ -67,6 +67,53 @@ public class ModelCatalogSyncTest {
         check("preset merge keeps live marker", merged.contains(
                 ModelCatalogSync.LIVE_MARKER_PREFIX + ModelConfig.COMMAND_CODE), mergedOneLine);
 
+        String richBase = base.replace("- id: old\n          name: Old\n",
+                "- id: old\n          name: Old\n          contextWindow: 1000000\n"
+                + "          maxTokens: 32000\n          input: [ text, image ]\n"
+                + "          reasoningEfforts: { off: null, high: high, max: ultra }\n"
+                + "          compat:\n            supportsReasoningEffort: true\n");
+        ProviderCheck.Result remote = ProviderCheck.classify(200,
+                "{\"data\":[{\"id\":\"old\",\"vision\":false,\"context_length\":1048576},"
+                + "{\"id\":\"fresh-vision\",\"input_modalities\":[\"text\",\"image\"]},"
+                + "{\"id\":\"unknown-new\"}]}");
+        List<LiveModelCatalog.Entry> aligned = LiveModelCatalog.reconcile(remote,
+                ModelConfig.modelsForProvider(richBase, ModelConfig.COMMAND_CODE));
+        String rich = ModelCatalogSync.writeLiveCatalog(richBase, ModelConfig.COMMAND_CODE, aligned);
+        check("local token limit retained", rich.contains("maxTokens: 32000"), rich);
+        check("upstream token limit overrides", rich.contains("contextWindow: 1048576")
+                && !rich.contains("contextWindow: 1000000"), rich);
+        check("reasoning wire mapping retained", rich.contains("max: ultra"), rich);
+        check("per-model transport retained", rich.contains("            supportsReasoningEffort: true"), rich);
+        check("upstream text overrides old vision", !ModelConfig.modelsForProvider(rich,
+                ModelConfig.COMMAND_CODE).get(0).image && rich.contains("input: [ text ]"), rich);
+        check("new vision written", ModelConfig.modelsForProvider(rich,
+                ModelConfig.COMMAND_CODE).get(1).image, rich);
+        check("unknown vision stays unknown", !ModelConfig.modelsForProvider(rich,
+                ModelConfig.COMMAND_CODE).get(2).imageKnown, rich);
+        check("refresh keeps default selection", ModelConfig.readSelection(richBase)
+                .equals(ModelConfig.readSelection(rich)), rich);
+        check("refresh bytes idempotent", rich.equals(ModelCatalogSync.writeLiveCatalog(rich,
+                ModelConfig.COMMAND_CODE, aligned)), rich);
+        String absent = "llm-pi-ai:\n  providers:\n    other:\n      models:\n        - id: untouched\n";
+        String inserted = ModelCatalogSync.writeLiveCatalog(absent, ModelConfig.COMMAND_CODE, aligned);
+        check("missing route inserted", ModelConfig.containsModel(inserted,
+                ModelConfig.COMMAND_CODE, "fresh-vision") && inserted.contains("untouched"), inserted);
+        String empty = ModelCatalogSync.writeLiveCatalog("llm-pi-ai:\n  providers: {}\n",
+                ModelConfig.COMMAND_CODE, aligned);
+        check("empty provider dictionary expanded", occurrences(empty, "providers:") == 1
+                && ModelConfig.containsModel(empty, ModelConfig.COMMAND_CODE, "fresh-vision"), empty);
+        String noModels = "llm-pi-ai:\n  providers:\n    other:\n      displayName: Other\n"
+                + "    commandcode:\n      api: openai-completions\n";
+        String added = ModelCatalogSync.writeLiveCatalog(noModels, ModelConfig.COMMAND_CODE, aligned);
+        check("models inserted at correct route", ModelConfig.containsModel(added,
+                ModelConfig.COMMAND_CODE, "fresh-vision") && added.indexOf("other:") < added.indexOf("commandcode:"), added);
+        if (args.length > 0 && "--dump-config".equals(args[0])) {
+            System.out.print(ModelCatalogSync.writeLiveCatalog(rich, ModelConfig.DEEPSEEK,
+                    Arrays.asList(new LiveModelCatalog.Entry("deepseek-flash", "DeepSeek Flash", true, true, true),
+                            new LiveModelCatalog.Entry("deepseek-v4-pro", "DeepSeek V4 Pro", true, false, true, true, ""))));
+            return;
+        }
+
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
     }

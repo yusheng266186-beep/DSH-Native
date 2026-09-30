@@ -36,7 +36,7 @@ public class WebToolsEntryTest {
         check("collapsed sidebar removes ambiguous gear",
                 script.contains("_rail(?:Row)?") && script.contains("r.width>64")
                 && script.contains("removeChild(row);")
-                && script.contains("removeChild(modelRow);return true"), "collapsed state missing");
+                && script.contains("section.parentElement.removeChild(section);return true"), "collapsed state missing");
         check("expansion is observed", script.contains("'aria-expanded'")
                 && script.contains("'hidden'") && script.contains("'style'"), "observer incomplete");
         check("layout marker present", script.contains("data-dsh-native-tools"), "missing");
@@ -63,3 +63,4 @@ public class WebToolsEntryTest {
         if (fail > 0) System.exit(1);
     }
 }
+

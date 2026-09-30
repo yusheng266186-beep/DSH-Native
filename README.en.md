@@ -52,9 +52,9 @@ Two provider routes are available:
 
 The picker no longer presents a bundled preset as the provider's model list. It displays only model IDs returned by the current upstream response. Discovery reads the catalog only: it sends no prompt and makes no billed generation request.
 
-The upstream catalog is authoritative for model IDs: every model returned by the provider's current `/models` response can be selected and saved, even when the bundled capability hints have not caught up yet. Image-input and reasoning labels are shown only when the installed runtime knows them; missing labels never block a model. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
+The upstream catalog is authoritative for model IDs: every model returned by the provider's current `/models` response can be selected and saved, even when the bundled capability hints have not caught up yet. Vision metadata is read from the upstream response first, then from existing configuration hints. Image, text-only, and unknown capabilities are labeled separately; unknown capability never blocks selection. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
 
-When you save a model, the app writes the complete successful upstream catalog into DSH's actual provider catalog: Command Code goes to `llm-pi-ai.providers.commandcode.models`, while DeepSeek direct goes to `llm-deepseek-api-key.models`. The default selection and the WebUI model picker therefore read the same data. The WebUI refreshes after saving (or waits until an active task finishes so the page is not disturbed). A small internal marker lets future app upgrades merge transport settings without restoring the old bundled model list.
+Click Refresh models to write the complete successful catalogs for saved providers directly into DSH, without changing the default model or requiring another save: Command Code goes to `llm-pi-ai.providers.commandcode.models`, while DeepSeek direct goes to `llm-deepseek-api-key.models`. DSH and the native model center use the same catalog. The update applies automatically when idle; active or unknown status defers it until idle is confirmed. Choose and save separately to change the default model. A small internal marker lets future app upgrades merge transport settings without restoring the old bundled model list.
 
 Model center also supports:
 
@@ -204,3 +204,4 @@ This repository is licensed under the MIT License. The Android Node.js build com
 - DeepSeek Harness: <https://github.com/deepseek-ai/deepseek-harness>
 - Termux: <https://github.com/termux/termux-app>
 - Android 10 behavior changes: <https://developer.android.com/about/versions/10/behavior-changes-10>
+

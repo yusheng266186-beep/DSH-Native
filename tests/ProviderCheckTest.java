@@ -38,6 +38,22 @@ public class ProviderCheckTest {
                 == ProviderCheck.SERVICE_ERROR, "wrong");
         check("oversize safe", ProviderCheck.modelIds(repeat("x", 1024 * 1024 + 1)).isEmpty(), "parsed");
 
+        ProviderCheck.Result rich = ProviderCheck.classify(200, "{\"data\":["
+                + "{\"id\":\"vision-new\",\"architecture\":{\"input_modalities\":[\"text\",\"image\"]}},"
+                + "{\"id\":\"text\",\"capabilities\":{\"vision\":false},\"context_length\":262144},"
+                + "{\"id\":\"unknown\",\"owner\":{\"id\":\"not-a-model\"}}]}");
+        check("nested ids excluded", rich.models.size() == 3 && !rich.models.contains("not-a-model"), rich.models.toString());
+        check("vision metadata read", rich.metadata.get("vision-new").imageKnown
+                && rich.metadata.get("vision-new").image, "lost vision");
+        check("text-only metadata read", rich.metadata.get("text").imageKnown
+                && !rich.metadata.get("text").image, "lost negative capability");
+        check("unknown stays unknown", !rich.metadata.get("unknown").imageKnown, "guessed capability");
+        check("token metadata read", rich.metadata.get("text").details.contains("contextWindow: 262144"), "lost limit");
+        check("malformed catalog rejected", ProviderCheck.modelIds("{\"data\":[{\"id\":\"partial\"}").isEmpty(), "partial response accepted");
+        check("unicode model decoded", ProviderCheck.modelIds("{\"data\":[{\"id\":\"model-\\u4e2d\"}]}")
+                .contains("model-中"), "unicode escape lost");
+        check("error id excluded", ProviderCheck.modelIds("{\"error\":{\"id\":\"request-id\"}}").isEmpty(), "request id treated as model");
+
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
     }

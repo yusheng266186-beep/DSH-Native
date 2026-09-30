@@ -326,8 +326,8 @@ public class MainActivity extends Activity {
                         return true;
                     }
                     if (m.indexOf(WebToolsEntry.REFRESH_MODELS_MARKER) >= 0) {
-                        log("WebUI / 更新模型列表：打开模型中心读取上游目录");
-                        showAccountSettings();
+                        log("WebUI / 更新模型列表：直接同步已配置服务商的上游目录");
+                        ModelCenterPanel.refreshConfigured(MainActivity.this, modelCenterHost(false));
                         return true;
                     }
                     if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
@@ -3251,6 +3251,7 @@ public class MainActivity extends Activity {
             }
             lastSessionStatus = state;
             pushStatus(state);
+            if (state == SessionStatus.IDLE) applyPendingModelCatalog();
             // 断线时为保护运行任务而跳过了自动刷新；一旦权威状态确认任务已
             // 结束，就可以在仍未恢复连接的情况下重新启动安全恢复计时器。
             if (state == SessionStatus.IDLE && connectionLostAt > 0L
@@ -5294,22 +5295,15 @@ public class MainActivity extends Activity {
                 // process can still hold the provider topology/model directory
                 // created at boot. Restart the idle runtime so the settings
                 // seam is read from disk before the WebUI builds its selector.
-                boolean taskActive = lastSessionStatus == SessionStatus.RUNNING
-                        || lastSessionStatus == SessionStatus.AWAITING_APPROVAL
-                        || taskTimeline.active() != null;
-                if (taskActive) {
-                    log("模型目录已写入 DSH；当前任务运行中，暂不重启运行时");
-                    toast(UiText.t("模型目录已保存，任务结束后重新打开 WebUI 即可更新",
-                            "Model catalog saved. Reopen the WebUI after the task finishes to apply it."));
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putBoolean("modelCatalogPending", true).apply();
+                if (lastSessionStatus != SessionStatus.IDLE || taskTimeline.active() != null) {
+                    log("模型目录已写入 DSH；当前任务运行中，暂不重启运行时（状态未知也延后）");
+                    toast(UiText.t("模型目录已保存，确认空闲后自动应用",
+                            "Model catalog saved; it will apply automatically when DSH is idle."));
                     return;
                 }
-                try {
-                    restartAgent(UiText.t("正在应用上游模型目录…",
-                            "Applying the upstream model catalog…"));
-                    log("模型目录已写入 DSH，正在重启空闲运行时并刷新 WebUI");
-                } catch (Throwable error) {
-                    log("重启 DSH 以刷新 WebUI 模型选择器失败: " + shorten(error));
-                }
+                applyPendingModelCatalog();
             }
 
             @Override public void closeModelCenter(boolean onboarding, boolean saved) {
@@ -5900,6 +5894,33 @@ public class MainActivity extends Activity {
 
     private void restartAgent() {
         restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
+    }
+
+    private boolean modelCatalogRestartScheduled;
+
+    private void applyPendingModelCatalog() {
+        if (modelCatalogRestartScheduled || lastSessionStatus != SessionStatus.IDLE
+                || taskTimeline.active() != null || !getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getBoolean("modelCatalogPending", false)) return;
+        modelCatalogRestartScheduled = true;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override public void run() {
+                modelCatalogRestartScheduled = false;
+                if (isFinishing() || isDestroyed() || lastSessionStatus != SessionStatus.IDLE
+                        || taskTimeline.active() != null) return;
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putBoolean("modelCatalogPending", false).apply();
+                try {
+                    lastSessionStatus = SessionStatus.UNKNOWN;
+                    restartAgent(UiText.t("正在应用上游模型目录…", "Applying the upstream model catalog…"));
+                    log("已应用模型目录，正在重启空闲 DSH 并刷新 WebUI");
+                } catch (Throwable error) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                            .putBoolean("modelCatalogPending", true).apply();
+                    log("应用模型目录失败: " + shorten(error));
+                }
+            }
+        }, 1200L);
     }
 
     private void restartAgent(final String progressMessage) {
@@ -7451,7 +7472,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.31.3\n");
+            w.write("APK 版本: 0.31.4\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

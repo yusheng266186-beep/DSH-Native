@@ -174,7 +174,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("0.31.3"))],
+              (A, "versionName", s("0.31.4"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -511,3 +511,4 @@ if __name__ == "__main__":
         raise SystemExit(2)
     n = write_manifest(sys.argv[1])
     print("wrote %s (%d bytes)" % (sys.argv[1], n))
+
