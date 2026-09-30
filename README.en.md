@@ -4,7 +4,7 @@
 
 Run Node.js, DeepSeek Harness (DSH), and a practical development toolchain directly on Android. No Termux, no proot, and no remote execution server are required.
 
-**Current stable release: 0.31.5** (payload-v10)
+**Current stable release: 0.32.0** (payload-v10)
 
 
 Reasoning effort follows the selected provider and model, and survives catalog refreshes and upgrades. See the [full model capability table](docs/MODEL_REASONING.md).
@@ -13,9 +13,9 @@ Reasoning effort follows the selected provider and model, and survives catalog r
 
 Stable APK:
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.31.5-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.32.0-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
 
-SHA-256: `5f80e2ec4dfaa2cf1a330158b00a13c8d161e491ee4abdceb00ae31b3447175c`
+SHA-256: `bc0a75e09a80dccadbd4a5fc1790cee466bd8155c7f3a83cd89464746dc2d43a`
 
 Requirements:
 
@@ -27,7 +27,7 @@ Requirements:
 First launch:
 
 1. The app runs a Node architecture check, normally within about three seconds.
-2. It downloads the roughly 117.2 MiB runtime in verified chunks, with resume and per-chunk retries.
+2. It downloads the roughly 118.5 MiB runtime in verified chunks, with resume and per-chunk retries.
 3. It extracts DSH and the toolchain, then validates the runtime.
 4. Open Model center and enter a Command Code or DeepSeek API key.
 5. Fetch the provider's live model catalog, select a model, and start a new session.

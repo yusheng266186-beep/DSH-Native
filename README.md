@@ -4,7 +4,7 @@
 
 把 Node.js 运行时、DeepSeek Harness（DSH）和常用开发工具直接带到 Android。无需 Termux、无需 proot，也不需要把项目交给远程服务器执行。
 
-**当前版本：0.31.5**（payload-v10）
+**当前版本：0.32.0**（payload-v10）
 
 
 思考强度按当前服务商和模型动态显示，刷新与升级会保留并修复能力声明；[查看完整模型对照](docs/MODEL_REASONING.md)。
@@ -13,9 +13,9 @@
 
 正式版 APK：
 
-**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.31.5-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
+**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.32.0-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
 
-SHA-256：`5f80e2ec4dfaa2cf1a330158b00a13c8d161e491ee4abdceb00ae31b3447175c`
+SHA-256：`bc0a75e09a80dccadbd4a5fc1790cee466bd8155c7f3a83cd89464746dc2d43a`
 
 要求：
 
@@ -27,7 +27,7 @@ SHA-256：`5f80e2ec4dfaa2cf1a330158b00a13c8d161e491ee4abdceb00ae31b3447175c`
 首次启动流程：
 
 1. App 在 3 秒左右完成 Node 架构自检。
-2. 从 GitHub 镜像分块下载约 117.2 MiB 运行包，支持断点续传、块级重试和 SHA-256 校验。
+2. 从 GitHub 镜像分块下载约 118.5 MiB 运行包，支持断点续传、块级重试和 SHA-256 校验。
 3. 解压 DSH 与工具链并执行运行环境自检。
 4. 打开模型中心，填写 Command Code 或 DeepSeek API Key。
 5. 从服务商实时目录选择模型，然后开始新会话。
