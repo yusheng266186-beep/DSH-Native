@@ -348,7 +348,17 @@ final class ModelCenterPanel {
             };
             choose.setOnClickListener(openChooser);
             updateCatalog.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { refreshConfigured(act, host); }
+                @Override public void onClick(View v) {
+                    try {
+                        String savedKey = ModelConfig.readCredentialRef(
+                                ProjectModelSettings.readFile(credentialsFile), ModelConfig.credentialKey(draft.provider));
+                        if (savedKey.length() == 0 || !savedKey.equals(selectedKey(draft.provider, ccKey, dsKey))) {
+                            openChooser.onClick(v);
+                        } else refreshConfigured(act, host);
+                    } catch (Throwable error) {
+                        DshUi.toast(act, UiText.t("读取已保存的账号失败", "Could not read the saved account"));
+                    }
+                }
             });
             model.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {

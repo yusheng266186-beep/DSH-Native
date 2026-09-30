@@ -98,6 +98,10 @@ public class ModelCatalogSyncTest {
         String inserted = ModelCatalogSync.writeLiveCatalog(absent, ModelConfig.COMMAND_CODE, aligned);
         check("missing route inserted", ModelConfig.containsModel(inserted,
                 ModelConfig.COMMAND_CODE, "fresh-vision") && inserted.contains("untouched"), inserted);
+        String empty = ModelCatalogSync.writeLiveCatalog("llm-pi-ai:\n  providers: {}\n",
+                ModelConfig.COMMAND_CODE, aligned);
+        check("empty provider dictionary expanded", occurrences(empty, "providers:") == 1
+                && ModelConfig.containsModel(empty, ModelConfig.COMMAND_CODE, "fresh-vision"), empty);
         String noModels = "llm-pi-ai:\n  providers:\n    other:\n      displayName: Other\n"
                 + "    commandcode:\n      api: openai-completions\n";
         String added = ModelCatalogSync.writeLiveCatalog(noModels, ModelConfig.COMMAND_CODE, aligned);

@@ -237,13 +237,21 @@ final class ModelCatalogSync {
             if (parentIndent < 0) {
                 int providers = -1;
                 for (int i = 0; i < lines.length; i++) {
-                    if ("providers:".equals(lines[i].trim()) && indent(lines[i]) == 2) providers = i;
+                    if (lines[i].trim().startsWith("providers:") && indent(lines[i]) == 2) providers = i;
                 }
                 String fresh = commandBlock(entries);
                 String addition = fresh.substring(fresh.indexOf("    commandcode:"));
-                if (providers >= 0) return block.substring(0, block.indexOf(lines[providers])
-                        + lines[providers].length()) + "\n" + addition
-                        + block.substring(block.indexOf(lines[providers]) + lines[providers].length());
+                if (providers >= 0) {
+                    String value = lines[providers].trim().substring("providers:".length()).trim();
+                    if (value.length() > 0 && !"{}".equals(value) && !"null".equals(value)) {
+                        throw new IllegalArgumentException("expand inline providers before refreshing");
+                    }
+                    StringBuilder out = new StringBuilder();
+                    for (int i = 0; i < providers; i++) out.append(lines[i]).append('\n');
+                    out.append("  providers:\n").append(addition);
+                    for (int i = providers + 1; i < lines.length; i++) out.append(lines[i]).append('\n');
+                    return out.toString();
+                }
                 return block + "  providers:\n" + addition;
             }
             int insert = provider == null ? lines.length
