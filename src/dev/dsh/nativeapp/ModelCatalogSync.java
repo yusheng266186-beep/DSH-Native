@@ -30,6 +30,17 @@ final class ModelCatalogSync {
      */
     static String writeLiveCatalog(String yaml, String provider,
                                     List<LiveModelCatalog.Entry> upstream) {
+        String result = writeCatalog(yaml, provider, upstream);
+        for (LiveModelCatalog.Entry entry : clean(upstream)) {
+            if (!ModelConfig.containsModel(result, provider, entry.id)) {
+                throw new IllegalArgumentException("model catalog was not written");
+            }
+        }
+        return result;
+    }
+
+    private static String writeCatalog(String yaml, String provider,
+                                        List<LiveModelCatalog.Entry> upstream) {
         String normalized = ModelConfig.normalizeProvider(provider);
         if (normalized.length() == 0) throw new IllegalArgumentException("invalid provider");
         List<LiveModelCatalog.Entry> entries = clean(upstream);
@@ -89,7 +100,7 @@ final class ModelCatalogSync {
     static List<ModelConfig.Model> readModels(String block) {
         List<ModelConfig.Model> result = new ArrayList<ModelConfig.Model>();
         if (block == null) return result;
-        String[] lines = block.split("\\n", -1);
+        String[] lines = block.split("\\n");
         int models = -1;
         int modelsIndent = -1;
         for (int i = 0; i < lines.length; i++) {
@@ -112,18 +123,22 @@ final class ModelCatalogSync {
             String name = id;
             boolean image = false;
             boolean reasoning = false;
+            boolean imageKnown = false;
+            StringBuilder details = new StringBuilder();
             for (int j = i + 1; j < lines.length; j++) {
                 String next = lines[j];
                 String nt = next.trim();
                 int ni = indent(next);
                 if (nt.length() > 0 && ni <= modelsIndent) break;
                 if (ni == itemIndent && nt.startsWith("- id:")) break;
+                details.append(next.substring(Math.min(next.length(), itemIndent + 2))).append('\n');
                 if (nt.startsWith("name:")) name = unquote(nt.substring(5).trim());
+                if (nt.startsWith("input:") || nt.startsWith("inputModalities:")) imageKnown = true;
                 if ((nt.startsWith("input:") || nt.startsWith("inputModalities:"))
                         && nt.toLowerCase(Locale.ROOT).contains("image")) image = true;
                 if (nt.startsWith("reasoningEfforts:") && !nt.endsWith("false")) reasoning = true;
             }
-            result.add(new ModelConfig.Model(id, name, image, reasoning));
+            result.add(new ModelConfig.Model(id, name, image, reasoning, imageKnown, details.toString()));
         }
         return result;
     }
@@ -138,7 +153,7 @@ final class ModelCatalogSync {
                 if (id.length() == 0 || unique.containsKey(id)) continue;
                 unique.put(id, new LiveModelCatalog.Entry(id,
                         entry.name == null || entry.name.length() == 0 ? id : entry.name,
-                        true, entry.image, entry.reasoning));
+                        true, entry.image, entry.reasoning, entry.imageKnown, entry.details));
             }
         }
         return new ArrayList<LiveModelCatalog.Entry>(unique.values());
@@ -176,12 +191,34 @@ final class ModelCatalogSync {
                     .append(quote(entry.id)).append('\n');
             out.append(spaces(modelsIndent + 4)).append("name: ")
                     .append(quote(entry.name)).append('\n');
-            if (entry.image) {
-                out.append(spaces(modelsIndent + 4))
-                        .append(deepSeek ? "inputModalities: [ text, image ]\n"
-                                : "input: [ text, image ]\n");
+            boolean hasReasoning = false;
+            Map<String, String> fields = new LinkedHashMap<String, String>();
+            String field = null;
+            for (String line : entry.details.split("\n")) {
+                if (line.length() == 0) continue;
+                if (indent(line) == 0) {
+                    int colon = line.indexOf(':');
+                    field = colon > 0 ? line.substring(0, colon).trim() : null;
+                    if (field != null) fields.put(field, line + "\n");
+                } else if (field != null) fields.put(field, fields.get(field) + line + "\n");
             }
-            if (entry.reasoning && !deepSeek) {
+            for (Map.Entry<String, String> detail : fields.entrySet()) {
+                String key = detail.getKey();
+                if ("name".equals(key) || "input".equals(key) || "inputModalities".equals(key)) continue;
+                if ("reasoningEfforts".equals(key)) {
+                    if (deepSeek) continue;
+                    hasReasoning = true;
+                }
+                for (String line : detail.getValue().split("\n")) {
+                    out.append(spaces(modelsIndent + 4)).append(line).append('\n');
+                }
+            }
+            if (entry.imageKnown) {
+                out.append(spaces(modelsIndent + 4))
+                        .append(deepSeek ? "inputModalities: " : "input: ")
+                        .append(entry.image ? "[ text, image ]\n" : "[ text ]\n");
+            }
+            if (entry.reasoning && !deepSeek && !hasReasoning) {
                 out.append(spaces(modelsIndent + 4))
                         .append("reasoningEfforts: { off: null, low: low, medium: medium, "
                                 + "high: high, xhigh: xhigh, max: max }\n");
@@ -195,10 +232,22 @@ final class ModelCatalogSync {
                                         boolean command) {
         String section = modelsSection(block, provider);
         if (section == null) {
-            String[] lines = block.split("\\n", -1);
+            String[] lines = block.split("\\n");
             int parentIndent = provider == null ? 0 : findProviderIndent(lines, provider);
-            if (parentIndent < 0) return block;
-            int insert = provider == null ? lines.length : providerEnd(lines, parentIndent);
+            if (parentIndent < 0) {
+                int providers = -1;
+                for (int i = 0; i < lines.length; i++) {
+                    if ("providers:".equals(lines[i].trim()) && indent(lines[i]) == 2) providers = i;
+                }
+                String fresh = commandBlock(entries);
+                String addition = fresh.substring(fresh.indexOf("    commandcode:"));
+                if (providers >= 0) return block.substring(0, block.indexOf(lines[providers])
+                        + lines[providers].length()) + "\n" + addition
+                        + block.substring(block.indexOf(lines[providers]) + lines[providers].length());
+                return block + "  providers:\n" + addition;
+            }
+            int insert = provider == null ? lines.length
+                    : providerEnd(lines, providerLine(lines, provider), parentIndent);
             int modelsIndent = provider == null ? 2 : parentIndent + 2;
             StringBuilder out = new StringBuilder();
             for (int i = 0; i < insert; i++) out.append(lines[i]).append('\n');
@@ -214,7 +263,7 @@ final class ModelCatalogSync {
 
     private static String modelsSection(String block, String provider) {
         if (block == null) return null;
-        String[] lines = block.split("\\n", -1);
+        String[] lines = block.split("\\n");
         int parentIndent = provider == null ? 0 : findProviderIndent(lines, provider);
         if (provider != null && parentIndent < 0) return null;
         int from = provider == null ? 0 : providerLine(lines, provider) + 1;
@@ -256,7 +305,7 @@ final class ModelCatalogSync {
     }
 
     private static String replaceModelsSection(String block, String provider, String replacement) {
-        String[] lines = block.split("\\n", -1);
+        String[] lines = block.split("\\n");
         int parentIndent = provider == null ? 0 : findProviderIndent(lines, provider);
         if (provider != null && parentIndent < 0) return block;
         int from = provider == null ? 0 : providerLine(lines, provider) + 1;
@@ -303,24 +352,18 @@ final class ModelCatalogSync {
         return line < 0 ? -1 : indent(lines[line]);
     }
 
-    private static int providerEnd(String[] lines, int providerIndent) {
-        for (int i = 0; i < lines.length; i++) {
-            if (indent(lines[i]) == providerIndent && lines[i].trim().endsWith(":")) {
-                int j = i + 1;
-                while (j < lines.length) {
-                    String trimmed = lines[j].trim();
-                    if (trimmed.length() > 0 && indent(lines[j]) <= providerIndent) return j;
-                    j++;
-                }
-                return lines.length;
-            }
+    private static int providerEnd(String[] lines, int start, int providerIndent) {
+        for (int j = start + 1; j < lines.length; j++) {
+            String trimmed = lines[j].trim();
+            if (trimmed.length() > 0 && !trimmed.startsWith("#")
+                    && indent(lines[j]) <= providerIndent) return j;
         }
         return lines.length;
     }
 
     static String topLevelBlock(String yaml, String key) {
         if (yaml == null) return null;
-        String[] lines = yaml.split("\\n", -1);
+        String[] lines = yaml.split("\\n");
         int start = -1;
         int end = lines.length;
         for (int i = 0; i < lines.length; i++) {

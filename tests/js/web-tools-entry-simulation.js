@@ -20,6 +20,7 @@ class Element {
   }
 
   get childNodes() { return this.children; }
+  get firstElementChild() { return this.children[0] || null; }
 
   get textContent() {
     return this.children.length > 0
@@ -153,12 +154,16 @@ documentElement.appendChild(tree.host);
 
 const document = {
   documentElement,
+  createElement(tag) { return new Element(tag); },
   querySelectorAll(selector) {
     if (selector !== 'button[aria-haspopup="dialog"]') return [];
     return descendants(documentElement).filter((node) => node.tagName === 'BUTTON'
       && node.getAttribute('aria-haspopup') === 'dialog');
   },
   querySelector(selector) {
+    if (selector === '[data-dsh-native-tools="section"]') {
+      return descendants(documentElement).find(n => n.getAttribute('data-dsh-native-tools') === 'section') || null;
+    }
     if (selector === '[data-dsh-native-tools="row"]') {
       return descendants(documentElement).find((node) =>
         node.getAttribute('data-dsh-native-tools') === 'row') || null;
@@ -217,10 +222,12 @@ function runShortTimers() {
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'one tools row should be inserted');
 assert(modelRows().length === 1, 'one model refresh row should be inserted');
-assert(tree.host.children[0].getAttribute('data-dsh-native-tools') === 'row',
-  'tools row should participate in layout before Settings');
-assert(tree.host.children[1].getAttribute('data-dsh-native-models') === 'row',
-  'model refresh row should participate in layout before Settings');
+const section = toolsRows()[0].parentElement;
+assert(section === modelRows()[0].parentElement, 'entries share a vertical section');
+assert(section.getAttribute('style').includes('flex-direction:column'), 'entries must stack vertically');
+assert(section.parentElement === tree.host.parentElement, 'section lives outside the horizontal settings row');
+assert(tree.host.children.length === 1 && tree.host.children[0] === tree.row, 'original settings area is unchanged');
+assert(toolsRows()[0].firstElementChild.getAttribute('style').includes('min-height:44px'), 'touch target stays usable');
 assert(toolsRows()[0].hidden === false, 'expanded sidebar should show App tools');
 let toolsButton = toolsRows()[0].children[0];
 assert(toolsButton.getAttribute('aria-label') === 'App 工具', 'Chinese label missing');
@@ -281,4 +288,5 @@ assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').leng
   'rerender should not repeat the migration event');
 assert(errors.length === 0, 'normal mounting should not report a missing anchor');
 
-console.log('WebToolsEntrySimulation: 17 pass / 0 fail');
+console.log('WebToolsEntrySimulation: vertical section / unchanged Settings / collapse / remount / actions');
+

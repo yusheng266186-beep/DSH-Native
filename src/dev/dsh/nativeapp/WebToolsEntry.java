@@ -4,8 +4,8 @@ package dev.dsh.nativeapp;
  * DSH WebUI 内的原生工具入口注入脚本。
  *
  * <p>脚本只使用现有的控制台消息桥，不暴露 {@code JavascriptInterface}。
- * 它以 DSH 自己的「设置」按钮为语义锚点，克隆同一行的结构与样式，
- * 因而入口参与侧边栏布局，不会覆盖网页内容。侧栏收起时移除克隆入口，
+ * 它以 DSH 自己的「设置」按钮为语义锚点，在设置区域前单独纵向排列，
+ * 因而入口参与侧边栏布局，不会挤压原设置行。侧栏收起时移除克隆入口，
  * 保证唯一可见的齿轮仍然是 DSH 自己的设置；展开后才显示带文字的 App 工具。
  * DSH 的 React 树重绘后，MutationObserver 会以幂等方式重新挂载。</p>
  */
@@ -70,21 +70,27 @@ final class WebToolsEntry {
                 + "if(!settings||!settings.parentElement||!settings.parentElement.parentElement)"
                 + "return false;"
                 + "var trigger=settings.parentElement,host=trigger.parentElement;"
+                + "var section=document.querySelector('['+ATTR+'=\"section\"]');"
+                + "var outer=host.parentElement;if(!outer)return false;"
                 + "var row=document.querySelector('['+ATTR+'=\"row\"]');"
                 + "var modelRow=document.querySelector('['+MODEL_ATTR+'=\"row\"]');"
                 + "if(!expanded(settings)){if(row&&row.parentElement)"
                 + "row.parentElement.removeChild(row);if(modelRow&&modelRow.parentElement)"
-                + "modelRow.parentElement.removeChild(modelRow);return true;}"
+                + "modelRow.parentElement.removeChild(modelRow);if(section&&section.parentElement)"
+                + "section.parentElement.removeChild(section);return true;}"
                 + "var label=labelFor(settings),modelLabel=modelLabelFor(settings);"
                 + "var sig=String(trigger.className)+'|'+String(settings.className)+'|'"
                 + "+label+'|'+modelLabel+'|'+String(settings.childNodes.length);"
-                + "if(row&&row.parentElement===host&&"
-                + "modelRow&&modelRow.parentElement===host&&"
+                + "if(row&&row.parentElement===section&&section&&section.parentElement===outer&&"
+                + "modelRow&&modelRow.parentElement===section&&"
                 + "row.getAttribute('data-dsh-native-signature')===sig&&"
                 + "modelRow.getAttribute('data-dsh-native-signature')===sig){"
                 + "return true;}"
                 + "if(row&&row.parentElement)row.parentElement.removeChild(row);"
                 + "if(modelRow&&modelRow.parentElement)modelRow.parentElement.removeChild(modelRow);"
+                + "if(section&&section.parentElement)section.parentElement.removeChild(section);"
+                + "section=document.createElement('div');section.setAttribute(ATTR,'section');"
+                + "section.setAttribute('style','display:flex;flex-direction:column;gap:4px;width:100%;min-width:0;flex-shrink:0');"
                 + "row=trigger.cloneNode(false);row.setAttribute(ATTR,'row');"
                 + "row.setAttribute('data-dsh-native-signature',sig);"
                 + "var button=settings.cloneNode(true);prepareButton(button,label,'"
@@ -93,7 +99,12 @@ final class WebToolsEntry {
                 + "modelRow.setAttribute('data-dsh-native-signature',sig);"
                 + "var modelButton=settings.cloneNode(true);prepareButton(modelButton,modelLabel,'"
                 + REFRESH_MODELS_MARKER + "',MODEL_ATTR);modelRow.appendChild(modelButton);"
-                + "host.insertBefore(row,trigger);host.insertBefore(modelRow,trigger);"
+                + "var rows=[row,modelRow];for(var j=0;j<rows.length;j++){"
+                + "rows[j].setAttribute('style','display:block;width:100%;min-width:0');"
+                + "rows[j].firstElementChild.setAttribute('style','display:flex;align-items:center;width:100%;min-width:0;min-height:44px;white-space:nowrap;overflow:hidden');"
+                + "var spans=rows[j].querySelectorAll('span');for(var k=0;k<spans.length;k++)"
+                + "spans[k].setAttribute('style','min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap');"
+                + "section.appendChild(rows[j]);}outer.insertBefore(section,host);"
                 + "if(!reported){reported=true;console.log('" + READY_MARKER + "');}"
                 + "return true;}"
                 + "function queue(){if(scheduled)return;scheduled=true;"

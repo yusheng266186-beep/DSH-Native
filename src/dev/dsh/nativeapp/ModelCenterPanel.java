@@ -37,6 +37,81 @@ final class ModelCenterPanel {
 
     private ModelCenterPanel() { }
 
+    private static boolean refreshingCatalog;
+
+    /** Update saved provider catalogs without changing the current default model. */
+    static void refreshConfigured(final Activity activity, final Host host) {
+        if (refreshingCatalog) {
+            DshUi.toast(activity, UiText.t("正在更新模型目录…", "Updating the model catalog…"));
+            return;
+        }
+        try {
+            String credentials = ProjectModelSettings.readFile(new File(host.dshHome(), ".credentials.yaml"));
+            if (ModelConfig.readCredentialRef(credentials, "COMMANDCODE_API_KEY").length() == 0
+                    && ModelConfig.readCredentialRef(credentials, "DEEPSEEK_API_KEY").length() == 0) {
+                show(activity, host, false);
+                return;
+            }
+            refreshingCatalog = true;
+            DshUi.toast(activity, UiText.t("正在读取并同步上游模型…", "Fetching and syncing upstream models…"));
+            refreshProvider(activity, host, 0, 0, new ArrayList<String>());
+        } catch (Throwable error) {
+            refreshingCatalog = false;
+            host.log("模型目录更新失败: " + error.getClass().getSimpleName());
+            DshUi.toast(activity, UiText.t("模型目录更新失败", "Model catalog update failed"));
+        }
+    }
+
+    private static void refreshProvider(final Activity activity, final Host host,
+                                         final int index, final int synced,
+                                         final List<String> failures) {
+        final String[] providers = {ModelConfig.COMMAND_CODE, ModelConfig.DEEPSEEK};
+        if (index >= providers.length) {
+            refreshingCatalog = false;
+            if (!failures.isEmpty()) DshUi.toast(activity, UiText.t("更新失败：", "Update failed: ") + failures);
+            if (synced > 0) host.refreshModelCatalog();
+            return;
+        }
+        final String provider = providers[index];
+        try {
+            String credentials = ProjectModelSettings.readFile(new File(host.dshHome(), ".credentials.yaml"));
+            final String key = ModelConfig.readCredentialRef(credentials, ModelConfig.credentialKey(provider));
+            if (key.length() == 0) {
+                refreshProvider(activity, host, index + 1, synced, failures);
+                return;
+            }
+            requestCatalog(activity, provider, key, new CatalogCallback() {
+                @Override public void complete(ProviderCheck.Result result, Throwable error) {
+                    int updated = synced;
+                    try {
+                        if (error != null || result == null || result.state != ProviderCheck.READY)
+                            throw new java.io.IOException(error == null && result != null
+                                    ? "HTTP " + result.httpCode : "network error");
+                        File credentialsFile = new File(host.dshHome(), ".credentials.yaml");
+                        String latestKey = ModelConfig.readCredentialRef(
+                                ProjectModelSettings.readFile(credentialsFile), ModelConfig.credentialKey(provider));
+                        if (!key.equals(latestKey)) throw new java.io.IOException("credentials changed; retry");
+                        File settingsFile = new File(host.dshHome(), "settings.yaml");
+                        String settings = ProjectModelSettings.readFile(settingsFile);
+                        List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(result,
+                                ModelConfig.modelsForProvider(settings, provider));
+                        String next = ModelCatalogSync.writeLiveCatalog(settings, provider, entries);
+                        ProjectModelSettings.writeFileAtomic(settingsFile, next);
+                        updated++;
+                        host.log("已同步上游模型到 DSH: " + provider + "，" + entries.size() + " 个");
+                    } catch (Throwable failure) {
+                        failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
+                        host.log("模型目录同步失败: " + provider + " / " + failure.getClass().getSimpleName());
+                    }
+                    refreshProvider(activity, host, index + 1, updated, failures);
+                }
+            });
+        } catch (Throwable error) {
+            failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
+            refreshProvider(activity, host, index + 1, synced, failures);
+        }
+    }
+
     static void show(Activity activity, Host host, boolean onboarding) {
         show(activity, host, host.activeProject(), onboarding, false);
     }
@@ -132,8 +207,8 @@ final class ModelCenterPanel {
                     UiText.t("更新上游模型列表", "Update upstream model list"), false);
             body.addView(updateCatalog, DshUi.fullWidth(act, 6));
             body.addView(DshUi.hint(act, UiText.t(
-                    "更新后选择模型并保存，空闲中的 DSH 会自动重新读取并刷新 WebUI；运行任务期间会延后重启。",
-                    "After updating, choose a model and save. An idle DSH runtime reloads the catalog and refreshes the WebUI automatically; an active task is left uninterrupted.")),
+                    "更新会直接同步已配置服务商的目录；确认空闲后自动应用。选择新的默认模型仍需保存。",
+                    "Updating directly syncs saved provider catalogs and applies them when idle. Save separately to change the default model.")),
                     DshUi.fullWidth(act, 8));
 
             body.addView(DshUi.sectionLabel(act,
@@ -272,7 +347,9 @@ final class ModelCenterPanel {
                 }
             };
             choose.setOnClickListener(openChooser);
-            updateCatalog.setOnClickListener(openChooser);
+            updateCatalog.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { refreshConfigured(act, host); }
+            });
             model.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     showModelChooser(act, host, dialog, settingsText, draft, model,
@@ -443,7 +520,9 @@ final class ModelCenterPanel {
                     if (query.length() > 0 && !haystack.contains(query)) continue;
                     matched++;
                     if (shown >= 80) continue;
-                    String suffix = (item.image ? UiText.t(" · 图片", " · vision") : "")
+                    String suffix = (item.image ? UiText.t(" · 图片", " · vision")
+                            : item.imageKnown ? UiText.t(" · 仅文字", " · text only")
+                            : UiText.t(" · 视觉能力未知", " · vision unknown"))
                             + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "")
                             + UiText.t(" · 上游可用", " · upstream");
                     String label = item.name.equals(item.id)
@@ -514,7 +593,7 @@ final class ModelCenterPanel {
                                     + result.httpCode);
                             return;
                         }
-                        state.entries = LiveModelCatalog.reconcile(result.models,
+                        state.entries = LiveModelCatalog.reconcile(result,
                                 ModelConfig.modelsForProvider(settings, provider));
                         draft.putCatalog(provider, state.entries);
                         status.setText(UiText.t(
@@ -570,7 +649,7 @@ final class ModelCenterPanel {
                     return;
                 }
                 List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(
-                        checked.models, ModelConfig.modelsForProvider(settings, provider));
+                        checked, ModelConfig.modelsForProvider(settings, provider));
                 if (checked.state == ProviderCheck.READY) draft.putCatalog(provider, entries);
                 renderCheck(status, checked, entries, selectedModel);
                 host.log("服务商检测完成: " + provider + " HTTP "

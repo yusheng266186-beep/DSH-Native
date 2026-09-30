@@ -15,13 +15,22 @@ final class LiveModelCatalog {
         final boolean selectable;
         final boolean image;
         final boolean reasoning;
+        final boolean imageKnown;
+        final String details;
 
         Entry(String id, String name, boolean selectable, boolean image, boolean reasoning) {
+            this(id, name, selectable, image, reasoning, image, "");
+        }
+
+        Entry(String id, String name, boolean selectable, boolean image, boolean reasoning,
+              boolean imageKnown, String details) {
             this.id = id;
             this.name = name;
             this.selectable = selectable;
             this.image = image;
             this.reasoning = reasoning;
+            this.imageKnown = imageKnown;
+            this.details = details == null ? "" : details;
         }
     }
 
@@ -48,10 +57,27 @@ final class LiveModelCatalog {
                 ModelConfig.Model known = supported.get(id);
                 result.put(id, new Entry(id, known == null ? id : known.name,
                         true, known != null && known.image,
-                        known != null && known.reasoning));
+                        known != null && known.reasoning,
+                        known != null && known.imageKnown,
+                        known == null ? "" : known.details));
             }
         }
         return new ArrayList<Entry>(result.values());
+    }
+
+    /** Explicit upstream metadata overrides local hints, including text-only declarations. */
+    static List<Entry> reconcile(ProviderCheck.Result upstream, List<ModelConfig.Model> configured) {
+        List<Entry> entries = reconcile(upstream.models, configured);
+        List<Entry> result = new ArrayList<Entry>();
+        for (Entry entry : entries) {
+            ModelConfig.Model remote = upstream.metadata.get(entry.id);
+            if (remote == null) { result.add(entry); continue; }
+            result.add(new Entry(entry.id, remote.name.equals(remote.id) ? entry.name : remote.name,
+                    true, remote.imageKnown ? remote.image : entry.image,
+                    entry.reasoning, remote.imageKnown || entry.imageKnown,
+                    entry.details + remote.details));
+        }
+        return result;
     }
 
     static boolean contains(List<Entry> entries, String model) {
