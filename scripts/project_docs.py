@@ -154,6 +154,14 @@ def expected_document(path: Path, root: Path, data: dict) -> str:
     return text
 
 
+def release_note_body(text: str) -> str:
+    """Repository status changes over time; a published release body must not include it."""
+    if not re.search(r"^" + re.escape(STATUS_START) + r"$", text, re.M) \
+            and not re.search(r"^" + re.escape(STATUS_END) + r"$", text, re.M):
+        return text
+    return replace_block(text, STATUS_START, STATUS_END, "")
+
+
 def link_errors(path: Path, root: Path, text: str) -> list[str]:
     # Validate local file links; external URLs and historical remote sources are not crawled.
     cleaned = re.sub(r"```[\s\S]*?```", "", text)
