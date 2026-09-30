@@ -70,7 +70,12 @@ final class ProviderCheck {
                 if (image == null && item.get("vision") instanceof Boolean) image = (Boolean) item.get("vision");
                 String details = tokenField(item, "contextWindow", "context_length")
                         + tokenField(item, "maxTokens", "max_output_tokens");
-                out.put(id, new ModelConfig.Model(id, name, Boolean.TRUE.equals(image), false, image != null, details));
+                if (!item.containsKey("contextWindow") && !item.containsKey("context_length"))
+                    details += tokenField(item, "contextWindow", "context_window");
+                String reasoning = ModelReasoning.upstreamDeclaration(item);
+                if (reasoning != null) details += ModelReasoning.UPSTREAM + "\nreasoningEfforts: " + reasoning + "\n";
+                out.put(id, new ModelConfig.Model(id, name, Boolean.TRUE.equals(image),
+                        reasoning != null && !"false".equals(reasoning), image != null, details));
             }
         } catch (IllegalArgumentException invalid) { out.clear(); }
         return out;

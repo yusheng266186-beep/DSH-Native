@@ -4851,6 +4851,18 @@ public class MainActivity extends Activity {
                 ProjectModelSettings.setGlobal(state, current);
                 changedState = true;
             }
+            ModelConfig.Selection normalizedGlobal = ModelReasoning.normalizeSelection(yaml, state.global);
+            if (!normalizedGlobal.equals(state.global)) {
+                state.global = normalizedGlobal;
+                changedState = true;
+            }
+            for (java.util.Map.Entry<String, ModelConfig.Selection> entry : state.projects.entrySet()) {
+                ModelConfig.Selection normalized = ModelReasoning.normalizeSelection(yaml, entry.getValue());
+                if (!normalized.equals(entry.getValue())) {
+                    entry.setValue(normalized);
+                    changedState = true;
+                }
+            }
             ModelConfig.Selection effective = ProjectModelSettings.effective(
                     state, project, current);
             if (!effective.equals(current)) {
@@ -7472,7 +7484,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.31.4\n");
+            w.write("APK 版本: 0.31.5\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

@@ -6,6 +6,9 @@ Run Node.js, DeepSeek Harness (DSH), and a practical development toolchain direc
 
 **Current stable release: 0.31.4** (payload-v9)
 
+
+Reasoning effort follows the selected provider and model, and survives catalog refreshes and upgrades. See the [full model capability table](docs/MODEL_REASONING.md).
+
 ## Download and install
 
 Stable APK:

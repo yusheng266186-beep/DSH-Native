@@ -67,15 +67,20 @@ final class LiveModelCatalog {
 
     /** Explicit upstream metadata overrides local hints, including text-only declarations. */
     static List<Entry> reconcile(ProviderCheck.Result upstream, List<ModelConfig.Model> configured) {
+        return reconcile(upstream, configured, ModelConfig.COMMAND_CODE);
+    }
+
+    static List<Entry> reconcile(ProviderCheck.Result upstream, List<ModelConfig.Model> configured,
+                                 String provider) {
         List<Entry> entries = reconcile(upstream.models, configured);
         List<Entry> result = new ArrayList<Entry>();
         for (Entry entry : entries) {
             ModelConfig.Model remote = upstream.metadata.get(entry.id);
-            if (remote == null) { result.add(entry); continue; }
-            result.add(new Entry(entry.id, remote.name.equals(remote.id) ? entry.name : remote.name,
+            if (remote == null) { result.add(ModelReasoning.enrich(provider, entry)); continue; }
+            result.add(ModelReasoning.enrich(provider, new Entry(entry.id, remote.name.equals(remote.id) ? entry.name : remote.name,
                     true, remote.imageKnown ? remote.image : entry.image,
                     entry.reasoning, remote.imageKnown || entry.imageKnown,
-                    entry.details + remote.details));
+                    entry.details + remote.details)));
         }
         return result;
     }

@@ -19,8 +19,14 @@ gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
     test -s dsh.sha256; sha256sum -c dsh.sha256)
 mkdir "$PROBE/runtime" "$PROBE/classes"
 tar --zstd -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
-javac -encoding UTF-8 -d "$PROBE/classes" \
-    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelCatalogSync,LiveModelCatalog,ProviderCheck}.java \
-    "$ROOT/tests/ModelCatalogSyncTest.java"
+if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
+else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
+"${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
+    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelCatalogSync,LiveModelCatalog,ProviderCheck}.java \
+    "$ROOT/tests/ModelCatalogSyncTest.java" "$ROOT/tests/ModelReasoningTest.java"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelReasoningTest \
+    --dump-config "$ROOT/tests/fixtures/reasoning-models-response.json" > "$PROBE/reasoning.yaml"
+node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/reasoning.yaml" \
+    "$ROOT/tests/fixtures/command-code-reasoning-1.72.4.json"

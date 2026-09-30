@@ -30,7 +30,10 @@ final class ModelCatalogSync {
      */
     static String writeLiveCatalog(String yaml, String provider,
                                     List<LiveModelCatalog.Entry> upstream) {
-        String result = writeCatalog(yaml, provider, upstream);
+        List<LiveModelCatalog.Entry> enriched = new ArrayList<LiveModelCatalog.Entry>();
+        for (LiveModelCatalog.Entry entry : clean(upstream))
+            enriched.add(ModelReasoning.enrich(provider, entry));
+        String result = writeCatalog(yaml, provider, enriched);
         for (LiveModelCatalog.Entry entry : clean(upstream)) {
             if (!ModelConfig.containsModel(result, provider, entry.id)) {
                 throw new IllegalArgumentException("model catalog was not written");
@@ -91,7 +94,13 @@ final class ModelCatalogSync {
                 || !currentBlock.contains(LIVE_MARKER_PREFIX + COMMAND_PROVIDER)) {
             return presetBlock;
         }
-        String currentSection = modelsSection(currentBlock, COMMAND_PROVIDER);
+        List<LiveModelCatalog.Entry> entries = new ArrayList<LiveModelCatalog.Entry>();
+        for (ModelConfig.Model model : ModelConfig.modelsForProvider(currentBlock, ModelConfig.COMMAND_CODE))
+            entries.add(new LiveModelCatalog.Entry(model.id, model.name, true, model.image,
+                    model.reasoning, model.imageKnown, model.details));
+        String repaired = entries.isEmpty() ? currentBlock
+                : writeLiveCatalog(currentBlock, ModelConfig.COMMAND_CODE, entries);
+        String currentSection = modelsSection(repaired, COMMAND_PROVIDER);
         if (currentSection == null) return presetBlock;
         return replaceModelsSection(presetBlock, COMMAND_PROVIDER, currentSection);
     }
@@ -191,7 +200,6 @@ final class ModelCatalogSync {
                     .append(quote(entry.id)).append('\n');
             out.append(spaces(modelsIndent + 4)).append("name: ")
                     .append(quote(entry.name)).append('\n');
-            boolean hasReasoning = false;
             Map<String, String> fields = new LinkedHashMap<String, String>();
             String field = null;
             for (String line : entry.details.split("\n")) {
@@ -207,7 +215,6 @@ final class ModelCatalogSync {
                 if ("name".equals(key) || "input".equals(key) || "inputModalities".equals(key)) continue;
                 if ("reasoningEfforts".equals(key)) {
                     if (deepSeek) continue;
-                    hasReasoning = true;
                 }
                 for (String line : detail.getValue().split("\n")) {
                     out.append(spaces(modelsIndent + 4)).append(line).append('\n');
@@ -217,11 +224,6 @@ final class ModelCatalogSync {
                 out.append(spaces(modelsIndent + 4))
                         .append(deepSeek ? "inputModalities: " : "input: ")
                         .append(entry.image ? "[ text, image ]\n" : "[ text ]\n");
-            }
-            if (entry.reasoning && !deepSeek && !hasReasoning) {
-                out.append(spaces(modelsIndent + 4))
-                        .append("reasoningEfforts: { off: null, low: low, medium: medium, "
-                                + "high: high, xhigh: xhigh, max: max }\n");
             }
         }
         return out.toString();
