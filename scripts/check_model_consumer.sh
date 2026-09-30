@@ -22,12 +22,16 @@ tar --zstd --no-same-owner -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
 if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
-    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelCatalogSync,LiveModelCatalog,ProviderCheck}.java \
-    "$ROOT/tests/ModelCatalogSyncTest.java" "$ROOT/tests/ModelReasoningTest.java"
+    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck}.java \
+    "$ROOT/tests/ModelCatalogSyncTest.java" "$ROOT/tests/ModelReasoningTest.java" "$ROOT/tests/ModelEffortUiTest.java"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelReasoningTest \
     --dump-config "$ROOT/tests/fixtures/reasoning-models-response.json" > "$PROBE/reasoning.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/reasoning.yaml" \
-    "$ROOT/tests/fixtures/command-code-reasoning-1.72.4.json"
+    "$ROOT/tests/fixtures/command-code-reasoning-1.72.4.json" "$PROBE/catalog.json"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelEffortUiTest --dump-client \
+    "$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js" > "$PROBE/client.js"
+npm ci --prefix "$ROOT/tests/js" --no-audit --no-fund
+node "$ROOT/tests/js/composer-effort-consumer.mjs" "$PROBE/runtime" "$PROBE/client.js" "$PROBE/catalog.json"
 node --expose-internals "$ROOT/tests/js/core-runtime-consumer.mjs" "$PROBE/runtime"

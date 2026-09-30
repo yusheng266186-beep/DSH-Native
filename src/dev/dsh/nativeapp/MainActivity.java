@@ -6673,6 +6673,7 @@ public class MainActivity extends Activity {
     private void applyAndroidPatches(File root, File dshDir) {
         patchFrontendViewport(dshDir);
         patchAttachmentDurability(dshDir);
+        patchModelEffortUi(dshDir);
         try {
             File shim = new File(root, "sharp-android.js");
             File helper = new File(root, "pillow_shim.py");
@@ -6691,6 +6692,25 @@ public class MainActivity extends Activity {
             log("  已启用图片附件（sharp 由 Python/Pillow 实现）");
         } catch (Throwable t) {
             log("  [警告] Android 补丁应用失败: " + t);
+        }
+    }
+
+    private void patchModelEffortUi(File dshDir) {
+        try {
+            File client = new File(dshDir,
+                    "node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js");
+            String source = readText(client);
+            String patched = ModelEffortUi.patch(source);
+            if (patched == null) {
+                recordPatch("max 请求标记", false, "上游选择器结构变化，未修改文件");
+                log("  [警告] max 请求标记未应用：选择器结构变化");
+                return;
+            }
+            if (!source.equals(patched)) writeText(client, patched);
+            recordPatch("max 请求标记", true, "聊天框显示 Max（请求）");
+        } catch (Throwable error) {
+            recordPatch("max 请求标记", false, "文件读取或写入失败");
+            log("  [警告] max 请求标记补丁失败: " + error.getClass().getSimpleName());
         }
     }
 
@@ -7475,7 +7495,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.32.0\n");
+            w.write("APK 版本: 0.32.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

@@ -427,3 +427,9 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 ## 8.16 内核升级（0.32.0）
 
 运行包升为 payload-v10，DSH 官方 npm latest 0.2.0-rc.2（上游候选版）。固定依赖与构建/发布方式、增量删除机制、实际解压空间、认证存活探测和验证边界见 `docs/CORE_UPGRADE.md`。所有 dsh-* 模块须同版本；保留 Android PTY/Node 内部模块垫片；不得把 Linux 原生库直接当 Android 库。原生探测须处理 token/303/Cookie；不允许自动跟随跨 origin 跳转。payload Release 必须先验证全量资产，manifest 最后上传，App stable 清单仍仅由 release.yml/release.sh 更新。
+
+## 8.17 全模型 max 请求选项（0.32.1）
+
+用户明确要求所有模型可选 max，即使上游没有声明支持。ModelReasoning 保留官方快照与 supportedDeclaration；declaration 在原等级外增加字面量 max: max，覆盖此前 max 别名，非推理/未知模型保留 off: null（不发送参数的服务商默认路径）。不把新增选项宣传为已验证模型能力。所有实时目录、离线升级保留、原生选择归一化和预设必须使用同一规则。
+
+聊天框使用 ModelEffortUi 对当前运行包 client.js 做有锚点、幂等的标签补丁；结构不匹配则不写文件并记录诊断。显示 Max（请求）及上游可能拒绝/忽略的提示，选择 RPC 仍携带原模型、会话和字面量 max。不改写历史对话、不自动重试 high 或别的等级。修改要以真实 Host buildModelCatalog、LLM resolveCallConfig、SDK 请求体和注册到 conversation.input.model 的 React 组件为回归边界；只验证原生按钮或适配器元数据不够。tests/js 的固定依赖仅用于 CI 组件回归，不进入 APK。

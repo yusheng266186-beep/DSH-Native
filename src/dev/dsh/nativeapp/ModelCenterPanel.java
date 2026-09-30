@@ -750,17 +750,22 @@ final class ModelCenterPanel {
         List<String> choices = ModelReasoning.choices(draft.provider, draft.model, details);
         draft.effort = ModelReasoning.preferred(choices, draft.effort);
         boolean defaultOnly = choices.isEmpty();
+        boolean defaultAndMax = choices.size() == 2 && choices.contains("off") && choices.contains("max");
         if (defaultOnly) choices.add("off");
         hint.setText(defaultOnly ? UiText.t("此模型没有已声明的强度档位，使用服务商默认。",
                 "No adjustable effort is declared; use the provider default.")
-                : UiText.t("当前模型支持：", "Supported by this model: ") + choices);
+                : UiText.t("可选强度：", "Available requests: ") + choices
+                    + UiText.t("。max 将原样发送，上游可能拒绝或忽略。",
+                        ". max is sent as requested; the provider may reject or ignore it."));
         final List<Button> buttons = new ArrayList<Button>();
         LinearLayout line = null;
         for (int i = 0; i < choices.size(); i++) {
             final String effort = choices.get(i);
             if (i % 3 == 0) { line = row(activity); area.addView(line, DshUi.fullWidth(activity, 4)); }
-            Button button = DshUi.toggleButton(activity, defaultOnly
-                    ? UiText.t("服务商默认", "Provider default") : effort, effort.equals(draft.effort));
+            Button button = DshUi.toggleButton(activity, defaultOnly || (defaultAndMax && "off".equals(effort))
+                    ? UiText.t("服务商默认", "Provider default")
+                    : ("max".equals(effort) ? UiText.t("max（请求）", "max (request)") : effort),
+                    effort.equals(draft.effort));
             button.setTag(effort);
             buttons.add(button);
             addEqual(line, button, i % 3 == 0 ? 0 : 4);
