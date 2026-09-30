@@ -1,210 +1,200 @@
-# DeepSeek Harness Native for Android
+# DSH Native · DeepSeek Harness on Android
 
-[中文](README.md) | [English](README.en.md)
+<!-- dsh-doc-status:start -->
+> Maintained documentation for the current source. Published stable: **0.32.1**; source: **0.32.2**; source payload: `payload-v10`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+<!-- dsh-doc-status:end -->
 
-Run Node.js, DeepSeek Harness (DSH), and a practical development toolchain directly on Android. No Termux, no proot, and no remote execution server are required.
+[中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
 
-**Current stable release: 0.32.1** (payload-v10)
+**Keep your project on your phone and bring the DSH workflow to Android.**
 
+DSH Native packages Android-native Node.js, DeepSeek Harness (DSH), and development tools into an Android application. Chat, run agents, edit files, and manage tasks in local projects without installing Termux or proot or setting up a remote execution server.
 
-Reasoning effort follows the selected provider and model, and survives catalog refreshes and upgrades. See the [full model capability table](docs/MODEL_REASONING.md).
+Model inference uses your selected provider's API. Project storage and tool execution are local; messages, attachments, and tool results are transmitted according to DSH and the provider's request behavior. This is an independent Android adaptation project.
 
-## Download and install
+## Download and requirements
 
-Stable APK:
+**Current stable release: 0.32.1**
 
 **[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.32.1-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
 
+[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.32.1-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
+
 SHA-256: `a167855456c6d2ae491c029720c96eb181f963c87570f8f31317f99bfcd0556f`
 
-Requirements:
-
-- Android 7.0 or newer (minSdk 24)
-- An ARM64 device
-- An internet connection during first launch
-- At least 550 MiB of free storage is recommended
-
-First launch:
-
-1. The app runs a Node architecture check, normally within about three seconds.
-2. It downloads the roughly 118.5 MiB runtime in verified chunks, with resume and per-chunk retries.
-3. It extracts DSH and the toolchain, then validates the runtime.
-4. Open Model center and enter a Command Code or DeepSeek API key.
-5. Fetch the provider's live model catalog, select a model, and start a new session.
-
-Installing a newer APK over an existing build preserves sessions, keys, projects, task history, and settings when the signing certificate is unchanged. Do not uninstall the old build first; uninstalling clears the app's private data.
-
-## Highlights
-
-### Full DSH experience
-
-- Runs an Android/bionic Node.js build and the DSH WebUI from app-private storage.
-- Gives the agent access to bundled `git`, `rg`, `fd`, `jq`, `bash`, and Python tools.
-- Uses a foreground service so work can continue in the background or while the screen is locked.
-- Combines WebSocket and page probes to distinguish idle, running, awaiting approval, recovering, and finished states.
-- The notification shows start time, elapsed time, and connection state, and alerts when approval is required or background work finishes.
-
-### Model center
-
-Two provider routes are available:
-
-| Provider | Catalog source | Read-only endpoint |
-|---|---|---|
-| Command Code | Fetched from Command Code whenever the picker opens or refreshes | `GET https://api.commandcode.ai/provider/v1/models` |
-| DeepSeek direct | Fetched directly from DeepSeek whenever the picker opens or refreshes | `GET https://api.deepseek.com/models` |
-
-The picker no longer presents a bundled preset as the provider's model list. It displays only model IDs returned by the current upstream response. Discovery reads the catalog only: it sends no prompt and makes no billed generation request.
-
-The upstream catalog is authoritative for model IDs: every model returned by the provider's current `/models` response can be selected and saved, even when the bundled capability hints have not caught up yet. Vision metadata is read from the upstream response first, then from existing configuration hints. Image, text-only, and unknown capabilities are labeled separately; unknown capability never blocks selection. An unchanged saved model remains editable during a temporary outage; first-time setup and every new model choice require a successful live fetch.
-
-Click Refresh models to write the complete successful catalogs for saved providers directly into DSH, without changing the default model or requiring another save: Command Code goes to `llm-pi-ai.providers.commandcode.models`, while DeepSeek direct goes to `llm-deepseek-api-key.models`. DSH and the native model center use the same catalog. The update applies automatically when idle; active or unknown status defers it until idle is confirmed. Choose and save separately to change the default model. A small internal marker lets future app upgrades merge transport settings without restoring the old bundled model list.
-
-Model center also supports:
-
-- A global default plus per-project overrides
-- `off / low / medium / high / xhigh / max` reasoning effort
-- Command Code usage details
-- Clear handling of rejected keys, rate limits, moved endpoints, service errors, and invalid responses
-- Search across live upstream model IDs
-- A visible Back to tools & settings action and Android back-gesture support
-
-Model changes apply to new sessions. A session that has already sent a request keeps the model recorded in its own log.
-
-### Projects, files, and sessions
-
-- Default shared workspace: `/sdcard/DSHNative/workspace`
-- Isolated named projects with optional per-project model settings
-- File browsing, text editing, image preview, batch copy/move, and a recoverable trash folder
-- Share files or text from another Android app into the active project and optionally create a task
-- Entry points to DSH's official session search, archive, and restore UI, without copying private RPCs
-- Draft recovery after a page reload or short disconnect, without automatic submission
-
-### Updates, rollback, and diagnostics
-
-Tools & settings → Updates & maintenance provides:
-
-| Action | Behavior |
+| Item | Requirement or behavior |
 |---|---|
-| Update runtime | Downloads only changed DSH/toolchain chunks, verifies them, and restarts the agent |
-| Restore previous runtime | Restores the pre-update snapshot without changing sessions, keys, projects, or the APK |
-| Check app update | Verifies version, package name, signer, and SHA-256 before opening Android's installer |
-| Stable / Test channel | Stable reads `latest.json`; Test compares both `latest-test.json` and the stable manifest |
+| Android | Android 7.0 or later; minSdk 24 |
+| CPU | ARM64; no ARM32 or x86 package is currently provided |
+| First launch | Downloads a roughly 118.5 MiB runtime; later updates download changed parts |
+| Storage | Allow room for extraction, downloads, and rollback snapshots; reserve 1.5–2 GiB and follow the App's actual space check |
+| Model access | Command Code or DeepSeek API credentials; available models and quotas depend on your account |
+| Background tasks | Allow notifications and background operation as appropriate for your device; a foreground service cannot prevent every ROM from terminating the process |
 
-Runtime updates are transactional: snapshot first, replace second, and automatically restore after a failed validation. The diagnostics center exports a redacted ZIP containing device, layout, network, notification, runtime, rollback, and recent-log details. Credentials, session content, attachments, and project files are excluded.
+The APK carries Node and bootstrap logic. DSH and the toolchain are installed from runtime parts verified by hash. Extracted storage is considerably larger than compressed downloads, and safe updates require additional snapshot space.
 
-### Chinese and English
+**Upgrade by installing the same-signed new APK over the existing App.** Uninstalling removes private sessions, credentials, and settings. A configuration backup does not back up all projects or conversation history.
 
-Choose System, Chinese, or English under Tools & settings → Display & language. The native settings hub, Model center, Task center, project manager, update and diagnostics pages, and launcher shortcuts support English. The DSH WebUI has its own language setting.
+## From installation to your first task
 
-New installations receive a language and environment guide. Upgrades with an existing `.dsh` directory are never forced through first-run onboarding.
+1. Install the APK and grant the requested file and notification permissions.
+2. Select a language and complete runtime download, SHA-256 verification, and extraction.
+3. Open Model Center, choose Command Code or direct DeepSeek access, and enter an API key.
+4. Fetch the provider's live model directory, choose a default model and effort, and save.
+5. Use the default workspace or create a named project, then start a new conversation.
 
-## Opening native App tools
+Native language settings offer system default, Chinese, and English. DSH WebUI language and theme are controlled separately in the web settings; native panels follow the web theme. Existing installations with `.dsh` data are not forced through first-run onboarding again.
 
-Recommended path: expand the DSH sidebar and select App tools at the bottom.
+### Finding App tools
 
-When the sidebar is collapsed, the visible gear belongs to DSH's own web settings and is not intercepted by the Android shell. Backup entry points remain available:
+Expand the DSH sidebar and select **App tools** at the bottom. **Refresh models** is in the same area; the entries are arranged vertically for narrow screens.
 
-- Long-press the top of the page
-- Use Settings in the persistent notification
-- Long-press the launcher icon for Settings, Runtime log, or Check updates
+Fallback entry points include a long press on the top of the page, the notification's settings action, and launcher shortcuts for settings, logs, and updates. The web gear continues to open DSH's own settings.
 
-Every native settings child page has a visible back action. The Android back key and edge gesture follow the same parent navigation instead of silently dismissing a page or opening the app-exit confirmation.
+Visible back buttons, the Android back button, and edge gestures follow the same parent navigation in native subpages.
 
-## Files, privacy, and security boundaries
+## Workflows and capabilities
 
-- API keys are stored only in `.credentials.yaml` under app-private storage.
-- Model discovery uses the selected provider's official HTTPS endpoint. Keys, request headers, and response bodies are never written to logs.
-- No privileged `JavascriptInterface` is added; the WebUI helper entry uses constrained script injection.
-- Native file writes are restricted to app-private storage and the `/sdcard/DSHNative` allowlist.
-- Encrypted configuration backups contain keys and therefore require a password of at least eight characters.
-- App updates must keep the package name and signing certificate unchanged or Android will reject an in-place install.
+| Workflow | Current capabilities |
+|---|---|
+| Local agent | DSH and Android/bionic Node in the private App directory, with git, rg, fd, jq, bash, Python, and other tools |
+| Models | Live provider catalog, global defaults, project overrides, per-model effort, and a Max request option for every model |
+| Projects and files | Named projects, file browsing and text editing, image preview, batch copy/move, recoverable trash |
+| Share import | Import text or files from other Apps into the current project and explicitly create a task |
+| Tasks and connection | Task center, timeline, approval alerts, background completion notifications, WebSocket status, local draft recovery |
+| Conversations | Entry points to official DSH search, archive, and restore UI |
+| Maintenance | App/runtime updates, runtime snapshots and recovery, network diagnostics, logs, redacted diagnostic ZIP |
+| Configuration backup | Authenticated encryption with a password of at least eight characters; includes credentials and global/project model settings |
+| Plugins | Built-in management and external installation, with capability disclosure and version-fingerprint authorization |
+
+### Models come from your provider account
+
+| Route | Directory endpoint | Behavior |
+|---|---|---|
+| Command Code | `GET https://api.commandcode.ai/provider/v1/models` | Authenticated directory visible to your account |
+| Direct DeepSeek | `GET https://api.deepseek.com/models` | Directory returned for your official API key |
+
+Connection checks read the directory without sending a test prompt. The native picker displays IDs from the current successful response. Local capability records explain effort and image support; they do not fabricate models unavailable to your account.
+
+New IDs remain selectable even when absent from the local capability snapshot. Structured upstream declarations take priority for image support, followed by existing configuration. Unknown capability is not labeled as image support. Saved settings can be retained during temporary offline operation; initial setup or choosing a new model requires a successful live fetch.
+
+**Refresh models** writes the complete successful catalogs directly to DSH's provider configuration. A controlled runtime reload applies them when idle, followed by a page refresh. Running or unknown task state defers application until confirmed idle. Reloading WebView alone cannot rebuild the provider topology.
+
+Global and project defaults apply to new conversations. Existing history is retained; the chat model picker can explicitly change the model or effort for subsequent requests. Already dispatched requests are not changed retrospectively.
+
+### Effort: provider declarations and Max requests
+
+The App retains declared levels such as `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`, and adds a literal `max` request option to **every model**. The composer labels it **Max (request)**.
+
+| Example | Pinned capability declaration | Options offered by the App |
+|---|---|---|
+| Space Bunny `stealth/space-bunny-alpha` | low / medium / high | Declared levels + Max (request) |
+| `Qwen/Qwen3.8-Max` | low / medium / xhigh | Declared levels + Max (request) |
+| Automatic, non-adjustable, or unknown models | No reliable adjustable-effort declaration | Provider default (omit the parameter) + Max (request) |
+| Direct DeepSeek | off / low / high / max | Existing levels, with literal max transmitted |
+
+**Selecting max means the client submits that parameter; it does not guarantee a larger reasoning budget.** A provider may honor, ignore, or reject it. The App does not silently downgrade to high or present the option as proven model capability.
+
+See [Model reasoning](docs/MODEL_REASONING.md) for the complete table, provenance, precedence, migration behavior, and test boundaries.
+
+### Projects, files, and conversations
+
+The default workspace is `/sdcard/DSHNative/workspace`; named projects live under `projects/<name>` and can have their own model defaults.
+
+File writes are restricted by canonical-path allowlists. Directory copies do not follow symlinks. Deletion normally moves files to same-volume trash; restoration preserves both copies when a name conflicts. Text editing includes unsaved-change handling and safe save behavior.
+
+Draft recovery restores local text without sending it. Official DSH UI handles conversation search, archive, and restoration. Configuration backup excludes full workspaces, complete history, and attachments; back up project files separately.
+
+### Updates and recovery
+
+| Operation | Scope |
+|---|---|
+| App update | Verify version, package, signature, and checksum, then invoke Android's installer |
+| Runtime update | Verify parts and replace changed DSH/toolchain content |
+| Restore previous runtime | Verify and restore `dsh` / `tools` snapshots while retaining `.dsh` and projects; no APK downgrade |
+| Export diagnostics | Device, layout, connection, runtime, rollback summaries, and redacted logs; excludes keys, conversation content, attachments, and project files |
+
+Stable clients read `latest.json`. Test-channel clients compare it with `latest-test.json` and select the higher version. Each published manifest stays bound to its own APK and payload.
+
+Runtime updates check space and take a snapshot before replacement, with recovery on failure. Automatic recovery holds further updates to avoid a startup loop. The pinned DSH core is `0.2.0-rc.2`, an **upstream release candidate**; the App's stable channel is independent of that upstream designation.
+
+## Data and permission boundaries
+
+- Credentials live in private `.dsh/.credentials.yaml`; model settings also involve profile patches and project overrides.
+- Logs and diagnostics redact secrets; catalog response bodies and authentication headers are not logged.
+- Web assistance uses restricted injection and message handling, without a high-privilege `JavascriptInterface`.
+- File operations are limited to the private App directory and `/sdcard/DSHNative`, with canonical-path and symlink escape checks.
+- External plugins execute in the local tool environment; review their disclosed capabilities before authorization.
+- The App provides neither root privileges nor a full Linux distribution. Model inference requires your provider to be available.
 
 ## Architecture
 
-```text
-Android Activity / WebView
-        |
-        +-- Native tools and settings
-        +-- Foreground task service and notifications
-        +-- Update, rollback, backup, and diagnostics
-        |
-        +-- Node.js (Android/bionic, arm64)
-                |
-                +-- DeepSeek Harness WebUI
-                +-- git / rg / fd / jq / bash / Python
-                +-- Shared workspace
+```mermaid
+flowchart TD
+    A[Android native shell] --> B[WebView]
+    A --> C[Tools and settings]
+    A --> D[Foreground service and recovery]
+    B --> E[Local Node and DSH]
+    E --> F[Projects and toolchain]
+    E --> G[Model provider APIs]
 ```
 
-The extracted runtime is several hundred MiB, which is unsuitable for a normal single-file GitHub distribution. The APK carries Node, bootstrap logic, and manifests; the first launch downloads hash-verified runtime chunks. Later updates replace changed chunks only.
+Two-stage delivery separates the APK from the larger runtime. Node, libraries, bootstrap scripts, and an initial manifest ship in the APK. Runtime parts contain DSH and tools, with revisions, sentinels, sizes, and SHA-256 used for update decisions.
 
-Starting with Android 10, ordinary apps targeting SDK 29 or newer cannot execute files directly from private data storage. This project currently fixes `targetSdkVersion` at 28 to preserve its native execution architecture. It is an explicit architectural constraint and must not be changed in a routine feature pull request.
+Logic for path safety, model capability, update decisions, task status, and recovery is separated from Android UI and tested on a normal JVM. Native views use `DshUi`; asynchronous callbacks validate lifecycle state. Theme-driven recreation uses debouncing, persistent rate limiting, and a hard stop.
 
-## Build and test
+The current architecture keeps `targetSdk 28` because executables run from private App storage. Raising it requires redesigning executable deployment rather than changing a routine release setting.
 
-The build requires JDK 17/21, Android SDK build-tools, `d8`, `aapt2`, and `apksigner`.
+## Development and verification
+
+Local checks require a JDK, Python 3, and Node.js. Complete Linux builds additionally need Android SDK, GitHub CLI, and access to a previous stable APK.
 
 ```bash
+python3 scripts/check_java.py
 bash scripts/run_tests.sh
-bash scripts/build_bootstrap.sh
+python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
+
+# Linux with Android SDK already installed
+bash scripts/ci_build.sh /tmp/dsh-build
 ```
 
-The current regression suite includes:
+The output is `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`. Actions uses JDK 17, official Linux build-tools 34.0.0, and Android 28/34 platform files. See [Build guide](docs/BUILD.md).
 
-- 1,049 pure-logic assertions
-- WebUI App tools DOM simulation
-- WebSocket recovery simulation
-- Draft recovery simulation
-- Session-status fetch and DOM simulation
-- Runtime snapshot/restore simulation
-- Java architecture, resource XML, no-emoji, no-system-AlertDialog, and no-privileged-bridge gates
-- Android CI validation of javac, DEX, aapt2, signing, manifest, and APK output
+Regression covers JVM logic, JS page/connection simulations, local HTTP authentication, release metadata, and the actual runtime's Host, model catalogs, SDK request bodies, session persistence, and Web profile. Composer tests run the real React selector for both locales and verify model/max RPCs. Test counts are taken from the current CI output.
 
-Releases must go through `.github/workflows/release.yml` and `scripts/release.sh`. Do not upload an APK manually, edit update manifests by hand, or migrate the signing key.
+These checks do not prove Android device layout, providers' real execution of max, or background reliability across every ROM. Evidence and remaining verification are recorded in [Project status](docs/STATUS.md).
 
-## Repository layout
+### Documentation is part of release synchronization
 
-```text
-src/dev/dsh/nativeapp/   Android shell, Model center, task, and utility panels
-payload/                 Bootstrap, extraction, snapshot, and runtime helpers
-patch/                   Android/bionic compatibility patches for DSH
-tests/                   Pure-logic tests and JavaScript simulations
-icon/                    Icons, themes, motion, and localized shortcut resources
-scripts/                 Build, CI, signer verification, and release scripts
-docs/                    Architecture, gotchas, handover, and acceptance notes
-release-notes/           Published release notes
+```bash
+python3 scripts/sync_project_metadata.py --docs-only
+python3 scripts/sync_project_metadata.py --docs-only --check
 ```
 
-## Known limitations
+After release assets and download routes are verified, `release.yml` / `release.sh` generates manifests and synchronizes both READMEs, every document's status block, and the current status table. Historical iteration content is retained. Do not edit generated blocks manually. Source can lead the published release, but documentation must show both accurately.
 
-- Only ARM64 builds are currently provided.
-- First installation requires a network connection to download the runtime.
-- `targetSdk 28` is required by the current private-directory execution design; a long-term migration needs `nativeLibraryDir` or another supported architecture.
-- Upstream `/models` responses usually expose IDs, not full image, context, and reasoning capabilities. Every ID returned by the live response is selectable; missing local capability metadata only hides the corresponding image/reasoning hint and never blocks use.
-- A model whose upstream response has no capability fields is written with safe text-only baseline metadata. It remains selectable and usable for new sessions; image and reasoning hints appear only when the app has reliable metadata.
-- The large Office-to-PDF conversion engine is not bundled to keep runtime size manageable.
-- Runtime restore rolls back DSH and its tools, not the Android APK.
+## Repository map
 
-## Documentation
-
-| Document | Purpose |
+| Path | Responsibility |
 |---|---|
-| [AGENTS.md](AGENTS.md) | Development rules, red lines, layout, and commands |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Two-stage runtime, patches, and component boundaries |
-| [docs/GOTCHAS.md](docs/GOTCHAS.md) | Android, networking, layout, update, and release pitfalls |
-| [docs/HANDOVER.md](docs/HANDOVER.md) | Current branch facts, signer rules, and handover state |
-| [docs/BUILD.md](docs/BUILD.md) | Local/CI build, validation, and release flow |
-| [docs/PHASE5A-TASK-RECOVERY.md](docs/PHASE5A-TASK-RECOVERY.md) | Task state, reconnect recovery, and draft protection |
-| [docs/PHASE5B-FILES-SESSIONS.md](docs/PHASE5B-FILES-SESSIONS.md) | File workflows, trash, and session management |
-| [docs/PHASE5C-MODEL-ONBOARDING.md](docs/PHASE5C-MODEL-ONBOARDING.md) | Model center, project overrides, and first-run setup |
-| [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | Rollback, diagnostics, accessibility, and device adaptation |
-| [docs/PHASE5E-MODEL-CATALOG-I18N.md](docs/PHASE5E-MODEL-CATALOG-I18N.md) | Live provider catalogs, back navigation, and English completion |
-| [docs/PHASE5F-MODEL-RUNTIME-SYNC.md](docs/PHASE5F-MODEL-RUNTIME-SYNC.md) | Persisting live catalogs into DSH and WebUI synchronization |
+| `src/dev/dsh/nativeapp/` | Native shell, pure logic, panels, foreground service |
+| `payload/` | Download, extraction, preflight, snapshots, runtime helpers |
+| `runtime/` | Pinned core source, integrity, dependency lock |
+| `patch/` | Android compatibility notes and explicitly archived patches |
+| `tests/` | Java, JS, HTTP, and actual-runtime consumer regression |
+| `scripts/` | Build, signing, releases, payload generation, documentation sync |
+| `docs/` | Current guides, status, handover, historical phases and research |
+| `release-notes/` | Separate version-specific App and payload changes |
 
-## License and upstream projects
+Start with [Documentation](docs/README.md). Before development, read [AGENTS.md](AGENTS.md), [Handover](docs/HANDOVER.md), and [Gotchas](docs/GOTCHAS.md).
 
-This repository is licensed under the MIT License. The Android Node.js build comes from the Termux distribution and retains all upstream licenses.
+## Limits and provenance
 
-- DeepSeek Harness: <https://github.com/deepseek-ai/deepseek-harness>
-- Termux: <https://github.com/termux/termux-app>
-- Android 10 behavior changes: <https://developer.android.com/about/versions/10/behavior-changes-10>
+ARM64 only; first initialization requires network access; Android and ROM policies constrain background operation; unknown image capability is not guessed. A large Office-to-PDF engine is not bundled. Runtime restoration covers DSH/tools, not APK downgrade or full data recovery.
 
+Repository code is licensed under [MIT](LICENSE). DSH, Node.js, Termux-origin binaries, and other bundled components retain their own licenses; the repository license does not relicense all dependencies.
+
+- [DeepSeek Harness upstream](https://github.com/deepseek-ai/deepseek-harness)
+- [Termux](https://github.com/termux/termux-app)
+- [Pinned core and upgrade notes](docs/CORE_UPGRADE.md)
+- [Android 10 behavior changes](https://developer.android.com/about/versions/10/behavior-changes-10)

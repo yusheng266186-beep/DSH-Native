@@ -1,100 +1,76 @@
-# UI 设计规范
+# 原生 UI 与交互规范
 
-> **强制约定：所有原生界面（对话框、设置页、提示条等）必须使用 `DshUi` 组件层构建。
-> 禁止直接使用 Android 系统默认控件样式。**
->
-> 原因：DSH 的 Web 界面是浅色卡片风格，而系统默认的 Material 风格
-> （下划线输入框、水波纹按钮、灰色对话框、系统字号）与之放在一起会明显割裂。
-> 用户明确要求「原生界面与 DSH 视觉统一和谐」，此要求对**后续所有新增功能**持续有效。
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+<!-- dsh-doc-status:end -->
 
----
+所有新增原生设置、对话框、操作区和提示使用 `DshUi`。视觉跟随 DSH 网页的深浅主题，不直接套用 Android 默认对话框样式；禁止 `AlertDialog.Builder`。当前源码令牌与布局策略是实现依据。
 
-## 一、设计变量（取自 DSH 前端实际使用的值）
+## 1. 主题与设计令牌
 
-深浅两套取值都来自 DSH 前端自己的设计令牌，**不要自己配近似色**：
-
-| 用途 | 浅色 | 深色（`--dsw-alias-*`） | 说明 |
+| 用途 | 浅色 | 深色 | 方法 |
 |---|---|---|---|
-| 页面底色 | `#F7F8FA` | `#151517`（`bg-base`） | 卡片外的背景 |
-| 卡片 | `#FFFFFF` | `#232324`（`bg-layer-1`） | 主容器 |
-| 描边 | `#00000014` | `#ffffff0f`（`border-l1`） | **1dp 极细** |
-| 输入框底 | `#F5F6F8` | `#2C2C2E`（`bg-layer-2`） | 聚焦时 `#EDEFF3` / `#353638`（`bg-layer-3`） |
-| 次按钮底 | `#F3F4F6` | `#2C2C2E`（`bg-layer-2`） | 按下时 `#E8EAEE` / `#353638`（`bg-layer-3`） |
-| 品牌蓝 | `#4D6BFE` | `#6B85FF` | 主按钮、强调（深色下提亮保证对比度） |
-| 主文字 | `#1F2329` | `#F9FAFB`（`label-primary`） | 标题、正文 |
-| 次文字 | `#6B7280` | `#CFD3D6`（`label-secondary`） | 字段标签、状态 |
-| 弱文字 | `#9CA3AF` | `#ADB2B8`（`label-tertiary`） | 说明、路径 |
+| 页面 | `#F7F8FA` | `#151517` | `BG()` |
+| 卡片 | `#FFFFFF` | `#232324` | `CARD()` |
+| 描边 | 黑色约 8% | 白色约 6% | `BORDER()` |
+| 主文字 | `#1F2329` | `#F9FAFB` | `TEXT()` |
+| 次文字 | `#6B7280` | `#CFD3D6` | `TEXT_2()` |
+| 弱文字 | `#9CA3AF` | `#ADB2B8` | `TEXT_3()` |
 
-圆角：卡片 **16dp**、输入框与按钮 **10dp**。
-留白：卡片内边距 **20dp**，控件间距 **6–14dp**。
+输入、焦点、按钮、品牌色和语义色调用相应 DshUi/UiPolicy 方法。不要在业务页面复制一套近似颜色，也不要用会被 javac 内联的 `public static final int` 保存动态主题色。
 
-> 这些值集中在 `DshUi.java` 的颜色方法区（`DshUi.BG()` / `DshUi.TEXT()` 等）。
-> 需要调整时**改那里**，不要在业务代码里写死颜色。
->
-> **颜色是方法而不是常量**：`public static final int` 属于编译期常量，
-> javac 会把值内联进调用点，运行时改字段对已编译代码无效 —— 那样主题切换
-> 就只能靠重启进程。改成方法后，**重建界面即可换主题**。
-> 宿主必须在建任何视图之前调用 `DshUi.applyTheme(context)`（见 `MainActivity.onCreate`）。
+DSH 网页主题独立于系统设置。构建视图前执行主题应用；主题同步需要去抖、持久化跨重建限流与超限硬停止，不能每收到消息就 recreate。
 
----
+卡片圆角、控件圆角与留白集中在组件层；常规基准为卡片 16dp、输入/按钮 10dp、正文内边距 20dp，页面实际布局还必须遵循 DeviceLayout 的可用空间策略。
 
-## 二、常用组件
+## 2. 组件与页面结构
 
 ```java
-// 对话框：透明窗口 + 自绘圆角卡片（不是 AlertDialog）
-Dialog dlg = DshUi.dialog(this,
-        DshUi.scroll(this, body),          // 内容超出时滚动
-        DshUi.footer(this, cancel, save),  // 底部按钮行（右对齐）
-        660);                              // 最大高度 dp
-dlg.show();
-
-// 组件
-DshUi.title(this, "设置")             // 对话框标题 17sp 加粗
-DshUi.sectionLabel(this, "更新")      // 区块小标题 13sp 加粗
-DshUi.label(this, "API Key")          // 字段标签 12.5sp 次要色
-DshUi.hint(this, "仅保存在本地")       // 说明文字 11.5sp 弱化色
-DshUi.status(this, "当前版本 1.0")     // 可异步更新的状态文字
-DshUi.input(this, value, secret)      // 输入框（浅灰圆角、无下划线）
-DshUi.button(this, "保存并重启", true) // 主按钮（品牌蓝）
-DshUi.button(this, "取消", false)      // 次按钮（浅灰）
-
-// 布局
-DshUi.paddedBody(this)                // 卡片正文容器（20dp 内边距）
-DshUi.fullWidth(this, 12)             // 撑满宽度 + 上边距 12dp
-DshUi.column(this)                    // 纵向容器
+Dialog dialog = DshUi.dialog(this,
+        DshUi.scroll(this, body),
+        DshUi.footer(this, cancel, save),
+        660);
+dialog.show();
 ```
 
----
+这是 API 用法示例，具体高度应由页面与设备策略决定。标题、字段、说明、输入和按钮分别使用 `title`、`label`、`hint`、`input`、`button` 等组件。
 
-## 三、新增功能时的检查清单
+内容超过屏幕时滚动，页脚保留在可操作区域；fill 布局的主体使用正确的权重和高度。多按钮不能只分配等宽后假定文字必然放得下；窄屏和大字体应允许按钮区适当重排。
 
-- [ ] 对话框用 `DshUi.dialog()`，**不用** `AlertDialog.Builder`
-- [ ] 按钮用 `DshUi.button()`，**不用**系统 `Button` 默认样式
-- [ ] 输入框用 `DshUi.input()`，**不用**带下划线的 `EditText`
-- [ ] 颜色引用 `DshUi` 常量，**不写死**十六进制值
-- [ ] 圆角/间距符合上面的取值（卡片 16dp、控件 10dp、内边距 20dp）
-- [ ] 文字用三档层级（`TEXT` / `TEXT_2` / `TEXT_3`），不随意取灰色
-- [ ] 内容可能超出屏幕时用 `DshUi.scroll()` 包裹
-- [ ] 构建后确认 APK 内 `AlertDialog` 出现次数为 0
+原生触摸目标最低 48dp。横屏、平板与大字体使用 `DeviceLayout`；WebView 使用 `MobileLayout`。上下安全区、键盘、可滚动内容和底部按钮一起评估，不能只测静态宽度。
 
----
+## 3. 返回、操作与异步
 
-## 四、验证方式
+- 子页可见返回按钮与 Android 返回键/边缘手势进入同一父级，统一使用 `DshUi.onBack` / `swapDialog`。
+- 文件目录有内部导航，编辑器有未保存守卫，不能用通用“关 Dialog”覆盖。
+- 外侧点击不能静默丢失设置导航或未保存输入。
+- 同一高成本操作防重复点击，展示加载、成功、警示和错误状态。
+- 网络、目录读取和大文件处理在后台；回调检查 Dialog/Activity 生命周期与 generation/revision。
+- 控件禁用期间保留清楚的状态文案，不用静默吞异常假装成功。
 
-构建后可静态检查是否仍在使用系统样式：
+## 4. WebUI 入口与动效
+
+侧栏底部提供 App 工具和更新模型列表，纵向布局适配窄屏。网页自己的齿轮不能被劫持；不要增加覆盖输入区的漂浮入口。每次 page load 都重注入，匹配失败留下诊断而不改坏页面。
+
+动效遵守减少动态效果设置，避免强制等待和无限播放。原生与网页都应在无动画时保持同样的信息、可操作性与状态反馈。
+
+Max 标签为“请求”而非能力保证，正文提示服务商可能拒绝或忽略。界面不应堆叠实现细节，但需要影响用户决策的限制必须表达清楚。
+
+## 5. 新页面检查
+
+- [ ] DshUi 组件与主题方法，无系统 AlertDialog。
+- [ ] 48dp 触摸目标，窄屏/大字体/横屏页脚不挤压，内容可滚动。
+- [ ] 页面与按钮返回行为一致，未保存输入有明确出口。
+- [ ] 异步任务不阻塞主线程，关闭页面后不回写旧 UI。
+- [ ] 重复点击有 gate，成功/失败反馈可理解，中英文同步。
+- [ ] 主题与减少动态效果切换不循环重建、不丢数据。
+- [ ] 无障碍描述、焦点和禁用态适当。
 
 ```bash
-# 应输出 0
-grep -c 'AlertDialog' src/dev/dsh/nativeapp/MainActivity.java
+python3 scripts/check_java.py
+bash scripts/run_tests.sh
 ```
 
-或在 APK 的 dex 中确认已无 `AlertDialog$Builder` 符号。
+静态检查与构建闸门检查源码/DEX 中禁止项；不能简单 `grep AlertDialog` 统计注释就判定 UI 失败。纯逻辑测试不能证明真机像素布局。阶段四 B 已有用户验收，其他页面与设备矩阵见 [STATUS](STATUS.md)。
 
----
-
-## 五、为什么不用 androidx / Material Components
-
-本项目构建链是手写清单 + aapt2 + d8，**不引入 androidx 依赖**。
-因此无法使用 `MaterialAlertDialogBuilder`、`Theme.Material3` 等。
-`DshUi` 用 `GradientDrawable` + `StateListDrawable` 自绘，
-既满足视觉统一，也不增加依赖体积。
+本项目使用手写清单、aapt2 与 d8，无 androidx/Material 依赖；DshUi 自绘并复用 Android 基础控件，不意味着 APK 没有主题、图标和快捷方式资源。

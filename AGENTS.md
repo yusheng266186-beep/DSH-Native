@@ -1,191 +1,102 @@
-# 给接手的 Agent：先读这一份
+# 给接手开发者与 Agent 的工作约定
 
-本项目是 **DeepSeek Harness（DSH）的 Android 原生客户端**。
-它把 Node.js + DSH 完整地跑在 Android 上，**不依赖 Termux、不依赖 proot**。
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-如果你是被派来接手的 AI agent，这份文件是入口。读完它再动代码。
+本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
 
-> **本文件的版本号、数字、结论可能已经过期。**
-> **当前真实状态以 `docs/HANDOVER.md` 第八节为准**（2026-09 迭代记录：
-> 构建与发布已迁到 GitHub Actions、签名事故与防护、新增红线、已知陷阱、未验证事项）。
+开发前先读 [当前状态](docs/STATUS.md)、[交接说明](docs/HANDOVER.md) 和 [踩坑记录](docs/GOTCHAS.md)。当前事实与验证边界集中在 STATUS；阶段文档和旧发布说明保留历史语境，不能用旧“候选”状态替代当前主分支事实。
 
----
+## 1. 开工与交付
 
-## 一、这个项目在做什么
+1. 在动手前 `git fetch origin main`，核对分支、HEAD 和工作区，保留用户改动。
+2. 核对受影响的真实代码和消费路径；不要只修改 UI 标签或孤立的配置字段。
+3. 保持逻辑与 Android UI 分离；新增判断优先进入可在 JVM 验证的纯逻辑类。
+4. 执行适当检查，更新中英文入口、当前状态和相关技术文档。
+5. 用户已约定每轮修改完成后递增版本，并直接发布 stable；须先通过完整 Android CI，再合并 main，经 `release.yml` / `release.sh` 发布。不得绕过签名、下载或清单校验。
+6. 若任务实际安排了并行协作，必须取得所有相关任务的明确交回；文件一段时间不变不是完成证据。
 
-DSH 本身是一个 Node.js 写的 CLI/Web 应用。要在 Android 上跑它，
-常规做法是装 Termux 再装 Node —— 但那样用户得先装一个终端模拟器，
-体验割裂。
+## 2. 必须保留的红线
 
-本项目换了一条路：**自己带一个 Node 运行时，直接以 Android 应用的形式跑起来**。
-
-```
-用户安装的 APK（34MB）
-  ├── Node 运行时（47MB 解压后）+ 它需要的 10 个 .so
-  ├── ICU 数据（31MB，Node 的 Intl 依赖它，删不掉）
-  └── 一堆引导脚本（unpack.js / preflight.js / sharp-android.js ...）
-
-首次启动时下载「运行包」（payload-v10 约 117MiB，分 5 片）
-  ├── dsh.tar.zst         DSH 本体（node_modules）
-  └── tools-*.tar.zst     工具链（git / python / npm / curl ...）
-
-解压后 ≈ 316MB，用户配置在 <root>/.dsh，与运行包分开存放
-```
-
-**为什么要分两段？** APK 里塞不下完整的工具链（会变成 300MB+ 的安装包）。
-分两段后，APK 保持 34MB，工具链按需下载，且能增量更新。
-
----
-
-## 二、红线：这些事不能做
-
-以下每一条都是踩过坑之后定下来的，改动前先读 `docs/GOTCHAS.md` 里的原因。
-
-| 红线 | 原因 |
+| 约束 | 要求 |
 |---|---|
-| **源码、脚本、注释里不能出现 emoji** | 用户明确要求过。构建脚本里有检查，违反了会构建失败。 |
-| **纯逻辑层不能 import `android.` / `androidx.`** | `run_tests.sh` 编译的纯逻辑类都要在普通 JVM 上运行，包括移动布局、工作区、分享任务、插件授权和发布通道规则。构建脚本第 3.45 步会检查。 |
-| **新功能必须用原生 UI，不能用 `AlertDialog.Builder`** | 构建脚本第 3.5 步会检查。统一走 `DshUi`。 |
-| **不能提交 APK 到仓库** | 仓库历史已经 2.5GB（88 次提交各带一个 34MB 的 APK）。APK 由 GitHub Releases 提供，App 也从 Releases 下载。`.gitignore` 已加。 |
-| **发布必须用 `scripts/release.sh`，不能手工写 latest.json** | 曾经因为脚本语法错误跳过了 `gh release create` 却写了清单，导致所有客户端更新失败。`release.sh` 会先验证 release 资产与两条下载路径，**最后**才写清单。 |
-| **`--patch` 必须写在 `--profile` 之前** | DSH 的命令行解析要求。 |
-| **不能启用 `dsh-mcp-client`** | 实测：没有配置任何 server 时它会让 DSH 整个启动失败。代码里有注释说明。 |
-| **改动后必须跑 `scripts/run_tests.sh`** | 纯逻辑断言，构建期强制执行。 |
-| **不要换签名密钥** | 换签名 = 所有已安装用户必须卸载重装 = 丢会话与 API 密钥。仓库里那把曾长期是 PoC 时代的旧密钥（`OU=POC`），而实际发布用的是另一把 —— 结果用户更新时被系统拒绝「安装失败(-7)」。现在 `release.yml` 发版前会强制核对，`build_bootstrap.sh` 也不会再默默生成新密钥。详见 HANDOVER 8.2。 |
-| **任何会触发 `recreate()` / Activity 生命周期的逻辑，必须带防振荡三件套**（去抖复核 + 跨重建限流（计数存 prefs）+ 超限硬停止） | 深色模式曾按"每收到一次上报就重建"实现 → 无限重建，用户侧"深浅反复横跳、不停重启"，**卸载重装也无效**。当时加的限流器还是实例字段，每次重建都归零。详见 HANDOVER 8.3。 |
-| **XML 注释里不能出现连续两个减号** | 写 `--dsw-alias-...` 进注释 → aapt2 报 not well-formed，构建失败。 |
-| **颜色必须走 `DshUi` 的方法，不能是常量** | `public static final int` 会被 javac **内联**到每处调用点，运行时改它对已编译代码无效。 |
-| **主题跟随 DSH 网页，不是 Android 系统** | DSH 有自己的 `ui-theme.preference`，与系统深色相互独立；只跟系统会"网页黑、原生白"。 |
-| **注入脚本必须每次页面加载都执行** | 任何 reload 都会清空页面脚本；"只注入一次"会让状态看板、任务通知、接口诊断静默失效。 |
-| **多会话/多 agent 并行改这个仓库时，动手前先 `git fetch`** | 曾因本地克隆落后 5 个提交而误读状态。 |
-| **发布前必须拿到子任务的明确交回** | 不能拿"文件 N 秒没变"当完成信号 —— 曾据此发布，而任务仍在写。 |
-| **每轮用户要求的修改完成后都发布 stable 正式版并递增版本号** | 这是当前产品交付约定。仍必须先通过完整 Android CI，再合并 main，并且只允许使用 `release.yml` / `scripts/release.sh`；不得为赶发布绕过签名、下载路径或清单校验。 |
+| 源码、脚本与注释 | 不使用 emoji；构建闸门会检查 |
+| 纯逻辑 | 不导入 `android.` / `androidx.`，在普通 JVM 测试 |
+| 原生 UI | 新功能走 `DshUi`，禁止 `AlertDialog.Builder`；颜色调用主题方法，不用会被 javac 内联的颜色常量 |
+| 主题来源 | 跟随 DSH 网页，不只跟 Android 系统；构建视图前应用主题 |
+| Activity 重建 | 必须有去抖复核、跨重建持久化限流、超限硬停止 |
+| WebView 注入 | 每次页面加载执行；SessionProbe 必须在网页模块前初始化并解析完整 RPC 响应 |
+| 状态判定 | 会话列表 `running` 是运行状态权威；不凭按钮文案假报运行/空闲；过期证据变未知 |
+| 凭据和日志 | 不输出密钥、认证头、目录响应正文；诊断 ZIP 不包含会话正文、附件或项目文件 |
+| 用户数据 | 运行包替换、删除与恢复只涉及运行目录；保护 `.dsh`、凭据、历史及项目 |
+| 运行包恢复 | 校验记录、大小、摘要和目标集合；恢复后暂缓再次更新，避免循环 |
+| App 更新 | 保持 `dev.dsh.native` 包名与既有签名；不通过卸载解决签名问题 |
+| 签名 | 不换密钥，不在缺失时生成新的；证书 SHA-256 见交接第 8 节 |
+| APK | 不提交进 Git；只由 Actions 构建，通过 Releases 分发 |
+| 发布清单 | 只用发布脚本生成 `latest.json` / `latest-test.json`，先验证资产与下载路径 |
+| 源码与发布版本 | 候选源码可以领先已发布清单；清单仍绑定自身 APK 和 payload，不假造已经发布 |
+| 文档生成区 | 运行同步脚本，不手工改版本、摘要、状态块或固定模型表 |
+| CLI 参数 | `--patch` 写在 `--profile` 前面 |
+| MCP 插件 | 未配置 server 时不要启用 `dsh-mcp-client`，可能阻断整个启动 |
+| Android 架构 | minSdk 24、targetSdk 28、ARM64；提高 targetSdk 先重新设计可执行文件部署 |
+| XML 注释 | 不出现连续两个减号，避免 aapt2 解析失败 |
+| 外部能力 | 不把未知视觉能力标为支持；不把强制 max 请求说成服务商已保证支持 |
 
----
-
-## 三、常用命令
-
-**注意：本机（Android App 沙箱）没有 JDK/aapt2/d8/apksigner，编译只能在 CI 上做。**
-推送后 `build.yml` 会自动构建；发版手动跑 `release.yml`（先跑一次 `dry_run` 更稳）。
+## 3. 常用检查
 
 ```bash
-# 本地静态核验（无 JDK 时能做的全部检查：语法、跨类引用、资源 XML、三道闸门）
 python3 scripts/check_java.py
-
-# 核对签名密钥与已发布版本是否一致（换密钥会让所有用户装不上）
-bash scripts/check_signer.sh <APK 路径或下载 URL>
-
-# 跑测试（纯逻辑层，普通 JVM）
 bash scripts/run_tests.sh
-
-# 完整构建（测试 → 架构约束 → UI 规范 → 编译 → d8 → 打包 → 签名）
-bash scripts/build_bootstrap.sh
-
-# 发布（上传 → 验证资产 → 轮询两条下载路径 → 最后写 latest.json）
-bash scripts/release.sh <版本号> <构建目录> <发布说明.md> [stable|test]
-
-# 重建运行包分片（改动了 tools 内容时）
-DSH_TOOLS_DIR=<工具链目录> DSH_PAYLOAD_OUT=<输出目录> python3 scripts/make_payload_parts.py
+python3 scripts/sync_project_metadata.py --docs-only
+python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 ```
 
-**构建环境的依赖**（见 `docs/BUILD.md`）：aapt2、d8、apksigner 需要从 Termux 环境取，
-且 aapt2 是 bionic 二进制，必须用 Termux 的 linker。`build_bootstrap.sh` 里已经处理好。
+`check_java.py` 无需 JDK，但不能代替真实编译；未安装 javalang 时语法与跨类检查会明确跳过。`run_tests.sh` 需要 JDK、Python 与 Node，可使用编译器模块代替缺失的 javac 启动器。
 
----
+完整 Linux / CI 构建：
 
-## 四、代码结构
-
-```
-bootstrap/src/dev/dsh/nativeapp/
-├── MainActivity.java      启动流程、首次引导、补丁、更新、分类设置页
-│
-│  ── 纯逻辑层（无 Android 依赖，有测试）──
-├── UiText.java            原生外壳中英文、系统语言回退、首次引导判定
-├── FileListing.java       目录列举、排序、图标类型判定
-├── TextCodec.java         编码探测（BOM / UTF-8 / GB18030）、换行符
-├── Version.java           版本号比较（带溢出保护）
-├── CommandCodeUsage.java  Command Code 订阅余额的解析与格式化
-├── TaskNotifier.java      后台任务完成通知的判定
-├── FileOps.java           文件增删改（写入白名单 + 符号链接防护）
-├── ConfigBackup.java      配置备份（zip 打包 + zip-slip 防护）
-├── ShareTargets.java      分享路径编解码 + MIME 映射
-├── PluginSpecs.java       插件规格校验（命令注入防护）+ patch YAML 生成
-├── PayloadUpdate.java     运行包更新决策（分片修订号 + 删除清单）
-├── PayloadRollback.java   运行环境快照记录、校验与空间策略
-├── SessionStatus.java     通知栏状态看板的判定（状态优先级、文案、渠道）
-├── SessionRecovery.java   会话恢复错误与用户出口
-├── ProcessSupervisor.java 进程退避重启与失败判定
-├── TransferState.java     下载进度与停滞判定
-├── SecretMasker.java      日志与诊断包敏感信息脱敏
-├── DiagnosticReport.java  可分享诊断摘要的结构与清理
-├── MobileLayout.java      手机、横屏、平板 viewport 与响应式补丁
-├── DeviceLayout.java      原生对话框、字体与操作区多设备策略
-├── WorkspaceProjects.java 命名项目、目录约束与默认工作区兼容
-├── ShareTask.java         分享导入后的任务提示词与网页提交脚本
-├── PluginPermissions.java 插件能力披露与版本指纹授权
-├── ReleaseChannel.java    稳定/测试通道清单和标签规则
-├── ModelConfig.java       模型与凭据配置的定点读写
-├── ProviderCheck.java     两个服务商只读模型目录的端点、解析与状态分类
-├── LiveModelCatalog.java  上游可见目录与本地能力声明的安全对齐
-├── ProjectModelSettings.java 全局模型与项目覆盖的持久化
-│
-│  ── UI 层 ──
-├── DshUi.java             设计系统：颜色、卡片、按钮、对话框、通知渠道
-├── FileBrowser.java       文件浏览（含文件管理、分享）
-├── TextEditor.java        文本编辑（编码探测、原子保存）
-├── LogViewer.java         日志查看（会话分段、级别着色、搜索）
-├── CommandCodePanel.java  订阅余额面板
-├── NetworkDiag.java       网络诊断
-├── ConfigBackupPanel.java 配置备份面板
-├── PluginPanel.java       插件管理面板
-├── FileIconView.java      Canvas 绘制的文件图标（零资源）
-├── UpdateProvider.java    ContentProvider（安装包 + 文件分享）
-└── HarnessService.java    前台服务（常驻通知）
+```bash
+bash scripts/ci_build.sh /tmp/dsh-build
 ```
 
-**为什么要有纯逻辑层？** 见 `docs/ARCHITECTURE.md` 第 4 节。
-一句话：Android UI 没法在容器里跑测试，但判断逻辑可以。
-把易错的判断（路径校验、版本比较、状态机）抽出来单独测，
-是这个项目能在没有真机的情况下迭代 20 多个版本的前提。
+需要 Android SDK 和官方 Linux build-tools。旧 Termux/bionic 工具属于历史设备构建路径，不是 Linux CI 的依赖。输出 `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`；底层 `build_bootstrap.sh` 要求已经准备好的隔离工作区。
 
----
+真实运行包消费回归：
 
-## 五、收尾工作与已知问题
+```bash
+bash scripts/check_model_consumer.sh
+```
 
-**详见 `docs/HANDOVER.md`**，这里只列最要紧的三条：
+它读取源码 payload 标签、下载并校验实际归档，验证真实 Host、LLM、聊天框 React 选择组件与内核持久化；测试依赖位于 `tests/js`，不进入 APK。不会发送付费模型提示词。
 
-1. **真机布局自检数据从未采集过** —— 代码里有一套布局自检
-   （FileBrowser 的 `reportLayout`），但需要用户在手机上操作才能触发。
-   到目前为止没有任何一次真机验证记录。
+## 4. 核心代码导航
 
-2. **运行包里的 `@img/colour` 还在**（96KB）—— 它和已删除的那 27MB 是同一批
-   （sharp 的依赖），但体积小，保守起见留着了。如果要清，
-   走 `DSH_REMOVE` 机制，不要直接删。
+| 范围 | 主要入口 |
+|---|---|
+| 启动、配置和生命周期 | `MainActivity.java`、`HarnessService.java`、`LocalServerProbe.java` |
+| 模型与目录 | `ModelConfig`、`ProviderCheck`、`LiveModelCatalog`、`ModelCatalogSync`、`ModelReasoning`、`ModelEffortUi`、`ProjectModelSettings` |
+| 状态与恢复 | `SessionProbe`、`SessionStatus`、`TaskTimeline`、`ConnectionRecovery`、`DraftRecovery`、`ProcessSupervisor` |
+| 文件与项目 | `FileOps`、`FileBatch`、`FileTrash`、`FilePreview`、`WorkspaceProjects`、`FileBrowser`、`TextEditor` |
+| 安全与维护 | `PayloadUpdate`、`PayloadRollback`、`ConfigBackup`、`SecretMasker`、`DiagnosticReport`、`PluginPermissions` |
+| 原生界面与交互 | `DshUi`、`DeviceLayout`、`MobileLayout`、`UiText`、`OperationGate`、`InteractionFeedback` |
+| 分发与内核 | `payload/`、`runtime/`、`scripts/prepare_core_payload.py`、`scripts/release_payload.py` |
 
-3. **状态看板依赖 DSH 的界面文案** —— 判据取自 DSH 客户端插件的 locale
-   字典（停止生成 / 发送消息 / 等待审批）。上游改了这几个词，状态会退化成
-   「未知」（而不是报错的状态）。排查时看日志里的「状态看板」相关行。
+路径以当前仓库 `src/dev/dsh/nativeapp/` 为准；不要把 CI 工作区的 `bootstrap/src` 错当仓库布局。
 
-4. **`latest.json` 的 `payload` 字段是信息性的** —— App 实际使用的运行包标签
-   硬编码在 `MainActivity.java` 里，`release.sh` 现在会从源码推导，
-   避免两者不一致（曾经不一致过）。
+## 5. 模型修改的真实验证边界
 
----
+- 可见 ID 来自当前上游目录，本地能力记录只补充声明。
+- 刷新成功直接写入完整 provider catalog；空闲后重载应用，运行/未知时延后。
+- `ModelReasoning.supportedDeclaration` 保留原能力来源；`declaration` 添加字面量 max，所有生成与离线修复路径使用同一规则。
+- 未声明档位的模型保留不传参数的默认路径；不偷偷降级 max。
+- 必须验证 Host `buildModelCatalog`、LLM `resolveCallConfig`、离线 SDK 请求体和注册到聊天框的组件/RPC。原生列表正确不能证明聊天框可用。
+- 默认值迁移不改写历史会话；用户可显式修改聊天框后续请求的模型与强度。
 
-## 六、给接手者的建议
+## 6. 验证结果如何表述
 
-这个项目的难点**不在写代码**，而在两件事：
+严格区分逻辑测试、实际运行包消费、Android 构建、真机反馈和真实服务商请求。测试数字以本次输出为准；历史阶段的数字不重新累计为当前总量。
 
-1. **验证**。Android 应用没法在容器里跑起来，很多改动只能靠
-   「纯逻辑层的测试 + 对真实文件的检查 + 对真实服务的请求」来间接验证。
-   本仓库的 `docs/GOTCHAS.md` 记录了大量「看起来对但实际错」的例子。
+阶段四 B 于 2026-09-27 有用户真机验收确认；其他功能按具体证据表述。不要再写“从未做过任何真机验证”，也不要把一个阶段通过扩大成所有页面和机型已验收。
 
-2. **静默失败**。项目里修过的 bug 大多是同一类：不崩溃、不报错、
-   功能悄悄不工作（通知丢失、更新检测不到、只想删文件的更新永远不生效）。
-   审计代码时，**重点看每个 `catch` 吞掉了什么**。
-
-改动前先看 `docs/GOTCHAS.md`，能省下大量重复踩坑的时间。
-
-**另外强烈建议先读 `docs/HANDOVER.md` 第八节**——那里记着这几轮迭代新增的
-红线、已知陷阱与**未验证事项清单**。最后一项尤其重要：有几批改动只验证到
-"能编译"，没有做过真机行为验证，别把它们当成已经可用。
+签名事故、主题振荡、会话探针、用户数据和当前未验证项见 [交接说明第 8 节](docs/HANDOVER.md#8-持续有效的事故防护与红线)。

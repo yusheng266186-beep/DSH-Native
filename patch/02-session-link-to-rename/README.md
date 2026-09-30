@@ -1,25 +1,27 @@
-# 补丁 2：session-persistence 硬链接改为 rename
+# 旧会话硬链接转 rename 补丁（已归档）
 
-## 问题
-`dsh-session-persistence-jsonl` 用 `link(2)` 做原子发布（先写临时文件，再硬链接到目标，
-借 `EEXIST` 保证"仅创建不覆盖"）。**bionic 拒绝硬链接，返回 `EACCES`**，
-导致会话日志无法落盘。
+<!-- dsh-doc-status:start -->
+> 归档补丁：禁止应用到当前运行包；现行替代方案见正文。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-## 改动（两处）
-1. `materializePosix()` — `link(tmp, finalPath)` → `rename(tmp, finalPath)`
-2. `publishCurrentExclusive()` — `link(staged, currentPath)` →
-   先 `lstat` 判断存在性（存在则返回 false，保持"仅创建"语义），再 `rename`
+## 当前状态：禁止用于 payload-v10
 
-`rename(2)` 在同目录下同样是原子的，因此不损失原子性。
+本目录 `.patch` 保留早期实验记录。它以 rename 替代会话硬链接发布，但“先检查是否存在，再 rename”有竞争窗口，不能保留原子且排他的仅创建语义。普通 POSIX rename 可能覆盖后来出现的目标文件。
 
-## 应用方式
-```bash
-patch -p0 < session-persistence-jsonl.patch
-# 或用备份对比：先备份 lib/index.js，再手工套用
-```
+因此，旧文档的“单用户单进程下没有实际问题”不能作为当前数据安全依据；不要对当前内核执行本目录的补丁命令。
 
-## 影响
-- 牺牲了 `link` 那种"原子性 + 排他性"的合并保证，改为"检查后再改名"。
-  在单用户、单进程的手机场景下不构成实际问题。
-- 上游若把发布方式改为 `rename`，本补丁即可废弃
-  （社区已在 DSH Discussion #1588 中向官方提出该建议）。
+## 现行替代方案
+
+当前运行包构建在 `scripts/prepare_core_payload.py` 中处理会话发布：
+
+1. 保留硬链接优先路径及已有文件的拒绝覆盖行为。
+2. 仅在兼容性错误导致硬链接不可用时，使用 `copyFile(..., COPYFILE_EXCL)`。
+3. 遇到同名目标拒绝覆盖，磁盘满等非兼容错误继续传播。
+
+这条降级保留“不可覆盖已发布历史”的边界；不要把独占复制称为硬链接完全相同的原子实现。
+
+真实内核回归验证会话创建、刷盘、重开、独占发布、FUSE 降级及磁盘错误，参见 [CORE_UPGRADE](../../docs/CORE_UPGRADE.md) 和 [ARCHITECTURE](../../docs/ARCHITECTURE.md)。
+
+## 历史背景
+
+旧设备/文件系统的硬链接权限或 FUSE 限制曾导致会话无法发布。早期采用 rename 是一次临时兼容尝试；原 patch、具体旧实现和讨论保留用于复现，不能据此宣称所有 bionic 系统都禁止硬链接，或上游已合并相同修复。

@@ -1,37 +1,49 @@
-# 发版流程
+# 发版检查清单
 
-APK 必须由 `.github/workflows/release.yml` 构建和发布。不要手工创建 Release，
-不要手工编辑 `latest.json` 或 `latest-test.json`，也不要把 APK 提交进仓库。
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-## 通道
+每轮用户修改按现行约定递增并发布 stable，先完成 PR 的完整 Android CI，再合并 main，然后只用 `.github/workflows/release.yml` / `scripts/release.sh`。历史阶段的候选边界不覆盖这个交付约定。
 
-| 通道 | Release 标签 | GitHub 状态 | 更新清单 | README |
-|---|---|---|---|---|
-| `test` | `vX.Y.Z-test` | Prerelease | `latest-test.json` | 不改 |
-| `stable` | `vX.Y.Z-bootstrap` | 正式发布 | `latest.json` | 同步版本、体积与 SHA-256 |
+## 发版前
 
-稳定通道客户端只读取 `latest.json`。测试通道客户端同时读取两个清单并采用更高版本，
-因此测试用户不会错过后来发布的更高稳定版。
+- [ ] 目标变更完整可审阅，版本递增，已有用户数据与运行安全边界保持。
+- [ ] 本版 `release-notes/vX.Y.Z.md` 描述真实变更、检查与验证限制。
+- [ ] 中英文 README 与相关现行文档更新；运行 docs-only 同步所有状态块与表。
+- [ ] 本地逻辑/脚本回归和元数据/文档检查通过；完整 Android CI 成功。
+- [ ] 保持包名 `dev.dsh.native` 与既有签名，不能生成新密钥。
+- [ ] 若更新 payload，先验证并完整发布 payload，App 仅引用可下载标签。
+- [ ] 对真机与真实服务商验证范围如实记录，不能将编译通过扩大为全设备验收。
 
-## 步骤
+## 工作流输入
 
-1. 合并目标代码，确认主分支构建为绿灯。
-2. 准备 `release-notes/vX.Y.Z.md`。
-3. 手动运行“发版”工作流，先设置 `dry_run=true`：
-   - `version=X.Y.Z`
-   - `channel=test` 或 `stable`
-   - `signer_ref` 指向一个确认可覆盖安装的已发布版本
-4. 演练成功后以相同输入运行 `dry_run=false`。
-5. 工作流会依次完成：签名比对、升版本、完整构建、创建 Release、验证资产、
-   轮询直连与镜像下载、更新对应清单、把版本与清单提交回 `main`。
-6. 检查 Release 资产存在、清单的版本/标签/SHA-256 正确，并在真机覆盖安装。
+| 输入 | stable 正式版 | test 专项预发布 |
+|---|---|---|
+| `version` | 递增 X.Y.Z | 独立递增 X.Y.Z |
+| `channel` | stable | test |
+| 标签 | `vX.Y.Z-bootstrap` | `vX.Y.Z-test` |
+| GitHub 状态 | 非草稿正式发布 | 非草稿 Prerelease |
+| 清单 | `latest.json` | `latest-test.json` |
+| README 下载入口 | 更新为本次 stable | 继续保留 stable |
 
-## 不能跳过的保护
+`dry_run=true` 可选用于先演练构建和权限；不上传、不写正式清单。`signer_ref` 可明确指定已知正确 bootstrap 版本，默认筛选上一正式 APK。
 
-- **签名一致性**：换密钥会使现有用户无法覆盖安装并被迫丢失私有数据。
-- **先发布后写清单**：清单一旦指向不存在或不可下载的 APK，所有客户端更新都会失败。
-- **版本号递增**：Android 使用 `versionCode` 判断升级；`bump_version.sh` 从语义版本自动生成。
-- **测试先于稳定**：尚未真机验收的版本只发 `test`，避免影响稳定用户。
+## 必须按顺序执行的保护
 
-运行包 payload 有变化时，应先完成 payload Release，并最后上传它的 `manifest.json`；
-App Release 只能引用已经完整可下载的 payload 标签。
+1. 核对既有签名与已发布 APK，同步版本。
+2. 完整构建与真实运行包消费者回归。
+3. 上传 Release 资产并核对大小/摘要、通道与非草稿状态。
+4. 验证直连和镜像下载路径。
+5. 最后写相应 latest 清单，按真实 APK / payload 计算字节与 SHA-256。
+6. 同步双 README、所有文档状态、STATUS 表和模型快照表，严格校验后提交 main。
+
+## 发版后
+
+- [ ] Release APK 存在，tag/包名/版本/签名与清单一致。
+- [ ] stable/test 清单保持各自 APK 对应的 payload，旧测试版不能改成新版 payload。
+- [ ] main 已含最终发布元数据，`sync_project_metadata.py --check` 通过。
+- [ ] README 下载、体积、摘要与全部文档状态一致。
+- [ ] 真机覆盖安装与具体功能反馈另记日期、版本和设备；不执行卸载或清数据。
+
+若发布失败，保留原已发布清单并定位失败步骤，禁止手写清单宣布不存在的产物。更多说明见 [BUILD](../docs/BUILD.md)。

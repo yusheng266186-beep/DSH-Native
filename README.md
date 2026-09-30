@@ -1,210 +1,203 @@
-# DeepSeek Harness Native for Android
+# DSH Native · Android 上的 DeepSeek Harness
 
-[中文](README.md) | [English](README.en.md)
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-把 Node.js 运行时、DeepSeek Harness（DSH）和常用开发工具直接带到 Android。无需 Termux、无需 proot，也不需要把项目交给远程服务器执行。
+[中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
 
-**当前版本：0.32.1**（payload-v10）
+**把项目留在手机上，把完整的 DSH 工作流带到 Android。**
 
+DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发工具封装为一个 Android 应用。你可以在本地项目中聊天、运行 agent、编辑文件和管理任务，无须另外安装 Termux 或 proot，也无须配置远程执行服务器。
 
-思考强度按当前服务商和模型动态显示，刷新与升级会保留并修复能力声明；[查看完整模型对照](docs/MODEL_REASONING.md)。
+模型推理仍通过所选服务商的 API 完成。项目文件与工具执行位于设备端；发送给模型的消息、附件和工具结果按 DSH 与服务商的调用方式传输。本项目是独立的 Android 适配项目。
 
-## 下载与安装
+## 下载与运行要求
 
-正式版 APK：
+**当前版本：0.32.1**
 
 **[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.32.1-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
 
+[正式版发布说明](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.32.1-bootstrap) · [历史版本](https://github.com/yusheng266186-beep/DSH-Native/releases)
+
 SHA-256：`a167855456c6d2ae491c029720c96eb181f963c87570f8f31317f99bfcd0556f`
 
-要求：
+| 项目 | 要求与说明 |
+|---|---|
+| 系统 | Android 7.0 及以上，minSdk 24 |
+| CPU | ARM64；当前没有 ARM32 或 x86 安装包 |
+| 首次启动 | 联网下载约 118.5 MiB 运行包；后续按变化分片更新 |
+| 存储 | 为展开、临时下载和回滚快照留出空间；建议预留 1.5–2 GiB，实际需求以 App 空间预检为准 |
+| 模型服务 | Command Code 或 DeepSeek 官方 API 凭据；可见模型与额度由账户决定 |
+| 后台任务 | 建议允许通知，并按手机系统设置允许后台运行；前台服务无法保证所有 ROM 都不回收进程 |
 
-- Android 7.0 或更高版本（minSdk 24）
-- ARM64 设备
-- 首次启动保持联网
-- 建议至少预留 550 MiB 可用空间
+APK 携带 Node 与启动引导，DSH 和工具链通过经过摘要校验的运行包分片安装。完整环境展开后的占用明显大于压缩下载量，更新前的安全快照还需要额外空间。
 
-首次启动流程：
+**升级请直接覆盖安装同签名新版。** 卸载会清除 App 私有目录中的会话、凭据和配置；配置备份也不等于全部项目与历史的备份。
 
-1. App 在 3 秒左右完成 Node 架构自检。
-2. 从 GitHub 镜像分块下载约 118.5 MiB 运行包，支持断点续传、块级重试和 SHA-256 校验。
-3. 解压 DSH 与工具链并执行运行环境自检。
-4. 打开模型中心，填写 Command Code 或 DeepSeek API Key。
-5. 从服务商实时目录选择模型，然后开始新会话。
+## 从安装到第一项任务
 
-覆盖安装同签名新版不会删除会话、密钥、项目、任务历史或配置。不要先卸载旧版；卸载会清除 App 私有数据。
+1. 安装 APK，按提示授予所需的文件与通知权限。
+2. 完成语言选择和运行环境初始化，等待分片下载、SHA-256 校验及解压。
+3. 打开模型中心，选择 Command Code 或 DeepSeek 官方直连，填写 API Key。
+4. 读取服务商实时模型目录，选择默认模型与思考强度并保存。
+5. 使用默认工作区，或创建命名项目；打开新会话开始任务。
 
-## 主要能力
+原生界面的语言可以选择跟随系统、中文或 English。DSH WebUI 的语言与主题由网页自己的设置控制；原生面板会跟随网页主题。已有 `.dsh` 数据的升级用户不会被强制再次进入首次配置向导。
 
-### 完整 DSH 体验
+### App 工具在哪里
 
-- 在 App 私有目录直接运行 Android 原生 Node.js 与 DSH WebUI。
-- agent 可使用内置 `git`、`rg`、`fd`、`jq`、`bash` 和 Python 工具链。
-- 前台服务保持任务在后台或锁屏时继续运行。
-- WebSocket 与页面探针共同判断空闲、运行、等待批准、恢复和结束状态。
-- 通知栏显示任务开始时间、已运行时长、连接状态，并在等待批准或后台完成时提醒。
+展开 DSH 侧边栏，在底部点击 **App 工具 / App tools**。同一区域还提供 **更新模型列表 / Refresh models**，两项入口纵向排列，避免在窄屏挤压。
 
-### 模型中心
+备用入口包括长按页面顶部、通知栏的设置操作，以及长按桌面图标后的设置、日志、更新快捷方式。DSH 网页中的齿轮继续打开网页自己的设置。
 
-支持两条路由：
+原生子页的可见返回按钮、Android 返回键和边缘返回手势使用同一父级导航。
 
-| 服务商 | 模型目录来源 | 只读端点 |
+## 能做什么
+
+| 工作流 | 当前能力 |
+|---|---|
+| 本地 agent | 在 App 私有目录运行 DSH 与 Android/bionic Node，使用 git、rg、fd、jq、bash、Python 等工具 |
+| 模型与参数 | 实时服务商目录、全局默认、项目覆盖、逐模型思考档位和全模型 Max 请求选项 |
+| 项目与文件 | 命名项目、浏览与文本编辑、图片预览、多选复制/移动、可恢复回收站 |
+| 分享导入 | 将其他 App 的文本或文件导入当前项目，并显式创建任务 |
+| 任务与连接 | 任务中心、时间线、等待批准提醒、后台完成通知、WebSocket 状态和本地草稿恢复 |
+| 会话管理 | 进入 DSH 官方会话搜索、归档及恢复界面 |
+| 运维与恢复 | App / 运行包更新、运行环境快照与恢复、网络诊断、日志、脱敏诊断 ZIP |
+| 配置备份 | 以至少 8 位口令导出认证加密的配置备份，包含凭据与全局/项目模型设置 |
+| 插件 | 内置插件管理与外部插件安装入口，披露能力并按版本指纹授权 |
+
+### 模型目录：以账户实际返回的列表为准
+
+| 路由 | 目录端点 | 读取行为 |
 |---|---|---|
-| Command Code | 每次打开或刷新时从 Command Code 上游读取 | `GET https://api.commandcode.ai/provider/v1/models` |
-| DeepSeek 官方直连 | 每次打开或刷新时从 DeepSeek 官方读取 | `GET https://api.deepseek.com/models` |
+| Command Code | `GET https://api.commandcode.ai/provider/v1/models` | 使用当前账户认证，获取可见模型 |
+| DeepSeek 官方直连 | `GET https://api.deepseek.com/models` | 使用官方 API Key，获取可见模型 |
 
-模型选择器不再把 App 内置预设直接当作服务商列表。它只展示本次上游响应中实际返回的模型 ID；读取仅请求模型目录，不发送提示词，也不会产生模型生成费用。
+连接检测只读取目录，不发送测试提示词。原生选择器只展示本次成功响应返回的模型 ID；本地能力表用于解释参数与视觉能力，不用于补造账户不可见的模型。
 
-上游目录是模型 ID 的权威来源：只要服务商在本次 `/models` 响应中返回，模型中心就允许直接选择和保存，不会因为本地能力目录尚未更新而禁用新模型。视觉能力优先读取上游结构化声明，再使用已有配置提示；图片、仅文字和未知分别标注，未知能力不会阻止选择模型。当前已保存的模型在临时断网时仍可原样保留；首次配置或切换到新模型必须完成一次实时目录读取。
+服务商新增模型即使尚未进入本地能力表，也允许选择和保存。视觉能力优先采用上游结构化声明，再结合已有配置；未知能力不会被误标为支持图片。临时离线时可以保留已保存配置，首次配置或选择新模型需要成功读取目录。
 
-点击“更新模型列表”会直接把已配置服务商成功返回的完整上游目录同步写入 DSH 的实际 provider catalog，无须修改默认模型或再次保存：Command Code 写入 `llm-pi-ai.providers.commandcode.models`，DeepSeek 官方直连写入 `llm-deepseek-api-key.models`。DSH 与原生模型中心使用同一份模型目录；空闲时自动应用并刷新 WebUI，运行中或状态未知时先保存，确认空闲后自动应用。改变默认模型仍需选择并保存。同步目录带有内部标记，后续 App 升级合并静态传输配置时不会把旧预设模型重新覆盖回来。
+点击 **更新模型列表** 后，成功读取的服务商完整目录直接写入 DSH 的 provider catalog。空闲时通过受控的运行时重载应用并刷新页面；任务运行或状态未知时先保存，确认空闲后再应用。单独刷新 WebView 不能更新已经构建的服务商拓扑。
 
-模型中心还支持：
+全局和项目默认模型用于新会话。已有会话保留历史记录；你也可以在聊天框的模型选择器中显式改变后续请求所使用的模型或思考强度，已经发出的请求不会被追溯修改。
 
-- 全局默认模型与每个项目的独立覆盖
-- `off / low / medium / high / xhigh / max` 思考强度
-- Command Code 用量入口
-- 密钥拒绝、限流、端点变化、服务异常和无效响应的明确提示
-- 搜索上游模型 ID
-- 显式“返回工具与设置”按钮与 Android 返回手势
+### 思考强度：官方声明与 Max 请求分开理解
 
-模型变更用于新会话；已经发送过请求的会话继续保留其日志中记录的模型。
+App 保留各模型已有的 `off / minimal / low / medium / high / xhigh` 等声明，并为**所有模型**追加字面量 `max` 请求选项。聊天框显示 **Max（请求）/ Max (request)**。
+
+| 示例 | 固定能力快照中的档位 | App 当前提供 |
+|---|---|---|
+| 太空兔子 `stealth/space-bunny-alpha` | low / medium / high | 原档位 + Max（请求） |
+| `Qwen/Qwen3.8-Max` | low / medium / xhigh | 原档位 + Max（请求） |
+| 未公布档位、自动推理或未知新模型 | 没有可靠的可调档位声明 | 服务商默认（不传参数）+ Max（请求） |
+| DeepSeek 官方直连 | off / low / high / max | 保留原档位，max 按字面量请求 |
+
+**能选择 max，表示客户端会提交这个参数；不能保证服务商实际提供更大的思考预算。** 上游可能执行、忽略或拒绝它。App 不会偷偷改成 high，也不会把选项展示当作已验证的模型能力。
+
+完整模型对照、来源优先级、升级保留规则和测试范围见 [模型思考强度](docs/MODEL_REASONING.md)。
 
 ### 项目、文件与会话
 
-- 默认共享工作区：`/sdcard/DSHNative/workspace`
-- 可创建互相隔离的命名项目，并为每个项目设置独立模型
-- 文件浏览、文本编辑、图片预览、批量复制/移动和可恢复回收站
-- 从其他 App 分享文件或文本到当前项目，并可直接创建任务
-- 调用 DSH 官方会话搜索、归档和恢复入口，不复制不稳定的内部 RPC
-- 输入草稿在页面刷新或短暂断线后恢复，但不会自动发送
+默认工作区为 `/sdcard/DSHNative/workspace`，命名项目位于其 `projects/<项目名>` 子目录；各项目可以设置独立的模型默认值。
 
-### 更新、回滚与诊断
+文件写入受规范路径白名单约束。目录复制不跟随符号链接；删除默认进入同卷回收站，恢复遇到同名文件会保留两份。文本编辑包含未保存提示与安全保存路径。
 
-“工具与设置 → 更新与维护”提供：
+草稿恢复只恢复本地输入，不自动发送。会话搜索、归档和恢复继续由 DSH 官方 UI 完成。配置备份不包含完整工作区、全部历史或附件，需要保存的项目文件应另行备份。
 
-| 功能 | 行为 |
+### 更新与恢复
+
+| 操作 | 影响范围 |
 |---|---|
-| 更新运行包 | 按分片清单只下载变化的 DSH / 工具链内容，校验后重启 agent |
-| 恢复上一运行环境 | 恢复更新前快照，不修改会话、密钥、项目文件或 APK |
-| 检查 App 更新 | 校验版本、包名、签名和 SHA-256 后调用系统安装器覆盖安装 |
-| 稳定 / 测试通道 | 稳定通道只读 `latest.json`；测试通道同时比较 `latest-test.json` |
+| 更新 App | 校验版本、包名、签名与摘要，调用系统安装器覆盖安装 |
+| 更新运行包 | 校验分片，仅替换变化的 DSH / 工具链内容 |
+| 恢复上一运行环境 | 校验并恢复 `dsh` / `tools` 快照，保留用户 `.dsh` 与项目；不降级 APK |
+| 导出诊断 ZIP | 设备、布局、连接、运行包和回滚摘要及脱敏日志；排除密钥、会话正文、附件与项目文件 |
 
-运行包更新采用“先快照、后替换、失败自动恢复”。诊断中心可以导出脱敏 ZIP，内容包括设备、布局、网络、通知、运行环境、回滚状态和最近日志，但不包含凭据、会话正文、附件或项目文件。
+稳定通道读取 `latest.json`；测试通道同时比较稳定与 `latest-test.json`，选择更高版本。测试清单保留其自身 APK 对应的运行包，不随稳定版随意改写。
 
-### 中文与 English
+运行包更新采用先预检和快照、后替换、失败恢复的顺序。自动恢复后会暂缓再次更新，避免启动循环。当前固定内核是 DSH `0.2.0-rc.2`，属于**上游候选版**；App 的 stable 通道与上游内核的发布级别是两个概念。
 
-在“工具与设置 → 显示与语言”选择跟随系统、中文或 English。原生设置首页、模型中心、任务中心、项目管理、更新、诊断和桌面快捷方式均支持英文。DSH WebUI 的语言由网页设置单独控制。
+## 数据与权限边界
 
-新安装会显示语言与环境引导；已存在 `.dsh` 数据的升级用户不会被强制补弹首次向导。
+- 凭据位于 App 私有 `.dsh/.credentials.yaml`；模型设置还涉及 profile patch 和项目覆盖文件。
+- 日志与诊断输出脱敏，模型目录响应正文和认证头不写入日志。
+- 网页辅助功能使用受限注入与消息处理，不引入高权限 `JavascriptInterface`。
+- 文件操作限定在 App 私有目录和 `/sdcard/DSHNative`，并检查规范路径与符号链接逃逸。
+- 外部插件运行于本地工具环境，授权前应查看其能力披露。
+- App 不提供 root 权限，也不包含完整 Linux 发行版；模型推理需要所选服务商可用。
 
-## 如何打开 App 工具
+## 架构与工程设计
 
-推荐入口：展开 DSH 侧边栏，在底部点击“App 工具 / App tools”。
-
-侧边栏收起时，页面上的齿轮属于 DSH WebUI 自己的设置，不会被原生 App 劫持。以下入口可作为备用：
-
-- 长按页面顶部
-- 通知栏中的“设置”操作
-- 桌面图标长按后的“设置”“运行日志”“检查更新”快捷方式
-
-原生设置子页均提供可见返回按钮；Android 返回键和边缘返回手势执行相同的父级导航，不会静默关掉子页或直接触发 App 退出确认。
-
-## 文件、隐私与安全边界
-
-- API Key 只保存在 App 私有目录的 `.credentials.yaml`。
-- 模型目录请求使用当前服务商的官方 HTTPS 地址；日志不记录密钥、请求头或响应正文。
-- 原生层没有新增高权限 `JavascriptInterface`；WebUI 辅助入口使用受限脚本注入。
-- 文件写入限制在 App 私有目录和 `/sdcard/DSHNative` 白名单内。
-- 配置备份包含密钥，因此导出文件必须设置至少 8 位口令并使用认证加密。
-- 更新 APK 必须保持包名与发布签名一致，否则 Android 会拒绝覆盖安装。
-
-## 架构
-
-```text
-Android Activity / WebView
-        |
-        +-- Native tools and settings
-        +-- Foreground task service and notifications
-        +-- Update, rollback, backup and diagnostics
-        |
-        +-- Node.js (Android/bionic, arm64)
-                |
-                +-- DeepSeek Harness WebUI
-                +-- git / rg / fd / jq / bash / Python
-                +-- Shared workspace
+```mermaid
+flowchart TD
+    A[Android 原生外壳] --> B[WebView]
+    A --> C[工具与设置]
+    A --> D[前台服务与恢复]
+    B --> E[本地 Node 与 DSH]
+    E --> F[项目与工具链]
+    E --> G[模型服务商 API]
 ```
 
-完整运行包解压后有数百 MiB，无法作为普通 GitHub 单文件稳定分发。因此 APK 只携带 Node、引导逻辑和清单，首次启动再下载经过哈希验证的分片。之后更新只替换变化分片。
+两段式分发让 APK 与庞大的运行环境独立升级：APK 内包含 Node、动态库、引导脚本与初始清单；运行包包含 DSH 与工具链，分片使用修订号、哨兵、大小与 SHA-256 判断是否需要更新。
 
-Android 10 起，targetSdk 29 及以上的普通 App 不能直接执行私有数据目录中的文件。本项目暂时固定 `targetSdkVersion 28` 以维持当前原生执行架构；这是一项明确的架构约束，不应在普通功能 PR 中随意提高。
+原生判断逻辑独立于 Android UI，包括路径安全、模型能力、更新决策、任务状态和恢复策略，可在普通 JVM 上验证。UI 统一使用 `DshUi`，异步回调复核页面生命周期，主题重建具备去抖、跨重建限流与硬停止。
 
-## 构建与测试
+当前架构固定 `targetSdk 28`，因为 Node 与工具在私有数据目录执行。提高 targetSdk 需要先重新设计可执行文件的部署方式，不能作为普通版本升级顺带调整。
 
-仓库构建需要 JDK 17/21、Android SDK build-tools、`d8`、`aapt2` 与 `apksigner`。
+## 开发与验证
+
+本地逻辑检查需要 JDK、Python 3 和 Node.js；完整 Linux 构建还需要 Android SDK、GitHub CLI 和可获取上一正式 APK 的网络环境。
 
 ```bash
+python3 scripts/check_java.py
 bash scripts/run_tests.sh
-bash scripts/build_bootstrap.sh
+python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
+
+# 在已安装 Android SDK 的 Linux 环境准备并构建
+bash scripts/ci_build.sh /tmp/dsh-build
 ```
 
-当前回归包括：
+完整构建产物为 `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`。GitHub Actions 使用 JDK 17、官方 Linux build-tools 34.0.0 与 Android 28/34 平台文件；详见 [构建指南](docs/BUILD.md)。
 
-- 1049 项纯逻辑断言
-- WebUI 工具入口 DOM 模拟
-- WebSocket 连接恢复模拟
-- 草稿恢复模拟
-- 会话状态 fetch 与 DOM 模拟
-- 运行包快照与恢复模拟
-- Java 架构、资源 XML、无 emoji、无系统 AlertDialog 和无高权限桥闸门
-- Android CI 的 javac、DEX、aapt2、签名、清单与 APK 产物验证
+回归覆盖纯 JVM 逻辑、JS 页面与连接模拟、HTTP 认证探测、发布元数据，以及真实运行包的 Host / 模型目录 / SDK 请求体 / 会话持久化 / Web profile。聊天框回归执行真实 React 模型选择组件，验证中英文下的模型与 max RPC。实际测试数量以本次 CI 输出为准。
 
-发布必须使用 `.github/workflows/release.yml` 与 `scripts/release.sh`。不要手工上传 APK、手改更新清单或迁移签名密钥。
+这些测试不等同于 Android 真机布局、真实服务商 max 执行效果或所有 ROM 的后台行为验证；具体证据与待验证范围记录在 [项目状态](docs/STATUS.md)。
 
-## 仓库结构
+### 文档也进入发布闭环
 
-```text
-src/dev/dsh/nativeapp/   Android 原生外壳、模型中心、任务与工具面板
-payload/                 首启、解压、快照与运行时辅助脚本
-patch/                   DSH 在 Android/bionic 上运行所需补丁
-tests/                   纯逻辑测试与 JavaScript 模拟
-icon/                    图标、主题、动效与中英文快捷方式资源
-scripts/                 构建、CI、签名核验与发布脚本
-docs/                    架构、踩坑、交接和各阶段验收文档
-release-notes/           已发布版本说明
+```bash
+# 编辑后同步所有文档的状态块和生成模型表
+python3 scripts/sync_project_metadata.py --docs-only
+
+# 核对状态、生成表和本地链接
+python3 scripts/sync_project_metadata.py --docs-only --check
 ```
 
-## 已知限制
+`release.yml` / `release.sh` 在确认资产和下载路径后生成清单，再同步中英文下载信息、全部文档状态与当前状态表。阶段记录保留历史内容；生成区禁止手工修改。源码可以领先已发布版本，但文档必须如实显示两者。
 
-- 当前仅提供 ARM64 构建。
-- 首次安装必须联网下载运行包。
-- `targetSdk 28` 是现有私有目录执行方案的约束；长期需要迁移到 `nativeLibraryDir` 或其他受支持架构。
-- 上游 `/models` 通常只返回 ID，不提供完整图片、上下文和推理能力；缺少视觉声明的新模型仍可使用，但不会被误标为支持图片。
-- 上游未提供能力字段的模型会以安全的文本基础能力写入 DSH；它们仍可直接选择和发起新会话，图片/思考提示仅在 App 已有可靠声明时显示。
-- Office 到 PDF 的大型转换引擎未打包，以控制运行包体积。
-- 运行环境恢复只恢复 DSH 与工具链，不是 APK 降级。
+## 仓库导航
 
-## 文档索引
-
-| 文档 | 内容 |
+| 路径 | 职责 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | 接手开发前必须阅读的红线、结构与命令 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 两段式架构、运行包、补丁和组件边界 |
-| [docs/GOTCHAS.md](docs/GOTCHAS.md) | Android、网络、布局、更新和发布踩坑 |
-| [docs/HANDOVER.md](docs/HANDOVER.md) | 当前主分支事实、签名与交接状态 |
-| [docs/BUILD.md](docs/BUILD.md) | 本地与 CI 构建、校验和发布流程 |
-| [docs/PHASE5A-TASK-RECOVERY.md](docs/PHASE5A-TASK-RECOVERY.md) | 任务状态、断线恢复与草稿保护 |
-| [docs/PHASE5B-FILES-SESSIONS.md](docs/PHASE5B-FILES-SESSIONS.md) | 文件工作流、回收站与会话管理 |
-| [docs/PHASE5C-MODEL-ONBOARDING.md](docs/PHASE5C-MODEL-ONBOARDING.md) | 模型中心、项目覆盖与首次配置 |
-| [docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md](docs/PHASE5D-ROLLBACK-DIAGNOSTICS.md) | 回滚、诊断、无障碍和多设备适配 |
-| [docs/PHASE5E-MODEL-CATALOG-I18N.md](docs/PHASE5E-MODEL-CATALOG-I18N.md) | 实时上游模型目录、返回导航与英文完善 |
-| [docs/PHASE5F-MODEL-RUNTIME-SYNC.md](docs/PHASE5F-MODEL-RUNTIME-SYNC.md) | 上游目录写入 DSH、WebUI 同步与真机验收 |
+| `src/dev/dsh/nativeapp/` | 原生外壳、纯逻辑层、面板与前台服务 |
+| `payload/` | 下载、解压、空间预检、快照与运行时辅助 |
+| `runtime/` | 固定内核来源、摘要与依赖锁定 |
+| `patch/` | Android 兼容层说明及明确归档的旧补丁 |
+| `tests/` | Java、JS、HTTP 与实际运行包消费回归 |
+| `scripts/` | 构建、签名、发布、运行包生成和文档同步 |
+| `docs/` | 当前指南、统一进度、交接、历史阶段和研究记录 |
+| `release-notes/` | 不同 App / payload 版本的独立变更说明 |
 
-## 许可证与来源
+从 [文档中心](docs/README.md) 开始；开发前阅读 [AGENTS.md](AGENTS.md)、[交接说明](docs/HANDOVER.md) 与 [踩坑记录](docs/GOTCHAS.md)。
 
-本仓库采用 MIT License。Node.js Android 构建来自 Termux 发行版，并保留各上游组件原有许可证。
+## 已知限制与来源
 
-- DeepSeek Harness：<https://github.com/deepseek-ai/deepseek-harness>
-- Termux：<https://github.com/termux/termux-app>
-- Android 10 行为变更：<https://developer.android.com/about/versions/10/behavior-changes-10>
+目前仅支持 ARM64；首次初始化依赖网络；后台持续运行受 Android 与 ROM 策略约束；未知模型视觉能力不会被猜测；未打包大型 Office 到 PDF 转换引擎。运行环境恢复仅处理 DSH / 工具链，不是 APK 降级或完整数据恢复。
 
+本仓库代码采用 [MIT License](LICENSE)。DSH、Node.js、Termux 来源二进制和其他运行包组件保留各自许可证，不能将本仓库的 MIT 许可直接套用到所有打包依赖。
+
+- [DeepSeek Harness 上游](https://github.com/deepseek-ai/deepseek-harness)
+- [Termux 项目](https://github.com/termux/termux-app)
+- [固定内核与升级说明](docs/CORE_UPGRADE.md)
+- [Android 10 行为变更](https://developer.android.com/about/versions/10/behavior-changes-10)

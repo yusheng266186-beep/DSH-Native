@@ -1,422 +1,131 @@
-# 架构与设计
+# 架构与运行边界
 
-## 1. 整体形状：为什么是两段式
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-要在 Android 上跑 DSH，直觉做法是把所有东西塞进 APK。但完整的工具链
-（git、python、curl、npm…）解压后是 134MB，加上 DSH 本体 182MB ——
-安装包会超过 300MB，且**任何一处改动都要重下整个包**。
+## 1. 目标与约束
 
-所以拆成两段：
+DSH Native 提供 Android 本地项目、工具执行与 DSH WebUI。模型请求使用远端服务商 API。App 不依赖用户安装 Termux/proot，也不是 root 环境或完整 Linux 发行版。
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 第一段：APK（34MB，装机即用）                                  │
-│                                                              │
-│   assets/payload/                                            │
-│     node                      47MB   Node 运行时 v26.4.0      │
-│     lib/*.so（10 个）         15MB   它的依赖                  │
-│     lib/libicudata.so.78      31MB   ICU 数据（Intl 依赖）     │
-│     unpack.js                 3.5KB  解压器（自己写的）         │
-│     preflight.js                    环境自检                   │
-│     sharp-android.js                图片处理（Pillow 实现）     │
-│     pillow_shim.py                   ↑ 的 Python 侧            │
-│                                                              │
-│   启动时解压到 <root>/，node 由此可用                          │
-└─────────────────────────────────────────────────────────────┘
-                            ↓ 首次启动
-┌─────────────────────────────────────────────────────────────┐
-│ 第二段：运行包（payload-v10 约 117MiB，分 5 片，从 Releases 下载）│
-│                                                              │
-│   dsh.tar.zst          19.5MB   DSH 本体 → <root>/dsh         │
-│   tools-base.tar.zst   13.7MB   工具链基础 → <root>/tools      │
-│   tools-libs.tar.zst   11.9MB   .so 库                       │
-│   tools-python.tar.zst  6.5MB   Python 3.14 + site-packages  │
-│   tools-npm.tar.zst     2.2MB   npm                          │
-│                                                              │
-│   解压后：dsh 182MB + tools 134MB = 316MB                     │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│ 用户数据（永不随更新动）                                       │
-│   <root>/.dsh/          配置、凭据、会话、profiles             │
-│   <root>/.dsh/profiles/web/   用户层（插件装在这里）           │
-└─────────────────────────────────────────────────────────────┘
+仓库包名 `dev.dsh.native`，minSdk 24、targetSdk 28，发布 ARM64 APK。Node 与工具来自 Android/bionic 构建；glibc 版本不能互换。当前私有目录可执行方案限制 targetSdk 迁移。
+
+## 2. 组件与数据流
+
+```mermaid
+flowchart TD
+    A[MainActivity] --> B[WebView 与受限注入]
+    A --> C[原生面板与纯逻辑]
+    A --> D[前台服务]
+    B --> E[本地 Node / DSH]
+    E --> F[工具与项目]
+    E --> G[模型服务 API]
+    C --> H[配置与更新恢复]
+    H --> E
 ```
 
-**关键设计**：运行包与用户数据**分开存放**。任何更新都不会碰到
-`.dsh/`，所以配置和会话不会因为升级而丢失。这一条在
-`PayloadUpdate` 的路径校验里还有第二道保险（禁止删除 `.dsh`）。
+| 边界 | 职责 |
+|---|---|
+| 原生整合 | 启动、安装、权限、配置、进程与页面生命周期 |
+| WebView | DSH 交互、模型聊天框、官方会话操作 |
+| 纯逻辑 | 路径、能力、模型归一化、版本、状态机、空间与恢复决策 |
+| 前台服务 | 常驻任务看板及通知；实际存活仍受 Android/ROM 控制 |
+| DSH runtime | provider topology、agent、会话、插件、工具执行 |
+| 分发层 | APK、payload 及独立 stable/test 清单 |
 
----
+原生与网页之间使用限定用途的消息与脚本；不暴露任意文件/命令执行的高权限 `JavascriptInterface`。
 
-## 2. 启动流程
+## 3. 两段式分发与空间
 
-`MainActivity.onCreate` 之后跑在一条后台线程上（`runStartup`）：
+APK 携带 Node、所需动态库、引导脚本与初始清单；DSH 和工具链通过 payload 分片安装。实际 APK 与全量 payload 体积在 [STATUS](STATUS.md) 生成表，不在多个文件手写重复维护。
 
-```
-1. 解压 APK 内置负载 → extractAssets(root)
-   └─ 按 APK 版本号判断是否刷新；版本变了也只重写**内容真的变了**的文件
-      （脚本 204KB 总是刷新；node/ICU 等 92.8MB 比对大小+摘要，一致则跳过）
-   └─ 这一步决定了「升级后首次启动」是几十秒还是瞬间
+| 分片 | 当前作用 |
+|---|---|
+| DSH | CLI、模块、WebUI 与依赖；v10 修订 5 |
+| 工具四片 | git/Python/npm/curl 等；从 v9 原样复用修订 4 |
 
-2. 自检 Node 可执行性 → probeNodeExec(node)
-   └─ 前提是整条架构成立：Android 10+ 对 targetSdk>=29 禁止 exec 私有目录文件
-      本项目 targetSdk=28 正是为了绕开这一条
+`PayloadUpdate` 按修订号和哨兵判断变化，下载校验大小与 SHA-256。`remove` 显式列举旧文件删除，避免只删文件的更新因为哨兵没变而被跳过。
 
-3. 准备运行包 → 见第 3 节
+v10 DSH 部分的 `unpacked_size` 按展开后文件块与目录占用计算，约 491 MiB；它不是全 App 总占用。预检还包含其余工具、下载缓存、更新前快照与余量；旧 manifest 兼容估算不能代替新字段。不要继续使用旧 316MB 展开总量或 550MiB 安装建议。
 
-4. 应用 Android 专项补丁 → applyAndroidPatches()
-   ├─ patchFrontendViewport()    改 viewport、移动端 CSS，并嵌入最早期状态探针
-   ├─ patchAttachmentDurability() 让附件落在可用位置
-   └─ 替换 sharp 为 Pillow 实现
+内核来源、归档完整性和依赖锁在 `runtime/core-source.json` 与 `runtime/core-package-lock.json`。payload 必须先独立完整发布，App 才引用该标签；App 运行包标签目前取自源码，不只依赖 latest 清单的信息字段。
 
-5. 环境自检 → runPreflight()     纯本地检查，无网络
+## 4. 本地目录与配置层
 
-6. 准备配置 → prepareConfig()    首次写入默认 settings
+`<root>` 表示 `getFilesDir()/dsh`，包含 Node 引导、`dsh`、`tools` 与用户 `.dsh`。共享工作区默认 `/sdcard/DSHNative/workspace`，命名项目放其 `projects/<name>`；不可用时由原生工作区解析逻辑处理回退。
 
-7. 找空闲端口 → findFreePort(3080, 3280)
+| 数据 | 边界 |
+|---|---|
+| `.dsh/.credentials.yaml` | 用户凭据与 DSH 本地认证资料，不进入日志或运行包 |
+| legacy `settings.yaml` | 原生配置写入/导入入口；当前 DSH 可能迁移到 profile patch |
+| `.dsh/profiles/web/cordis.patch.yml` | Web profile 配置层；排查时与实际启动 patch 一并检查 |
+| `.native-project-models` | 全局基线与项目模型覆盖，加入加密配置备份 |
+| 会话与附件 | 用户数据；不在 payload 删除和 runtime 恢复目标内 |
+| 工作区 | 项目文件；配置备份不包含完整工作区 |
 
-8. 启动 dsh web
-   node --expose-internals --no-warnings lib/bin.js
-        --patch <生成的插件覆盖层>
-        --profile web --no-open --port <端口>
+配置叠加涉及 bundle、profile 和启动器 `--patch`；CLI 顺序要求 patch 在 profile 前。升级合并静态传输字段时保留 live catalog 标记模型，不重置用户目录和能力。
 
-9. 载入 http://127.0.0.1:<端口>/?token=…
-```
+## 5. 模型目录与调用配置
 
----
-
-## 3. 运行包更新机制
-
-这是整个项目最需要小心的地方。演进过三代，每一代都是被真实问题逼出来的。
-
-### 第一代：整体版本号
-
-```
-清单里一个 version → 版本不同就重下整个包
-```
-**问题**：只给工具链加个 npm，也要重下 31MB。
-
-### 第二代：哨兵文件
-
-```
-每个分片带一个「哨兵」文件（路径 + 大小 + sha256）
-启动时比对哨兵 → 不一致才下载该分片
-```
-**问题**：**只删文件的更新永远检测不到**。
-删掉一批文件后，其余文件的哨兵全部不变 → 判定「已是最新」→
-那些文件永远留在设备上。
-
-> 实例：运行包里有 27MB 在 Android 上根本加载不了的原生库
-> （sharp 的各平台实现，而 App 用 Pillow 整体替换了 sharp）。
-> 想删掉它们，靠哨兵是发现不了的。
-
-### 第三代：分片修订号 + 删除清单
-
-```json
-{
-  "name": "dsh.tar.zst",
-  "revision": 2,                    // 内容有实质变化（含只删）时递增
-  "remove": [                       // 处理前要删掉的相对路径
-    "node_modules/@img/sharp-linux-arm64",
-    "node_modules/@img/sharp-libvips-linux-arm64",
-    "node_modules/@img/sharp-wasm32"
-  ],
-  "sentinel": { "path": "lib/bin.js", "size": 10974, "sha256": "..." }
-}
+```mermaid
+flowchart TD
+    A[服务商只读 models] --> B[LiveModelCatalog]
+    B --> C[原生选择器]
+    B --> D[ModelCatalogSync]
+    D --> E[配置写入]
+    E --> F{可信空闲?}
+    F -->|是| G[受控重载与页面刷新]
+    F -->|运行或未知| H[持久化 pending]
+    H --> F
+    G --> I[真实 DSH Host 与聊天框目录]
 ```
 
-判定规则（`PayloadUpdate`，55 项测试）：
+可见 ID 来自当前成功上游响应。能力优先级为上游明确声明、对应服务商固定能力记录、已有自定义配置；能力表不增删可见 ID。未知模型仍允许选择，未知视觉能力不推断成图片支持。
 
-| 哨兵 | 修订号 | 动作 |
+Command Code 目录写入 `llm-pi-ai.providers.commandcode.models`；DeepSeek 直连写入 `llm-deepseek-api-key.models`。刷新目录不要求修改默认模型；空/失败响应不能清空上一份有效目录。
+
+已构建的 runtime topology 不会因 WebView reload 自动重建，因此成功写入后必须空闲再重载。running 或 unknown 保存 pending；目录应用与主题/生命周期变动均需有界、去抖与限流。
+
+`ModelReasoning.supportedDeclaration` 保留支持来源；`declaration` 为所有模型追加 `max: max`，原 max 别名也覆盖为字面量。无可调声明模型保留 `off: null` 的无参数默认调用。
+
+`ModelEffortUi` 对实际 client 模块有锚点、幂等修改标签为 Max（请求），结构不匹配时不写入。不静默改变用户选择或改写历史。全局/项目默认影响新会话；当前会话选择器可明确修改后续请求。
+
+完整固定快照与回归见 [MODEL_REASONING](MODEL_REASONING.md)。
+
+## 6. 会话证据、连接与恢复
+
+`SessionProbe` 在前端模块前捕获实际认证列表 RPC，解析完整 JSON，不依赖不存在的固定 REST URL。已观察请求每 5 秒重放并使用新 rpcId；90 秒没有可信数据则未知。列表的 `running` 是运行权威，DOM 只补充审批状态。
+
+`ConnectionRecovery` 分开表示设备网络与 DSH WebSocket，不用“有网”替代连接成功。任务运行或等待批准时不能自动刷新去修连接。恢复后的活动任务先标为恢复中，收到新证据才判断结束/运行。
+
+`DraftRecovery` 仅在 DSH localhost origin 恢复本地草稿，不自动发送、不新增权限桥。官方 DSH UI 管理搜索、归档、停止与取消归档，原生不另造未验证内部 RPC。
+
+`LocalServerProbe` 在同一 origin 处理 token/303/Cookie，限时、限大小、限跳转；跨 origin 立即拒绝，避免认证泄露和重复启动。
+
+## 7. 更新、快照与数据保护
+
+更新前空间预检和快照覆盖运行环境，替换失败时恢复。`PayloadRollback` 验证 journal、大小、SHA-256 和安全目标，只能恢复 `dsh` / `tools`，不把 `.dsh` 或项目纳入快照目标。
+
+自动恢复后设置更新暂缓，直到用户主动更新成功才解除。手动恢复不降低 APK，也不要求清除 App 数据。覆盖安装必须同包名同签名。
+
+配置备份认证加密并要求至少 8 位密码，恢复检查 zip-slip；不是完整数据备份。诊断 ZIP 只含摘要与脱敏日志，排除配置全文、凭据、会话正文、附件和项目文件。
+
+## 8. Android 兼容层
+
+| 兼容点 | 当前处理 | 验证边界 |
 |---|---|---|
-| 匹配 | 相同 | 不动 |
-| 不匹配 | — | 下载 + 解压该分片 |
-| 匹配 | **变高** | 下载 + 执行 `remove` + 解压 |
+| Node 内部模块 | 纯 JS 垫片配合 `--expose-internals` | 保留当前入口及真实 profile 消费验证 |
+| PTY | 复用已发布 Android/bionic ELF | Linux 容器不证明手机 ELF 实际加载 |
+| 图片 | sharp API 的窄范围实现委托 Python/Pillow | 需要真机图片与服务商能力回归 |
+| flock | 仅 Android 无原生绑定时使用降级；桌面用真实锁并传播错误 | no-op 不提供跨进程互斥 |
+| 会话发布 | 硬链接优先；兼容性失败用 `COPYFILE_EXCL`，拒绝覆盖 | 磁盘满等其他错误继续传播 |
 
-**为什么是「按分片」而不是「整包重来」**：整包重来虽然正确，
-但代价是删 27MB 却要用户重下 60MB。按分片后，
-这次只重下了 dsh 那一片（19.5MB），另外 4 片完全不动。
+`patch/02-session-link-to-rename` 保留旧补丁但已归档。“先检查后 rename”不能维持原子排他发布，禁止用于 v10。升级附件补丁不能沿用旧 `.dshorig` 作为新源码。
 
-**安全**：`remove` 里的路径来自网络上的清单，必须当作不可信输入。
-`isSafeRelativePath()` 拒绝绝对路径、`..`、反斜杠、`.dsh`、`cache`。
-17 种非法路径有测试覆盖。理由很直接：一个被篡改的清单，
-靠一个 `../../.dsh` 就能删掉用户的配置和密钥。
+## 9. 构建与验证闭环
 
-### 修订号只在全部成功后记录
+Actions 在 Linux 用官方 build-tools；Node/动态库从上一 bootstrap APK 取出，不提交大型二进制。资源包括图标、主题、快捷方式与动效，不能笼统称“零资源 APK”。
 
-如果下载中途失败（校验不过、解压出错）却已经记下了修订号，
-下次启动会误判为「已应用」，那些该删的文件就永远补不回来了。
+测试分层：纯 JVM、JS/HTTP 模拟、真实运行包消费、Android 编译/DEX/资源/签名、真机反馈、真实服务商效果。CI 逻辑与消费回归不能证明所有手机行为。
 
-### 第四代：验证后修改 + 上一环境快照（当前）
-
-第三代解决了“下什么、删什么”，但解压仍直接覆盖现有目录。下载虽然全部先校验，
-真正解压时若遇到空间耗尽、文件系统异常或进程中断，旧环境可能已经被部分覆盖。
-
-当前流程增加事务式恢复层：
-
-1. 先下载并校验所有变化分片；
-2. 停止受管进程，为涉及的 `dsh` / `tools` 创建 tar.zst 快照；
-3. 记录快照大小、SHA-256、目标白名单与更新前修订号；
-4. 再执行解压与显式删除；
-5. 任一步失败，先把当前目录改名保留，再从已验证快照恢复；恢复失败则把保留目录放回；
-6. 更新成功后保留一次手动恢复出口；恢复后暂停后台自动重试，等待用户主动更新。
-
-快照明确不包含 `.dsh`、工作区和缓存。空间预检按更新所需空间、目标目录未压缩大小
-与额外余量保守计算；不足会在运行目录发生任何变化前停止。
-
----
-
-## 4. 纯逻辑层：为什么值得单独抽出来
-
-### 问题
-
-Android UI 代码没法在容器里跑测试。整个开发过程是在一台设备上的
-proot Debian 里完成的，没有模拟器、没有真机调试回路。
-如果所有逻辑都写在 Activity 里，就只能靠「编译通过」来判断对错 ——
-而编译通过和逻辑正确是两件事。
-
-### 做法
-
-把**易错的判断**抽成不依赖 Android 的类，用普通 JVM 测试：
-
-| 类 | 抽出来的判断 | 测试数 |
-|---|---|---|
-| `FileListing` | 目录列举、排序、断链判定 | 42 |
-| `TextCodec` | 编码探测、换行符、二进制判定 | 31 |
-| `Version` | 版本号比较（含溢出饱和） | 23 |
-| `CommandCodeUsage` | 余额解析与格式化 | 38 |
-| `TaskNotifier` / `TaskTimeline` | 完成通知、稳定任务起点与持久化任务历史 | 60 |
-| `ConnectionRecovery` / `DraftRecovery` | 连接恢复状态与同源草稿恢复 | 26 |
-| `FileBatch` / `FileTrash` / `FilePreview` | 批处理、回收站和图片预览边界 | 34 |
-| `FileOps` | 写入白名单、符号链接逃逸、名称校验 | 52 |
-| `ConfigBackup` | zip-slip 防护、白名单进出 | 40 |
-| `ShareTargets` | 路径编解码往返、MIME 映射 | 55 |
-| `PluginSpecs` | 命令注入防护、YAML 生成 | 98 |
-| `PayloadUpdate` | 分片更新决策、删除路径安全 | 55 |
-| `PayloadRollback` | 快照记录、目标白名单、严格解析与空间溢出 | 23 |
-| `SessionStatus` / `SessionRecovery` | 状态优先级、通知缓存、恢复出口 | 103 |
-| `SessionProbe` / `SessionOrganizer` | 会话请求捕获、只读重放与官方搜索入口 | 24 |
-| `ModelConfig` / `ProviderCheck` / `LiveModelCatalog` / `ProjectModelSettings` | 模型配置、上游目录、能力对齐与项目覆盖 | 74 |
-| `ProcessSupervisor` / `TransferState` | 进程退避与下载停滞 | 23 |
-| `SecretMasker` / `DiagnosticReport` / `UiText` | 脱敏、诊断摘要、语言回退与引导判定 | 36 |
-| `MobileLayout` / `DeviceLayout` | WebUI 初始缩放、响应式补丁与原生多设备布局 | 38 |
-| `WorkspaceProjects` | 命名项目与路径约束 | 19 |
-| `ShareTask` | 分享任务提示词与安全 JS 转义 | 10 |
-| `PluginPermissions` | 能力披露与版本指纹授权 | 10 |
-| `ReleaseChannel` | 稳定/测试通道规则 | 8 |
-| `WebToolsEntry` | WebUI 入口注入、收起隐藏、语言与状态标记 | 21 |
-| `UiPolicy` | 语义色、系统动画与键盘/安全区合并 | 27 |
-| `OperationGate` | 更新、恢复维护任务互斥与并发竞争 | 13 |
-| `InteractionFeedback` | 动效时长、进度边界与延时回调代次 | 43 |
-| `CrashReporter` / `WorkerRegistry` / `ProviderRoute` | 崩溃记录、线程生命周期与 URI 路由 | 23 |
-| | **合计** | **1049** |
-
-### 强制手段
-
-`build_bootstrap.sh` 第 3.45 步会检查这些文件里**没有** `import android.`。
-违反直接构建失败 —— 否则「纯逻辑层」会慢慢被污染，测试也就跑不起来了。
-
-### 这个做法救过什么
-
-- `Version.digit` 溢出返回 0，导致 `99999999999999.0.0` 被判为比 `1.0.0` 旧
-  —— 测试发现，改成饱和到 `Long.MAX_VALUE`
-- `ConfigBackup` 的 zip-slip：构造带 `../escaped.txt` 的恶意 zip，
-  测试确认磁盘上真的**没有**多出文件，而不只是「校验函数返回了错误」
-- `PayloadUpdate`：「哨兵 0 处不匹配但修订号变了」这个用例
-  —— 正是第二代机制漏掉的那一类
-
----
-
-## 5. 运行时补丁
-
-App 会在 DSH 启动前修改运行包里的文件。这些补丁都是**文本匹配**的，
-所以每一条都有前提 —— 前提一旦变化就会静默失效。
-
-| 补丁 | 改什么 | 前提 |
-|---|---|---|
-| **viewport / 状态探针** | 前端 `index.html` 的 viewport、移动端 CSS 和 `SessionProbe` | 存在标准 viewport 与 `</head>` |
-| **附件落盘** | `dsh-attachment-local/lib/index.js` | 存在 `await syncDirectory(`、`await link(staged.path, target);` |
-| **sharp 替换** | `node_modules/sharp/index.js` | 用 `sharp-android.js` + `pillow_shim.py` 整份覆盖 |
-
-补丁是**幂等**的：原始文件会先备份成 `<name>.dshorig`，并带版本标记
-（如 `DSH-ANDROID-ATTACH-PATCH-v3`），所以可以重复应用、也可以升级补丁。
-
-**升级补丁时注意**：不能把 `if (src.contains("标记")) return;` 当作幂等判断 ——
-那样旧版补丁永远升不到新版。必须从**原始备份**重新打补丁。
-
-### 为什么需要附件补丁
-
-图片附件在 Android 上失败，真实原因是两层叠加：
-
-1. `ensureDurableHome` 一路向上找到 `/`，尝试打开 `/data/user/0` → `EACCES`
-2. Android 的 `link()` 在应用私有存储上返回 `EACCES`
-
-修法是让 `syncDirectory` 容忍 `EACCES`，并给 `link` 加拷贝回退。
-
----
-
-## 6. 插件机制
-
-DSH 有活跃的插件生态，但 App 里的 DSH 是隔离环境，原本没有任何安装入口。
-
-### 安装
-
-```
-npm install --prefix <DSH_HOME>/profiles/web <规格>
-  → profiles/web/node_modules/<包名>     ← DSH 正是从这里解析插件
-```
-
-**为什么不用 `dsh plugin add`**：它依赖 **pnpm**，而运行包里没有；
-装一个 pnpm 要 46MB，不值得。npm 已在运行包里，
-且 profile 用的是 `nodeLinker: hoisted` —— 与 npm 的默认行为一致，落点相同。
-
-规格支持 npm 包名、GitHub 简写（`owner/repo`）、`github:` / `gitlab:` 前缀、
-完整 URL、绝对路径。**命令注入防护没有放松**：分号、管道、反引号、
-`$()`、重定向、引号、通配符、空格一律拒绝（21 种注入尝试有测试）。
-
-### 启用：两种类型，方式不同
-
-这是踩过的坑：**bundle 类插件用 `--patch insert` 是不生效的**。
-
-| 类型 | 判定 | 启用方式 |
-|---|---|---|
-| 普通插件 | package.json 无 `dsh.bundle` | 写进 `--patch` 的 insert 列表 |
-| **bundle 插件** | package.json 有 `dsh.bundle` | 追加到 profile 的 `dsh.profile.bundles` |
-
-类型**读插件自己的 package.json**，不按名字猜。
-改 profile 的 `package.json` 是 JSON 编辑，不能靠字符串拼接 ——
-拼坏了 profile 就起不来。测试验证了追加后 JSON **仍能被真实解析器解析**。
-
-### 依赖过滤
-
-装 `dsh-about` 会连带装上 react、js-tokens、loose-envify ——
-它们和插件躺在同一个 `node_modules` 里。不区分的话插件列表会被依赖淹没。
-判据：package.json 有 `dsh` 字段，**或**包名以 `dsh-` 开头。
-
-### 自我修复
-
-如果带插件启动失败，App 会写一个 `.plugins-disabled` 标记，
-下次启动跳过所有插件 —— 保证 App 一定能起来。
-这是为什么「插件把 DSH 弄挂了」不会变成「App 打不开」。
-
----
-
-## 7. 构建链
-
-没有用 Gradle（那需要完整的 Android SDK + JDK，容器里放不下）。
-全部手写：
-
-```
-mkmanifest.py          手写二进制 AXML（AndroidManifest.xml）
-  └─ 为什么要手写：aapt2 的 link 需要资源，而本项目零资源（图标是 Canvas 画的）
-     手写 AXML 反而更可控，且能精确注入图标/主题的资源 id
-
-aapt2 compile/link     编译 res/（图标、主题、快捷方式）
-javac --release 8      编译 Java（targetSdk 28 时代的字节码）
-d8 --min-api 24        Java 字节码 → DEX
-mkzip.py               组装 APK（store 模式放 assets，deflate 放其它）
-apksigner              签名（keystore 在 scripts/release.keystore）
-```
-
-**环境陷阱**：`aapt2` 是 **bionic 二进制**（Android 的 libc），
-必须用 Termux 的 linker 跑：
-
-```bash
-env LD_LIBRARY_PATH="$TERMUX_LIB" "$AAPT2" compile ...
-```
-
-`d8.jar` / `apksigner.jar` 是普通 JVM 工具，直接用 `java -cp` 跑。
-
-### 为什么 targetSdk=28
-
-Android 10（API 29）起禁止 App exec 自己私有目录里的文件
-（`execute_no_trans`）。而本项目的整个架构就是
-「解压一个 node 到私有目录然后执行它」—— 升到 29 会直接失效。
-
-这不是将就，是**架构前提**。若将来必须升级 targetSdk，
-需要重新设计 node 的存放位置（应用可执行目录已不可写）。
-
----
-
-## 8. 数据流：一次用户提问
-
-```
-用户在 WebView 里输入
-  ↓
-DSH 前端 → /api/… → DSH 服务端（本地 127.0.0.1:<端口>）
-  ↓
-模型调用（走用户配置的 provider / API key）
-  ↓
-工具调用（读文件、执行命令…）
-  ↓ 执行在 <root>/tools 的沙箱里
-结果回到前端
-  ↓
-index.html 内的 SessionProbe 在前端模块前接管 DSH 自己的 session/list 请求
-  ↓ 解析完整响应并每 5 秒重放只读 RPC
-console.log('[dsh-sess] r=N')
-  ↓
-onConsoleMessage 捕获 → 状态计时 + TaskNotifier → 是否需要发完成通知
-```
-
-**为什么用注入而不是原生轮询**：网页**已经完成认证**（会话 Cookie），
-同源 `fetch` 直接可用，不必把 token 取出来在原生侧另开一条请求。
-回报走 `console.log`，**不引入 JS 桥** —— 那会增加网页侧的安全面，
-只为传一个布尔值不值得。
-
----
-
-## 9. 通知栏状态看板
-
-下拉通知栏即可看到当前项目在做什么：
-
-```
-DeepSeek Harness · 运行中 2:14
-正在执行任务
-[设置]  [停止]
-```
-
-| 状态 | 来源 | 表现 |
-|---|---|---|
-| 运行中 | 会话列表完整响应中 `running=true` | 低优先级，带系统计时器 |
-| 等待批准 | 页面上有「等待审批」 | **高优先级横幅 + 提示音** |
-| 空闲 | 会话列表完整响应中运行数为 0 | 低优先级 |
-| 网络异常 | Android `ConnectivityManager` | 顶到正文最前面 |
-
-### 状态从哪里读
-
-运行/空闲只认 DSH 自己的会话列表 RPC。`SessionProbe` 在前端模块运行前包装同源
-`fetch`，捕获页面已经认证的只读请求，在完整响应被诊断日志截断前统计 `running`，
-并每 5 秒用新 `rpcId` 重放。等待批准仍从可见 DOM 的中英文无障碍文案判断。
-
-探针只向控制台回报计数，不读取或回传 token，不新增 `JavascriptInterface`。
-
-### 为什么是三个通知渠道
-
-常驻看板用 `IMPORTANCE_LOW`；等待批准用 `IMPORTANCE_HIGH`；后台任务完成使用独立的
-`IMPORTANCE_DEFAULT` 渠道。Android 不允许创建后修改渠道重要性，拆开后完成提醒可以
-发声或震动，又不会让常驻通知持续打扰。
-
-### 判不出来时不猜
-
-页面没加载完、或长时间拿不到会话列表证据时，报「状态未知」。
-**通知里显示错误的状态比不显示更糟** —— 用户会以为 agent 卡住了。
-
-### 心跳
-
-会话列表每 5 秒重放一次；运行时长由 Android 系统计时器逐秒显示，不需要每秒重发通知。
-状态、任务起点或网络内容任一变化时才重新发布，既避免 MIUI 闪烁，也不会漏掉网络切换或
-让新任务沿用旧计时器。
-
----
-
-## 10. 启动路径：复用运行实例
-
-App 退出**不会带走 DSH 进程** —— 这是有意的：关掉 App 后 agent 还要继续跑。
-
-但这样一来，下次启动若直接再起一个，就会同时存在两个 DSH，
-而启动一个要 20~60 秒。所以启动时先探测有没有活着的实例
-（端口可连 + 带 token 能拿到首页），有就直接连上去，**跳过整个启动过程**。
-
-另外自检（十几次 node 调用）用「运行包修订 + APK 版本」当指纹缓存，
-两者都没变时跳过；换运行包或升级 App 会自动重测。
+文档事实也进入发布验证：自动生成状态块、STATUS 表和固定模型表，检查本地链接，正式发布同步双 README 的下载与摘要。当前完成范围及未验证矩阵见 [STATUS](STATUS.md)，发布方法见 [BUILD](BUILD.md)。

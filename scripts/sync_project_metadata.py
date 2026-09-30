@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize stable/test release metadata and both stable READMEs.
+"""Synchronize stable/test release metadata and all project documentation.
 
 The release workflow owns the values.  Humans should not hand-edit version links,
 APK size, payload size, or checksum in README because all four have drifted before.
@@ -120,6 +120,8 @@ def update_readme_en(text: str, version: str, apk_bytes: int,
         f"releases/download/v{version}-bootstrap/DSHNative-bootstrap.apk",
         text,
     )
+    text = re.sub(r"releases/tag/v[0-9]+\.[0-9]+\.[0-9]+-bootstrap",
+                  f"releases/tag/v{version}-bootstrap", text)
     text = replace_once(
         text,
         r"\*\*Current stable release: [0-9]+\.[0-9]+\.[0-9]+\*\*",
@@ -160,6 +162,23 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     if match is None:
         raise ValueError(f"invalid semantic version: {value}")
     return tuple(int(part) for part in match.groups())
+
+
+def check_readme_generation(stable_path: pathlib.Path, readme_path: pathlib.Path,
+                            readme_en_path: pathlib.Path) -> list[str]:
+    """Detect wrong download tags or sizes even when the correct value occurs elsewhere."""
+    stable = json.loads(stable_path.read_text(encoding="utf-8"))
+    errors: list[str] = []
+    for path, updater in ((readme_path, update_readme), (readme_en_path, update_readme_en)):
+        try:
+            current = path.read_text(encoding="utf-8")
+            expected = updater(current, stable["version"], stable["apk_bytes"],
+                               stable["payload_bytes"], stable["sha256"])
+            if expected != current:
+                errors.append(f"{path.name} release download fields are stale")
+        except (KeyError, ValueError, OSError) as error:
+            errors.append(f"{path.name} release fields: {error}")
+    return errors
 
 
 def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
@@ -245,20 +264,33 @@ def main() -> int:
     parser.add_argument("--readme", type=pathlib.Path, default=ROOT / "README.md")
     parser.add_argument("--readme-en", type=pathlib.Path, default=ROOT / "README.en.md")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--docs-only", action="store_true",
+                        help="synchronize or check documentation without editing release manifests")
     parser.add_argument("--allow-unpublished-source", action="store_true",
                         help="allow a strictly newer source version for pull-request APKs")
     args = parser.parse_args()
+
+    from project_docs import synchronize
+    if args.docs_only:
+        errors = synchronize(ROOT, check=args.check)
+        for error in errors:
+            print(f"[FAIL] {error}", file=sys.stderr)
+        if not errors:
+            print("[OK] project documentation is consistent")
+        return 1 if errors else 0
 
     if args.check:
         stable_path = args.latest or ROOT / "latest.json"
         errors = check_consistency(stable_path, args.test_latest, args.readme,
                                    args.readme_en,
                                    args.allow_unpublished_source)
+        errors.extend(check_readme_generation(stable_path, args.readme, args.readme_en))
+        errors.extend(synchronize(ROOT, check=True))
         if errors:
             for error in errors:
                 print(f"[FAIL] {error}", file=sys.stderr)
             return 1
-        print("[OK] release metadata is consistent")
+        print("[OK] release metadata and project documentation are consistent")
         return 0
 
     latest_path = args.latest or ROOT / (
@@ -297,6 +329,11 @@ def main() -> int:
             args.readme_en.write_text(update_readme_en(
                 readme_en, version, int(apk_bytes), int(payload_bytes), sha256),
                 encoding="utf-8")
+    errors = synchronize(ROOT)
+    if errors:
+        for error in errors:
+            print(f"[FAIL] {error}", file=sys.stderr)
+        return 1
     print(f"[OK] {args.channel} metadata -> v{version}, "
           f"{mib(apk_bytes)} + {mib(payload_bytes)}")
     return 0

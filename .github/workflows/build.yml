@@ -17,6 +17,12 @@ on:
       - 'scripts/**'
       - 'payload/**'
       - 'icon/**'
+      - '*.md'
+      - 'docs/**'
+      - 'release-notes/**'
+      - 'patch/**/*.md'
+      - 'tools/*.md'
+      - 'runtime/core-source.json'
       - '.github/workflows/build.yml'
   push:
     branches: [ main ]
@@ -26,6 +32,12 @@ on:
       - 'scripts/**'
       - 'payload/**'
       - 'icon/**'
+      - '*.md'
+      - 'docs/**'
+      - 'release-notes/**'
+      - 'patch/**/*.md'
+      - 'tools/*.md'
+      - 'runtime/core-source.json'
       - '.github/workflows/build.yml'
 
 permissions:
