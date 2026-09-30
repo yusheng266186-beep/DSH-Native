@@ -104,6 +104,20 @@ class ProjectDocsTest(unittest.TestCase):
         self.assertEqual(docs.synchronize(self.root), [])
         self.assertEqual(first, path.read_bytes())
 
+    def test_public_release_body_excludes_repository_status(self):
+        original = "# v0.32.2\n\n- Original release changes.\n"
+        with_status = docs.replace_block(original, docs.STATUS_START, docs.STATUS_END,
+                                        docs.status_block(self.root / "release-notes/v0.32.2.md",
+                                                          self.root, docs.facts(self.root)),
+                                        insert=True)
+        body = docs.release_note_body(with_status)
+        self.assertTrue(body.startswith("# v0.32.2"))
+        self.assertIn("- Original release changes.", body)
+        self.assertNotIn("0.32.1", body)
+        self.assertNotIn(docs.STATUS_START, body)
+        self.assertNotIn("../docs/STATUS.md", body)
+        self.assertEqual(docs.release_note_body(original), original)
+
     def test_duplicate_incomplete_and_reversed_markers_fail(self):
         for content in (docs.STATUS_START + "\nx\n" + docs.STATUS_START + "\ny\n" + docs.STATUS_END,
                         docs.STATUS_START + "\nx\n",

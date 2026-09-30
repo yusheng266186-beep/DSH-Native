@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.32.2**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.2**；源码：**0.32.3**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -72,6 +72,8 @@ python3 scripts/sync_project_metadata.py --check
 `--allow-unpublished-source` 只适用于严格递增的待发布源码，文档必须同步显示 published stable 和 source。生成区不得手改；功能正文、验证结论和中文/英文仍需技术审阅。
 
 正式 stable 更新模式由 release.sh 传入真实 APK 与 payload manifest，计算大小与 SHA-256，修改清单并同步双 README 和所有文档。test 发布只更新 test 清单与状态块，下载入口继续指向 stable。
+
+仓库版本说明保留自动状态块；复制到 GitHub Release 的公开正文时，工作流移除这段可变仓库状态，保留本版原始变更，避免冻结发版前 stable 版本和无效相对链接。
 
 ## 发布
 
