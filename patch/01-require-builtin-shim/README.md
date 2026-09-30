@@ -1,46 +1,28 @@
-# 补丁 1：node-addon-require-builtin 纯 JS 垫片
+# Node 内部模块的 Android 兼容垫片
 
-## 问题
-`node-addon-require-builtin` 只发布 darwin / linux / win32 的 **glibc** 原生绑定，
-没有 android 构建。Android（bionic）上必然失败：
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-```
-Error: dsh: host preparation failed:
-       No usable native binding found for node-addon-require-builtin-android-arm64 (auto)
-```
+## 当前定位
 
-它被 `dsh-app-boot` 用来访问 Node 私有内部模块，为 profile 注入自定义模块解析
-（`installProfileResolution()`，无条件调用）。
+DSH 的 profile 准备需要访问 Node 内部模块。原生 `node-addon-require-builtin` 没有可直接用于当前 Android/bionic 运行时的对应绑定；本项目保留纯 JS 垫片，并以 `--expose-internals` 启动 Node。
 
-## 解法
-**带 `--expose-internals` 启动 Node 时，可以绕过原生插件直接 `require` 内部模块。**
+现行 `prepare_core_payload.py` 从已验证的基础运行包保留此兼容入口。它是运行包构建的一部分，用户不需要手工复制补丁。
 
-实测导出与原生插件所需完全一致：
+## 接口与启动要求
 
-| 内部模块 | 需要的导出 | 状态 |
-|---|---|---|
-| `internal/modules/cjs/loader` | `Module` | |
-| `internal/modules/esm/loader` | `getOrInitializeCascadedLoader` | |
-| `internal/modules/helpers` | `getCjsConditions` | |
-| `internal/modules/esm/utils` | `getDefaultConditions` | |
-| `internal/modules/esm/resolve` | `defaultResolve` | |
+垫片访问 CJS/ESM 加载、条件和解析模块，例如 `internal/modules/cjs/loader`、`internal/modules/esm/loader`、`internal/modules/helpers`、`internal/modules/esm/utils` 与 `internal/modules/esm/resolve`。
 
-## 应用方式
 ```bash
-# 1. 覆盖包的入口
-cp node-addon-require-builtin.js \
-   <dsh>/node_modules/node-addon-require-builtin/lib/index.js
-
-# 2. 启动 Node 时必须加 --expose-internals
-node --expose-internals <dsh>/lib/bin.js ...
+node --expose-internals /path/to/dsh/lib/bin.js --patch /path/to/app.patch.yml \
+  --profile web --no-open --port 3099
 ```
 
-## 验证
-```
-$ node --expose-internals -e 'require("internal/modules/esm/loader")'
-5 个内部模块全部可取
+示例路径与端口用于说明参数顺序；实际 App 启动参数由原生层生成。`--patch` 必须在 `--profile` 前。没有 expose-internals，单独复制 JS 文件不能保证内部模块可访问。
 
-$ node --expose-internals dsh/lib/bin.js --profile web --no-open --port 3099
-dsh web: http://127.0.0.1:3099/?token=…
-GET / → 200, 31252B, <title>DeepSeek Harness</title>
-```
+## 升级与验证
+
+升级 Node 或 DSH 时必须核对垫片所需导出与新的 profile 准备逻辑，不假定旧私有 API 永远稳定，也不把 glibc binding 复制到 Android。
+
+`check_model_consumer.sh` 消费真实运行包，使用该启动模式验证 Host、模型配置和无凭据 Web profile 的 token/Cookie/页面响应。Linux 容器验证不能证明手机上每个 ELF 的加载行为，真机范围见 [STATUS](../../docs/STATUS.md)。

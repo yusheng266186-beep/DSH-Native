@@ -1,174 +1,82 @@
-# 脚本说明
+# 构建、发布与维护脚本
 
-## 哪些能在克隆里直接跑
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-| 脚本 | 克隆里能跑吗 | 说明 |
+本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
+
+## 脚本接口
+
+| 脚本 | 用途 | 条件与边界 |
 |---|---|---|
-| `run_tests.sh` | **能** | 1049 项纯逻辑断言 + 17 项入口 DOM 模拟 + 11 项状态探针 fetch 模拟 + 7 项状态 DOM 模拟，并真实模拟运行环境快照/恢复，依赖 JDK 与 Node。接手第一步就跑这个 |
-| `build_bootstrap.sh` | 需要构建工作区 | 见下方「构建工作区」 |
-| `release.sh` | 需要构建工作区 + gh 已登录 | 发布用（含版本号一致性校验）|
-| `verify_release.sh` | 需要网络 + gh | 独立验证某版本的发布是否可用 |
-| `bump_version.sh` | 能 | 提升版本号（从源码读当前值，不失配）|
-| `sync_project_metadata.py` | 能 | 从真实 APK 与 payload 清单同步稳定/测试清单；稳定发布同时同步中英文 README |
-| `mkmanifest.py` | 需要构建工作区 | 手写二进制 AndroidManifest.xml |
-| `mkzip.py` | 需要构建工作区的产物 | 组装 APK |
-| `make_payload_parts.py` | 需要工具链目录 | 重建运行包分片 |
+| `check_java.py` | 静态语法、引用与约束检查 | Python；javalang 可选，不代替 CI 编译 |
+| `run_tests.sh` | JVM、JS、HTTP、元数据与文档逻辑回归 | JDK / Python / Node；数量以本次日志为准 |
+| `ci_build.sh <dir>` | SDK 准备、隔离工作区、完整 APK 构建 | Linux、JDK 17、Android SDK、网络 |
+| `ci_stage.sh <dir>` | 源码/资源与上一正式 APK 内置负载准备 | 会重建指定目录，只传专用临时目录 |
+| `build_bootstrap.sh` | 测试、闸门、编译、DEX、资源、打包和签名 | 已准备的工作区；Linux/bionic 工具分别处理 |
+| `check_model_consumer.sh` | 验证源码引用的真实 payload 与聊天框组件 | gh / npm / JDK / Node / zstd，模型请求离线捕获 |
+| `bump_version.sh X.Y.Z` | 同步 versionName、versionCode 与启动日志 | 从现有源码读版本，不硬编码旧值 |
+| `sync_project_metadata.py` | 正式清单、双 README 与全部文档同步/检查 | 发布更新由 release.sh 提供真实产物参数 |
+| `project_docs.py` | 状态块、STATUS 事实表、模型表与本地链接逻辑 | 由 sync_project_metadata 调用，不单独发版 |
+| `check_signer.sh <APK或URL>` | 既有证书与 APK 签名一致性 | 需要 apksigner；不生成新密钥 |
+| `release.sh <version> <build> <notes> [channel]` | 上传、验证下载、最后写清单并同步文档 | 由 release.yml 调用，已有构建产物与 gh 权限 |
+| `verify_release.sh <version>` | bootstrap 正式版本辅助验证 | 在实际 APK 所在目录运行；不通用适配 test/payload |
+| `prepare_core_payload.py` | 从固定官方归档与依赖锁构建 Android DSH 片 | 保留已验证 Android PTY/垫片，参数见 help |
+| `make_payload_parts.py` | 工具链分片与 manifest 生成 | 按脚本环境变量指定工具链/输出目录 |
+| `release_payload.py` | 独立运行包资产校验与发布 | manifest 最后上传；不改 App latest 清单 |
+| `mkmanifest.py` | 二进制 AndroidManifest 生成 | 配合实际资源与构建工作区 |
+| `mkzip.py` | 将构建产物组装为 APK | 不负责签名或发布 |
 
-`run_tests.sh` 会自动识别两种目录布局：
-构建工作区的 `bootstrap/src/…` 与克隆里的 `src/…`。
+## 日常开发
 
----
+```bash
+python3 scripts/check_java.py
+bash scripts/run_tests.sh
+python3 scripts/sync_project_metadata.py --docs-only
+python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
+```
+
+run_tests 自动识别仓库与 CI 工作区布局；javac 缺失时尝试 JDK 编译器模块。纯逻辑不能导入 Android。它同时验证 Web 工具入口、状态/连接/草稿、运行包快照、HTTP 认证与元数据等路径。不要将历史断言数量写成固定的当前总量。
+
+真实运行包回归独立执行，React/jsdom 依赖位于 `tests/js` 的固定锁文件，只用于 CI，不能加进 APK。该目录已有 CommonJS 测试与 `.mjs` 测试并存，不通过全局 `type: module` 破坏旧测试。
 
 ## 构建工作区
 
-仓库里**只有源码、脚本和文档**。构建还需要一个工作区，
-里面放的是不适合进 git 的大文件：
-
-```
-<工作区>/
-├── sdk/
-│   ├── android.jar           框架资源表（aapt2 link 用）
-│   └── android-modern.jar    编译用（含 API21+ 属性，如 statusBarColor）
-├── tools/
-│   ├── d8.jar                Java 字节码 → DEX
-│   └── apksigner.jar         签名
-├── staging/data/data/com.termux/files/usr/
-│   ├── bin/aapt2             Termux 的 aapt2（bionic 二进制）
-│   ├── bin/node              构建期辅助
-│   └── lib/                  aapt2 依赖的库
-└── bootstrap/                源码的副本（构建时用）
+```bash
+export ANDROID_SDK_ROOT=/path/to/android-sdk
+bash scripts/ci_build.sh /tmp/dsh-build
 ```
 
-默认路径是 `/root/build`（开发时的位置），
-用 `DSH_BUILD_DIR` 指向你自己的：
+官方 Linux build-tools 默认 34.0.0，Android 平台文件需要 28 和 34。ci_stage 从上一 bootstrap APK 提取 Node 与十个库，payload Release 不能当作 APK 来源。
+
+输出 `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`。底层 build_bootstrap 需要 `DSH_BUILD_DIR` 指定已准备的目录；手写清单与 DEX 工具链不意味着“零资源 APK”，图标、主题、快捷方式与动效资源必须编译验证。
+
+旧设备环境的 bionic aapt2 不能在 Linux 直接执行；Android 也不能加载 glibc 二进制。工作区是可重建临时目录，不能使用用户项目或运行数据目录。
+
+## 文档同步接口
 
 ```bash
-DSH_BUILD_DIR=~/dsh-build bash scripts/build_bootstrap.sh
+# 更新文档，保持已发布 latest 清单不变
+python3 scripts/sync_project_metadata.py --docs-only
+
+# 只验证所有生成区和本地文件链接
+python3 scripts/sync_project_metadata.py --docs-only --check
+
+# 发布完成后的严格元数据 + 全文档检查
+python3 scripts/sync_project_metadata.py --check
 ```
 
-`aapt2` 的来源要特别注意 —— 它是 **bionic 二进制**，
-必须用 Termux 的 linker 跑，详见 `docs/BUILD.md`。
+同步范围包含根 README/AGENTS，以及 docs、scripts、tools、patch、release-notes 的 Markdown。状态块从 stable/test、源码版本、payload 标签和固定 core-source 生成；模型表从官方固定 fixture 生成。链接检查针对本地文件，不重新核查外部研究来源。
 
----
+`--allow-unpublished-source` 只适用于严格递增的待发布源码，文档必须同步显示 published stable 和 source。生成区不得手改；功能正文、验证结论和中文/英文仍需技术审阅。
 
-## 各脚本做什么
+正式 stable 更新模式由 release.sh 传入真实 APK 与 payload manifest，计算大小与 SHA-256，修改清单并同步双 README 和所有文档。test 发布只更新 test 清单与状态块，下载入口继续指向 stable。
 
-### `run_tests.sh`
+## 发布
 
-编译并运行 39 个纯逻辑测试类。这些类不依赖 Android，
-所以能在普通 JVM 上跑。构建流程的第 3.4 步会调用它，**失败即中止构建**。
+用户已约定每轮修改递增并发布 stable。先完整 Android CI，后 main 合并，再运行 release.yml。发布保持包名与签名，先资产和下载验证、后清单回提交。
 
-### `build_bootstrap.sh`
+不要将 `release.sh` 当作任意工作区手动上传的快捷命令，不预写 latest，不生成新密钥，不提交 APK。独立 payload 先完成所有资产并最后上传 manifest，App 才能引用它。
 
-完整构建。步骤：
-
-```
-0.   检查工具链
-1.   组装 APK 内置负载（node + lib/*.so + 引导脚本）
-2.   aapt2 compile/link 编译资源
-3.   mkmanifest.py 生成二进制清单（注入 aapt2 给的资源 id）
-3.4  run_tests.sh                              ← 闸门
-3.45 纯逻辑层不得 import android.                ← 闸门
-3.5  UI 不得用 AlertDialog.Builder              ← 闸门
-4-7. javac → d8 → mkzip → apksigner
-```
-
-产物：`bootstrap/out/DSHNative-bootstrap.apk`
-
-### `bump_version.sh`
-
-```bash
-bash scripts/bump_version.sh 0.23.4
-```
-
-提升版本号。它**从源码里读当前值再递增**，不硬编码旧值 ——
-并同时改好 `mkmanifest.py` 的 versionName/versionCode 与 `MainActivity`
-的日志头。
-
-**为什么要有这个工具**：手动替换版本号出过事故 —— 源码已经是 0.22.5，
-替换却写的是 `0.22.4 → 0.22.6`，静默失配，于是构建出来的仍是 0.22.5，
-而清单写成了 0.22.6，客户端陷入无限更新提示。
-
-### `verify_release.sh`
-
-独立验证某个版本的发布是否可用：release 不是草稿、
-远程 SHA-256 与本地一致、两条下载路径都能取到。
-
-**不下载整包** —— 优先用 GitHub API 的 digest（服务端算好的 sha256），
-API 限流时退回比对 `Content-Length`。
-
-`release.sh` 内部也做这些检查，但它中途失败需要手工收尾时
-（补传资产、改草稿状态），人容易跳过验证直接写清单 ——
-出过一次：release 还是草稿，两个下载源都是 404，而清单已经写了出去。
-
-### `release.sh`
-
-```bash
-bash scripts/release.sh <版本号> <构建目录> <发布说明.md> [stable|test]
-```
-
-顺序**不能改**：
-
-```
-1. gh release create              上传 APK + 清单
-2. 验证 release 资产存在
-3. 轮询两条下载路径（直连 + 镜像）都是 206/200
-4. 最后才写通道清单：稳定版 `latest.json`，测试版 `latest-test.json`
-5. 稳定版同步 README 的下载链接与 SHA-256；测试版不改稳定下载入口
-```
-
-出过一次事故：脚本语法错误跳过了 `gh release create`，但清单被写了
-→ 所有客户端更新失败。所以「验证通过才写清单」这条是硬要求。
-
-README 同步是后加的 —— 那两个数字（链接里的版本号、SHA-256）
-每次发版都变，手工维护出过两次错（链接长期指向 v0.9.0、
-SHA 被拼成两个哈希连在一起）。
-
-`test` 会创建 `v<版本>-test` 的 GitHub Prerelease，供真机验收；`stable` 才会创建
-`v<版本>-bootstrap` 并更新 README。两个通道使用同一签名检查，均可覆盖安装已有 App。
-
-### `make_payload_parts.py`
-
-把工具链切成 5 个运行包分片并生成 `manifest.json`。
-
-```bash
-DSH_TOOLS_DIR=<工具链目录> DSH_PAYLOAD_OUT=<输出目录> \
-  python3 scripts/make_payload_parts.py
-```
-
-改运行包内容时注意：
-
-- **只增改文件**：哨兵会自然发现，不需要改 `revision`
-- **删了文件**：必须递增该分片的 `revision` 并把路径加进 `remove`
-  —— 否则老用户那边删不掉（哨兵发现不了删除）
-
-`dsh.tar.zst` 的重新打包是「解压到临时目录 → 用 `--exclude` 重新打包」，
-需要约 210MB 临时空间。
-
-### `verify_release.sh`
-
-```bash
-bash scripts/verify_release.sh <版本号>
-```
-
-独立验证某个版本的发布是否真的可用：release 不是草稿、资产齐全、
-**两条下载路径都能取到**。
-
-`release.sh` 内部已经做了这些检查，但它中途失败、需要手工收尾时
-（补传资产、改草稿状态），人很容易跳过验证直接写清单 ——
-2026-09-23 就这么出过一次：release 还是草稿，两个下载源都是 404，
-而清单已经写了出去。手工收尾时先跑这个。
-
-### `mkmanifest.py`
-
-手写二进制 AXML 生成器（496 行）。为什么要手写：
-本项目的图标是 Canvas 画的（零资源），`aapt2 link` 没有资源可链，
-手写反而更可控，且能精确注入 aapt2 生成的资源 id。
-
----
-
-## 相关文档
-
-- `docs/BUILD.md` —— 构建环境与步骤
-- `docs/HANDOVER.md` —— 当前状态与待办
-- `docs/GOTCHAS.md` —— 踩过的坑（跑脚本前值得一看）
+签名事故与运行安全边界见 [HANDOVER 第 8 节](../docs/HANDOVER.md#8-持续有效的事故防护与红线)，流程清单见 [release_checklist](release_checklist.md)。

@@ -1,5 +1,9 @@
 # 踩过的坑
 
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+<!-- dsh-doc-status:end -->
+
 这份文件记录**看起来对但实际错**的情况。每一条都是真实发生过的，
 不是理论风险。接手时先读一遍，能省下大量重复踩坑的时间。
 
@@ -28,7 +32,7 @@ if (missing.isEmpty()) return true;   // ← 判定「已是最新」
 
 删掉文件后，其余哨兵全部不变 → 永远判定「已是最新」→ 那些文件永远留在设备上。
 
-**修法**：分片修订号 + `remove` 清单。详见 `ARCHITECTURE.md` 第 3 节。
+**修法**：分片修订号 + `remove` 清单。详见 [两段式分发与空间](ARCHITECTURE.md#3-两段式分发与空间)。
 
 ### 3. `catch (Throwable)` 把 NPE 变成「安装失败」
 
@@ -231,7 +235,9 @@ grep -c 'await syncDirectory(' <文件>
 
 ---
 
-## 三、环境陷阱（容器是设备上的 proot Debian）
+## 三、历史设备构建环境陷阱（旧 proot Debian）
+
+本节记录旧设备环境，当前 Actions 使用 Linux 官方 Android build-tools；不代表 App 依赖 proot，也不是当前 Linux 构建操作指南。
 
 | 现象 | 原因 / 做法 |
 |---|---|
@@ -426,13 +432,13 @@ API 24 起把 `file://` 交给别的应用会抛 `FileUriExposedException`。
 | 约定 | 原因 |
 |---|---|
 | 源码/脚本/注释里不能有 emoji | 用户明确要求。构建脚本有检查 |
-| 新增功能必须配纯逻辑层 + 离线测试 | 没有真机调试回路，测试是唯一的验证手段 |
+| 易错判断进入纯逻辑层并离线验证 | 可重复回归与真机验收分别报告，不能把测试当作唯一证据 |
 | 新 UI 必须走 `DshUi`，不能用 `AlertDialog.Builder` | 构建脚本第 3.5 步会检查 |
-| 版本号要同步改三处 | `mkmanifest.py` 的 versionName、`MainActivity` 的日志头、以及运行包标签 |
+| App 版本同步使用 bump_version.sh | versionName/versionCode 与日志一致；payload 独立版本，不是每轮必须变化 |
 | 发布只用 `scripts/release.sh` | 手工写清单出过事故 |
-| 手工收尾发布时先跑 `scripts/verify_release.sh` | 草稿状态/资产缺失都会导致客户端更新失败 |
-| 改动后必须跑 `scripts/run_tests.sh` | 423 项断言 |
-# 0.30.0 后维护补充
+| 发布失败保留旧清单，通过正式流程完成核验 | verify_release 只是 bootstrap 辅助检查，不能替代 release.yml/release.sh |
+| 改动后必须跑 `scripts/run_tests.sh` | 数量随版本变化，以本次日志为准 |
+## 0.30.0 后维护补充
 
 ## 模型目录：上游目录决定模型可选性，本地目录只补充提示
 
@@ -444,7 +450,7 @@ API 24 起把 `file://` 交给别的应用会抛 `FileUriExposedException`。
 - 本地/运行时能力目录只给这些上游 ID 补充能力提示；
 - 上游新增但能力未知的模型仍可选择，缺失的提示不显示即可；
 - 网络失败不得回退到本地预设并把它伪装成实时结果；
-- 不发送测试提示词来“探测”能力，也不把未知能力自动写进配置。
+- 不发送测试提示词来“探测”能力；未知视觉不猜测为支持。0.32.1 起 max 是用户要求的请求扩展，必须与官方支持声明分开标注。
 
 这样既不会让静态列表冒充在线目录，也不会因本地静态目录滞后而阻止服务商刚发布的模型。
 
@@ -458,3 +464,33 @@ Android 的 Dialog 默认返回行为只是取消当前窗口。设置首页用�
 - Android 返回键/边缘手势调用同一个 `previous`；
 - 禁止点击卡片外侧静默取消；
 - 列表内部导航（文件目录）和未保存编辑器继续使用各自更具体的返回守卫。
+
+
+## 0.32.x 当前维护防护
+
+### 刷新页面不能重建服务商目录
+
+原生配置写入成功不等于 DSH Host 已经采用。单独 WebView reload 仍复用旧 topology；应写完整 provider catalog，确认空闲后受控重载。任务运行或状态未知时延后，持久化 pending，避免打断任务。排查还要检查 legacy settings 导入与 active profile patch。
+
+### 所有模型 max 可选，不等于上游全部保证支持
+
+保留固定官方声明，另外增加字面量 max 请求。未知/非可调模型保留不传参数的默认路径。UI 显示 Max（请求），上游拒绝/忽略不隐藏为降级 high。回归必须到真实 Host、调用配置、SDK 请求体和聊天框组件/RPC，不能只看原生选项。
+
+### 当前会话发布不用旧 rename 补丁
+
+先检查再 rename 有覆盖竞争窗口。v10 硬链接优先，兼容失败用 COPYFILE_EXCL 拒绝覆盖；磁盘满继续报错。Android flock no-op 没有跨进程锁，桌面则必须保留真实锁及错误传播。旧 patch 明确归档。
+
+### 压缩体积不是安装与更新空间
+
+v10 DSH 展开分配约 491MiB，全量压缩约 118.5MiB；工具、内置 Node、下载缓存和安全快照还需额外空间。使用 manifest unpacked_size 和实际预检，不沿用旧三倍估算或 550MiB 安装建议。
+
+### 文档漂移也必须有检查
+
+交接页曾落后到 0.25.5，README 保留旧测试数量与空间估算，阶段候选被误当当前进度。现在生成全部文档状态、STATUS 事实与固定模型表，核对本地链接；发布同步双 README 下载字段。历史记录保留当时事实，不能统一把标题版本替换为最新号。
+
+```bash
+python3 scripts/sync_project_metadata.py --docs-only
+python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
+```
+
+所有维护结论的证据层级见 [STATUS](STATUS.md)，持续红线见 [HANDOVER 第 8 节](HANDOVER.md#8-持续有效的事故防护与红线)。

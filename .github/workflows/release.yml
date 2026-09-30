@@ -82,6 +82,11 @@ jobs:
           bash scripts/bump_version.sh "${{ inputs.version }}"
           git --no-pager diff --stat
 
+      - name: 同步并检查文档（保持已发布清单）
+        run: |
+          python3 scripts/sync_project_metadata.py --docs-only
+          python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
+
       - name: 构建
         run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
 

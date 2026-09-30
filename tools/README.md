@@ -1,39 +1,36 @@
-# 调试工具（设备内 adb）
+# 设备调试工具说明
 
-本项目长期受限于「无法在真实 App 沙箱里验证」（容器与 `run-as` 使用豁免的
-`runas_app` 域，测不出真实行为）。
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-解决方案：Termux 仓库的 `android-tools` 提供 bionic 版 `adb`，
-可脱离 Termux 直接在本机运行。开启手机**无线调试**后，
-即可从设备内部（`127.0.0.1`）配对连接 adbd，获得 `shell` 权限通道。
+本目录保留早期在 Android/bionic 环境进行无线 ADB 调试的脚本。它们不是 App 的用户依赖，也不是当前 Linux CI 构建入口；当前开发路径见 [BUILD](../docs/BUILD.md)。
 
-## 获取 adb
+## 现有脚本的适用范围
 
-```bash
-# 从 Termux 仓库下载并解包（注意文件名中的 '+' 需编码为 %2b）
-curl -O https://packages-cf.termux.dev/apt/termux-main/pool/main/a/android-tools/android-tools_37.0.0_aarch64.deb
-# 连同依赖（abseil-cpp brotli fmt libc++ liblz4 libprotobuf pcre2 zlib zstd liblzma）
-dpkg-deb -x android-tools_37.0.0_aarch64.deb x/
-```
+| 文件 | 原用途 | 当前边界 |
+|---|---|---|
+| `adb.sh` | 封装旧设备侧 Android ADB 和动态库路径 | 依赖 `x/data/data/com.termux/files/usr` 中未随仓库提供的二进制，并使用旧环境路径，不能当作通用桌面 ADB |
+| `pair.sh` | 旧无线调试配对 | 包含历史绝对路径，须在隔离开发环境人工核对后使用 |
+| `install_and_log.sh` | 早期实验安装与启动日志 | **会先卸载 App**；不得用于现有用户升级、发布验收或含真实数据的设备 |
 
-## 脚本
+这些旧脚本保留用于追溯，不在本轮文档修改中改变执行行为。不要照旧 README 运行其一键安装命令。
 
-| 脚本 | 用途 |
-|---|---|
-| `adb.sh` | 封装 `LD_LIBRARY_PATH` 与可写 `HOME`，其余参数透传给 adb |
-| `pair.sh <配对码> <配对端口> <连接端口> [IP]` | 无线调试配对 + 连接 |
-| `install_and_log.sh [APK]` | 卸载 → 安装 → 清日志 → 启动 → 抓关键日志 |
+## 非破坏性覆盖安装与日志
 
-## 用法示例
+在桌面安装官方 Android platform-tools，并完成设备调试授权。保持与已安装版相同的包名和签名：
 
 ```bash
-./pair.sh 123456 37123 40001 127.0.0.1
-./adb.sh devices -l
-./install_and_log.sh /path/to/DSHNative-bootstrap.apk
+adb devices
+adb install -r /path/to/DSHNative-bootstrap.apk
+adb shell am start -n dev.dsh.native/dev.dsh.nativeapp.MainActivity
+adb logcat -v time -s DSHNative AndroidRuntime
 ```
 
-## 能验证的关键项
+签名不一致应停止安装并核对产物，不能通过卸载或 `pm clear` 处理。日志分享前脱敏，优先使用 App 的诊断导出，避免传输密钥或会话内容。
 
-- App 是否正常启动（闪退时直接看到 `AndroidRuntime` 堆栈）
-- **`targetSdk 28` 下能否执行私有目录中的 Node**（SELinux `execute_no_trans`）
-- 首启下载与解压全流程
+## 真机记录格式
+
+注明版本、Android/ROM、设备、方向/字体/主题、操作步骤、预期、实际结果和脱敏日志。优先覆盖新内核 PTY/图片、目录更新与聊天框 max、运行/未知时的延后重载、后台通知、更新失败恢复和已有数据保留。
+
+既有验收与剩余事项统一记录在 [STATUS](../docs/STATUS.md)，不要把一次安装成功写成所有功能通过。

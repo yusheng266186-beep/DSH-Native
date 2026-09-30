@@ -1,34 +1,23 @@
-# 补丁 3：node-addon-system flock 支持 Android
+# Android flock 兼容边界
 
-## 问题
-`@deepseek-ai/node-addon-system/lib/flock.js` 有两个 Android 不兼容点：
+<!-- dsh-doc-status:start -->
+> 现行文档：按当前源码维护。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
-1. **平台白名单拒绝 android**
-   ```js
-   if (platform !== 'linux' && platform !== 'darwin') {
-     throw ... code: 'ERR_FLOCK_UNSUPPORTED_PLATFORM'
-   }
-   ```
-2. **原生绑定按 glibc/musl 加载**，且只发布 `-linux-` / `-darwin-` 平台包，
-   没有 android 版本 → `require.resolve` 失败
+## 当前实现
 
-它被 `dsh-session-persistence-jsonl` 用于 `tryLockExclusive()`（会话日志排他锁）。
+payload-v10 的运行包构建仅在 Android 平台使用无法加载原生 flock 时的降级入口。Linux/桌面仍加载真实绑定，并保留锁竞争与加载错误的传播，不能在所有平台失败时统一返回“成功”。
 
-## 改动
-1. 平台白名单加入 `'android'`
-2. 加载绑定失败时，降级为 **no-op 锁**（`tryLock: (_fd, done) => done(0)`）
+原实现存在“任何平台原生加载失败都静默取消锁”的问题，当前 `prepare_core_payload.py` 已按平台收窄。旧补丁文件属于历史参考，当前构建逻辑是现行依据。
 
-## 为什么降级是可接受的
-该锁用于**跨进程**协调同一会话日志的写入。手机上是单用户、单进程场景，
-不依赖跨进程建议锁。真正的排他性由 `O_EXCL` 打开与补丁 2 的
-"存在性检查 + rename" 提供。
+## 降级不等于互斥
 
-## 应用方式
-```bash
-patch -p0 < flock.patch
-```
+Android no-op 降级**不提供跨进程 advisory lock**。App 受控启动与进程管理减少多实例风险，但不能把这些条件写成文件锁已经生效，更不能靠“存在性检查 + rename”证明并发安全。
 
-## 全功能替代方案（如需）
-Android 的 bionic 自 API 24 起提供 `flock(2)`。若要恢复真实文件锁，
-可用 NDK 编译一个等价 `system.node` 并放入
-`@deepseek-ai/node-addon-system-android-arm64/bin/`。
+会话文件发布另有硬链接优先、`COPYFILE_EXCL` 拒绝覆盖的保护，见 [会话发布兼容说明](../02-session-link-to-rename/README.md)。锁与文件独占发布是不同机制。
+
+## 验证与后续修改
+
+真实运行包回归测试 Linux 的真实锁竞争，以及模拟 Android 平台入口；它不等同于手机内核上执行原生 flock。
+
+未来若引入 Android/bionic 原生锁实现，需要核对 ABI、错误传播、重复启动与进程退出释放行为。不得通过抑制所有异常使测试变绿。详细运行边界见 [ARCHITECTURE](../../docs/ARCHITECTURE.md)，证据见 [STATUS](../../docs/STATUS.md)。

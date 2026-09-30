@@ -1,4 +1,8 @@
-DSH Native payload v10
+# DSH Native payload v10
+
+<!-- dsh-doc-status:start -->
+> 版本记录：标题版本对应本次发布，原始变更内容保留，不覆盖为新版说明。 已发布 stable：**0.32.1**；源码：**0.32.2**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+<!-- dsh-doc-status:end -->
 
 - Official DSH CLI and dsh-* modules: 0.2.0-rc.2 (upstream release candidate).
 - npm dependency lock and CLI SHA-512 pinned in runtime/core-*.json.

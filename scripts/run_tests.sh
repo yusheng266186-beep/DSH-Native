@@ -456,4 +456,5 @@ else
     echo "  ReleaseHardeningWiring: autofill blocked / workers stopped / WebView destroyed / install result truthful"
 fi
 if ! python3 tests/release_metadata_test.py; then rc=1; fi
+if ! python3 tests/project_docs_test.py; then rc=1; fi
 exit $rc
