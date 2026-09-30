@@ -16,7 +16,7 @@ final class ModelConfig {
 
     private static final Set<String> EFFORTS = new LinkedHashSet<String>();
     static {
-        Collections.addAll(EFFORTS, "off", "low", "medium", "high", "xhigh", "max");
+        Collections.addAll(EFFORTS, "off", "minimal", "low", "medium", "high", "xhigh", "max");
     }
 
     private ModelConfig() { }

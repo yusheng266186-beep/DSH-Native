@@ -412,3 +412,14 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 ## 8.14 阶段五 G：WebUI 上游模型刷新与运行时重载（0.31.3）
 
 本轮修复模型中心已拉取上游目录但 DSH WebUI 仍显示旧列表的问题。DSH 侧栏新增幂等的“更新模型列表 / Refresh models”入口，原生模型中心新增“更新上游模型列表”按钮；保存成功后，空闲状态会重启本地 DSH runtime 再加载 WebUI，使 provider topology、默认模型和目录从同一份 settings.yaml 构建。运行中的任务不会被重启打断，目录写入会保留并延后应用。详见 docs/PHASE5G-MODEL-WEBUI-REFRESH.md。
+
+
+## 8.15 模型思考强度修复（0.31.5）
+
+- 上游 ID-only 目录新增模型没有 reasoningEfforts，DSH 会隐藏强度选择器。旧预设又给所有模型分配六档，造成与 Provider API 实际能力不一致。
+- `ModelReasoning` 保存 command-code@1.72.4 Provider API 的 92 个已知 ID 能力记录；只补充上游 ID，不把能力表当成可用模型目录。上游明确声明优先；新未知 ID 仍可用，默认强度，不猜等级。
+- 支持上游 effort.supported_levels、reasoningEfforts 列表/映射和禁用声明。上游映射来源作为模型内注释保留，重启和刷新不丢失。
+- 原生模型中心动态展示当前模型对应等级，模型切换、检测连接和保存都会复核；已保存全局/项目等级不受支持时，在下一次安全启动配置阶段调整为有效值，历史会话不改写。
+- 升级时对现有 live catalog 修复等级；图片能力、token 上限和兼容字段保留。DeepSeek 官方插件本身提供 off/low/high/max，原生 UI 与真实适配器一致。
+- `docs/MODEL_REASONING.md` 是完整模型对照和来源记录。实际 payload-v9 验证所有 92 个 ID 的可选等级，并离线捕获真实 SDK 请求体、验证不支持的等级在发送前拒绝。没有请求真实服务商或使用付费提示词。
+- 发布仍走完整 Android CI、既有签名和 release.yml/scripts/release.sh stable 流程。

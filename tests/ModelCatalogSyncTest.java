@@ -22,7 +22,8 @@ public class ModelCatalogSyncTest {
                 + "      apiKeyEnv: COMMANDCODE_API_KEY\n      models:\n"
                 + "        - id: old\n          name: Old\n";
         List<LiveModelCatalog.Entry> live = new ArrayList<LiveModelCatalog.Entry>();
-        live.add(new LiveModelCatalog.Entry("fresh/model", "Fresh model", true, true, true));
+        live.add(new LiveModelCatalog.Entry("fresh/model", "Fresh model", true, true, true,
+                true, "reasoningEfforts: { high: high, max: max }\n"));
         live.add(new LiveModelCatalog.Entry("text-only", "Text only", true, false, false));
         live.add(new LiveModelCatalog.Entry("fresh/model", "duplicate", true, false, false));
 

@@ -33,7 +33,6 @@ final class ModelCenterPanel {
         void closeModelCenter(boolean onboarding, boolean saved);
     }
 
-    private static final String[] EFFORTS = {"off", "low", "medium", "high", "xhigh", "max"};
 
     private ModelCenterPanel() { }
 
@@ -94,7 +93,7 @@ final class ModelCenterPanel {
                         File settingsFile = new File(host.dshHome(), "settings.yaml");
                         String settings = ProjectModelSettings.readFile(settingsFile);
                         List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(result,
-                                ModelConfig.modelsForProvider(settings, provider));
+                                ModelConfig.modelsForProvider(settings, provider), provider);
                         String next = ModelCatalogSync.writeLiveCatalog(settings, provider, entries);
                         ProjectModelSettings.writeFileAtomic(settingsFile, next);
                         updated++;
@@ -213,28 +212,16 @@ final class ModelCenterPanel {
 
             body.addView(DshUi.sectionLabel(act,
                     UiText.t("思考强度", "Reasoning effort")), DshUi.fullWidth(act, 20));
-            final List<Button> effortButtons = new ArrayList<Button>();
-            for (int i = 0; i < EFFORTS.length; i++) {
-                final String effort = EFFORTS[i];
-                Button button = DshUi.toggleButton(act, effort, effort.equals(draft.effort));
-                effortButtons.add(button);
-                button.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        draft.followGlobal = false;
-                        draft.effort = effort;
-                        updateEfforts(effortButtons, draft.effort);
-                        DshUi.choiceActivated(v);
-                    }
-                });
-            }
-            LinearLayout effortTop = row(act);
-            LinearLayout effortBottom = row(act);
-            for (int i = 0; i < effortButtons.size(); i++) {
-                addEqual(i < 3 ? effortTop : effortBottom, effortButtons.get(i),
-                        i == 0 || i == 3 ? 0 : 4);
-            }
-            body.addView(effortTop, DshUi.fullWidth(act, 6));
-            body.addView(effortBottom, DshUi.fullWidth(act, 4));
+            final LinearLayout effortArea = new LinearLayout(act);
+            effortArea.setOrientation(LinearLayout.VERTICAL);
+            body.addView(effortArea, DshUi.fullWidth(act, 6));
+            final TextView effortHint = DshUi.hint(act, "");
+            body.addView(effortHint, DshUi.fullWidth(act, 5));
+            final Runnable refreshEfforts = new Runnable() {
+                @Override public void run() {
+                    renderEfforts(act, effortArea, effortHint, draft, settingsText);
+                }
+            };
 
             final TextView checkStatus = DshUi.status(act,
                     UiText.t("尚未检测服务商", "Provider has not been checked"));
@@ -286,7 +273,7 @@ final class ModelCenterPanel {
                             ? View.VISIBLE : View.GONE);
                     model.setText(draft.model);
                     model.setSelection(model.getText().length());
-                    updateEfforts(effortButtons, draft.effort);
+                    refreshEfforts.run();
                 }
             };
 
@@ -343,7 +330,7 @@ final class ModelCenterPanel {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
                     showModelChooser(act, host, dialog, settingsText, draft, model,
-                            selectedKey(draft.provider, ccKey, dsKey), invalidateCheck);
+                            selectedKey(draft.provider, ccKey, dsKey), refresh);
                 }
             };
             choose.setOnClickListener(openChooser);
@@ -363,7 +350,7 @@ final class ModelCenterPanel {
             model.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     showModelChooser(act, host, dialog, settingsText, draft, model,
-                            selectedKey(draft.provider, ccKey, dsKey), invalidateCheck);
+                            selectedKey(draft.provider, ccKey, dsKey), refresh);
                 }
             });
             check.setOnClickListener(new View.OnClickListener() {
@@ -373,12 +360,13 @@ final class ModelCenterPanel {
                             ? dsKey.getText().toString().trim()
                             : ccKey.getText().toString().trim();
                     runCheck(act, host, dialog, settingsText, draft, draft.checkRevision,
-                            draft.provider, key, draft.model, checkStatus, check);
+                            draft.provider, key, draft.model, checkStatus, check, refreshEfforts);
                 }
             });
             save.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
+                    refreshEfforts.run();
                     ModelConfig.Selection selection = new ModelConfig.Selection(
                             draft.provider, draft.model, draft.effort);
                     if (draft.followGlobal && projectState.global != null
@@ -533,7 +521,10 @@ final class ModelCenterPanel {
                     String suffix = (item.image ? UiText.t(" · 图片", " · vision")
                             : item.imageKnown ? UiText.t(" · 仅文字", " · text only")
                             : UiText.t(" · 视觉能力未知", " · vision unknown"))
-                            + (item.reasoning ? UiText.t(" · 思考", " · reasoning") : "")
+                            + UiText.t(" · 强度：", " · Effort: ")
+                            + (ModelReasoning.choices(draft.provider, item.id, item.details).isEmpty()
+                                ? UiText.t("服务商默认", "provider default")
+                                : ModelReasoning.choices(draft.provider, item.id, item.details).toString())
                             + UiText.t(" · 上游可用", " · upstream");
                     String label = item.name.equals(item.id)
                             ? item.id + suffix : item.name + "\n" + item.id + suffix;
@@ -604,7 +595,7 @@ final class ModelCenterPanel {
                             return;
                         }
                         state.entries = LiveModelCatalog.reconcile(result,
-                                ModelConfig.modelsForProvider(settings, provider));
+                                ModelConfig.modelsForProvider(settings, provider), provider);
                         draft.putCatalog(provider, state.entries);
                         status.setText(UiText.t(
                                 "上游返回 " + state.entries.size() + " 个模型，均可直接选择使用。",
@@ -634,7 +625,7 @@ final class ModelCenterPanel {
                                  final Draft draft, final int revision,
                                  final String provider,
                                  final String key, final String selectedModel,
-                                 final TextView status, final Button button) {
+                                 final TextView status, final Button button, final Runnable onCapabilities) {
         if (key.length() == 0) {
             DshUi.toast(act, UiText.t("请先填写当前服务商的 API Key",
                     "Add the API key for the selected provider"));
@@ -659,8 +650,11 @@ final class ModelCenterPanel {
                     return;
                 }
                 List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(
-                        checked, ModelConfig.modelsForProvider(settings, provider));
-                if (checked.state == ProviderCheck.READY) draft.putCatalog(provider, entries);
+                        checked, ModelConfig.modelsForProvider(settings, provider), provider);
+                if (checked.state == ProviderCheck.READY) {
+                    draft.putCatalog(provider, entries);
+                    if (onCapabilities != null) onCapabilities.run();
+                }
                 renderCheck(status, checked, entries, selectedModel);
                 host.log("服务商检测完成: " + provider + " HTTP "
                         + checked.httpCode + "，模型 " + checked.models.size() + " 个");
@@ -741,9 +735,43 @@ final class ModelCenterPanel {
                 ? dsKey.getText().toString().trim() : ccKey.getText().toString().trim();
     }
 
-    private static void updateEfforts(List<Button> buttons, String selected) {
-        for (int i = 0; i < buttons.size() && i < EFFORTS.length; i++) {
-            DshUi.setToggleState(buttons.get(i), EFFORTS[i].equals(selected));
+    private static String reasoningDetails(Draft draft, String settings) {
+        for (LiveModelCatalog.Entry entry : draft.catalog(draft.provider))
+            if (entry.id.equals(draft.model)) return entry.details;
+        for (ModelConfig.Model model : ModelConfig.modelsForProvider(settings, draft.provider))
+            if (model.id.equals(draft.model)) return model.details;
+        return "";
+    }
+
+    private static void renderEfforts(final Activity activity, LinearLayout area,
+                                       TextView hint, final Draft draft, String settings) {
+        area.removeAllViews();
+        String details = reasoningDetails(draft, settings);
+        List<String> choices = ModelReasoning.choices(draft.provider, draft.model, details);
+        draft.effort = ModelReasoning.preferred(choices, draft.effort);
+        boolean defaultOnly = choices.isEmpty();
+        if (defaultOnly) choices.add("off");
+        hint.setText(defaultOnly ? UiText.t("此模型没有已声明的强度档位，使用服务商默认。",
+                "No adjustable effort is declared; use the provider default.")
+                : UiText.t("当前模型支持：", "Supported by this model: ") + choices);
+        final List<Button> buttons = new ArrayList<Button>();
+        LinearLayout line = null;
+        for (int i = 0; i < choices.size(); i++) {
+            final String effort = choices.get(i);
+            if (i % 3 == 0) { line = row(activity); area.addView(line, DshUi.fullWidth(activity, 4)); }
+            Button button = DshUi.toggleButton(activity, defaultOnly
+                    ? UiText.t("服务商默认", "Provider default") : effort, effort.equals(draft.effort));
+            button.setTag(effort);
+            buttons.add(button);
+            addEqual(line, button, i % 3 == 0 ? 0 : 4);
+            button.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    draft.followGlobal = false;
+                    draft.effort = effort;
+                    for (Button item : buttons) DshUi.setToggleState(item, effort.equals(item.getTag()));
+                    DshUi.choiceActivated(v);
+                }
+            });
         }
     }
 
