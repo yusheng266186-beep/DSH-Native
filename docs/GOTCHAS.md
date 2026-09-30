@@ -278,6 +278,21 @@ API 24 起把 `file://` 交给别的应用会抛 `FileUriExposedException`。
 `@img/sharp-linux-arm64` 那类原生库在 Android 上永远加载不了
 （除非专门为 Android 交叉编译）。判断依据：`file` 看到的 ELF 不代表能加载。
 
+**架构正确 ≠ 能加载。** 这是本项目真实踩过的坑：`node-pty` 的 `linux-arm64`
+预编译是 **Termux** 编译的 —— 同样是 AArch64 ELF，`EM_AARCH64` 断言全部通过，
+但它链接 `libutil.so.1`、`libstdc++.so.6`、`ld-linux-aarch64.so.1`，
+普通 Android 应用里一个都没有（`libutil` 在 Android 12 起已从公共 bionic 移除），
+`dlopen` 必然失败。正确做法是用 `@mmmbuto/node-pty-android-arm64`
+（只依赖 `libc.so`/`liblog.so`/`libm.so`/`libdl.so`）。
+
+判据不是架构，而是 **`DT_NEEDED`**：`scripts/prepare_core_payload.py` 的
+`assert_android_loadable()` 会解析 ELF 并拒绝任何链接 `libutil.so` 的二进制。
+
+**更隐蔽的一点**：node-pty 的加载器依次尝试多个路径，只把**最后一个**错误抛出。
+所以日志里写的是 `Cannot find module './prebuilds/android-arm64/pty.node'`，
+而那个文件明明就躺在那儿 —— 真实原因（依赖缺失）被完全掩盖了。
+排查「明明有文件却说找不到」时，要直接 `dlopen` 那个文件看真实报错。
+
 ### 14. `getCanonicalPath()` 才能防符号链接逃逸
 
 白名单判断只看字面路径的话，一个指向 `/system` 的软链就能绕过去。

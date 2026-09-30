@@ -457,4 +457,13 @@ else
 fi
 if ! python3 tests/release_metadata_test.py; then rc=1; fi
 if ! python3 tests/project_docs_test.py; then rc=1; fi
+
+# 运行包原生二进制必须能在 Android 上 dlopen。
+#
+# 为什么这道闸门必要：node-pty 的加载器依次尝试多个路径，只把**最后一个**错误
+# 抛出来，于是日志写着 "Cannot find module './prebuilds/android-arm64/pty.node'"，
+# 而那个文件其实就躺在那儿 —— 真正原因是它链接了只有 Termux 才有的 libutil.so.1。
+# 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
+# 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
+if ! python3 tests/android_native_payload_test.py; then rc=1; fi
 exit $rc

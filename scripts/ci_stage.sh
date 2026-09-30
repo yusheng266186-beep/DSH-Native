@@ -60,6 +60,10 @@ cp -r "$ROOT/tests" "$BUILD/tests"
 # （那条红线此前只写在文档里、没有闸门，违例就出在 scripts/bump_version.sh）
 cp -r "$ROOT/scripts" "$BUILD/bootstrap/scripts"
 cp "$ROOT/scripts/mkmanifest.py" "$ROOT/scripts/mkzip.py" "$ROOT/scripts/run_tests.sh" "$BUILD/"
+# prepare_core_payload.py carries the Android PTY provenance checks. Stage it so
+# tests/android_native_payload_test.py really runs during CI instead of skipping —
+# the terminal shipped broken for several releases because nothing verified it.
+cp "$ROOT/scripts/prepare_core_payload.py" "$BUILD/"
 cp -r "$ROOT/icon/res" "$BUILD/icon/res"
 echo "  源码 $(find "$BUILD/bootstrap/src" -name '*.java' | wc -l) 个 java 文件"
 
