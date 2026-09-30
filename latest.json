@@ -1,11 +1,11 @@
 {
-  "version": "0.31.3",
-  "tag": "v0.31.3-bootstrap",
+  "version": "0.31.4",
+  "tag": "v0.31.4-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v9",
-  "notes": "DeepSeek Harness Native 0.31.3 正式版",
-  "apk_bytes": 35319275,
+  "notes": "v0.31.4",
+  "apk_bytes": 35323371,
   "payload_bytes": 122922215,
-  "sha256": "aa6043a057fe1688cdebd5a57a3a392c510de32aad1515d40b1409ede958437c",
+  "sha256": "dc0b83f571f44964f44c34e25babb52780da067441213374036697fe18664ee4",
   "channel": "stable"
 }
