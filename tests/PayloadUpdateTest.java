@@ -132,6 +132,15 @@ public class PayloadUpdateTest {
         check("overflow saturates instead of wrapping",
                 PayloadUpdate.requiredFreeBytes(Long.MAX_VALUE, 0L) == Long.MAX_VALUE,
                 String.valueOf(PayloadUpdate.requiredFreeBytes(Long.MAX_VALUE, 0L)));
+        check("highly compressed runtime reserves its actual expanded size",
+                PayloadUpdate.requiredFreeBytes(80L * mib, 0L, 520L * mib) == 664L * mib,
+                "compressed estimate was used");
+        check("expanded size survives cached downloads",
+                PayloadUpdate.requiredFreeBytes(80L * mib, 80L * mib, 520L * mib) == 584L * mib,
+                "cached archive reduced extraction reserve");
+        check("expanded size overflow saturates",
+                PayloadUpdate.requiredFreeBytes(1L, 0L, Long.MAX_VALUE) == Long.MAX_VALUE,
+                "wrapped");
 
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

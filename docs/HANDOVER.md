@@ -423,3 +423,7 @@ python3 scripts/check_java.py     # 1) javalang 语法解析 2) 跨类方法引�
 - 升级时对现有 live catalog 修复等级；图片能力、token 上限和兼容字段保留。DeepSeek 官方插件本身提供 off/low/high/max，原生 UI 与真实适配器一致。
 - `docs/MODEL_REASONING.md` 是完整模型对照和来源记录。实际 payload-v9 验证所有 92 个 ID 的可选等级，并离线捕获真实 SDK 请求体、验证不支持的等级在发送前拒绝。没有请求真实服务商或使用付费提示词。
 - 发布仍走完整 Android CI、既有签名和 release.yml/scripts/release.sh stable 流程。
+
+## 8.16 内核升级（0.32.0）
+
+运行包升为 payload-v10，DSH 官方 npm latest 0.2.0-rc.2（上游候选版）。固定依赖与构建/发布方式、增量删除机制、实际解压空间、认证存活探测和验证边界见 `docs/CORE_UPGRADE.md`。所有 dsh-* 模块须同版本；保留 Android PTY/Node 内部模块垫片；不得把 Linux 原生库直接当 Android 库。原生探测须处理 token/303/Cookie；不允许自动跟随跨 origin 跳转。payload Release 必须先验证全量资产，manifest 最后上传，App stable 清单仍仅由 release.yml/release.sh 更新。

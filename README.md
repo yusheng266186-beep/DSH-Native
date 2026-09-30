@@ -4,7 +4,7 @@
 
 把 Node.js 运行时、DeepSeek Harness（DSH）和常用开发工具直接带到 Android。无需 Termux、无需 proot，也不需要把项目交给远程服务器执行。
 
-**当前版本：0.31.5**（payload-v9）
+**当前版本：0.31.5**（payload-v10）
 
 
 思考强度按当前服务商和模型动态显示，刷新与升级会保留并修复能力声明；[查看完整模型对照](docs/MODEL_REASONING.md)。
