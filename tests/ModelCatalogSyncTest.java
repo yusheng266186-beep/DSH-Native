@@ -83,7 +83,7 @@ public class ModelCatalogSyncTest {
         check("local token limit retained", rich.contains("maxTokens: 32000"), rich);
         check("upstream token limit overrides", rich.contains("contextWindow: 1048576")
                 && !rich.contains("contextWindow: 1000000"), rich);
-        check("reasoning wire mapping retained", rich.contains("max: ultra"), rich);
+        check("requested max wire is literal", rich.contains("max: max") && !rich.contains("max: ultra"), rich);
         check("per-model transport retained", rich.contains("            supportsReasoningEffort: true"), rich);
         check("upstream text overrides old vision", !ModelConfig.modelsForProvider(rich,
                 ModelConfig.COMMAND_CODE).get(0).image && rich.contains("input: [ text ]"), rich);

@@ -119,8 +119,19 @@ final class ModelReasoning {
         COMMAND.put(id.toLowerCase(Locale.ROOT), fromLevels(Arrays.asList(levels.split(","))));
     }
 
-    /** null = unknown; false = no selectable effort; a map = exact UI-to-wire levels. */
+    /** User-requested override: every model offers literal max, including unknown/automatic models. */
     static String declaration(String provider, String id, String details) {
+        String declared = supportedDeclaration(provider, id, details);
+        Map<String, String> map = declared == null || "false".equals(declared)
+                ? new LinkedHashMap<String, String>() : parseMap(declared);
+        // Keep the provider-default path for models that previously had no selector.
+        if (map.isEmpty()) map.put("off", "null");
+        map.put("max", "max");
+        return mapDeclaration(map);
+    }
+
+    /** Actual declarations remain separate from the user's forced request option. */
+    static String supportedDeclaration(String provider, String id, String details) {
         if (ModelConfig.DEEPSEEK.equals(provider)) {
             // The official /models lists thinking levels, while this adapter also provides Off.
             return "{ off: off, low: low, high: high, max: max }";

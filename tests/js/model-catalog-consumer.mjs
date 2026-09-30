@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
-const [root, fixture, reasoningSnapshot] = process.argv.slice(2);
+const [root, fixture, reasoningSnapshot, catalogOutput] = process.argv.slice(2);
 assert(root && fixture, 'usage: model-catalog-consumer.mjs <payload-root> <generated-yaml>');
 const requirePayload = createRequire(path.join(root, 'consumer.cjs'));
 const yaml = requirePayload('yaml');
@@ -50,9 +50,28 @@ const models = await command.listModels('commandcode');
 if (reasoningSnapshot) {
   const snapshot = JSON.parse(fs.readFileSync(reasoningSnapshot, 'utf8'));
   assert.deepEqual(models.map(model => model.id), Object.keys(snapshot.models));
+  // Exercise the actual Host registry and RPC catalog builder, not just adapters.
+  const { Context } = requirePayload('@deepseek-ai/cordis');
+  const { LlmRuntime } = await import(pathToFileURL(requirePayload.resolve('@deepseek-ai/dsh-llm')));
+  const { buildModelCatalog } = await import(pathToFileURL(requirePayload.resolve('@deepseek-ai/dsh-api-session-controller')));
+  const host = new Context();
+  const registry = new LlmRuntime(host);
+  for (const { routes, adapter } of adapters) registry.registerAdapter(routes, adapter);
+  const catalog = await buildModelCatalog({ llm: registry }, {
+    provider: 'commandcode', model: 'stealth/space-bunny-alpha', reasoningEffort: 'high',
+  });
+  assert.deepEqual(catalog.failures, []);
+  for (const group of catalog.groups) for (const model of group.models) {
+    assert(model.reasoning.efforts.some(e => e.id === 'max'), `${group.id}/${model.id}: Host must offer max`);
+    assert.equal((await registry.resolveCallConfig({ provider: group.id, model: model.id,
+      reasoningEffort: 'max' })).reasoningEffort, 'max');
+  }
+  if (catalogOutput) fs.writeFileSync(catalogOutput, JSON.stringify(catalog));
+  await host.fiber.dispose();
   for (const [id, expected] of Object.entries(snapshot.models)) {
     const model = await command.resolveModel('commandcode', id);
-    assert.deepEqual(model.reasoning?.efforts.map(effort => effort.id) ?? [], expected, id);
+    const offered = expected.length ? [...new Set([...expected, 'max'])] : ['off', 'max'];
+    assert.deepEqual(model.reasoning?.efforts.map(effort => effort.id) ?? [], offered, id);
   }
   for (const id of ['deepseek-flash', 'deepseek-v4-pro']) {
     const model = await direct.resolveModel('deepseek-official', id);
@@ -73,6 +92,7 @@ if (reasoningSnapshot) {
       ['Qwen/Qwen3.8-Max', 'xhigh'],
       ['gpt-6.1-sol', 'high'],
       ['MiniMaxAI/MiniMax-M2.5', 'off'],
+      ...Object.keys(snapshot.models).map(id => [id, 'max']),
     ]) {
       const before = captured.length;
       let rejected;
@@ -87,12 +107,12 @@ if (reasoningSnapshot) {
     }
     const before = captured.length;
     await assert.rejects(async () => {
-      for await (const _ of command.stream({ provider: 'commandcode', model: 'Qwen/Qwen3.8-Max', reasoningEffort: 'max',
+      for await (const _ of command.stream({ provider: 'commandcode', model: 'Qwen/Qwen3.8-Max', reasoningEffort: 'high',
         messages: [], tools: [] })) { }
     }, /does not support reasoning effort/);
     assert.equal(captured.length, before, 'unsupported effort refused before request dispatch');
   } finally { globalThis.fetch = originalFetch; }
-  console.log(`Actual payload reasoning: ${Object.keys(snapshot.models).length} official models; provider-specific choices; offline wire bodies; invalid effort refused.`);
+  console.log(`Actual payload reasoning: ${Object.keys(snapshot.models).length} official models with requested max; existing provider-specific choices; offline max wire bodies; invalid effort refused.`);
   process.exit(0);
 }
 assert.deepEqual(models.map(model => model.id), ['old', 'fresh-vision', 'unknown-new']);
@@ -102,6 +122,7 @@ assert(!old.inputModalities.includes('image'), 'upstream text-only must revoke o
 assert.equal(old.context.contextWindow, 1048576);
 assert.equal(old.defaultMaxTokens, 32000);
 assert(!((await command.resolveModel('commandcode', 'unknown-new')).inputModalities.includes('image')));
+assert.deepEqual((await command.resolveModel('commandcode', 'unknown-new')).reasoning.efforts.map(e => e.id), ['off', 'max']);
 assert((await direct.listModels('deepseek-official')).some(model => model.id === 'deepseek-flash'));
 assert((await direct.resolveModel('deepseek-official', 'deepseek-flash')).inputModalities.includes('image'));
 assert(!(await direct.resolveModel('deepseek-official', 'deepseek-v4-pro')).inputModalities.includes('image'));
