@@ -56,15 +56,15 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v9/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v10/";
     /**
-     * payload-v9 的 manifest.json 固定摘要。
+     * payload-v10 的 manifest.json 固定摘要。
      *
      * <p>摘要内置在 APK，而不是从同一个镜像下载，代理即使同时替换清单和归档
      * 也无法通过验证。更换 payload tag 或清单内容时必须同步更新这个值。
      */
     private static final String PAYLOAD_MANIFEST_SHA256 =
-            "a9bf9bb990857273123aedb666ba69707400737da33eb95d2f1f940cfb512ec8";
+            "c459004404af7783970c47833f938e0e16ab0446e09d1b05f49feeecd304b214";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -1037,7 +1037,8 @@ public class MainActivity extends Activity {
         // 现在改成：本地完整就直接启动，更新检查放到后台；
         // 若后台发现有更新，记一个标记，**下次启动时**再真正应用。
         boolean locallyComplete = payloadLocallyComplete(dshDir, toolsDir);
-        boolean updatePending = payloadUpdatePending();
+        boolean updatePending = payloadUpdatePending()
+                || (locallyComplete && validatePayloadManifest(new File(root, "manifest.json")) != null);
         boolean rollbackHold = payloadRollbackHold();
         if (locallyComplete && rollbackHold) {
             log("运行包已恢复到上一版本，自动更新暂缓；可在更新与维护中手动重试");
@@ -1361,23 +1362,7 @@ public class MainActivity extends Activity {
 
     /** 极简 GET，带超时。失败返回 null。 */
     private String httpGetQuick(String url, int timeoutMs) {
-        java.io.InputStream in = null;
-        try {
-            java.net.HttpURLConnection c =
-                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-            c.setConnectTimeout(timeoutMs);
-            c.setReadTimeout(timeoutMs);
-            int code = c.getResponseCode();
-            if (code != 200) return null;
-            in = c.getInputStream();
-            byte[] buf = new byte[4096];
-            int n = in.read(buf);
-            return n > 0 ? new String(buf, 0, n, "UTF-8") : "";
-        } catch (Throwable t) {
-            return null;
-        } finally {
-            if (in != null) try { in.close(); } catch (Throwable ignored) { }
-        }
+        return LocalServerProbe.readAuthenticatedIndex(url, timeoutMs);
     }
 
     /** 记下可用的实例地址（端口 + token），供下次启动复用。 */
@@ -4521,6 +4506,10 @@ public class MainActivity extends Activity {
                 }
                 long size = part.getLong("size");
                 if (size <= 0 || size > 512L * 1024L * 1024L) return "分片大小异常：" + name;
+                if (part.has("unpacked_size") && (part.getLong("unpacked_size") <= 0
+                        || part.getLong("unpacked_size") > 8L * 1024L * 1024L * 1024L)) {
+                    return "分片展开大小异常：" + name;
+                }
                 if (!PayloadUpdate.isSha256(part.getString("sha256"))) {
                     return "分片摘要格式错误：" + name;
                 }
@@ -4615,12 +4604,14 @@ public class MainActivity extends Activity {
         // 解压到一半才报 ENOSPC 会留下难以诊断的半更新环境。
         long compressedBytes = 0L;
         long cachedBytes = 0L;
+        long unpackedBytes = 0L;
         for (int i = 0; i < parts.length(); i++) {
             org.json.JSONObject part = parts.getJSONObject(i);
             String name = part.getString("name");
             if (!missing.contains(name)) continue;
             long expectedSize = part.getLong("size");
             compressedBytes += expectedSize;
+            unpackedBytes += part.optLong("unpacked_size", expectedSize * 3L);
             File archive = new File(root, name);
             File partial = new File(archive.getAbsolutePath() + ".part");
             long present = Math.max(archive.isFile() ? archive.length() : 0L,
@@ -4628,7 +4619,7 @@ public class MainActivity extends Activity {
             cachedBytes += Math.min(expectedSize, present);
         }
         long updateRequiredBytes = PayloadUpdate.requiredFreeBytes(
-                compressedBytes, cachedBytes);
+                compressedBytes, cachedBytes, unpackedBytes);
         boolean rollbackNeeded = payloadLocallyComplete(dshDir, toolsDir);
         long liveTargetBytes = 0L;
         if (rollbackNeeded) {
@@ -7484,7 +7475,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.31.5\n");
+            w.write("APK 版本: 0.32.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

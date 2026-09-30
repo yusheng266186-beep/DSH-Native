@@ -83,10 +83,16 @@ final class PayloadUpdate {
      * 把结果变成负数并绕过检查。
      */
     static long requiredFreeBytes(long compressedBytes, long cachedBytes) {
+        return requiredFreeBytes(compressedBytes, cachedBytes,
+                saturatedMultiply(Math.max(0L, compressedBytes), 3L));
+    }
+
+    /** 新清单提供实际展开占用，旧清单仍按三倍估算。 */
+    static long requiredFreeBytes(long compressedBytes, long cachedBytes, long unpackedBytes) {
         long compressed = Math.max(0L, compressedBytes);
         long cached = Math.max(0L, Math.min(compressed, cachedBytes));
         long download = compressed - cached;
-        return saturatedAdd(saturatedAdd(download, saturatedMultiply(compressed, 3L)),
+        return saturatedAdd(saturatedAdd(download, Math.max(0L, unpackedBytes)),
                 INSTALL_RESERVE_BYTES);
     }
 

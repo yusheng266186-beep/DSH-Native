@@ -176,11 +176,23 @@ def check_consistency(stable_path: pathlib.Path, test_path: pathlib.Path,
             errors.append("English README is missing")
     version = source_version()
     payload_tag = source_payload_tag()
-    stable, stable_errors = validate_manifest(stable_path, payload_tag, "stable")
+    # A candidate can update the payload before its APK is published. Published
+    # manifests must remain bound to their own APK, not the next source version.
+    def expected_payload(path: pathlib.Path) -> str:
+        if path.exists():
+            published = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(published.get("version"), str) \
+                    and version_tuple(version) > version_tuple(published["version"]):
+                tag = published.get("payload")
+                if isinstance(tag, str) and re.fullmatch(r"payload-v[0-9]+", tag):
+                    return tag
+        return payload_tag
+
+    stable, stable_errors = validate_manifest(stable_path, expected_payload(stable_path), "stable")
     errors.extend(stable_errors)
     test: dict = {}
     if test_path.exists():
-        test, test_errors = validate_manifest(test_path, payload_tag, "test")
+        test, test_errors = validate_manifest(test_path, expected_payload(test_path), "test")
         errors.extend(test_errors)
 
     java = (ROOT / "src/dev/dsh/nativeapp/MainActivity.java").read_text(encoding="utf-8")
