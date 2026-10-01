@@ -2366,23 +2366,7 @@ public class MainActivity extends Activity {
 
     /** 只删除 appRoot 的明确维护子目录，绝不接受任意路径或 .dsh 用户数据。 */
     private static void deleteRuntimeChild(File target, File root) throws IOException {
-        if (target == null || root == null || !target.exists()) return;
-        String name = target.getName();
-        boolean allowed = "dsh".equals(name) || "tools".equals(name)
-                || "payload-rollback".equals(name)
-                || "payload-rollback.next".equals(name)
-                || "payload-rollback.old".equals(name)
-                || ".rollback-current-dsh".equals(name)
-                || ".rollback-current-tools".equals(name);
-        if (!allowed || target.getParentFile() == null
-                || !target.getParentFile().getCanonicalFile().equals(root.getCanonicalFile())) {
-            throw new IOException("拒绝删除运行目录边界外的路径");
-        }
-        String error = FileOps.delete(target, java.util.Collections.singletonList(root));
-        if (error != null || target.exists()) {
-            throw new IOException("无法清理维护目录 " + name
-                    + (error == null ? "" : "（" + error + "）"));
-        }
+        RuntimeDir.delete(target, root);
     }
 
     /**
