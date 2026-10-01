@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.2**; source: **0.33.3**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.33.3**; source: **0.33.3**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -14,13 +14,13 @@ Model inference uses your selected provider's API. Project storage and tool exec
 
 ## Download and requirements
 
-**Current stable release: 0.33.2**
+**Current stable release: 0.33.3**
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.33.2-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.33.3-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
 
-[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.2-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.3-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256: `9474d4fbbff5ca86ee544cdd0bda4cbb7d686f5d8c198cb5d903d878c18ea7a0`
+SHA-256: `5aae83f074a0c261c3f5a396a8864164b102b5a4bc97ba30c7da178b314c9b85`
 
 | Item | Requirement or behavior |
 |---|---|
