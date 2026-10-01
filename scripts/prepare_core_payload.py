@@ -136,7 +136,12 @@ def patch_android(runtime, base):
         shutil.copyfile(native, dest)
         # 每个落点都复核一次：复制错误会让终端重新静默失效。
         assert_android_loadable(dest, f'node-pty {platform}')
-    shutil.copytree(base / 'node_modules/@mmmbuto', modules / '@mmmbuto')
+    # dirs_exist_ok：构建重试与 CI 重入会在同一个输出目录上再跑一遍，
+    # 而 @mmmbuto 已经被上一轮复制进来了。没有这个参数时 copytree 直接
+    # FileExistsError，payload 构建会在重试时失败。覆盖写是安全的：
+    # 源始终是已验证的基底运行包。
+    shutil.copytree(base / 'node_modules/@mmmbuto', modules / '@mmmbuto',
+                    dirs_exist_ok=True)
     shutil.copyfile(base / 'node_modules/node-addon-require-builtin/lib/index.js',
                     modules / 'node-addon-require-builtin/lib/index.js')
 
