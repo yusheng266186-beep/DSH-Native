@@ -200,6 +200,50 @@ NATIVE_DIR_PATTERNS = (
 )
 
 
+def machine_is_aarch64(path):
+    """该 ELF 是否为 AArch64（读 e_machine，不抛异常）。"""
+    try:
+        with open(path, 'rb') as handle:
+            header = handle.read(20)
+        if header[:4] != b'\x7fELF':
+            return False
+        return struct.unpack_from('<H', header, 0x12)[0] == 0xB7
+    except OSError:
+        return False
+
+
+def detect_platform(rel_dir):
+    """从相对路径里认出平台标记。
+
+    node-pty 走 ``prebuilds/<platform>/``，其余包走 ``<pkg>-<platform>-<arch>``
+    （如 ``koffi-linux-x64``、``node-addon-system-linux-arm64``、
+    ``node-addon-require-builtin-linux-x64-gnu``）。两种形态都要认。
+    """
+    platforms = ('android-arm64', 'linux-arm64', 'linux-x64',
+                 'darwin-arm64', 'darwin-x64', 'win32-arm64', 'win32-x64',
+                 'wasm32')
+    parts = rel_dir.split('/')
+    # node-pty: prebuilds/<platform>/
+    if len(parts) >= 2 and parts[-2] == 'prebuilds':
+        return parts[-1]
+    # 其余包两种命名都要认：
+    #   包目录用连字符  koffi-linux-arm64 / node-addon-system-linux-x64
+    #   子目录用下划线  linux_arm64 / linux_x64
+    #   另有一种带 -gnu 后缀 node-addon-require-builtin-linux-x64-gnu
+    for part in parts:
+        for plat in platforms:
+            if part == plat or part.startswith(plat + '-'):
+                return plat
+            if part == plat.replace('-', '_'):
+                return plat
+            # 包目录名平台标记在**后缀**：
+            #   node-addon-system-linux-x64   -> linux-x64
+            #   node-addon-require-builtin-linux-x64-gnu -> linux-x64
+            if part.endswith('-' + plat) or part.endswith('-' + plat + '-gnu'):
+                return plat
+    return None
+
+
 def prune_unusable_natives(modules):
     """删掉在 Android/arm64 上**确定**加载不了的原生二进制。
 
@@ -213,7 +257,17 @@ def prune_unusable_natives(modules):
 
     返回被删除的路径（相对 node_modules），供 BUILD-INFO 与清单记录。
     """
-    allowed = {'android-arm64', 'linux-arm64'}     # 唯一可能可用的两个槽位
+    # 保留 **linux-x64 / linux-arm64(glibc)** 这类桌面 Linux 构建。
+    #
+    # 曾经的错：把「不是 AArch64」一律当死重，把 linux-x64 也删了。
+    # 结果 CI 的 check_model_consumer.sh（真实运行包消费验证，跑在 x64 上）
+    # 直接 MODULE_NOT_FOUND —— node-addon-system 的 flock.js 在非 Android
+    # 平台仍会尝试加载 linux-x64 绑定。
+    #
+    # 也就是说：判断标准不是「这台手机上用不用得上」，而是
+    # **「这个二进制在本项目的任何一条执行路径上还可能不会被加载」**。
+    # 运行包不只被 App 消费，CI 的真实消费验证也会跑它。
+    keep_platforms = {'android-arm64', 'linux-arm64', 'linux-x64'}
     desktop_only = {'libutil.so', 'libutil.so.1', 'libc.so.6', 'ld-linux-aarch64.so.1'}
     removed = []
     # rglob 是惰性迭代：rmtree 之后仍会继续产出同一目录下已被删除的文件。
@@ -226,18 +280,45 @@ def prune_unusable_natives(modules):
         rel_dir = directory.relative_to(modules).as_posix()
         if not any(rel_dir.startswith(prefix) for prefix in NATIVE_DIR_PATTERNS):
             continue
-        if rel_dir.startswith('node-pty/prebuilds/') and rel_dir.split('/')[2] in allowed:
+        # 平台标记在**目录名本身**：node-pty 是 prebuilds/<platform>/，
+        # 其余包是 <pkg>-<platform>-<arch>。统一从路径里认 platform-<arch> 段
+        # 或 prebuilds 后的那一段。
+        platform = detect_platform(rel_dir)
+
+        # Android 槽位里的 AArch64 二进制若链接 Termux/桌面库，必然加载不了。
+        # 这一条必须**先于** keep_platforms 判定：linux-arm64 名义上是保留
+        # 槽位，但带 libutil.so 就同样不能用。
+        if platform in ('android-arm64', 'linux-arm64') and machine_is_aarch64(path):
+            try:
+                if desktop_only & set(needed_libraries(path)):
+                    handled.add(directory)
+                    shutil.rmtree(directory, ignore_errors=True)
+                    removed.append(rel_dir)
+                    continue
+            except (ValueError, OSError):
+                pass
+
+        if platform and platform in keep_platforms:
             continue
         try:
             deps = needed_libraries(path)
         except (ValueError, OSError):
-            # 不是 AArch64 ELF（x86_64、mach-o 等）：arm64 上不可能加载。
+            # 不是本机架构的 ELF（mach-o、arm64 之外的）：任何路径都用不上。
             handled.add(directory)
             shutil.rmtree(directory, ignore_errors=True)
             removed.append(rel_dir)
             continue
         if desktop_only & set(deps):
-            # 是 AArch64，但依赖桌面/Termux 库：同样加载不了。
+            # 依赖桌面/Termux 库 -> 在 **Android** 上加载不了。
+            #
+            # 但只有当这个二进制是 Android 专属槽位时才删：linux-x64 的 glibc
+            # 构建依赖 libc.so.6 是**正常**的，CI 的真实消费验证跑在 x64 上，
+            # 删掉会让 node-addon-system 的 flock.js MODULE_NOT_FOUND。
+            # 判断依据是 ELF 架构：x86_64 的构建归 CI 用，保留。
+            is_android_slot = platform in ('android-arm64', 'linux-arm64') \
+                and machine_is_aarch64(path)
+            if not is_android_slot:
+                continue
             handled.add(directory)
             shutil.rmtree(directory, ignore_errors=True)
             removed.append(rel_dir)

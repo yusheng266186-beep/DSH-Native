@@ -186,15 +186,45 @@ class PruneUnusableNativesTest(unittest.TestCase):
             self.assertIn('node-pty/prebuilds/win32-x64', removed)
 
     @requires_builder
-    def test_removes_desktop_lib_dependency(self):
+    def test_keeps_linux_x64_for_ci_consumer(self):
+        """CI 的真实运行包消费验证跑在 x64 上，linux-x64 不能删。
+
+        这条曾经写反：早先把「不是 AArch64」一律当死重，删掉 linux-x64，
+        结果 check_model_consumer.sh 直接 MODULE_NOT_FOUND。
+        """
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / 'node-pty/prebuilds/linux-x64'
+            p.mkdir(parents=True)
+            (p / 'pty.node').write_bytes(build_elf(machine=0x3E))
+            removed = prepare.prune_unusable_natives(mods)
+            self.assertTrue((p / 'pty.node').exists())
+            self.assertNotIn('node-pty/prebuilds/linux-x64', removed)
+
+    @requires_builder
+    def test_removes_android_slot_requiring_termux_libs(self):
+        """AArch64 但链接 Termux/桌面库的，在 Android 槽位上仍应删除。"""
         with tempfile.TemporaryDirectory() as d:
             mods = pathlib.Path(d) / 'node_modules'
             p = mods / '@koromix/koffi-linux-arm64/linux_arm64'
             p.mkdir(parents=True)
-            (p / 'koffi.node').write_bytes(build_elf(needed=['libc.so.6', 'libstdc++.so.6']))
+            (p / 'koffi.node').write_bytes(build_elf(needed=['libutil.so.1', 'libc.so.6']))
             removed = prepare.prune_unusable_natives(mods)
             self.assertFalse(p.exists())
-            self.assertEqual(len(removed), 1)
+            self.assertIn('@koromix/koffi-linux-arm64/linux_arm64', removed)
+
+    @requires_builder
+    def test_keeps_glibc_x64_even_though_it_links_desktop_libs(self):
+        """x86_64 的 glibc 构建依赖 libc.so.6 属正常，不能因此删掉。"""
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / '@deepseek-ai/node-addon-system-linux-x64/bin/glibc'
+            p.mkdir(parents=True)
+            (p / 'system.node').write_bytes(build_elf(machine=0x3E,
+                                                      needed=['libc.so.6', 'libdl.so.2']))
+            removed = prepare.prune_unusable_natives(mods)
+            self.assertTrue((p / 'system.node').exists())
+            self.assertNotIn('@deepseek-ai/node-addon-system-linux-x64/bin/glibc', removed)
 
     @requires_builder
     def test_keeps_android_native_module(self):
