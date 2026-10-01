@@ -474,4 +474,28 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 # 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
+
+# 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
+#
+# 为什么需要这道断言：抽出类、加了单元测试之后，最容易出现的退化是
+# 「有人又把逻辑内联回 MainActivity」或「调用点被改名/删掉」。那样测试照样全绿
+# （它测的是那个类），但**实际生效的代码已经不再走被测逻辑**了 ——
+# 绿灯与真实行为脱钩。接线断言就是把这条链接钉住。
+if ! grep -q 'PayloadManifest.validate(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'PayloadManifest.validateManifestFileSize(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'CredentialMerge.merge(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebUrl.looksLikeRealUrl(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'WebUrl.escapeHtml(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'YamlBlocks.topLevelBlock(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'YamlBlocks.mergeMissingBlocks(' "$MAIN_ACTIVITY" \
+        || ! grep -q 'YamlBlocks.hasTopLevelKey(' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 抽出的纯逻辑类没有被 MainActivity 调用（逻辑可能被内联回去了）" >&2
+    rc=1
+elif grep -qE 'target\.indexOf\(k? ?\+? ?"\+"?: *"?\)? *>= *0|target\.indexOf\(key \+ ":"\)' "$MAIN_ACTIVITY"; then
+    # 凭据键匹配退回子串匹配，会让被注释掉的同名键静默跳过导入。
+    echo "  [FAIL] 凭据键匹配退回 indexOf 子串判断（注释掉的键会被当成已存在）" >&2
+    rc=1
+else
+    echo "  ExtractedLogicWiring: manifest / credentials / url / yaml 全部走被测的纯逻辑类"
+fi
 exit $rc
