@@ -4481,56 +4481,46 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 返回 null 表示清单可信，否则返回可读原因。 */
+    /**
+     * 返回 null 表示清单可信，否则返回可读原因。
+     *
+     * <p>本方法只负责**把 JSON 读成标量**；结构与取值的判定全在
+     * {@link PayloadManifest} 里，因为那是可离线测试的部分（org.json 只有
+     * Android 有，判定逻辑若留在这里就会一直没有测试覆盖）。
+     */
     private String validatePayloadManifest(File file) {
         try {
             if (file == null || !file.isFile()) return "文件不存在";
-            if (file.length() <= 0 || file.length() > 256 * 1024) return "文件大小异常";
+            String sizeProblem = PayloadManifest.validateManifestFileSize(file.length());
+            if (sizeProblem != null) return sizeProblem;
             String digest = sha256(file);
             if (!PAYLOAD_MANIFEST_SHA256.equalsIgnoreCase(digest)) return "摘要与 APK 内置值不一致";
 
             org.json.JSONObject manifest = new org.json.JSONObject(readText(file));
-            int version = manifest.getInt("version");
-            if (version <= 0 || version > 100) return "结构版本异常";
             org.json.JSONArray parts = manifest.getJSONArray("parts");
-            if (parts.length() <= 0 || parts.length() > 20) return "分片数量异常";
-            java.util.HashSet<String> names = new java.util.HashSet<String>();
+            java.util.ArrayList<PayloadManifest.Part> parsed =
+                    new java.util.ArrayList<PayloadManifest.Part>();
             for (int i = 0; i < parts.length(); i++) {
                 org.json.JSONObject part = parts.getJSONObject(i);
-                String name = part.getString("name");
-                if (!PayloadUpdate.isSafeAssetName(name)) return "分片名不安全：" + name;
-                if (!names.add(name)) return "分片名重复：" + name;
-                String target = part.getString("target");
-                if (!"dsh".equals(target) && !"tools".equals(target)) {
-                    return "分片目标不允许：" + target;
-                }
-                long size = part.getLong("size");
-                if (size <= 0 || size > 512L * 1024L * 1024L) return "分片大小异常：" + name;
-                if (part.has("unpacked_size") && (part.getLong("unpacked_size") <= 0
-                        || part.getLong("unpacked_size") > 8L * 1024L * 1024L * 1024L)) {
-                    return "分片展开大小异常：" + name;
-                }
-                if (!PayloadUpdate.isSha256(part.getString("sha256"))) {
-                    return "分片摘要格式错误：" + name;
-                }
                 org.json.JSONObject sentinel = part.getJSONObject("sentinel");
-                if (!PayloadUpdate.isSafeRelativePath(sentinel.getString("path"))) {
-                    return "哨兵路径不安全：" + name;
-                }
-                if (sentinel.getLong("size") < 0
-                        || !PayloadUpdate.isSha256(sentinel.getString("sha256"))) {
-                    return "哨兵信息异常：" + name;
-                }
-                org.json.JSONArray removals = part.optJSONArray("remove");
-                if (removals != null) {
-                    for (int k = 0; k < removals.length(); k++) {
-                        if (!PayloadUpdate.isSafeRelativePath(removals.optString(k, null))) {
-                            return "删除路径不安全：" + name;
-                        }
+                java.util.List<String> removals = null;
+                org.json.JSONArray remove = part.optJSONArray("remove");
+                if (remove != null) {
+                    removals = new java.util.ArrayList<String>();
+                    for (int k = 0; k < remove.length(); k++) {
+                        removals.add(remove.optString(k, null));
                     }
                 }
+                parsed.add(PayloadManifest.Part
+                        .of(part.getString("name"), part.getString("target"),
+                                part.getLong("size"), part.getString("sha256"),
+                                sentinel.getString("path"), sentinel.getLong("size"),
+                                sentinel.getString("sha256"))
+                        .withUnpackedSize(part.has("unpacked_size")
+                                ? part.getLong("unpacked_size") : -1L)
+                        .withRemovals(removals));
             }
-            return null;
+            return PayloadManifest.validate(manifest.getInt("version"), parsed);
         } catch (Throwable t) {
             return "解析失败：" + t.getClass().getSimpleName();
         }
