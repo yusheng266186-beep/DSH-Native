@@ -149,6 +149,9 @@ echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注
 # ---------------------------------------------------------------- 3.4 纯逻辑测试
 # FileListing 是纯 Java（无 Android 依赖），可在普通 JVM 上直接验证。
 # 排序、边界、格式化一旦改坏，这里立刻失败 —— 不必等装到手机靠截图发现。
+say "3.43 静态核验（语法 / 跨类引用 / 静默捕获上限）"
+python3 check_java.py || die "静态核验未通过（见上方 FAIL）"
+
 say "3.4 纯逻辑测试"
 bash run_tests.sh
 

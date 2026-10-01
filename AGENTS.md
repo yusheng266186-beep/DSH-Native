@@ -42,6 +42,7 @@
 | Android 架构 | minSdk 24、targetSdk 28、ARM64；提高 targetSdk 先重新设计可执行文件部署 |
 | XML 注释 | 不出现连续两个减号，避免 aapt2 解析失败 |
 | 外部能力 | 不把未知视觉能力标为支持；不把强制 max 请求说成服务商已保证支持 |
+| 静默捕获 | `catch (Throwable ignored)` 总数**不得超过 `check_java.py` 的 `SILENT_CATCH_BASELINE`**；新增前先判断这里该不该 `log()`。清理类（关流、取消动画、销毁 WebView）可静默但要就近写清理由 |
 
 ## 3. 常用检查
 
