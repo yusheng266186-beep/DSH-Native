@@ -23,12 +23,25 @@ on:
         description: '输出目录名（仅用于产物组织）'
         required: false
         default: 'payload-build'
+      publish:
+        description: '是否发布。默认 false —— 只构建并上传产物，不动任何 Release'
+        type: boolean
+        required: false
+        default: false
+      new_tag:
+        description: '发布用的标签（仅当 publish=true）。例：payload-v11'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   build:
+    outputs:
+      dir: ${{ steps.built.outputs.dir }}
+      manifest_sha: ${{ steps.built.outputs.manifest_sha }}
+      shard_size: ${{ steps.built.outputs.shard_size }}
     # 必须显式写死 x64：默认 runner 类型将来可能变化，而平台错了产物就是废的。
     runs-on: ubuntu-24.04
     steps:
@@ -123,3 +136,93 @@ jobs:
             ${{ runner.temp }}/${{ inputs.out_name }}/BUILD-INFO.txt
             ${{ runner.temp }}/shard.list
           retention-days: 14
+
+      - name: 记录构建产物
+        id: built
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/${{ inputs.out_name }}"
+          echo "dir=$OUT" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha=$(sha256sum "$OUT/manifest.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "shard_size=$(stat -c%s "$OUT/dsh.tar.zst")" >> "$GITHUB_OUTPUT"
+
+  publish:
+    # 默认不跑。只有显式 publish=true 且给了 new_tag 才会执行。
+    needs: build
+    if: ${{ inputs.publish == true }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: 校验发布参数
+        run: |
+          set -euo pipefail
+          tag='${{ inputs.new_tag }}'
+          [ -n "$tag" ] || { echo "[FAIL] publish=true 时必须给 new_tag"; exit 1; }
+          case "$tag" in
+            payload-v[0-9]*) ;;
+            *) echo "[FAIL] 标签格式应为 payload-v<N>，收到: $tag"; exit 1 ;;
+          esac
+          base='${{ inputs.base_tag }}'
+          [ "$tag" != "$base" ] || { echo "[FAIL] 新标签不能与基底相同: $tag"; exit 1; }
+
+      - name: 下载构建产物与基底工具片
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUT="${{ needs.build.outputs.dir }}"
+          WORK="$RUNNER_TEMP/publish"
+          mkdir -p "$WORK/base"
+          # 工具片从基底 Release 原样取回（字节必须不变，发布前逐个核对 SHA）
+          gh release download '${{ inputs.base_tag }}'             --repo yusheng266186-beep/DSH-Native             --pattern 'tools-*.tar.zst' --dir "$WORK/base"
+          ls -la "$WORK/base"
+
+      - name: 组装完整 payload 并核对
+        run: |
+          set -euo pipefail
+          OUT="${{ needs.build.outputs.dir }}"
+          WORK="$RUNNER_TEMP/publish"
+          BASE="$RUNNER_TEMP/base-release"
+          cp "$OUT/dsh.tar.zst" "$OUT/manifest.json" "$OUT/BUILD-INFO.txt" "$WORK/"
+          cp "$WORK"/base/tools-*.tar.zst "$WORK/"
+
+          echo "--- 工具片必须与基底清单逐字节一致 ---"
+          python3 - "$WORK" "$BASE/manifest.json" <<'PY'
+          import hashlib, json, pathlib, sys
+          work, base_manifest = pathlib.Path(sys.argv[1]), json.loads(pathlib.Path(sys.argv[2]).read_text())
+          for part in base_manifest['parts']:
+              if part['name'] == 'dsh.tar.zst':
+                  continue
+              path = work / part['name']
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest != part['sha256']:
+                  raise SystemExit(f"[FAIL] {part['name']} 与基底不一致，拒绝发布")
+              print(f"  OK {part['name']}")
+          PY
+
+          echo "--- 生成覆盖全部资产的 SHA256SUMS ---"
+          cd "$WORK"
+          sha256sum dsh.tar.zst tools-*.tar.zst manifest.json BUILD-INFO.txt > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 发布（先 draft，逐个核对摘要，manifest 最后）
+        env:
+          DSH_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/publish"
+          printf '# %s\n\n由 build-payload.yml 在 x86_64 runner 上构建并发布。\n构建产物见 BUILD-INFO.txt。\n' \
+            '${{ inputs.new_tag }}' > "$WORK/NOTES.md"
+          python3 scripts/release_payload.py \
+            --commit "$GITHUB_SHA" --notes "$WORK/NOTES.md" \
+            '${{ inputs.new_tag }}' "$WORK"
+
+      - name: 公开后复核
+        run: |
+          set -euo pipefail
+          echo "manifest SHA256（本地产物）: ${{ needs.build.outputs.manifest_sha }}"
+          echo "分片大小（本地产物）:     ${{ needs.build.outputs.shard_size }}"
