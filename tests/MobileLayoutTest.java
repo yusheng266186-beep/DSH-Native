@@ -72,29 +72,30 @@ public class MobileLayoutTest {
         // 编辑器区域的窄屏规则：附件 × 按钮曾被缩略图挤变形、文件名盖住取消按钮。
         // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
         // 属性包含匹配（[class*=Card]）——不依赖上游具体类名。
-        // 按语义匹配而不是整串匹配：拼接出的 CSS 里选择器可能跨行拆开，
-        // 按整串比对会误报。先压掉所有空白，再匹配。
+        // 按语义匹配而不是整串匹配：拼接出的 CSS 里选择器可能跨行拆开。
+        // 注意压平会把属性值里的空格也吃掉（"0 0 auto" -> "00auto"），
+        // 所以模式串必须写成同样压平后的形式，否则又会对不上。
         String flat = once == null ? "" : once.replaceAll("\\s+", "");
         check("attachment remove button cannot shrink",
-                flat.contains("[class*=remove]{flex:0 0 auto"),
+                flat.contains("[class*=remove]{flex:00auto"),
                 "missing remove-button rule");
         check("thumbnail may shrink but not overflow",
-                flat.contains("[class*=thumbnail]{flex:0 1 auto"),
+                flat.contains("[class*=thumbnail]{flex:01auto"),
                 "missing thumbnail rule");
         check("file name ellipsis instead of pushing siblings",
                 flat.contains("text-overflow:ellipsis"),
                 "missing ellipsis rule");
         check("card body allowed to shrink",
-                flat.contains("[class*=body],[class*=meta]{min-width:0"),
+                flat.contains("[class*=body],[class*=Card][class*=meta]{min-width:0"),
                 "missing min-width:0 rule");
         check("buttons in dialogs never shrink",
-                flat.contains("flex:0 0 auto"), "missing flex-shrink guard");
+                flat.contains("flex:00auto"), "missing flex-shrink guard");
         check("media never exceeds container",
                 flat.contains("img,svg{max-width:100%"),
                 "missing media rule");
 
         check("card icon keeps its size",
-                flat.contains("[class*=icon]{flex:0 0 auto"), "missing icon rule");
+                flat.contains("[class*=icon]{flex:00auto"), "missing icon rule");
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
