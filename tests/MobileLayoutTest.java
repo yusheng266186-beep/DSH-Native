@@ -72,23 +72,29 @@ public class MobileLayoutTest {
         // 编辑器区域的窄屏规则：附件 × 按钮曾被缩略图挤变形、文件名盖住取消按钮。
         // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
         // 属性包含匹配（[class*=Card]）——不依赖上游具体类名。
+        // 按语义匹配而不是整串匹配：拼接出的 CSS 里选择器可能跨行拆开，
+        // 按整串比对会误报。先压掉所有空白，再匹配。
+        String flat = once == null ? "" : once.replaceAll("\\s+", "");
         check("attachment remove button cannot shrink",
-                once != null && once.contains("[class*=remove]{flex:0 0 auto"),
+                flat.contains("[class*=remove]{flex:0 0 auto"),
                 "missing remove-button rule");
         check("thumbnail may shrink but not overflow",
-                once != null && once.contains("[class*=thumbnail]{flex:0 1 auto"),
+                flat.contains("[class*=thumbnail]{flex:0 1 auto"),
                 "missing thumbnail rule");
         check("file name ellipsis instead of pushing siblings",
-                once != null && once.contains("text-overflow:ellipsis"),
+                flat.contains("text-overflow:ellipsis"),
                 "missing ellipsis rule");
         check("card body allowed to shrink",
-                once != null && once.contains("[class*=body],[class*=meta]{min-width:0"),
+                flat.contains("[class*=body],[class*=meta]{min-width:0"),
                 "missing min-width:0 rule");
         check("buttons in dialogs never shrink",
-                once != null && once.contains("flex:0 0 auto"), "missing flex-shrink guard");
+                flat.contains("flex:0 0 auto"), "missing flex-shrink guard");
         check("media never exceeds container",
-                once != null && once.contains("img,svg{max-width:100%}"),
+                flat.contains("img,svg{max-width:100%"),
                 "missing media rule");
+
+        check("card icon keeps its size",
+                flat.contains("[class*=icon]{flex:0 0 auto"), "missing icon rule");
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
