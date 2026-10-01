@@ -116,6 +116,30 @@ python3 scripts/release_payload.py --help
 
 输出与发布参数以脚本 help 为准。保留 Android PTY/Node 垫片，按实际展开占用生成 manifest，限定 remove 范围。工具片复用时必须保持字节、摘要与哨兵一致。
 
+### 7.1 必须用 `npm ci` 的全新运行树，不要复用设备上那份
+
+脚本会断言**每个** `@deepseek-ai/dsh-*` 包的版本都等于
+`runtime/core-source.json` 固定的版本。这道断言是有用的，不要绕过。
+
+踩过的坑：用 `--prepared-runtime` 复用「设备上已解压的运行包」来省掉下载，
+结果构建直接失败：
+
+```
+AssertionError: …/dsh-client-ui-settings-unarchive-sessions/package.json
+```
+
+原因是**多次增量升级会在设备运行包里留下旧版残留**。实测一台从
+0.26.x 一路升到 0.32.3 的设备，有 4 个包仍停在 `0.1.6-alpha.2`
+（`dsh-agent-presets`、`dsh-client-ui-settings-unarchive-sessions`、
+`dsh-experimental-agent-team-web-profile`、`dsh-settings-file`），
+而仓库锁文件里 285 个包**全部**是 `0.2.0-rc.2`。
+
+这些残留包本身不影响运行（日志里唯一的加载失败是 node-pty），但会让
+`--prepared-runtime` 这条捷径失效。正确做法是在能联网的环境按锁文件
+`npm ci` 出全新运行树 —— 这样产出的分片才是干净且版本一致的。
+
+`--prepared-runtime` 只适用于**刚由本次 `npm ci` 生成、未经增量升级**的树。
+
 先校验本地所有分片与 SHA256SUMS，创建 draft，逐资产上传并核对 GitHub 摘要，manifest 最后上传，再公开并核验下载。payload 发布不修改 App latest 清单；App 必须等完整 payload 可用后引用它。
 
 具体内容见 [CORE_UPGRADE](CORE_UPGRADE.md)。
