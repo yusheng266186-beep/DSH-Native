@@ -169,10 +169,74 @@ def patch_android(runtime, base):
                  '            await androidCopyFile(staged, currentPath, androidFsConstants.COPYFILE_EXCL);\n'
                  '        }')
 
+    # sharp 被 App 用 Pillow 整体替换（见 payload/sharp-android.js），因此它所有
+    # 平台变体都不会被加载。
     for platform in ('linux-arm64', 'linux-x64', 'wasm32'):
         for name in (f'sharp-{platform}', f'sharp-libvips-{platform}'):
             shutil.rmtree(modules / '@img' / name, ignore_errors=True)
-    return digest(native), native_deps
+
+    removed = prune_unusable_natives(modules)
+    return digest(native), native_deps, removed
+
+
+# 只处理**目录名本身就带平台标记**的包，也就是 npm 那种
+# `<pkg>-<platform>-<arch>` 的可选依赖。其余一律保留。
+#
+# 特别说明：`node-addon-require-builtin` 本身是纯 JS 垫片（patch/01），
+# 但它的可选原生依赖目录 `node-addon-require-builtin-<platform>-<arch>`
+# 仍然会被扫到并删掉 —— 这正是期望行为，垫片不碰那些文件。
+# 判据是**目录名**，不是「包是否重要」，所以不会误删垫片本身。
+NATIVE_DIR_PATTERNS = (
+    'node-pty/prebuilds/',
+    '@koromix/koffi-',
+    '@deepseek-ai/node-addon-system-',
+    'node-addon-require-builtin-',
+    'sherpa-onnx-',
+)
+
+
+def prune_unusable_natives(modules):
+    """删掉在 Android/arm64 上**确定**加载不了的原生二进制。
+
+    为什么按「可加载性」判定，而不是写死平台名
+    ------------------------------------------
+    上一版是写死的 `sharp-linux-arm64` 这类清单。构建环境从 arm64 换成 GitHub
+    Actions 的 x86_64 runner 之后，装进来的是 `-linux-x64`，清单完全失效，
+    18MB 的 glibc libvips 一直混在运行包里。同类错误已经吃过一次，
+    所以这里改成读 ELF 事实：**不是 AArch64，或链了 Termux/桌面才有的库，
+    就一定是死重**。这样换 runner、换 Node 版本都不会再悄悄失效。
+
+    返回被删除的路径（相对 node_modules），供 BUILD-INFO 与清单记录。
+    """
+    allowed = {'android-arm64', 'linux-arm64'}     # 唯一可能可用的两个槽位
+    desktop_only = {'libutil.so', 'libutil.so.1', 'libc.so.6', 'ld-linux-aarch64.so.1'}
+    removed = []
+    # rglob 是惰性迭代：rmtree 之后仍会继续产出同一目录下已被删除的文件。
+    # 记录已处理目录，避免对不存在的路径再读一次。
+    handled = set()
+    for path in sorted(modules.rglob('*.node')):
+        directory = path.parent
+        if directory in handled:
+            continue
+        rel_dir = directory.relative_to(modules).as_posix()
+        if not any(rel_dir.startswith(prefix) for prefix in NATIVE_DIR_PATTERNS):
+            continue
+        if rel_dir.startswith('node-pty/prebuilds/') and rel_dir.split('/')[2] in allowed:
+            continue
+        try:
+            deps = needed_libraries(path)
+        except (ValueError, OSError):
+            # 不是 AArch64 ELF（x86_64、mach-o 等）：arm64 上不可能加载。
+            handled.add(directory)
+            shutil.rmtree(directory, ignore_errors=True)
+            removed.append(rel_dir)
+            continue
+        if desktop_only & set(deps):
+            # 是 AArch64，但依赖桌面/Termux 库：同样加载不了。
+            handled.add(directory)
+            shutil.rmtree(directory, ignore_errors=True)
+            removed.append(rel_dir)
+    return sorted(set(removed))
 
 
 def obsolete_paths(base, runtime):
@@ -224,7 +288,7 @@ def main():
     assert json.loads((runtime / 'package.json').read_text())['version'] == source['version']
     for pkg in (runtime / 'node_modules/@deepseek-ai').glob('dsh-*/package.json'):
         assert json.loads(pkg.read_text())['version'] == source['version'], pkg
-    native_sha, native_deps = patch_android(runtime, args.base)
+    native_sha, native_deps, pruned = patch_android(runtime, args.base)
     removals = obsolete_paths(args.base, runtime)
     shard = args.out / 'dsh.tar.zst'
     # Fixed owner/timestamp and sorted paths make archives independent of npm's
@@ -246,10 +310,16 @@ def main():
     info = f"DSH CLI: {source['version']}\nBase payload: {source['base_payload']}\n" \
            f"DSH revision: {new['revision']}\nAndroid PTY SHA256: {native_sha}\n" \
            f"Android PTY DT_NEEDED: {' '.join(native_deps) or '(none)'}\n" \
+           f"Pruned unusable natives: {len(pruned)}\n" \
            f"npm lock SHA256: {digest(ROOT / 'runtime/core-package-lock.json')}\n"
     (args.out / 'BUILD-INFO.txt').write_text(info)
     print(info, end='')
-    print(f"DSH shard: {new['size']} bytes; expanded: {new['unpacked_size']}; removals: {len(new['remove'])}")
+    print(f"DSH shard: {new['size']} bytes; expanded: {new['unpacked_size']}; "
+          f"removals: {len(new['remove'])}")
+    if pruned:
+        print('Pruned (unloadable on Android/arm64):')
+        for name in pruned:
+            print(f'  - {name}')
     print('manifest SHA256: ' + digest(args.out / 'manifest.json'))
 
 
