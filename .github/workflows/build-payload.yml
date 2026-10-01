@@ -169,12 +169,20 @@ jobs:
           base='${{ inputs.base_tag }}'
           [ "$tag" != "$base" ] || { echo "[FAIL] 新标签不能与基底相同: $tag"; exit 1; }
 
-      - name: 下载构建产物与基底工具片
+      - name: 取回构建产物
+        # build 与 publish 是两个 job、两个 runner，$RUNNER_TEMP 不共享，
+        # 必须经 artifact 传递。原先直接引用 needs.build.outputs.dir
+        # 会在 publish job 里指向一个不存在的目录。
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: payload-${{ inputs.base_tag }}-build
+          path: ${{ runner.temp }}/built
+
+      - name: 下载基底工具片
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          OUT="${{ needs.build.outputs.dir }}"
           WORK="$RUNNER_TEMP/publish"
           mkdir -p "$WORK/base"
           # 工具片从基底 Release 原样取回（字节必须不变，发布前逐个核对 SHA）
@@ -184,7 +192,7 @@ jobs:
       - name: 组装完整 payload 并核对
         run: |
           set -euo pipefail
-          OUT="${{ needs.build.outputs.dir }}"
+          OUT="$RUNNER_TEMP/built"
           WORK="$RUNNER_TEMP/publish"
           BASE="$RUNNER_TEMP/base-release"
           cp "$OUT/dsh.tar.zst" "$OUT/manifest.json" "$OUT/BUILD-INFO.txt" "$WORK/"

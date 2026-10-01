@@ -186,6 +186,31 @@ gh workflow run build-payload.yml -f base_tag=payload-v10
 工作流第一件事就是断言 `uname -m` 等于 `x86_64`：runner 类型将来若变化，
 会立刻失败而不是静默产出废分片。
 
+两次独立构建产出**完全相同的 manifest SHA**（实测 `d0806178…`）——
+构建可复现，这是把 payload 构建搬进 CI 的主要收益之一。
+
+### 7.4 发布也在 CI 上做，但默认关闭
+
+`publish=true` 时才会发布，且必须显式给出 `new_tag`（校验格式为
+`payload-v<N>`、且不能与基底相同）。权限按最小给：build job 只有
+`contents: read`，只有 publish job 有 `contents: write`。
+
+发布前从基底 Release 取回四个工具片，逐个核对与基底清单 SHA 一致，
+不一致直接拒绝 —— 工具片必须字节复用。
+
+写这个工作流时踩到两个**会在运行时才炸**的坑，都已修：
+
+* publish 与 build 是两个 job、两个 runner，`$RUNNER_TEMP` **不共享**。
+  原先直接引用 `needs.build.outputs.dir`，在 publish job 里指向一个不存在
+  的目录。必须经 `upload-artifact` / `download-artifact` 传递。
+* 手写的 action SHA 未必存在。`download-artifact` 我先填了一个看起来
+  合理的 SHA，用 GitHub API 查证才发现根本不存在。现 workflow 里每个
+  action 的 SHA 都经 API 验证过；**新增或修改 action 引用时务必复核**：
+
+  ```bash
+  gh api repos/actions/<action>/commits/<sha> --jq .sha
+  ```
+
 先校验本地所有分片与 SHA256SUMS，创建 draft，逐资产上传并核对 GitHub 摘要，manifest 最后上传，再公开并核验下载。payload 发布不修改 App latest 清单；App 必须等完整 payload 可用后引用它。
 
 具体内容见 [CORE_UPGRADE](CORE_UPGRADE.md)。
