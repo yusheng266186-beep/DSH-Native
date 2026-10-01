@@ -140,6 +140,28 @@ AssertionError: …/dsh-client-ui-settings-unarchive-sessions/package.json
 
 `--prepared-runtime` 只适用于**刚由本次 `npm ci` 生成、未经增量升级**的树。
 
+### 7.2 必须在 linux-x64 上构建，不能在 arm64 机器上
+
+**这是比 7.1 更硬的约束，实测踩过。**
+
+`npm ci` 只会安装与**构建机平台匹配**的 optionalDependencies。锁文件里
+`@deepseek-ai/node-addon-system-linux-x64` 与 `-linux-arm64` 都在，
+但在一台 arm64 机器（手机）上跑 `npm ci`，x64 那份**根本不会被安装**。
+
+后果是产出的分片里没有任何 x64 原生绑定，而 CI 的
+`check_model_consumer.sh`（真实运行包消费验证）**跑在 x86_64 上**，
+会直接失败：
+
+```
+Cannot find module '@deepseek-ai/node-addon-system-linux-x64/package.json'
+```
+
+反过来在 x64 上构建，arm64 变体同样缺失 —— 所以**剪枝规则必须与构建平台
+配套**：只有在 x64 上构建、且剪枝保留 `linux-x64` 时，产出的分片才能同时
+满足 App（android-arm64 槽位）与 CI 消费验证。
+
+不要在手机上构建 payload。手机只适合消费与验证产物。
+
 先校验本地所有分片与 SHA256SUMS，创建 draft，逐资产上传并核对 GitHub 摘要，manifest 最后上传，再公开并核验下载。payload 发布不修改 App latest 清单；App 必须等完整 payload 可用后引用它。
 
 具体内容见 [CORE_UPGRADE](CORE_UPGRADE.md)。
