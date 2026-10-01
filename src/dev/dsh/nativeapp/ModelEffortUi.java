@@ -44,8 +44,8 @@ final class ModelEffortUi {
      */
     private static final java.util.regex.Pattern LEGACY_LABEL =
             java.util.regex.Pattern.compile(
-                    "\\n *\"effort\\.maxRequest\\": \"[^\"]*\","
-                  + "\\n *\"effort\\.maxNotice\\": \"[^\"]*\",");
+                    "\\n *\"effort\\.maxRequest\": \"[^\"]*\","
+                  + "\\n *\"effort\\.maxNotice\": \"[^\"]*\",");
 
     /**
      * 撤掉历史补丁留下的改动，把文件还原成未打过补丁的形态。
