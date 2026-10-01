@@ -79,7 +79,8 @@ bash scripts/check_model_consumer.sh
 | 模型与目录 | `ModelConfig`、`ProviderCheck`、`LiveModelCatalog`、`ModelCatalogSync`、`ModelReasoning`、`ModelEffortUi`、`ProjectModelSettings` |
 | 状态与恢复 | `SessionProbe`、`SessionStatus`、`TaskTimeline`、`ConnectionRecovery`、`DraftRecovery`、`ProcessSupervisor` |
 | 文件与项目 | `FileOps`、`FileBatch`、`FileTrash`、`FilePreview`、`WorkspaceProjects`、`FileBrowser`、`TextEditor` |
-| 安全与维护 | `PayloadUpdate`、`PayloadRollback`、`ConfigBackup`、`SecretMasker`、`DiagnosticReport`、`PluginPermissions` |
+| 安全与维护 | `PayloadUpdate`、`PayloadManifest`、`PayloadRollback`、`RuntimeDir`、`ConfigBackup`、`CredentialMerge`、`SecretMasker`、`DiagnosticReport`、`PluginPermissions` |
+| 配置与链接 | `YamlBlocks`、`WebUrl`、`ModelConfig`、`ModelImageSupport` |
 | 原生界面与交互 | `DshUi`、`DeviceLayout`、`MobileLayout`、`UiText`、`OperationGate`、`InteractionFeedback` |
 | 分发与内核 | `payload/`、`runtime/`、`scripts/prepare_core_payload.py`、`scripts/release_payload.py` |
 

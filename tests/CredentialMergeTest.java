@@ -11,6 +11,9 @@ import java.util.List;
  *      导致用户密钥被静默跳过（表现为「导入了 0 个」）；
  *   ② YAML refs: 段的边界 —— 缩进续行属于本段，顶格非空行结束；
  *   ③ 不重复写回 —— 没有新键时不应改动目标文件。
+ *
+ * <p>其中「注释掉的键」与「FOO/FOOBAR」两条已用变异测试确认能抓住回归：
+ * 把匹配退回 indexOf 子串后，注释场景的断言立刻失败。
  */
 public class CredentialMergeTest {
     static int pass = 0, fail = 0;
