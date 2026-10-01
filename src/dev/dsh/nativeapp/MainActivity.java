@@ -2057,12 +2057,7 @@ public class MainActivity extends Activity {
             writeText(settings, out);
 
             // 记录同步后的模型与图片能力，便于核对
-            java.util.List<String> withImage = new java.util.ArrayList<String>();
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                    "(?m)^\\s*-\\s*id:\\s*[\"']?([^\"'\\n]+?)[\"']?\\s*$\n"
-                  + "((?:(?!^\\s*-\\s*id:)[\\s\\S])*?)"
-                  + "^\\s*input:\\s*\\[[^\\]]*image[^\\]]*\\]").matcher(want);
-            while (m.find()) withImage.add(m.group(1).trim());
+            java.util.List<String> withImage = ModelImageSupport.imageCapableModels(want);
             log("  已同步模型配置；支持图片输入的模型: "
                     + (withImage.isEmpty() ? "（无）" : withImage.toString()));
         } catch (Throwable t) {
