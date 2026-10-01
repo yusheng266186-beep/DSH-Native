@@ -163,5 +163,70 @@ class PayloadBuilderTest(unittest.TestCase):
         self.assertIn('assert_android_loadable(dest', self.source())
 
 
+
+class PruneUnusableNativesTest(unittest.TestCase):
+    """The pruner must be driven by ELF facts, never by a hardcoded platform list."""
+
+    @requires_builder
+    def test_keeps_android_and_termux_pty_slots(self):
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            # Windows/darwin slots ship binaries for a different CPU, which is
+            # what makes them dead weight; the two arm64 slots are kept.
+            archs = {'android-arm64': 0xB7, 'linux-arm64': 0xB7, 'win32-x64': 0x3E}
+            for slot, machine in archs.items():
+                p = mods / 'node-pty/prebuilds' / slot
+                p.mkdir(parents=True)
+                (p / 'pty.node').write_bytes(build_elf(machine=machine))
+            removed = prepare.prune_unusable_natives(mods)
+            kept = sorted(p.name for p in (mods / 'node-pty/prebuilds').iterdir())
+            self.assertEqual(kept, ['android-arm64', 'linux-arm64'])
+            self.assertIn('node-pty/prebuilds/win32-x64', removed)
+
+    @requires_builder
+    def test_removes_desktop_lib_dependency(self):
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / '@koromix/koffi-linux-arm64/linux_arm64'
+            p.mkdir(parents=True)
+            (p / 'koffi.node').write_bytes(build_elf(needed=['libc.so.6', 'libstdc++.so.6']))
+            removed = prepare.prune_unusable_natives(mods)
+            self.assertFalse(p.exists())
+            self.assertEqual(len(removed), 1)
+
+    @requires_builder
+    def test_keeps_android_native_module(self):
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / '@mmmbuto/node-pty-android-arm64/prebuilds/android-arm64'
+            p.mkdir(parents=True)
+            (p / 'pty.node').write_bytes(build_elf(needed=['libc.so', 'liblog.so']))
+            prepare.prune_unusable_natives(mods)
+            self.assertTrue((p / 'pty.node').exists())
+
+    @requires_builder
+    def test_does_not_touch_non_platform_directories(self):
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / 'some-random-package/lib'
+            p.mkdir(parents=True)
+            (p / 'thing.node').write_bytes(build_elf(needed=['libc.so.6']))
+            prepare.prune_unusable_natives(mods)
+            self.assertTrue((p / 'thing.node').exists())
+
+    @requires_builder
+    def test_handles_multiple_binaries_in_one_directory(self):
+        """rglob is lazy: deleting a directory mid-iteration must not crash."""
+        with tempfile.TemporaryDirectory() as d:
+            mods = pathlib.Path(d) / 'node_modules'
+            p = mods / 'node-pty/prebuilds/win32-x64'
+            p.mkdir(parents=True)
+            for name in ('pty.node', 'conpty.node', 'conpty_console_list.node'):
+                (p / name).write_bytes(build_elf(machine=0x3E))
+            removed = prepare.prune_unusable_natives(mods)   # must not raise
+            self.assertIn('node-pty/prebuilds/win32-x64', removed)
+
 if __name__ == '__main__':
     unittest.main()
