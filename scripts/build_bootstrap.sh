@@ -152,6 +152,12 @@ echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注
 say "3.43 静态核验（语法 / 跨类引用 / 静默捕获上限）"
 python3 check_java.py || die "静态核验未通过（见上方 FAIL）"
 
+# 3.44 源码卫生：只抓机器可判定的问题（替换字符 / 裸控制字符 /
+# 临时文件前缀 / 反向断言）。本机无 JDK，javac 只能在 CI 跑，
+# 于是这类低级错误的成本是「推→等 CI→读日志→修→再推」。
+say "3.44 源码卫生检查"
+python3 check_source_hygiene.py || die "源码卫生检查未通过（见上方 FAIL）"
+
 say "3.4 纯逻辑测试"
 bash run_tests.sh
 
