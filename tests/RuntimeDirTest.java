@@ -25,7 +25,7 @@ public class RuntimeDirTest {
     }
 
     public static void main(String[] args) throws Exception {
-        File root = File.createTempFile("rt", "root");
+        File root = File.createTempFile("dsh-rt", "root");
         if (!root.delete() || !root.mkdirs()) throw new IOException("temp root");
         root.deleteOnExit();
 
@@ -77,16 +77,18 @@ public class RuntimeDirTest {
         }
 
         System.out.println("=== 5. 边界：非直属子目录（孙级）被拒绝 ===");
-        mkdirs(root, "tools/sub/deep");
-        File deep = new File(root, "tools/sub/deep");
+        // 故意用**白名单里的名字**放在孙级：否则会因「名字不在白名单」被拒，
+        // 根本走不到「父目录不是 root」这条规则，断言就变成假通过。
+        File deep = mkdirs(root, "tools/sub/tools");
+        check("name is whitelisted", RuntimeDir.isDeletableName(deep.getName()), "not whitelisted");
         String refusal = RuntimeDir.checkDeletable(deep, root);
-        check("grandchild refused", refusal != null, "allowed");
+        check("grandchild refused by parent rule", refusal != null, "allowed");
 
         System.out.println("=== 6. 边界：root 自身不可删 ===");
         check("root itself refused", RuntimeDir.checkDeletable(root, root) != null, "allowed");
 
         System.out.println("=== 7. 边界：root 之外的同名目录被拒绝 ===");
-        File outside = File.createTempFile("rt-out", "x");
+        File outside = File.createTempFile("dsh-rt-out", "x");
         outside.delete();
         outside.mkdirs();
         outside.deleteOnExit();
