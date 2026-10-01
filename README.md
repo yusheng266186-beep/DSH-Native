@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.3**；源码：**0.33.4**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.4**；源码：**0.33.4**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -14,13 +14,13 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 ## 下载与运行要求
 
-**当前版本：0.33.3**
+**当前版本：0.33.4**
 
-**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.33.3-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
+**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.33.4-bootstrap/DSHNative-bootstrap.apk)**（33.7 MiB）
 
-[正式版发布说明](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.3-bootstrap) · [历史版本](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[正式版发布说明](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.4-bootstrap) · [历史版本](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256：`5aae83f074a0c261c3f5a396a8864164b102b5a4bc97ba30c7da178b314c9b85`
+SHA-256：`b7794918289d8d13e1cd391a5ce7c5a2b793a1786126e137777d4bcc56451c3a`
 
 | 项目 | 要求与说明 |
 |---|---|
