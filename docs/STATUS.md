@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.3**；源码：**0.33.3**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.3**；源码：**0.33.4**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,7 +16,7 @@
 | 稳定运行包 | `payload-v12` · 压缩总量 120.9 MiB |
 | APK SHA-256 | `5aae83f074a0c261c3f5a396a8864164b102b5a4bc97ba30c7da178b314c9b85` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `0.33.3` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `0.33.4` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v12` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.0-rc.2`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |

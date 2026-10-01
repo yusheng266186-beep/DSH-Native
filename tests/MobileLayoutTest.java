@@ -7,11 +7,18 @@ public class MobileLayoutTest {
         if (ok) pass++; else { fail++; System.out.println("  FAIL " + name + " -> " + detail); }
     }
     public static void main(String[] args) {
-        check("phone keeps readable width", MobileLayout.viewportWidth(400) == 480, "wrong");
+        // 视口必须**永不宽于屏幕**：一台 436dp 的手机拿到 480 CSS px 的视口，
+        // 页面比屏幕宽 10%，每个 flex 容器都在压缩（附件 chip 的文字盖住 ×
+        // 按钮、模型选择器尾字被切）。撑大视口救不了组件，只会把挤压摊开。
+        check("narrow phone uses real width", MobileLayout.viewportWidth(400) == 400, "wrong");
+        check("viewport never exceeds screen",
+                MobileLayout.viewportWidth(436) == 436, "wider than screen");
+        check("very narrow phone not inflated",
+                MobileLayout.viewportWidth(320) == 320, "wrong");
         check("wide phone uses real width", MobileLayout.viewportWidth(600) == 600, "wrong");
         check("landscape not multiplied", MobileLayout.viewportWidth(869) == 869, "wrong");
         check("huge width capped", MobileLayout.viewportWidth(2000) == 1440, "wrong");
-        check("invalid width safe", MobileLayout.viewportWidth(0) == 480, "wrong");
+        check("invalid width falls back", MobileLayout.viewportWidth(0) == 400, "wrong");
         String html = "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body></body></html>";
         String once = MobileLayout.patchHtml(html, 480);
         check("viewport patched", once != null && once.contains("width=480"), String.valueOf(once));
@@ -62,6 +69,27 @@ public class MobileLayoutTest {
         check("older calculated scale is migrated", migrated != null
                 && migrated.contains("content=\"width=600\""), String.valueOf(migrated));
         check("missing viewport rejected", MobileLayout.patchHtml("<head></head>", 480) == null, "accepted");
+        // 编辑器区域的窄屏规则：附件 × 按钮曾被缩略图挤变形、文件名盖住取消按钮。
+        // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
+        // 属性包含匹配（[class*=Card]）——不依赖上游具体类名。
+        check("attachment remove button cannot shrink",
+                once != null && once.contains("[class*=remove]{flex:0 0 auto"),
+                "missing remove-button rule");
+        check("thumbnail may shrink but not overflow",
+                once != null && once.contains("[class*=thumbnail]{flex:0 1 auto"),
+                "missing thumbnail rule");
+        check("file name ellipsis instead of pushing siblings",
+                once != null && once.contains("text-overflow:ellipsis"),
+                "missing ellipsis rule");
+        check("card body allowed to shrink",
+                once != null && once.contains("[class*=body],[class*=meta]{min-width:0"),
+                "missing min-width:0 rule");
+        check("buttons in dialogs never shrink",
+                once != null && once.contains("flex:0 0 auto"), "missing flex-shrink guard");
+        check("media never exceeds container",
+                once != null && once.contains("img,svg{max-width:100%}"),
+                "missing media rule");
+
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
     }
