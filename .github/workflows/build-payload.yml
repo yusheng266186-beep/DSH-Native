@@ -1,0 +1,119 @@
+name: 构建运行包
+
+# 为什么需要这个工作流
+# ------------------
+# 运行包此前只能在**某个人手边的机器**上构建，而 `npm ci` 只安装与构建机
+# 平台匹配的 optionalDependencies —— 在 arm64 机器（如手机）上构建出的分片
+# 缺少 x64 原生绑定，CI 的真实消费验证（跑在 x86_64 上）会直接失败。
+#
+# 这个工作流把构建固定在 GitHub 的 x86_64 runner 上：产物可复现，
+# 不再依赖任何人的本地环境，也就不会再踩同一个坑。
+#
+# 只上传产物，**不发布、不写任何清单**。发布仍由 scripts/release_payload.py
+# 单独执行（先验后发），App 的 latest 清单仍只由 release.yml 维护。
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_tag:
+        description: '基底 payload 标签（提供已验证的 Android 二进制与上一份清单）'
+        required: true
+        default: 'payload-v10'
+      out_name:
+        description: '输出目录名（仅用于产物组织）'
+        required: false
+        default: 'payload-build'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # 必须显式写死 x64：默认 runner 类型将来可能变化，而平台错了产物就是废的。
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: 确认 runner 架构
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          [ "$arch" = "x86_64" ] || { echo "[FAIL] 必须在 x86_64 上构建运行包"; exit 1; }
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '22'
+
+      - name: 安装 zstd
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd
+          zstd --version
+
+      - name: 下载基底 payload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/base-release" "$RUNNER_TEMP/base-runtime"
+          gh release download "${{ inputs.base_tag }}" \
+            --repo yusheng266186-beep/DSH-Native \
+            --pattern dsh.tar.zst --pattern manifest.json --pattern SHA256SUMS.txt \
+            --dir "$RUNNER_TEMP/base-release"
+          (cd "$RUNNER_TEMP/base-release" && \
+            awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256 && \
+            sha256sum -c dsh.sha256)
+          # base 是「上一份已验证运行包解出来的运行时」：Android 原生二进制、
+          # Pillow 垫片等都从这里继承，而不是重新下载或重新编译。
+          tar --zstd --no-same-owner -xf "$RUNNER_TEMP/base-release/dsh.tar.zst" \
+            -C "$RUNNER_TEMP/base-runtime"
+          test -f "$RUNNER_TEMP/base-runtime/node_modules/@mmmbuto/node-pty-android-arm64/prebuilds/android-arm64/pty.node" \
+            || { echo "[FAIL] 基底运行包缺少 Android PTY"; exit 1; }
+
+      - name: 构建运行包分片
+        env:
+          DSH_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/prepare_core_payload.py \
+            --base "$RUNNER_TEMP/base-runtime" \
+            --previous-manifest "$RUNNER_TEMP/base-release/manifest.json" \
+            --out "$RUNNER_TEMP/${{ inputs.out_name }}"
+
+      - name: 核对产物
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/${{ inputs.out_name }}"
+          cat "$OUT/BUILD-INFO.txt"
+          echo "--- 关键原生二进制 ---"
+          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
+            | grep -E 'node-pty/prebuilds/.+/pty\.node$' | sort
+          echo "--- CI 消费验证需要的 x64 绑定必须存在 ---"
+          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
+            | grep -q 'node_modules/@deepseek-ai/node-addon-system-linux-x64/package.json' \
+            || { echo "[FAIL] 分片缺少 linux-x64 绑定，无法通过真实消费验证"; exit 1; }
+          echo "--- App 需要的 Android PTY 必须存在 ---"
+          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
+            | grep -q 'node_modules/node-pty/prebuilds/android-arm64/pty.node' \
+            || { echo "[FAIL] 分片缺少 Android PTY"; exit 1; }
+
+      - name: 上传产物（不发布）
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: payload-${{ inputs.base_tag }}-build
+          path: |
+            ${{ runner.temp }}/${{ inputs.out_name }}/dsh.tar.zst
+            ${{ runner.temp }}/${{ inputs.out_name }}/manifest.json
+            ${{ runner.temp }}/${{ inputs.out_name }}/SHA256SUMS.txt
+            ${{ runner.temp }}/${{ inputs.out_name }}/BUILD-INFO.txt
+          retention-days: 14

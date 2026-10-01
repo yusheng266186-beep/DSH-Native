@@ -162,6 +162,30 @@ Cannot find module '@deepseek-ai/node-addon-system-linux-x64/package.json'
 
 不要在手机上构建 payload。手机只适合消费与验证产物。
 
+### 7.3 用 `build-payload.yml` 构建，别手动搭环境
+
+因为 7.2 的平台约束，**本地构建 payload 几乎必然出错**：在 arm64 机器上
+`npm ci` 装不到 x64 依赖，产物是不合格的。
+
+仓库提供了 `.github/workflows/build-payload.yml`，把构建固定在 GitHub 的
+x86_64 runner 上：
+
+```bash
+gh workflow run build-payload.yml -f base_tag=payload-v10
+```
+
+它会下载基底 payload、校验 SHA、解包出已验证的 Android 二进制作为 `--base`、
+按锁文件 `npm ci`、打补丁、剪枝、打包，最后核对：
+
+* 分片里有 `node-pty/prebuilds/android-arm64/pty.node`（App 需要）
+* 分片里有 `node-addon-system-linux-x64/package.json`（CI 消费验证需要）
+
+任一缺失即失败。产物作为 artifact 上传，**不发布、不写清单** —— 发布仍由
+`scripts/release_payload.py` 单独执行。
+
+工作流第一件事就是断言 `uname -m` 等于 `x86_64`：runner 类型将来若变化，
+会立刻失败而不是静默产出废分片。
+
 先校验本地所有分片与 SHA256SUMS，创建 draft，逐资产上传并核对 GitHub 摘要，manifest 最后上传，再公开并核验下载。payload 发布不修改 App latest 清单；App 必须等完整 payload 可用后引用它。
 
 具体内容见 [CORE_UPGRADE](CORE_UPGRADE.md)。
