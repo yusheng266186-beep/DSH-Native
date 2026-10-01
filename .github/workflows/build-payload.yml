@@ -95,19 +95,24 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/${{ inputs.out_name }}"
           cat "$OUT/BUILD-INFO.txt"
-          echo "--- 关键原生二进制 ---"
-          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
-            | grep -E 'node-pty/prebuilds/.+/pty\.node$' | sort
-          echo "--- CI 消费验证需要的 x64 绑定必须存在 ---"
-          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
-            | grep -q 'node_modules/@deepseek-ai/node-addon-system-linux-x64/package.json' \
-            || { echo "[FAIL] 分片缺少 linux-x64 绑定，无法通过真实消费验证"; exit 1; }
-          echo "--- App 需要的 Android PTY 必须存在 ---"
-          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" \
-            | grep -q 'node_modules/node-pty/prebuilds/android-arm64/pty.node' \
+          tar --zstd --no-same-owner -tf "$OUT/dsh.tar.zst" > "$RUNNER_TEMP/shard.list"
+          echo "--- 分片内全部原生二进制 ---"
+          grep -E '\.node$' "$RUNNER_TEMP/shard.list" | sort
+          echo "--- 分片内全部带平台后缀的包目录 ---"
+          grep -oE 'node_modules/(@deepseek-ai/)?[a-zA-Z@_-]+-(linux|darwin|win32|android)-[a-z0-9-]+' \
+            "$RUNNER_TEMP/shard.list" | sort -u
+          echo "--- node-addon-system 系列 ---"
+          grep 'node-addon-system' "$RUNNER_TEMP/shard.list" | sort || true
+          echo "--- 必需项检查 ---"
+          grep -q 'node_modules/node-pty/prebuilds/android-arm64/pty.node' "$RUNNER_TEMP/shard.list" \
             || { echo "[FAIL] 分片缺少 Android PTY"; exit 1; }
+          grep -q 'node_modules/@deepseek-ai/node-addon-system-linux-x64/package.json' "$RUNNER_TEMP/shard.list" \
+            || { echo "[FAIL] 分片缺少 linux-x64 绑定，无法通过真实消费验证"; exit 1; }
+          echo "[OK] 分片内容符合要求"
 
       - name: 上传产物（不发布）
+        # 即使核对失败也上传：否则恰好在最需要排查的时候没有产物可看。
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: payload-${{ inputs.base_tag }}-build
@@ -116,4 +121,5 @@ jobs:
             ${{ runner.temp }}/${{ inputs.out_name }}/manifest.json
             ${{ runner.temp }}/${{ inputs.out_name }}/SHA256SUMS.txt
             ${{ runner.temp }}/${{ inputs.out_name }}/BUILD-INFO.txt
+            ${{ runner.temp }}/shard.list
           retention-days: 14
