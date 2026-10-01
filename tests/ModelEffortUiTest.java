@@ -44,6 +44,40 @@ public class ModelEffortUiTest {
         if (!second.equals(first))
             throw new AssertionError("re-patching must converge to the same result");
 
-        System.out.println("TOTAL: 4 pass / 0 fail");
+        // 真实场景：运行包里那份文件已经被上一版补丁打过（带 TAG、旧文案、
+        // 注入的 title 行）。若 unpatch 还原得不对，锚点会匹配不上，
+        // 补丁从此再也打不进去 —— 而设备上那份文件正是这个样子。
+        String legacyBody =
+                "  ref: itemRef(),\n"
+              + "  type: \"button\",\n"
+              + "  \"aria-checked\": effectiveEffort === level.effort,\n"
+              + "      title: level.effort === \"max\" ? t(\"effort.maxNotice\") : void 0,\n"
+              + "  className: clsx(x),\n"
+              + "  label: effort.id === \"max\" ? t(\"effort.maxRequest\") : effort.name\n"
+              + "}));\n"
+              + "  const v = reasoning.efforts.find((level) => level.id === effectiveEffort)?.name ?? effectiveEffort;\n"
+              + "  const menu = {\n"
+              + "    \"menu.effort\": \"推理等级\",\n"
+              + "    \"effort.maxRequest\": \"Max（请求）\",\n"
+              + "    \"effort.maxNotice\": \"发送 max 参数；是否生效由上游决定，可能被拒绝或忽略。\",\n"
+              + "    \"menu.effort\": \"Effort\",\n"
+              + "    \"effort.maxRequest\": \"Max (request)\",\n"
+              + "    \"effort.maxNotice\": \"Send max as requested; the provider may reject or ignore it.\"\n"
+              + "  };\n";
+        String legacyTagged = "/* DSH-NATIVE-MAX-REQUEST-v1 */\n" + legacyBody;
+        String repatched = ModelEffortUi.patch(legacyTagged);
+        if (repatched == null)
+            throw new AssertionError("legacy patched file must be re-patchable");
+        if (repatched.contains("（请求）") || repatched.contains("Max (request)"))
+            throw new AssertionError("stale label survived: " + repatched);
+        if (!repatched.contains("\"effort.maxRequest\": \"Max\""))
+            throw new AssertionError("label not corrected: " + repatched);
+        if (!repatched.contains("\"aria-checked\": effectiveEffort === level.effort,"))
+            throw new AssertionError("anchor line lost its comma: " + repatched);
+        // 再打一次结果必须稳定（幂等）。
+        if (!ModelEffortUi.patch(repatched).equals(repatched))
+            throw new AssertionError("re-patching must be idempotent");
+
+        System.out.println("TOTAL: 5 pass / 0 fail");
     }
 }

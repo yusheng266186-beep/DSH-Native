@@ -89,8 +89,13 @@ public class ModelCatalogSyncTest {
                 ModelConfig.COMMAND_CODE).get(0).image && rich.contains("input: [ text ]"), rich);
         check("new vision written", ModelConfig.modelsForProvider(rich,
                 ModelConfig.COMMAND_CODE).get(1).image, rich);
-        check("unknown vision stays unknown", !ModelConfig.modelsForProvider(rich,
-                ModelConfig.COMMAND_CODE).get(2).imageKnown, rich);
+        // 上游不返回能力字段（实测 85 个模型 0 个带 input_modalities），
+        // 所以「未知」是常态而非例外。若保持未知，DSH 会按「仅文字」处理，
+        // 多模态模型直接发不了图。改为：未知一律按支持视觉处理。
+        check("unknown vision now defaults to image", ModelConfig.modelsForProvider(rich,
+                ModelConfig.COMMAND_CODE).get(2).image
+                && ModelConfig.modelsForProvider(rich,
+                        ModelConfig.COMMAND_CODE).get(2).imageKnown, rich);
         check("refresh keeps default selection", ModelConfig.readSelection(richBase)
                 .equals(ModelConfig.readSelection(rich)), rich);
         check("refresh bytes idempotent", rich.equals(ModelCatalogSync.writeLiveCatalog(rich,
