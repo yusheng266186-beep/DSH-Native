@@ -15,9 +15,9 @@ final class ModelEffortUi {
             {"\"aria-checked\": effectiveEffort === level.effort,",
              "\"aria-checked\": effectiveEffort === level.effort,\n                                title: level.effort === \"max\" ? t(\"effort.maxNotice\") : void 0,"},
             {"\"menu.effort\": \"推理等级\",",
-             "\"menu.effort\": \"推理等级\",\n            \"effort.maxRequest\": \"Max（请求）\",\n            \"effort.maxNotice\": \"发送 max 参数；是否生效由上游决定，可能被拒绝或忽略。\","},
+             "\"menu.effort\": \"推理等级\",\n            \"effort.maxRequest\": \"Max\",\n            \"effort.maxNotice\": \"发送 max 参数；是否生效由上游决定，可能被拒绝或忽略。\","},
             {"\"menu.effort\": \"Effort\",",
-             "\"menu.effort\": \"Effort\",\n            \"effort.maxRequest\": \"Max (request)\",\n            \"effort.maxNotice\": \"Send max as requested; the provider may reject or ignore it.\","}
+             "\"menu.effort\": \"Effort\",\n            \"effort.maxRequest\": \"Max\",\n            \"effort.maxNotice\": \"Send max as requested; the provider may reject or ignore it.\","}
         };
         String patched = source;
         for (String[] pair : replacements) {

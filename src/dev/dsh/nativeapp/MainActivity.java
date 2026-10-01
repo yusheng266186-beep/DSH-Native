@@ -1970,7 +1970,15 @@ public class MainActivity extends Activity {
         //    所以文件通常已存在，简单跳过会导致预置模型永远注入不进去。
         File preset = new File(root, "settings-preset.yaml");
         File settings = new File(dshHome, "settings.yaml");
-        if (preset.exists()) {
+
+        // DSH v0.2.0 会把 settings.yaml 一次性改名成 .imported 并导入 profile。
+        // 之后文件不存在，若此时用预置重建，用户刚刷新的模型目录会被覆盖 ——
+        // 表现为「每次打开应用都要重新更新模型列表」。已导入过就不再重建。
+        File importedSettings = new File(dshHome, "settings.yaml.imported");
+        if (ModelCatalogPersistence.shouldSkipPresetInjection(
+                settings.isFile(), readText(importedSettings))) {
+            log("  模型目录已导入过（settings.yaml.imported），跳过预置覆盖");
+        } else if (preset.exists()) {
             java.util.List<String> added = mergeTopLevelBlocks(readText(preset), settings);
             if (!added.isEmpty()) {
                 log("  已注入模型配置: " + added);
@@ -2079,10 +2087,16 @@ public class MainActivity extends Activity {
         try {
             if (block == null || block.length() == 0) return;
             File out = new File("/sdcard/DSHNative/model-config.yaml");
+            String content = "# 由 App 导出的模型配置（不含密钥值，只有环境变量名）\n"
+                    + "# 用途：核对模型是否声明了 input: [text, image]\n\n" + block;
+            // 内容没变就不写：/sdcard 是 FUSE，每次启动都写一遍纯属浪费启动时间。
+            if (!ModelCatalogPersistence.shouldWriteDiagnostics(
+                    out.isFile() ? readText(out) : null, content)) {
+                return;
+            }
             File dir = out.getParentFile();
             if (dir != null && !dir.exists()) dir.mkdirs();
-            writeText(out, "# 由 App 导出的模型配置（不含密钥值，只有环境变量名）\n"
-                    + "# 用途：核对模型是否声明了 input: [text, image]\n\n" + block);
+            writeText(out, content);
             log("  已导出模型配置供核对: " + out.getAbsolutePath());
         } catch (Throwable ignored) { }
     }
@@ -6567,7 +6581,7 @@ public class MainActivity extends Activity {
                 return;
             }
             if (!source.equals(patched)) writeText(client, patched);
-            recordPatch("max 请求标记", true, "聊天框显示 Max（请求）");
+            recordPatch("max 请求标记", true, "聊天框显示 Max（说明在悬浮提示里）");
         } catch (Throwable error) {
             recordPatch("max 请求标记", false, "文件读取或写入失败");
             log("  [警告] max 请求标记补丁失败: " + error.getClass().getSimpleName());
