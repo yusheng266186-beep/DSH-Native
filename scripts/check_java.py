@@ -34,7 +34,7 @@ PURE = ["FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier
         "PayloadRollback", "WorkspaceProjects", "ShareTask",
         "PluginPermissions", "ReleaseChannel", "WebToolsEntry", "UiPolicy",
         "OperationGate", "InteractionFeedback", "LiveModelCatalog", "ModelCatalogSync",
-        "PayloadManifest"]
+        "PayloadManifest", "CredentialMerge"]
 EMOJI = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
 
 # 静默捕获（catch (Throwable ignored)）的允许上限。只允许降低，不允许增长。

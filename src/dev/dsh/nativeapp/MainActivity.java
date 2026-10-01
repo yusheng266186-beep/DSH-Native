@@ -6510,46 +6510,18 @@ public class MainActivity extends Activity {
     /**
      * 把源凭据文件 refs: 段下的条目合并进目标文件（跳过已存在的键）。
      *
+     * <p>解析与合并判定在 {@link CredentialMerge}（纯逻辑、可离线测试），
+     * 这里只负责读写文件。改动它之前请先看那边的测试。
+     *
      * @return 实际导入的键值对
      */
     private java.util.List<String> mergeCredentials(File src, File dst) throws IOException {
         String mine = readText(src);
         String target = dst.exists() ? readText(dst) : "";
-        java.util.List<String> refs = new java.util.ArrayList<String>();
-        java.util.List<String> added = new java.util.ArrayList<String>();
-
-        boolean inRefs = false;
-        for (String ln : mine.split("\n", -1)) {
-            if (ln.matches("^refs\\s*:.*")) { inRefs = true; continue; }
-            if (inRefs) {
-                if (ln.length() > 0 && !Character.isWhitespace(ln.charAt(0))) break;
-                String t = ln.trim();
-                if (t.length() > 0 && t.indexOf(':') > 0) refs.add(t);
-            }
-        }
-        java.util.List<String> addedLines = new java.util.ArrayList<String>();
-        for (String r : refs) {
-            String k = r.substring(0, r.indexOf(':')).trim();
-            if (target.indexOf(k + ":") < 0) { addedLines.add(r); added.add(k); }
-        }
-        if (added.isEmpty()) return added;
-
-        StringBuilder out = new StringBuilder(target);
-        if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') out.append('\n');
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("(?m)^refs\\s*:.*$").matcher(out);
-        if (m.find()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append(out, 0, m.end());
-            for (String r : addedLines) sb.append("\n  ").append(r);
-            sb.append(out.substring(m.end()));
-            out = sb;
-        } else {
-            out.append("refs:\n");
-            for (String r : addedLines) out.append("  ").append(r).append('\n');
-        }
-        writeText(dst, out.toString());
-        return added;
+        CredentialMerge.Result merged = CredentialMerge.merge(mine, target);
+        if (merged.isEmpty()) return merged.added;
+        writeText(dst, merged.content);
+        return merged.added;
     }
 
     /**
