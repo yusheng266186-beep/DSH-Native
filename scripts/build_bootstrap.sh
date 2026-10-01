@@ -163,6 +163,8 @@ PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/d
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/FileBatch.java bootstrap/src/dev/dsh/nativeapp/FileTrash.java bootstrap/src/dev/dsh/nativeapp/FilePreview.java bootstrap/src/dev/dsh/nativeapp/SessionOrganizer.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/PayloadManifest.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/CredentialMerge.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/WebUrl.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/YamlBlocks.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"

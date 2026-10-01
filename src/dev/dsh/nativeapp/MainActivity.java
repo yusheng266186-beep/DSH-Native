@@ -962,12 +962,7 @@ public class MainActivity extends Activity {
 
     /** 把启动失败原因放进状态页 HTML 前先编码，避免异常文本破坏页面。 */
     private String htmlEscape(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
+        return WebUrl.escapeHtml(text);
     }
 
     /**
@@ -1423,38 +1418,12 @@ public class MainActivity extends Activity {
      * **误拒正常链接比放行一个坏链接更糟。**
      */
     private static boolean looksLikeRealUrl(String url) {
-        try {
-            if (url == null) return false;
-            String u = url.trim();
-            if (u.length() == 0) return false;
-            // 控制字符与空格：这类地址一定构造不出可用 URL
-            for (int i = 0; i < u.length(); i++) {
-                char c = u.charAt(i);
-                if (c < 0x20 || c == 0x7F || c == ' ') return false;
-            }
-            String lower = u.toLowerCase(java.util.Locale.ROOT);
-            // 非网页 scheme：交给系统（邮件、电话、应用跳转）
-            if (lower.startsWith("mailto:") || lower.startsWith("tel:")
-                    || lower.startsWith("sms:") || lower.startsWith("intent:")
-                    || lower.startsWith("market:") || lower.startsWith("geo:")) {
-                return true;
-            }
-            // 网页地址：能解析出主机名即可，不额外限制它长什么样
-            if (lower.startsWith("http://") || lower.startsWith("https://")) {
-                java.net.URL parsed = new java.net.URL(u);
-                String host = parsed.getHost();
-                return host != null && host.length() > 0;
-            }
-            return false;
-        } catch (Throwable t) {
-            return false;
-        }
+        return WebUrl.looksLikeRealUrl(url);
     }
 
     /** URL 太长时截断，只用于日志与提示。 */
     private static String briefUrl(String url) {
-        if (url == null) return "";
-        return url.length() <= 80 ? url : url.substring(0, 80) + "…";
+        return WebUrl.brief(url);
     }
 
     /** 网页弹窗的通用实现：alert 与 confirm 共用。 */
@@ -2174,28 +2143,7 @@ public class MainActivity extends Activity {
      * 用逐行解析而非正则，避免块边界判断出错。
      */
     private static String topLevelBlock(String yaml, String key) {
-        String[] lines = yaml.split("\n", -1);
-        int start = -1, end = lines.length;
-        for (int i = 0; i < lines.length; i++) {
-            String l = lines[i];
-            if (l.length() == 0 || l.charAt(0) == ' ' || l.charAt(0) == '\t'
-                    || l.charAt(0) == '#') {
-                continue;
-            }
-            int c = l.indexOf(':');
-            if (c <= 0) continue;
-            String k = l.substring(0, c).trim();
-            if (start < 0) {
-                if (k.equals(key)) start = i;
-            } else {
-                end = i;
-                break;
-            }
-        }
-        if (start < 0) return null;
-        StringBuilder sb = new StringBuilder();
-        for (int i = start; i < end; i++) sb.append(lines[i]).append('\n');
-        return sb.toString();
+        return YamlBlocks.topLevelBlock(yaml, key);
     }
 
     /**
@@ -6462,9 +6410,7 @@ public class MainActivity extends Activity {
 
     /** YAML 里是否已存在某顶层键。 */
     private boolean hasTopLevelKey(String yaml, String key) {
-        return java.util.regex.Pattern
-                .compile("(?m)^" + java.util.regex.Pattern.quote(key) + "\\s*:")
-                .matcher(yaml).find();
+        return YamlBlocks.hasTopLevelKey(yaml, key);
     }
 
     /**
@@ -6474,37 +6420,10 @@ public class MainActivity extends Activity {
      */
     private java.util.List<String> mergeTopLevelBlocks(String preset, File dst) throws IOException {
         String target = dst.exists() ? readText(dst) : "";
-        java.util.List<String> added = new java.util.ArrayList<String>();
-        java.util.List<String[]> blocks = new java.util.ArrayList<String[]>();
-
-        String key = null;
-        StringBuilder block = new StringBuilder();
-        java.util.regex.Pattern topKey =
-                java.util.regex.Pattern.compile("^([A-Za-z_][A-Za-z0-9_.-]*):");
-        for (String ln : preset.split("\n", -1)) {
-            java.util.regex.Matcher m = topKey.matcher(ln);
-            if (m.find()) {
-                if (key != null) blocks.add(new String[]{key, block.toString()});
-                key = m.group(1);
-                block = new StringBuilder();
-            }
-            if (key != null) block.append(ln).append('\n');
-        }
-        if (key != null) blocks.add(new String[]{key, block.toString()});
-
-        StringBuilder add = new StringBuilder();
-        for (String[] b : blocks) {
-            if (hasTopLevelKey(target, b[0])) continue;
-            add.append(b[1]);
-            added.add(b[0]);
-        }
-        if (added.isEmpty()) return added;
-
-        StringBuilder out = new StringBuilder(target);
-        if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') out.append('\n');
-        out.append('\n').append(add);
-        writeText(dst, out.toString());
-        return added;
+        YamlBlocks.Result merged = YamlBlocks.mergeMissingBlocks(preset, target);
+        if (merged.isEmpty()) return merged.added;
+        writeText(dst, merged.content);
+        return merged.added;
     }
 
     /**
