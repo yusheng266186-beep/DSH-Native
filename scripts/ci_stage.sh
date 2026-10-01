@@ -64,6 +64,9 @@ cp "$ROOT/scripts/mkmanifest.py" "$ROOT/scripts/mkzip.py" "$ROOT/scripts/run_tes
 # tests/android_native_payload_test.py really runs during CI instead of skipping —
 # the terminal shipped broken for several releases because nothing verified it.
 cp "$ROOT/scripts/prepare_core_payload.py" "$BUILD/"
+# check_java.py 是构建期静态闸门（语法/跨类引用/静默捕获上限）。
+# 此前它只在我本地手动跑，CI 从不调用 —— 也就是这些闸门其实没在生效。
+cp "$ROOT/scripts/check_java.py" "$BUILD/"
 cp -r "$ROOT/icon/res" "$BUILD/icon/res"
 echo "  源码 $(find "$BUILD/bootstrap/src" -name '*.java' | wc -l) 个 java 文件"
 

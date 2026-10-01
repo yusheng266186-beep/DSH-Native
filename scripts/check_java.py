@@ -35,7 +35,28 @@ PURE = ["FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier
         "PluginPermissions", "ReleaseChannel", "WebToolsEntry", "UiPolicy",
         "OperationGate", "InteractionFeedback", "LiveModelCatalog", "ModelCatalogSync"]
 EMOJI = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
-SOURCES = os.path.join(ROOT, "src", "dev", "dsh", "nativeapp")
+
+# 静默捕获（catch (Throwable ignored)）的允许上限。只允许降低，不允许增长。
+# 降低时请一并改小本值，并确认每一处减少都对应一处真正的修复。
+SILENT_CATCH_BASELINE = 121
+# 仓库克隆与 CI 构建工作区的源码位置不同（run_tests.sh 同理）：
+#   仓库克隆      <root>/src/dev/dsh/nativeapp
+#   构建工作区    <root>/bootstrap/src/dev/dsh/nativeapp
+# 认不出来就直接报错 —— 静默扫到 0 个文件会让这道闸门形同虚设。
+def _locate_sources():
+    here = os.path.dirname(os.path.abspath(__file__))
+    bases = [ROOT, here, os.path.dirname(here)]
+    rels = (("src", "dev", "dsh", "nativeapp"),
+            ("bootstrap", "src", "dev", "dsh", "nativeapp"))
+    for base in bases:
+        for rel in rels:
+            candidate = os.path.join(base, *rel)
+            if os.path.isdir(candidate):
+                return candidate
+    raise SystemExit("[FAIL] 找不到源码目录（找过各处的 src/… 与 bootstrap/src/…）")
+
+
+SOURCES = _locate_sources()
 
 failed = []
 
@@ -120,6 +141,35 @@ def main(argv):
         failed.append(f"{len(hits)} 处闸门违规")
     else:
         print("  [OK] 纯逻辑层无 Android 依赖 / 无 AlertDialog / 无 emoji")
+
+    # 静默捕获只减不增。
+    #
+    # `catch (Throwable ignored)` 会把 NPE 变成「什么都没发生」，而历史上三个 bug
+    # 都出自这里（docs/GOTCHAS 第 3 条）。但现存 121 处里**绝大多数是合理的**：
+    # 关流、取消动画、清 WebView、资源清理、端口探测下一个 —— 逐个改写只会制造
+    # 无谓的 diff 和回归风险。
+    #
+    # 所以这里不追求「清零」，而是**锁住上限**：新增一处就构建失败，逼着作者
+    # 当场判断这是不是又一处该记日志的吞异常。想降低基线就改 SILENT_CATCH_BASELINE。
+    global SILENT_CATCH_BASELINE
+    total = 0
+    per_file = []
+    for f in files:
+        s = open(f, encoding="utf-8").read()
+        n = s.count("catch (Throwable ignored)")
+        if n:
+            total += n
+            per_file.append((n, os.path.relpath(f, ROOT)))
+    per_file.sort(reverse=True)
+    print(f"  静默捕获 {total} 处（上限 {SILENT_CATCH_BASELINE}）"
+          + (": " + ", ".join(f"{n}×{os.path.basename(p)}" for n, p in per_file[:4])
+             if per_file else ""))
+    if total > SILENT_CATCH_BASELINE:
+        for n, p in per_file[:8]:
+            print(f"  [FAIL] {p}: {n} 处静默捕获")
+        failed.append(
+            f"静默捕获 {total} 处超过上限 {SILENT_CATCH_BASELINE}："
+            "新增的吞异常必须先判断要不要 log()，不要直接加进基线")
 
     print()
     if failed:
