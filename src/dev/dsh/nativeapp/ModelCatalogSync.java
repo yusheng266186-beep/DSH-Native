@@ -31,6 +31,9 @@ final class ModelCatalogSync {
     static String writeLiveCatalog(String yaml, String provider,
                                     List<LiveModelCatalog.Entry> upstream) {
         List<LiveModelCatalog.Entry> enriched = new ArrayList<LiveModelCatalog.Entry>();
+        // 视觉能力不再从本地配置继承 —— 上游不提供该字段，本地预设也只覆盖了
+        // 极少数模型，把它当权威反而会让大多数模型重新变成「仅文字」。
+        // 统一按 modelSection() 的「未知即默认支持视觉」处理。
         for (LiveModelCatalog.Entry entry : clean(upstream))
             enriched.add(ModelReasoning.enrich(provider, entry));
         String result = writeCatalog(yaml, provider, enriched);
@@ -42,6 +45,14 @@ final class ModelCatalogSync {
         return result;
     }
 
+    /**
+     * 从现有配置里读出每个模型**已声明**的视觉能力。
+     *
+     * <p>只认显式写了 image 的条目；没写的不算 —— 「没声明」与「声明为纯文字」
+     * 含义不同，不能混为一谈，否则会把真正的纯文字模型误标成支持图片。
+     *
+     * @return modelId -&gt; {是否支持图片}
+     */
     private static String writeCatalog(String yaml, String provider,
                                         List<LiveModelCatalog.Entry> upstream) {
         String normalized = ModelConfig.normalizeProvider(provider);
@@ -220,11 +231,18 @@ final class ModelCatalogSync {
                     out.append(spaces(modelsIndent + 4)).append(line).append('\n');
                 }
             }
-            if (entry.imageKnown) {
-                out.append(spaces(modelsIndent + 4))
-                        .append(deepSeek ? "inputModalities: " : "input: ")
-                        .append(entry.image ? "[ text, image ]\n" : "[ text ]\n");
-            }
+            // 上游的模型接口**不返回**能力字段（实测 commandcode 的 85 个模型
+            // 只有 id/name/context_length/supported_endpoints），所以 imageKnown
+            // 几乎恒为 false —— 而不写 input 时，DSH 会按「仅文字」处理，发图被拒。
+            //
+            // 因此这里采取「未知即默认支持视觉」：既然无法逐个核实，就让 DSH
+            // 照常把图片发出去，由上游决定收不收。模型真不支持时它会返回错误，
+            // 这比本地先把图片拦下来、让用户以为功能坏了要好。
+            // 上游若哪天开始明确声明，就以它为准（imageKnown 为真时不覆盖）。
+            boolean image = !entry.imageKnown || entry.image;
+            out.append(spaces(modelsIndent + 4))
+                    .append(deepSeek ? "inputModalities: " : "input: ")
+                    .append(image ? "[ text, image ]\n" : "[ text ]\n");
         }
         return out.toString();
     }

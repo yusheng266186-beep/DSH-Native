@@ -115,6 +115,48 @@ public class ModelCatalogSyncTest {
             return;
         }
 
+        // ---- 视觉能力：未知即默认支持 ----
+        // 上游模型接口不返回能力字段（实测 85 个模型 0 个带 input_modalities），
+        // 所以刷新后若不补声明，DSH 会按「仅文字」处理、多模态模型发不了图。
+        // 现在统一默认写 input: [ text, image ]，由上游决定收不收。
+        String visionYml = "llm-pi-ai:\n  providers:\n    commandcode:\n"
+                + "      models:\n"
+                + "        - id: plain-model\n"
+                + "          name: Plain\n"
+                + "          contextWindow: 128000\n";
+        java.util.List<LiveModelCatalog.Entry> unknownVision =
+                java.util.Arrays.asList(new LiveModelCatalog.Entry(
+                        "plain-model", "Plain", true, false, false, false, ""));
+        String wrote = ModelCatalogSync.writeLiveCatalog(visionYml, "commandcode", unknownVision);
+        check("unknown model defaults to image input",
+                wrote.contains("input: [ text, image ]"),
+                "no vision declaration written:\n" + wrote);
+        check("vision declaration not duplicated",
+                occurrences(wrote, "input: [ text, image ]") == 1,
+                "declared more than once");
+
+        // 上游若将来明确声明「仅文字」，应以它为准，不被默认值覆盖。
+        java.util.List<LiveModelCatalog.Entry> textOnly =
+                java.util.Arrays.asList(new LiveModelCatalog.Entry(
+                        "text-model", "Text", true, false, false, true, ""));
+        String wroteText = ModelCatalogSync.writeLiveCatalog(visionYml, "commandcode", textOnly);
+        check("explicit text-only from upstream is respected",
+                wroteText.contains("input: [ text ]")
+                        && !wroteText.contains("input: [ text, image ]"),
+                "upstream declaration ignored:\n" + wroteText);
+
+        // 多个模型都要被写到，不能只补第一个。
+        String multiYml = "llm-pi-ai:\n  providers:\n    commandcode:\n"
+                + "      models:\n";
+        String multi = ModelCatalogSync.writeLiveCatalog(multiYml, "commandcode",
+                java.util.Arrays.asList(
+                        new LiveModelCatalog.Entry("m1", "M1", true, false, false, false, ""),
+                        new LiveModelCatalog.Entry("m2", "M2", true, false, false, false, ""),
+                        new LiveModelCatalog.Entry("m3", "M3", true, false, false, false, "")));
+        check("every model gets a declaration",
+                occurrences(multi, "input: [ text, image ]") == 3,
+                "expected 3, got " + occurrences(multi, "input: [ text, image ]"));
+
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
     }
