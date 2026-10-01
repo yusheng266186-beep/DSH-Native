@@ -193,15 +193,20 @@ jobs:
           set -euo pipefail
           WORK="$RUNNER_TEMP/publish"
           mkdir -p "$WORK/base"
-          # 工具片从基底 Release 原样取回（字节必须不变，发布前逐个核对 SHA）
-          gh release download '${{ inputs.base_tag }}'             --repo yusheng266186-beep/DSH-Native             --pattern 'tools-*.tar.zst' --dir "$WORK/base"
+          # 工具片与**基底清单**一起取回：核对字节一致性时需要清单。
+          # 不能引用 build job 的 $RUNNER_TEMP/base-release —— 两个 job 不同 runner。
+          gh release download '${{ inputs.base_tag }}' \
+            --repo yusheng266186-beep/DSH-Native \
+            --pattern 'tools-*.tar.zst' --pattern manifest.json \
+            --dir "$WORK/base"
+          test -f "$WORK/base/manifest.json" || { echo "[FAIL] 未取到基底清单"; exit 1; }
           ls -la "$WORK/base"
 
       - name: 组装完整 payload 并核对
         run: |
           set -euo pipefail
           WORK="$RUNNER_TEMP/publish"
-          BASE="$RUNNER_TEMP/base-release"
+          BASE="$WORK/base"
           # 不写死目录：download-artifact 的产物根取决于上传时的 path 结构，
           # 写死会在结构变化时指向不存在的路径。改为**找**文件并确认唯一。
           OUT="$(dirname "$(find "$RUNNER_TEMP/built" -name dsh.tar.zst -print -quit)")"
