@@ -58,7 +58,7 @@ public class CredentialMergeTest {
         check("FOO must not match FOOBAR", !CredentialMerge.hasKey("FOOBAR: bar\n", "FOO"),
                 "FALSE POSITIVE");
         check("prefix key still found",
-                !CredentialMerge.hasKey("FOOBAR: bar\n", "FOOBAR"), "not found");
+                CredentialMerge.hasKey("FOOBAR: bar\n", "FOOBAR"), "not found");
         check("commented key is not 'present'",
                 !CredentialMerge.hasKey("# FOO: bar\n", "FOO"), "comment counted");
         check("key without value still counts",
