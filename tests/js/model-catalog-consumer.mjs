@@ -121,7 +121,10 @@ const old = await command.resolveModel('commandcode', 'old');
 assert(!old.inputModalities.includes('image'), 'upstream text-only must revoke old vision');
 assert.equal(old.context.contextWindow, 1048576);
 assert.equal(old.defaultMaxTokens, 32000);
-assert(!((await command.resolveModel('commandcode', 'unknown-new')).inputModalities.includes('image')));
+// 上游不返回能力字段，未知模型按「默认可视」处理：既然无法逐个核实，
+// 就让图片照常发出去，由上游决定收不收。上游**明确**声明纯文字时仍以它为准
+// （见上面 old / deepseek-v4-pro 两条断言）。
+assert((await command.resolveModel('commandcode', 'unknown-new')).inputModalities.includes('image'));
 assert.deepEqual((await command.resolveModel('commandcode', 'unknown-new')).reasoning.efforts.map(e => e.id), ['off', 'max']);
 assert((await direct.listModels('deepseek-official')).some(model => model.id === 'deepseek-flash'));
 assert((await direct.resolveModel('deepseek-official', 'deepseek-flash')).inputModalities.includes('image'));
