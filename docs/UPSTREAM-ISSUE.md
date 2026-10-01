@@ -1,7 +1,7 @@
 # Upstream issue record — attachment persistence fails on Android
 
 <!-- dsh-doc-status:start -->
-> Historical record: dates, measurements and plans below describe that iteration. Published stable: **0.33.0**; source: **0.33.1**; source payload: `payload-v11`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](STATUS.md).
+> Historical record: dates, measurements and plans below describe that iteration. Published stable: **0.33.0**; source: **0.33.1**; source payload: `payload-v10`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](STATUS.md).
 <!-- dsh-doc-status:end -->
 
 This is the recorded report posted to the discussion linked below, using the historical package/version and reproduction environment. Current payload-v10 Android compatibility is documented in [CORE_UPGRADE](CORE_UPGRADE.md). It does not establish that upstream has merged every proposed fix.

@@ -1,7 +1,7 @@
 # 设备调试工具说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.0**；源码：**0.33.1**；源码运行包：`payload-v11`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.0**；源码：**0.33.1**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录保留早期在 Android/bionic 环境进行无线 ADB 调试的脚本。它们不是 App 的用户依赖，也不是当前 Linux CI 构建入口；当前开发路径见 [BUILD](../docs/BUILD.md)。

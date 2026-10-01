@@ -1,7 +1,7 @@
 # DSH 0.2.0-rc.2 / payload-v10
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.0**；源码：**0.33.1**；源码运行包：`payload-v11`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.0**；源码：**0.33.1**；源码运行包：`payload-v10`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 App 0.32.0 起使用 payload-v10，将 DSH CLI 及全部 277 个 `dsh-*` 模块从 0.1.7-rc.2 升到固定的 0.2.0-rc.2。这是 2026-09-30 核对并锁定的上游候选版，不是对未来 npm latest 的动态声明。当前来源与完整性以 `runtime/core-source.json` / 锁文件为准；App stable 与上游候选级别分别记录。
