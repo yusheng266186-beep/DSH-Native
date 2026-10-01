@@ -129,13 +129,21 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: payload-${{ inputs.base_tag }}-build
-          path: |
-            ${{ runner.temp }}/${{ inputs.out_name }}/dsh.tar.zst
-            ${{ runner.temp }}/${{ inputs.out_name }}/manifest.json
-            ${{ runner.temp }}/${{ inputs.out_name }}/SHA256SUMS.txt
-            ${{ runner.temp }}/${{ inputs.out_name }}/BUILD-INFO.txt
-            ${{ runner.temp }}/shard.list
+          # 只上传**一个目录**，不要列多个文件。
+          # upload-artifact 会以所有 path 的最近公共祖先为根；若把
+          # $RUNNER_TEMP/payload-v11/dsh.tar.zst 与 $RUNNER_TEMP/shard.list
+          # 混着列，公共祖先就是 $RUNNER_TEMP，产物里会多出一层目录，
+          # download 之后路径对不上（实测踩过）。
+          path: ${{ runner.temp }}/${{ inputs.out_name }}/
           retention-days: 14
+
+      - name: 上传分片清单（仅供排查）
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: payload-shard-list
+          path: ${{ runner.temp }}/shard.list
+          retention-days: 7
 
       - name: 记录构建产物
         id: built
@@ -192,9 +200,15 @@ jobs:
       - name: 组装完整 payload 并核对
         run: |
           set -euo pipefail
-          OUT="$RUNNER_TEMP/built"
           WORK="$RUNNER_TEMP/publish"
           BASE="$RUNNER_TEMP/base-release"
+          # 不写死目录：download-artifact 的产物根取决于上传时的 path 结构，
+          # 写死会在结构变化时指向不存在的路径。改为**找**文件并确认唯一。
+          OUT="$(dirname "$(find "$RUNNER_TEMP/built" -name dsh.tar.zst -print -quit)")"
+          [ -n "$OUT" ] && [ -f "$OUT/dsh.tar.zst" ] \
+            || { echo "[FAIL] 未在下载产物里找到 dsh.tar.zst"; find "$RUNNER_TEMP/built"; exit 1; }
+          echo "构建产物目录: $OUT"
+          mkdir -p "$WORK"
           cp "$OUT/dsh.tar.zst" "$OUT/manifest.json" "$OUT/BUILD-INFO.txt" "$WORK/"
           cp "$WORK"/base/tools-*.tar.zst "$WORK/"
 
