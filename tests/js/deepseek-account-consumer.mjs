@@ -29,6 +29,7 @@ function body(response, data) {
 
 async function boot() {
   output = '';
+  const expectedSettings = await fs.readFile(path.join(home, 'settings.yaml'), 'utf8').catch(() => '');
   child = spawn(process.execPath, ['--expose-internals', path.join(runtime, 'lib/bin.js'),
     '--patch', path.join(scratch, 'platform.yml'), '--profile', 'web', '--no-open', '--port', '0'], {
     cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: '', DEEPSEEK_API_KEY: ''},
@@ -47,10 +48,16 @@ async function boot() {
   native = spawn('java', ['-Dfile.encoding=UTF-8', '-cp', classes, 'dev.dsh.nativeapp.CoreRpcConsumer'], {stdio: ['pipe', 'pipe', 'pipe']});
   const lines = readline.createInterface({input: native.stdout});
   const pending = [];
+  const initialized = new Promise(resolve => pending.push(resolve));
   lines.on('line', line => pending.shift()?.(JSON.parse(line)));
   native.on('exit', code => {assert(code === 0 || code === null, 'native transport exited');});
   const address = new URL(launch);
-  native.stdin.write(JSON.stringify({port: Number(address.port), token: address.searchParams.get('token')}) + '\n');
+  native.stdin.write(JSON.stringify({port: Number(address.port), token: address.searchParams.get('token'), expectedSettings}) + '\n');
+  let bootTimer;
+  const ready = await Promise.race([initialized, new Promise((resolve, reject) => {
+    bootTimer = setTimeout(() => reject(new Error('native configuration readiness timed out')), 45000);
+  })]).finally(() => clearTimeout(bootTimer));
+  assert(ready.ready, 'native core configuration was not ready');
   return async (method, args = {}, snapshot = false, accountConfig = false) => {
     const answer = new Promise(resolve => pending.push(resolve));
     native.stdin.write(JSON.stringify({method, args: JSON.stringify(args), snapshot, accountConfig}) + '\n');

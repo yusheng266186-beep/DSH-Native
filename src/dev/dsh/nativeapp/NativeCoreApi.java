@@ -86,8 +86,7 @@ final class NativeCoreApi {
     String modelSettings(File home) throws Exception {
         File pending = new File(home, "settings.yaml");
         if (pending.isFile()) return ProjectModelSettings.readFile(pending);
-        JSONObject description = (JSONObject) call("settings/describe", new JSONObject());
-        return ModelSettingsSnapshot.fromDescription(description.toString());
+        return client.modelSettings();
     }
 
     void checkOpen() throws IOException {

@@ -1216,12 +1216,15 @@ public class MainActivity extends Activity {
         pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
         pb.environment().put("PYTHONNOUSERSITE", "1");
 
+        File legacySettings = new File(new File(root, ".dsh"), "settings.yaml");
+        boolean needsLegacyImport = legacySettings.isFile();
+        String expectedModelSettings = needsLegacyImport ? ProjectModelSettings.readFile(legacySettings) : "";
         Process started = pb.start();
         HarnessService.adoptProcess(started);
         log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
         // 5. 等待服务就绪后加载界面
-        String url = waitForServer();
+        String url = waitForServer(expectedModelSettings);
         // 兜底：45 秒后无论如何都收起开屏，避免任何情况下界面被永久挡住
         new android.os.Handler(android.os.Looper.getMainLooper())
                 .postDelayed(new Runnable() {
@@ -1229,7 +1232,7 @@ public class MainActivity extends Activity {
         }, 45000);
         if (url == null) {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
-            if (probeHttp(chosenPort) > 0) {
+            if (!needsLegacyImport && probeHttp(chosenPort) > 0) {
                 url = "http://127.0.0.1:" + chosenPort + "/";
                 log("警告: 未捕获到带 token 的地址，尝试直接加载（可能显示未授权页）");
             }
@@ -1775,14 +1778,25 @@ public class MainActivity extends Activity {
     }
 
     /** 轮询本地端口，从 stdout 抓取带 token 的地址。 */
-    private String waitForServer() {
+    private String waitForServer(String expectedModelSettings) {
         final int MAX_SECONDS = 240;
         showStatus("正在启动 DSH …", "首次启动需加载插件，通常 20–60 秒。");
         for (int i = 0; i < MAX_SECONDS; i++) {
             String serviceUrl = HarnessService.managedUrl();
             if (serviceUrl != null) {
-                log("  已捕获服务地址");
-                return serviceUrl;
+                log("  已捕获服务地址，核对模型配置导入");
+                CoreRpcClient client = null;
+                try {
+                    if (expectedModelSettings.length() > 0) {
+                        client = CoreRpcClient.fromLaunchUrl(serviceUrl);
+                        CoreReadiness.awaitModelSettings(client, expectedModelSettings, 30000);
+                    }
+                    return serviceUrl;
+                } catch (Exception unavailable) {
+                    log("模型配置导入未确认: " + unavailable.getClass().getSimpleName());
+                    showStatus("模型配置尚未就绪", "内核未在限定时间内采用模型配置，请查看运行日志后重试。");
+                    return null;
+                } finally { if (client != null) client.close(); }
             }
 
             if (!HarnessService.isManagedProcessAlive()) {

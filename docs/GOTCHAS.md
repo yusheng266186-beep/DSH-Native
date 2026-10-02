@@ -556,3 +556,9 @@ API Key 修改使用内核 `credentials/set` / `unset`，真实账号消费回�
 原生面板消费现有后端，不制造假的 Desktop 桥；授权 URL、PKCE、state 与回调各有不同边界。
 网络错误和日志不得包含 token、Cookie、authorization code 或 PKCE verifier。
 `127.0.0.1` 子串或 `localhost` 前缀也不能作为本机 origin 判定；host、port、scheme 必须准确匹配。
+
+### 服务地址早于模型导入
+
+内核在异步 legacy 导入结束前就打印 Web 地址。CI 曾读到默认模型已经更新，但 Command Code 目录尚未出现的中间状态。
+完成日志默认不输出到终端，不能通过固定 sleep 或猜测日志来判断。启动前保留预期模型配置，
+通过真实 `settings/describe` 核对默认、目录 ID 与能力；超时明确失败。合成平台账号回归使用同一生产判断。

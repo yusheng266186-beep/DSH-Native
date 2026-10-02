@@ -39,6 +39,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 页面每次加载都重新安装辅助脚本。会话探针必须早于模块脚本，完整解析真实列表 RPC，不能截断正文后数 `running:true`。复用已观察到的认证只读 RPC，每 5 秒刷新并使用新 rpcId；90 秒没有可信数据时报告未知。DOM 只补充等待批准，不承担运行状态权威。
 
+服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
+
 ### 模型目录与强度
 
 `ProviderCheck` 只读当前服务商目录；`LiveModelCatalog` 以返回 ID 为可见集合，保留视觉、token 和兼容字段。`ModelCatalogSync` 写入完整 DSH provider models 并保留 live-catalog 标记，防止升级静态预设覆盖实时目录。

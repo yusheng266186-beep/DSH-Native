@@ -14,6 +14,9 @@ public class CoreRpcConsumer {
         Map<?, ?> connection = (Map<?, ?>) JsonValue.parse(input.readLine());
         CoreRpcClient client = new CoreRpcClient(((Number) connection.get("port")).intValue(), (String) connection.get("token"));
         try {
+            CoreReadiness.awaitModelSettings(client, (String) connection.get("expectedSettings"), 30000);
+            System.out.println("{\"ready\":true}");
+            System.out.flush();
             String line;
             while ((line = input.readLine()) != null) {
                 try {

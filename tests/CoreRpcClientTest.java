@@ -42,6 +42,14 @@ public class CoreRpcClientTest {
             check(client.matches(server.getAddress().getPort(), "test-token"));
             check(!client.matches(server.getAddress().getPort() + 1, "test-token")
                     && !client.matches(server.getAddress().getPort(), "replacement-token"));
+            CoreRpcClient parsed = CoreRpcClient.fromLaunchUrl("http://localhost:" + server.getAddress().getPort() + "/?token=test-token");
+            try { check(parsed.matches(server.getAddress().getPort(), "test-token")); }
+            finally { parsed.close(); }
+            for (String invalid : new String[]{"http://localhost.evil:3080/?token=test-token",
+                    "https://127.0.0.1:3080/?token=test-token", "http://user@localhost:3080/?token=test-token",
+                    "http://127.0.0.1:3080/other?token=test-token"}) {
+                reject(() -> CoreRpcClient.fromLaunchUrl(invalid));
+            }
             CoreRpcClient.Reply first = client.call("account/getState", "{}");
             check(first.body.contains(first.id) && first.body.contains("signed-out"));
             client.call("account/getState", "{}");

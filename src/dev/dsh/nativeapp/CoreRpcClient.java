@@ -7,6 +7,9 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.util.Map;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -34,6 +37,31 @@ final class CoreRpcClient {
     }
 
     String origin() { return origin; }
+
+    static CoreRpcClient fromLaunchUrl(String value) throws IOException {
+        try {
+            URI uri = new URI(value);
+            String query = uri.getRawQuery();
+            if (!"http".equals(uri.getScheme()) || uri.getUserInfo() != null
+                    || !("127.0.0.1".equals(uri.getHost()) || "localhost".equals(uri.getHost()))
+                    || !"/".equals(uri.getPath()) || uri.getFragment() != null
+                    || query == null || !query.startsWith("token=") || query.contains("&")) {
+                throw new IOException("invalid core launch address");
+            }
+            return new CoreRpcClient(uri.getPort(), URLDecoder.decode(query.substring(6), "UTF-8"));
+        } catch (Exception invalid) { throw new IOException("invalid core launch address"); }
+    }
+
+    String modelSettings() throws IOException {
+        Reply reply = call("settings/describe", "{}");
+        try {
+            Map<?, ?> envelope = (Map<?, ?>) JsonValue.parse(reply.body);
+            Map<?, ?> result = (Map<?, ?>) envelope.get("result");
+            if (!"server-response".equals(envelope.get("type")) || !reply.id.equals(envelope.get("rpcId"))
+                    || !Boolean.TRUE.equals(result.get("ok"))) throw new IOException("invalid core reply");
+            return ModelSettingsSnapshot.fromDescriptionObject(result.get("value"));
+        } catch (Exception invalid) { throw new IOException("model settings unavailable"); }
+    }
 
     boolean matches(int port, String token) {
         return !closed && origin.equals("http://127.0.0.1:" + port) && this.token.equals(token);

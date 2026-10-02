@@ -25,6 +25,7 @@
 | 组件 | 职责 |
 |---|---|
 | `CoreRpcClient` | 只连接本 App 的 127.0.0.1 端口，交换启动 token 为私有 Cookie，限制 RPC 方法、响应大小、超时与重定向 |
+| `CoreReadiness` | 导入 legacy 配置时核对实际默认/目录/能力，服务地址出现不等于模型目录已就绪 |
 | `NativeCoreApi` | JSON 边界、单线程有界后台队列、取消与 Activity 回调；读取当前公开模型配置 |
 | `DeepSeekAccountPanel` / `DeepSeekAccount` | 原生账号操作、状态显示、前后台轮询、授权 URL 白名单 |
 | `ModelSettingsSnapshot` | 将 `settings/describe` 的公开模型 namespace 投影到现有纯 Java 配置读写器 |
@@ -42,6 +43,11 @@ RPC 使用真实 `client-request` / `server-response` 信封和独立 `rpcId`。
 内核会将 `.dsh/settings.yaml` 导入 active Web profile，原文件改为 `settings.yaml.imported`。
 没有待导入文件时，原生模型读取和项目切换通过 `settings/describe` 获取当前配置；不能把 legacy 文件缺失
 当作没有模型设置。写入新默认或完整目录后沿用待导入文件路径，确认任务空闲再受控重启内核；未知状态延后。
+
+上游先打印 `dsh web:`，再异步导入各 namespace；完成日志通常不输出到终端，不能用日志作为启动闸门。
+App 在启动前保存待导入模型配置，`CoreReadiness` 通过生产 RPC 核对真实默认、目录 ID、视觉与强度声明，
+最多等待 30 秒后才开放界面；超时明确失败，不加载半成品配置。账号消费回归也调用同一判断与传输。
+Android 系统日志和 App 日志都脱敏，原始地址只用于内部连接。
 
 API Key 修改通过内核 `credentials/set` / `credentials/unset`。不要用对话框打开时的凭据全文覆盖
 `.credentials.yaml`：内核可能在浏览器授权期间写入新的账号 `records`，旧全文会丢失 grant。

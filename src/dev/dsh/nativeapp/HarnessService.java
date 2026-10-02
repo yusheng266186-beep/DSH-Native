@@ -97,7 +97,7 @@ public class HarnessService extends Service {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         String clean = stripAnsi(line);
-                        Log.i(TAG, "[dsh] " + clean);
+                        Log.i(TAG, "[dsh] " + SecretMasker.mask(clean));
                         if (managedUrl == null) {
                             Matcher match = URL_PATTERN.matcher(clean);
                             if (match.find()) managedUrl = match.group();
