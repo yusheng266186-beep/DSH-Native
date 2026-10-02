@@ -132,7 +132,7 @@ final class ModelReasoning {
 
     /** Actual declarations remain separate from the user's forced request option. */
     static String supportedDeclaration(String provider, String id, String details) {
-        if (ModelConfig.DEEPSEEK.equals(provider)) {
+        if (ModelConfig.DEEPSEEK.equals(provider) || ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)) {
             // The official /models lists thinking levels, while this adapter also provides Off.
             return "{ off: off, low: low, high: high, max: max }";
         }

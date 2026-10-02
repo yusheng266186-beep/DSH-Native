@@ -331,11 +331,6 @@ public class MainActivity extends Activity {
                         showSettings();
                         return true;
                     }
-                    if (m.indexOf(WebToolsEntry.REFRESH_MODELS_MARKER) >= 0) {
-                        log("WebUI / 更新模型列表：直接同步已配置服务商的上游目录");
-                        ModelCenterPanel.refreshConfigured(MainActivity.this, modelCenterHost(false));
-                        return true;
-                    }
                     if (m.indexOf("[dsh-native] share-task-sent") >= 0) {
                         log("分享任务已提交到 DSH");
                         finishShareTaskSubmission(
@@ -504,7 +499,7 @@ public class MainActivity extends Activity {
                 try {
                     // 会话列表的首次请求通常发生在 onPageFinished 之前。
                     // 在这里先接管 fetch，才能可靠获得任务开始时间与结束状态。
-                    if (url != null && url.indexOf("127.0.0.1") >= 0) {
+                    if (WebUrl.isCoreUrl(url, savedDshPort())) {
                         view.setInitialScale(0);
                         connectionState = ConnectionRecovery.CONNECTING;
                         installSessionProbe(view);
@@ -544,7 +539,7 @@ public class MainActivity extends Activity {
                 // 之前没做区分，导致开屏被提前撤掉（露出状态页），
                 // 且开屏淡到 alpha=0 后仍占满全屏、吃掉所有触摸事件 —— 表现为"整个应用点不动"。
                 // 因此只认真正的 DSH 服务地址。
-                if (url == null || url.indexOf("127.0.0.1") < 0) {
+                if (!WebUrl.isCoreUrl(url, savedDshPort())) {
                     return;
                 }
                 // 注入必须**每次页面加载都做**，不能只做一次。
@@ -632,10 +627,11 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, int errorCode,
                                         String description, String failingUrl) {
-                log("WebView 加载失败: " + errorCode + " " + description + " @ " + failingUrl);
+                log("WebView 加载失败: " + errorCode + " " + description + " @ " + briefUrl(failingUrl));
                 statusPageLoading = false;
                 showStatus("界面加载失败",
-                        "错误 " + errorCode + "：" + description + "<br>地址 " + failingUrl);
+                        "错误 " + errorCode + "：" + WebUrl.escapeHtml(description)
+                                + "<br>地址 " + WebUrl.escapeHtml(briefUrl(failingUrl)));
             }
         });
         root.addView(webView, new android.widget.FrameLayout.LayoutParams(
@@ -1264,7 +1260,7 @@ public class MainActivity extends Activity {
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
     private void loadDshUi(String url) {
-        log("界面就绪: " + url);
+        log("界面就绪: " + briefUrl(url));
         rememberDsh(url);
         final String target = url;
         statusPageLoading = false;
@@ -1738,8 +1734,7 @@ public class MainActivity extends Activity {
         }
         String u = lower;
         // 本机地址留在 WebView 里（DSH 自己的页面、附件预览等）
-        if (u.startsWith("http://127.0.0.1") || u.startsWith("http://localhost")
-                || u.startsWith("https://127.0.0.1") || u.startsWith("https://localhost")
+        if (WebUrl.isCoreUrl(trimmed, savedDshPort())
                 || u.startsWith("about:") || u.startsWith("data:")
                 || u.startsWith("blob:") || u.startsWith("javascript:")) {
             return false;
@@ -1768,7 +1763,7 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             // 没有能处理该 scheme 的应用 —— 提示一下，别让点击看起来没反应
             toast("无法打开该链接：" + briefUrl(url));
-            log("打开外部链接失败: " + url + " → " + t);
+            log("打开外部链接失败: " + briefUrl(url) + " / " + t.getClass().getSimpleName());
         }
         return true;
     }
@@ -4769,11 +4764,15 @@ public class MainActivity extends Activity {
 
     /** 将项目覆盖写入 DSH 的当前默认模型；没有覆盖时恢复全局默认。 */
     private boolean applyProjectModelConfig(String project, File settings) {
+        return applyProjectModelConfig(project, settings, null);
+    }
+
+    private boolean applyProjectModelConfig(String project, File settings, String liveSettings) {
         try {
-            if (settings == null || !settings.isFile()) return true;
+            if (settings == null || (liveSettings == null && !settings.isFile())) return true;
             File home = settings.getParentFile();
             File projectFile = new File(home, ProjectModelSettings.FILE_NAME);
-            String yaml = ProjectModelSettings.readFile(settings);
+            String yaml = liveSettings == null ? ProjectModelSettings.readFile(settings) : liveSettings;
             ModelConfig.Selection current = ModelConfig.readSelection(yaml);
             if (!current.valid()) {
                 log("项目模型配置跳过：当前默认模型无效");
@@ -4816,12 +4815,6 @@ public class MainActivity extends Activity {
             log("项目模型配置失败: " + shorten(t));
             return false;
         }
-    }
-
-    private boolean applyProjectModelConfig(String project) {
-        if (appRoot == null) return true;
-        return applyProjectModelConfig(project,
-                new File(new File(appRoot, ".dsh"), "settings.yaml"));
     }
 
     /** 工作区说明的标题行（用于判断文件是否由本应用生成）。 */
@@ -5215,6 +5208,29 @@ public class MainActivity extends Activity {
         ModelCenterPanel.show(this, modelCenterHost(false), false);
     }
 
+    private NativeCoreApi nativeCoreApi;
+    private DeepSeekAccountPanel deepSeekAccountPanel;
+
+    private NativeCoreApi coreApi() {
+        if (nativeCoreApi == null && dshPageLoaded) {
+            try { nativeCoreApi = new NativeCoreApi(this, savedDshPort(), savedDshToken()); }
+            catch (IllegalArgumentException unavailable) { log("原生内核接口尚未就绪"); }
+        }
+        return nativeCoreApi;
+    }
+
+    private void showDeepSeekAccount(final Runnable previous) {
+        NativeCoreApi api = coreApi();
+        if (api == null) {
+            toast(UiText.t("请等待 DSH 启动完成后登录", "Wait for DSH to finish starting before signing in."));
+            previous.run();
+            return;
+        }
+        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
+        deepSeekAccountPanel = new DeepSeekAccountPanel(this, api, previous);
+        deepSeekAccountPanel.show();
+    }
+
     private void showModelOnboarding() {
         ModelCenterPanel.show(this, modelCenterHost(false), true);
     }
@@ -5225,6 +5241,10 @@ public class MainActivity extends Activity {
 
     private ModelCenterPanel.Host modelCenterHost(final boolean returnToProjects) {
         return new ModelCenterPanel.Host() {
+            @Override public NativeCoreApi coreApi() { return MainActivity.this.coreApi(); }
+
+            @Override public void openDeepSeekAccount(Runnable previous) { showDeepSeekAccount(previous); }
+
             @Override public File dshHome() {
                 return new File(appRoot, ".dsh");
             }
@@ -5739,18 +5759,35 @@ public class MainActivity extends Activity {
         DshUi.setBusy(button, idleLabel, UiText.t("切换中…", "Switching…"), true);
         final Runnable apply = new Runnable() {
             @Override public void run() {
-                if (!applyProjectModelConfig(project)) {
-                    toast(UiText.t("无法应用项目模型配置，项目未切换",
-                            "Could not apply the project model; the project was not switched."));
+                final NativeCoreApi api = coreApi();
+                if (api == null) {
+                    toast(UiText.t("请等待 DSH 启动完成", "Wait for DSH to finish starting."));
                     DshUi.setBusy(button, idleLabel,
                             UiText.t("切换中…", "Switching…"), false);
                     return;
                 }
-                if (origin != null) origin.dismiss();
-                rememberActiveProject(project);
-                String display = UiText.text(WorkspaceProjects.displayName(project));
-                restartAgent(UiText.t("正在切换到“" + display + "”…",
-                        "Switching to \"" + display + "\"…"));
+                api.execute(new NativeCoreApi.Work() {
+                    @Override public Object run() throws Exception {
+                        File home = new File(appRoot, ".dsh");
+                        String snapshot = api.modelSettings(home);
+                        api.checkOpen();
+                        return applyProjectModelConfig(project, new File(home, "settings.yaml"), snapshot);
+                    }
+                }, new NativeCoreApi.Callback() {
+                    @Override public void complete(Object result, Throwable failure) {
+                        if (failure != null || !Boolean.TRUE.equals(result)) {
+                            toast(UiText.t("无法应用项目模型配置，项目未切换",
+                                    "Could not apply the project model; the project was not switched."));
+                            DshUi.setBusy(button, idleLabel, UiText.t("切换中…", "Switching…"), false);
+                            return;
+                        }
+                        if (origin != null) origin.dismiss();
+                        rememberActiveProject(project);
+                        String display = UiText.text(WorkspaceProjects.displayName(project));
+                        restartAgent(UiText.t("正在切换到“" + display + "”…",
+                                "Switching to \"" + display + "\"…"));
+                    }
+                });
             }
         };
         final Runnable cancel = new Runnable() {
@@ -5759,13 +5796,12 @@ public class MainActivity extends Activity {
                         UiText.t("切换中…", "Switching…"), false);
             }
         };
-        if (lastSessionStatus == SessionStatus.RUNNING
-                || lastSessionStatus == SessionStatus.AWAITING_APPROVAL) {
+        if (lastSessionStatus != SessionStatus.IDLE || taskTimeline.active() != null) {
             DshUi.confirm(this,
                     UiText.t("切换项目会中断当前任务",
                             "Switching projects interrupts the current task"),
-                    UiText.t("agent 需要重启后才能使用新的工作目录。正在运行的任务会被中断，是否继续？",
-                            "The agent must restart to use the new working directory. The running task will be interrupted. Continue?"),
+                    UiText.t("agent 需要重启后才能使用新的工作目录。任务正在运行或状态尚未确认，切换可能中断任务，是否继续？",
+                            "The agent must restart to use the new working directory. Tasks are running or their state is unknown; switching may interrupt them. Continue?"),
                     UiText.t("切换并重启", "Switch & restart"), apply, cancel);
         } else {
             apply.run();
@@ -5871,6 +5907,8 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent(final String progressMessage) {
+        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
+        if (nativeCoreApi != null) { nativeCoreApi.close(); nativeCoreApi = null; }
         HarnessService.stopManagedProcess();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .remove("dshPort").remove("dshToken").apply();
@@ -7382,7 +7420,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.33.9\n");
+            w.write("APK 版本: 0.33.10\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7570,11 +7608,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
+        if (deepSeekAccountPanel != null) deepSeekAccountPanel.foreground(true);
     }
 
     @Override
     protected void onPause() {
         inForeground = false;
+        if (deepSeekAccountPanel != null) deepSeekAccountPanel.foreground(false);
         super.onPause();
     }
 
@@ -8029,6 +8069,8 @@ public class MainActivity extends Activity {
         HarnessService.clearListener(harnessListener);
         DshUi.clearLogSink(dshUiLogSink);
         activityWorkers.stop();
+        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
+        if (nativeCoreApi != null) nativeCoreApi.close();
 
         // WebView 持有 Activity、回调和渲染线程。主题切换会重建 Activity，
         // 旧实例若不显式销毁，会与看门狗一样累积到进程结束。

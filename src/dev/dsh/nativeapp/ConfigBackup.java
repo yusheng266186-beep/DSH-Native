@@ -41,6 +41,8 @@ final class ConfigBackup {
     static final String[] FILES = {
         ".credentials.yaml",
         "settings.yaml",
+        "settings.yaml.imported",
+        "profiles/web/cordis.patch.yml",
         ProjectModelSettings.FILE_NAME,
     };
 
@@ -221,17 +223,21 @@ final class ConfigBackup {
         int total = 0;
         try {
             for (String name : FILES) {
-                File file = new File(dshHome, name);
+                File file = configFile(dshHome, name);
                 if (!file.isFile()) continue;
                 if (file.length() > MAX_ENTRY_BYTES) throw new IOException(name + " 超过大小限制");
                 zip.putNextEntry(new ZipEntry(name));
                 FileInputStream in = new FileInputStream(file);
                 try {
                     byte[] buffer = new byte[8192];
+                    int entryBytes = 0;
                     int n;
                     while ((n = in.read(buffer)) > 0) {
+                        entryBytes += n;
                         total += n;
-                        if (total > MAX_TOTAL_BYTES) throw new IOException("配置总大小超过限制");
+                        if (entryBytes > MAX_ENTRY_BYTES || total > MAX_TOTAL_BYTES) {
+                            throw new IOException("配置大小超过限制");
+                        }
                         zip.write(buffer, 0, n);
                     }
                 } finally {
@@ -318,8 +324,8 @@ final class ConfigBackup {
                 if (entry.isDirectory() || name == null || name.length() == 0) {
                     throw new IOException("备份包含无效条目");
                 }
-                if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.contains("..")) {
-                    throw new IOException("备份内容不合法（含路径分隔符）");
+                if (name.indexOf('\\') >= 0 || name.contains("..")) {
+                    throw new IOException("备份内容不合法");
                 }
                 if (!Arrays.asList(FILES).contains(name)) {
                     throw new IOException("备份内容不在允许范围内：" + name);
@@ -354,6 +360,20 @@ final class ConfigBackup {
         if (!dshHome.isDirectory() && !dshHome.mkdirs()) throw new IOException("无法创建配置目录");
         List<File> staged = new ArrayList<File>();
         try {
+            // 校验全部目标和父目录后才覆盖任何文件，允许的嵌套路径仍由 FILES 精确限定。
+            List<File> targets = new ArrayList<File>();
+            for (String name : entries.keySet()) {
+                File target = configFile(dshHome, name);
+                File parent = target.getParentFile();
+                if (!parent.isDirectory() && !parent.mkdirs()) {
+                    throw new IOException("无法创建配置子目录");
+                }
+                configFile(dshHome, name);
+                if (target.exists() && !target.isFile()) {
+                    throw new IOException("配置目标不是文件");
+                }
+                targets.add(target);
+            }
             int index = 0;
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 File temp = new File(dshHome, ".restore-" + index + "-" + System.nanoTime());
@@ -370,7 +390,8 @@ final class ConfigBackup {
             int restored = 0;
             index = 0;
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
-                TransferState.atomicReplace(staged.get(index), new File(dshHome, entry.getKey()));
+                configFile(dshHome, entry.getKey());
+                TransferState.atomicReplace(staged.get(index), targets.get(index));
                 restored++;
                 index++;
             }
@@ -379,6 +400,16 @@ final class ConfigBackup {
             for (File file : staged) if (file.exists()) file.delete();
             wipeEntries(entries);
         }
+    }
+
+    private static File configFile(File dshHome, String name) throws IOException {
+        if (!Arrays.asList(FILES).contains(name)) throw new IOException("配置文件不在允许范围内");
+        File target = new File(dshHome, name);
+        String root = dshHome.getCanonicalPath() + File.separator;
+        if (!target.getCanonicalPath().startsWith(root)) {
+            throw new IOException("配置路径超出目录范围");
+        }
+        return target;
     }
 
     private static void wipeEntries(Map<String, byte[]> entries) {

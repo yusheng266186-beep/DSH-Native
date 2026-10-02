@@ -221,9 +221,9 @@ function runShortTimers() {
 
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'one tools row should be inserted');
-assert(modelRows().length === 1, 'one model refresh row should be inserted');
+assert(modelRows().length === 0, 'model refresh is absent from the sidebar');
 const section = toolsRows()[0].parentElement;
-assert(section === modelRows()[0].parentElement, 'entries share a vertical section');
+assert(section.children.length === 1, 'sidebar contains only App tools');
 assert(section.getAttribute('style').includes('flex-direction:column'), 'entries must stack vertically');
 assert(section.parentElement === tree.host.parentElement, 'section lives outside the horizontal settings row');
 assert(tree.host.children.length === 1 && tree.host.children[0] === tree.row, 'original settings area is unchanged');
@@ -235,15 +235,13 @@ assert(toolsButton.getAttribute('aria-haspopup') === null, 'dialog state leaked 
 const click = toolsButton.dispatch('click');
 assert(click.prevented && click.stopped, 'click should stay in the native entry');
 assert(messages.includes('[dsh-native] open-settings'), 'open marker missing');
-const modelClick = modelRows()[0].children[0].dispatch('click');
-assert(modelClick.prevented && modelClick.stopped, 'model click should stay in the native entry');
-assert(messages.includes('[dsh-native] refresh-models'), 'model refresh marker missing');
+assert(!messages.includes('[dsh-native] refresh-models'), 'refresh must live in native model settings');
 assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').length === 1,
   'ready marker should be emitted once');
 
 vm.runInNewContext(script, context);
 assert(toolsRows().length === 1, 'repeat injection must not duplicate the row');
-assert(modelRows().length === 1, 'repeat injection must not duplicate model row');
+assert(modelRows().length === 0, 'repeat injection must not restore model row');
 
 // 48px reproduces the real-device failure: the old >44px heuristic mistook
 // this collapsed control for an expanded sidebar and left the native gear active.
@@ -270,8 +268,8 @@ observerCallback();
 runShortTimers();
 assert(toolsRows().length === 1,
   'expanding the sidebar should restore App tools without a reload');
-assert(modelRows().length === 1,
-  'expanding the sidebar should restore the model refresh row without a reload');
+assert(modelRows().length === 0,
+  'expanding the sidebar must not restore model refresh');
 
 const next = settingsTree('en', false);
 tree.host.children = [];
@@ -281,7 +279,7 @@ tree = { host: tree.host, row: next.row, button: next.button };
 observerCallback();
 runShortTimers();
 assert(toolsRows().length === 1, 'React-style rerender should restore one row');
-assert(modelRows().length === 1, 'React-style rerender should restore the model row');
+assert(modelRows().length === 0, 'React-style rerender keeps refresh out of the sidebar');
 toolsButton = toolsRows()[0].children[0];
 assert(toolsButton.getAttribute('aria-label') === 'App tools', 'English label missing');
 assert(messages.filter((item) => item === '[dsh-native] tools-entry-ready').length === 1,

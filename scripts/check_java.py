@@ -34,12 +34,12 @@ PURE = ["FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier
         "PayloadRollback", "WorkspaceProjects", "ShareTask",
         "PluginPermissions", "ReleaseChannel", "WebToolsEntry", "UiPolicy",
         "OperationGate", "InteractionFeedback", "LiveModelCatalog", "ModelCatalogSync",
-        "PayloadManifest", "CredentialMerge", "WebUrl", "YamlBlocks", "RuntimeDir", "ModelImageSupport", "ModelCatalogPersistence", "LayoutProbe"]
+        "PayloadManifest", "CredentialMerge", "WebUrl", "YamlBlocks", "RuntimeDir", "ModelImageSupport", "ModelCatalogPersistence", "LayoutProbe", "JsonValue", "CoreRpcClient", "DeepSeekAccount", "ModelSettingsSnapshot"]
 EMOJI = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
 
 # 静默捕获（catch (Throwable ignored)）的允许上限。只允许降低，不允许增长。
 # 降低时请一并改小本值，并确认每一处减少都对应一处真正的修复。
-SILENT_CATCH_BASELINE = 121
+SILENT_CATCH_BASELINE = 120
 # 仓库克隆与 CI 构建工作区的源码位置不同（run_tests.sh 同理）：
 #   仓库克隆      <root>/src/dev/dsh/nativeapp
 #   构建工作区    <root>/bootstrap/src/dev/dsh/nativeapp

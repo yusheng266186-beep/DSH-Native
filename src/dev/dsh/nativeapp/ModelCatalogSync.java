@@ -70,6 +70,17 @@ final class ModelCatalogSync {
             return replaceTopLevelBlock(source, COMMAND_BLOCK, updated);
         }
 
+        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(normalized)) {
+            String name = "llm-deepseek-account";
+            String current = topLevelBlock(source, name);
+            String updated = current == null
+                    ? name + ":\n" + modelSection(entries, 2, normalized, true)
+                    : replaceModels(current, null, entries, false).replace(
+                            LIVE_MARKER_PREFIX + ModelConfig.DEEPSEEK,
+                            LIVE_MARKER_PREFIX + ModelConfig.DEEPSEEK_ACCOUNT);
+            return current == null ? appendTopLevel(source, updated)
+                    : replaceTopLevelBlock(source, name, updated);
+        }
         String blockName = topLevelBlock(source, DEEPSEEK_BLOCK) != null
                 ? DEEPSEEK_BLOCK : DEEPSEEK_LEGACY_BLOCK;
         String block = topLevelBlock(source, blockName);
@@ -88,6 +99,7 @@ final class ModelCatalogSync {
         if (normalized.length() == 0) return false;
         String blockName = ModelConfig.COMMAND_CODE.equals(normalized)
                 ? COMMAND_BLOCK
+                : ModelConfig.DEEPSEEK_ACCOUNT.equals(normalized) ? "llm-deepseek-account"
                 : (topLevelBlock(yaml, DEEPSEEK_BLOCK) != null
                     ? DEEPSEEK_BLOCK : DEEPSEEK_LEGACY_BLOCK);
         String block = topLevelBlock(yaml, blockName);

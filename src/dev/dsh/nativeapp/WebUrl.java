@@ -1,6 +1,7 @@
 package dev.dsh.nativeapp;
 
 import java.net.URL;
+import java.net.URI;
 import java.util.Locale;
 
 /**
@@ -54,9 +55,29 @@ final class WebUrl {
     /** URL 太长时截断，只用于日志与提示。 */
     static String brief(String url) {
         if (url == null) return "";
-        String u = url.trim();
+        String u;
+        try {
+            URI parsed = new URI(url.trim());
+            if ("http".equalsIgnoreCase(parsed.getScheme()) || "https".equalsIgnoreCase(parsed.getScheme())) {
+                if (parsed.getHost() == null) return "[invalid URL]";
+                u = parsed.getScheme() + "://" + parsed.getHost()
+                        + (parsed.getPort() == -1 ? "" : ":" + parsed.getPort())
+                        + (parsed.getRawPath() == null ? "" : parsed.getRawPath());
+            } else return parsed.getScheme() == null ? "[invalid URL]" : parsed.getScheme() + ":…";
+        } catch (Exception invalid) { return "[invalid URL]"; }
         if (u.length() <= 80) return u;
         return u.substring(0, 60) + "…" + u.substring(u.length() - 15);
+    }
+
+    /** Compare the actual loopback origin; prefixes also match localhost.evil. */
+    static boolean isCoreUrl(String value, int port) {
+        try {
+            if (port <= 0 || value == null) return false;
+            URI uri = new URI(value);
+            return "http".equalsIgnoreCase(uri.getScheme()) && uri.getPort() == port
+                    && uri.getUserInfo() == null && ("127.0.0.1".equals(uri.getHost())
+                        || "localhost".equalsIgnoreCase(uri.getHost()));
+        } catch (Exception invalid) { return false; }
     }
 
     /** 把要显示的文本编码进 HTML，避免异常文本破坏状态页结构。 */

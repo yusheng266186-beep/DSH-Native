@@ -10,6 +10,7 @@ import {chromium} from 'playwright';
 const runtime = path.resolve(process.argv[2]);
 const patched = await fs.readFile(process.argv[3], 'utf8');
 const probe = await fs.readFile(process.argv[4], 'utf8');
+const tools = await fs.readFile(process.argv[5], 'utf8');
 const injection = patched.slice(patched.indexOf('<style id="dsh-native-responsive">'), patched.indexOf('</head>'));
 assert(injection.startsWith('<style'), 'must consume the generated Java patch');
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-layout-'));
@@ -78,9 +79,12 @@ try {
     try {
       await context.grantPermissions(['local-network-access'], {origin});
       await context.request.get(launch);
-      const page = await context.newPage(), logs = [], errors = [];
+      const page = await context.newPage(), logs = [], errors = [], nativeActions = [];
       page.setDefaultTimeout(10000);
-      page.on('console', m => {if (m.text().startsWith('[dsh-native] layout-probe ')) logs.push(m.text());});
+      page.on('console', m => {
+        if (m.text().startsWith('[dsh-native] layout-probe ')) logs.push(m.text());
+        if (m.text().startsWith('[dsh-native] open-settings')) nativeActions.push(m.text());
+      });
       page.on('pageerror', e => errors.push(e.message));
       // Preserve the Host's module registry, authentication and theme bootstrap.
       await page.route(origin + '/', async route => {
@@ -96,6 +100,7 @@ try {
       await later.click();
       await page.getByRole('dialog').waitFor({state: 'hidden'});
       await page.evaluate(probe);
+      await page.evaluate(tools);
       const send = page.getByRole('button', {name: /^(Send message|发送消息)$/});
       const size = async locator => {
         const r = await locator.boundingBox(); assert(r, 'control must be visible'); return r;
@@ -180,6 +185,21 @@ try {
       await tabClose.click();
       check(await page.locator('[data-textpreview-state="text"]').count() === 0, 'file tab close handler did not close the preview');
       await page.locator('[data-sidebar-right-toggle]').click();
+
+      // Exercise the Java-generated App entry in the actual shipped sidebar.
+      await page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}).click();
+      const appTools = page.locator('[data-dsh-native-tools="button"]');
+      await appTools.waitFor({state: 'visible'});
+      check(await appTools.count() === 1, 'App tools entry was duplicated');
+      check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
+      const toolsBox = await size(appTools);
+      check(toolsBox.height >= 43.5, 'App tools touch target is too small');
+      await appTools.click();
+      check(nativeActions.length === 1, 'actual App tools click did not reach the native marker');
+      check(await page.locator('[data-shortcut-modal="settings"][role=dialog]').count() === 0, 'App entry triggered the Web settings');
+      await page.evaluate(tools);
+      check(await appTools.count() === 1, 'reinjecting tools duplicated the live sidebar');
+      await noPageOverflow();
 
       // Preserve the working settings adaptation and verify its actual switch geometry.
       await page.getByRole('button', {name: /^(Settings|设置)$/}).click();
