@@ -298,7 +298,7 @@ public class MainActivity extends Activity {
                         return true;
                     }
                     if (LayoutProbe.isResult(m)) {
-                        log("布局体检: " + shorten(m));
+                        log("布局体检: " + (m.length() > 900 ? m.substring(0, 900) : m));
                         return true;
                     }
                     if (WebToolsEntry.isReady(m)) {
