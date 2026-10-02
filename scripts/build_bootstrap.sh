@@ -77,7 +77,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js snapshot.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
+for f in unpack.js snapshot.js session-publish.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -176,6 +176,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelImageSupport.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelCatalogPersistence.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/LayoutProbe.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

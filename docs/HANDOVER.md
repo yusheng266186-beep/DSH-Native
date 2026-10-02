@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -35,7 +35,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 ### 启动与存活探测
 
-`MainActivity` 初始化环境、配置、补丁与 WebView；`LocalServerProbe` 在同一 localhost origin 完成 token → 303 → Cookie 探测，限跳转、响应大小与超时，不向其他 origin 发送凭据。已可用实例尽量复用，进程失败按 `ProcessSupervisor` 有界退避。
+`MainActivity` 初始化环境、配置、补丁与 WebView；`SessionPersistencePatch` 在每次启动修复首次保存和格式迁移的两个硬链接发布点，兼容旧 payload-v12。链接 EACCES 等兼容错误才降级为排他复制并 fsync，同名历史拒绝覆盖，真实写权限和磁盘错误仍传播。旧进程若加载的是较早 APK 的模块，明确要求从更新与维护重启，不误报已采用补丁。`LocalServerProbe` 在同一 localhost origin 完成 token → 303 → Cookie 探测，限跳转、响应大小与超时，不向其他 origin 发送凭据。已可用实例尽量复用，进程失败按 `ProcessSupervisor` 有界退避。
 
 页面每次加载都重新安装辅助脚本。会话探针必须早于模块脚本，完整解析真实列表 RPC，不能截断正文后数 `running:true`。复用已观察到的认证只读 RPC，每 5 秒刷新并使用新 rpcId；90 秒没有可信数据时报告未知。DOM 只补充等待批准，不承担运行状态权威。
 
@@ -55,7 +55,7 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 
 ### DeepSeek 账号
 
-模型刷新位于 App 工具的模型中心，侧栏只保留 App 工具入口。`DeepSeekAccountPanel` 使用固定内核已有账号 RPC，浏览器完成 PKCE 授权后返回 App；不伪造上游 Desktop 桥。账号 provider 为 `deepseek-account`，与 DeepSeek API Key 独立。API Key 修改通过内核 credentials RPC，不用旧凭据全文覆盖新账号 records。后台队列、关闭取消与前台轮询见 [账号交接](DEEPSEEK_ACCOUNT.md)。
+模型刷新位于 App 工具的模型中心。App 工具的 DeepSeek 账号入口通过页面内的无权限事件打开 DSH 原始账号设置；`AccountUi` 仅适配桌面判断、浏览器授权和原设置导航，保留 profile、充值/赠金余额、用量、充值、取消与退出。不存在伪造的 Desktop 桥，旧 `DeepSeekAccountPanel` 已删除。账号 provider 与 API Key 独立，API Key 继续使用内核 credentials RPC，避免覆盖 grant。详情见 [账号交接](DEEPSEEK_ACCOUNT.md)。
 
 ### 文件、备份与恢复
 
@@ -70,7 +70,7 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 | 生命周期、整合 | `MainActivity.java`、`HarnessService.java` |
 | 原生设计 | `DshUi.java`、`DeviceLayout.java`、`UiText.java` |
 | 模型 | `ModelConfig.java`、`ModelCatalogSync.java`、`ModelReasoning.java`、`ModelEffortUi.java` |
-| 内核 RPC 与账号 | `CoreRpcClient.java`、`NativeCoreApi.java`、`ModelSettingsSnapshot.java`、`DeepSeekAccountPanel.java` |
+| 内核 RPC 与账号 | `CoreRpcClient.java`、`NativeCoreApi.java`、`ModelSettingsSnapshot.java`、`AccountUi.java` |
 | 连接与任务 | `SessionProbe.java`、`SessionStatus.java`、`ConnectionRecovery.java`、`TaskTimeline.java` |
 | 更新 | `PayloadUpdate.java`、`PayloadRollback.java`、`TransferState.java` |
 | 诊断 | `SecretMasker.java`、`DiagnosticReport.java`、`LogViewer.java` |
@@ -91,7 +91,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 模型回归包含实际 Host、目录投影、`resolveCallConfig`、离线 SDK 请求体，以及真实聊天框 React 组件的模型/强度 RPC；两种语言均验证。内核回归包含持久化、独占发布/FUSE 降级、磁盘错误、Linux 锁及认证 Web profile。没有调用付费模型服务。
 
-账号回归使用真实内核、生产 Java RPC 与本机合成平台，覆盖授权、凭据保留、账号默认消费、重启、退出、取消、过期和网络错误。它不代表真实 DeepSeek 平台授权或新增原生面板已在手机验收。
+账号回归使用真实内核、生产 Java RPC 与本机合成平台，覆盖授权、凭据保留、账号默认消费、重启、退出、取消、过期和网络错误。它不代表真实 DeepSeek 平台授权或本版上游账号界面适配已在手机验收。
 
 ## 6. 已有证据与剩余事项
 

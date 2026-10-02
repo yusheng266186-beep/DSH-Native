@@ -22,8 +22,21 @@ tar --zstd --no-same-owner -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
 if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
-    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,ConnectionRecovery,DraftRecovery,LayoutProbe}.java \
-    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer}.java
+    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi}.java \
+    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest}.java
+PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
+    --dump-module "$PERSISTENCE" "$ROOT/payload/session-publish.js" > "$PROBE/persistence.js"
+mv "$PROBE/persistence.js" "$PERSISTENCE"
+for kind in account settings; do
+    package=dsh-client-ui-settings-account
+    [ "$kind" = settings ] && package=dsh-client-ui-settings-general
+    MODULE="$PROBE/runtime/node_modules/@deepseek-ai/$package/lib/client.js"
+    java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.AccountUiTest \
+        "--dump-$kind" "$MODULE" > "$PROBE/account-ui.js"
+    mv "$PROBE/account-ui.js" "$MODULE"
+done
+node --expose-internals "$ROOT/tests/js/session-publish-consumer.mjs" "$PROBE/runtime"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelReasoningTest \
@@ -33,12 +46,12 @@ node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runt
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelEffortUiTest --dump-client \
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js" > "$PROBE/client.js"
 npm ci --prefix "$ROOT/tests/js" --no-audit --no-fund
+"$ROOT/tests/js/node_modules/.bin/playwright" install --with-deps chromium
 node "$ROOT/tests/js/composer-effort-consumer.mjs" "$PROBE/runtime" "$PROBE/client.js" "$PROBE/catalog.json"
 node --expose-internals "$ROOT/tests/js/core-runtime-consumer.mjs" "$PROBE/runtime"
-node --expose-internals "$ROOT/tests/js/deepseek-account-consumer.mjs" "$PROBE/runtime" "$PROBE/classes"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest --dump-html \
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html" 480 > "$PROBE/mobile.html"
+node --expose-internals "$ROOT/tests/js/deepseek-account-consumer.mjs" "$PROBE/runtime" "$PROBE/classes" "$PROBE/mobile.html"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.LayoutProbeTest --dump-script > "$PROBE/layout-probe.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$PROBE/web-tools.js"
-"$ROOT/tests/js/node_modules/.bin/playwright" install --with-deps chromium
 node "$ROOT/tests/js/mobile-layout-consumer.mjs" "$PROBE/runtime" "$PROBE/mobile.html" "$PROBE/layout-probe.js" "$PROBE/web-tools.js"

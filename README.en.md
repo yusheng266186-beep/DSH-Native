@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.10**; source: **0.33.10**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.33.10**; source: **0.33.11**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -39,7 +39,7 @@ The APK carries Node and bootstrap logic. DSH and the toolchain are installed fr
 
 1. Install the APK and grant the requested file and notification permissions.
 2. Select a language and complete runtime download, SHA-256 verification, and extraction.
-3. Open Model Center and enter a Command Code / DeepSeek API key, or use DeepSeek sign-in & account settings to authorize in your browser.
+3. Open Model Center and enter a Command Code / DeepSeek API key, or use DeepSeek account & balances to authorize in your browser.
 4. Fetch the provider's live model directory, choose a default model and effort, and save.
 5. Use the default workspace or create a named project, then start a new conversation.
 
@@ -47,7 +47,7 @@ Native language settings offer system default, Chinese, and English. DSH WebUI l
 
 ### Finding App tools
 
-Expand the DSH sidebar and select **App tools** at the bottom. Open **Model center** to use **Refresh models** or **DeepSeek sign-in & account settings**.
+Expand the DSH sidebar and select **App tools** at the bottom. Open **Model center** for **Refresh models**. **App tools → DeepSeek account** opens DSH’s original **Account** settings with a shortcut in Model center.
 
 Fallback entry points include a long press on the top of the page, the notification's settings action, and launcher shortcuts for settings, logs, and updates. The web gear continues to open DSH's own settings.
 
@@ -75,7 +75,7 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 | Direct DeepSeek | `GET https://api.deepseek.com/models` | Directory returned for your official API key |
 | DeepSeek account | Core `account/*` and `session/modelCatalog` | Core-managed account model route after browser authorization |
 
-Sign-in opens DeepSeek's authorization page in your browser. After authorization, return to the App, choose **DeepSeek account**, fetch the model list, and save. You can reopen authorization, cancel a pending attempt, or sign out. API keys and account authorization are stored separately. Signing out stops tasks using that account and retains API keys, sessions, and projects. See [account integration and verification boundaries](docs/DEEPSEEK_ACCOUNT.md).
+DSH’s original account page shows account details, topped-up and granted balances, usage, top-up and sign-out actions. Sign-in opens DeepSeek's authorization page in your browser. After authorization, return to the App, choose **DeepSeek account**, fetch the model list, and save. You can reopen authorization, cancel a pending attempt, or sign out. API keys and account authorization are stored separately. Signing out stops tasks using that account and retains API keys, sessions, and projects. See [account integration and verification boundaries](docs/DEEPSEEK_ACCOUNT.md).
 
 Connection checks read the directory without sending a test prompt. The native picker displays IDs from the current successful response. Local capability records explain effort and image support; they do not fabricate models unavailable to your account.
 

@@ -197,7 +197,7 @@ final class ModelCenterPanel {
             body.addView(ds, DshUi.fullWidth(act, 6));
             body.addView(dsAccount, DshUi.fullWidth(act, 6));
             Button accountSettings = DshUi.button(act,
-                    UiText.t("DeepSeek 账号登录与管理", "DeepSeek sign-in & account settings"), false);
+                    UiText.t("DeepSeek 账号与余额", "DeepSeek account & balances"), false);
             body.addView(accountSettings, DshUi.fullWidth(act, 6));
 
             final TextView ccLabel = DshUi.label(act, "Command Code API Key");

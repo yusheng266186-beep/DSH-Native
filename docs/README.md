@@ -1,7 +1,7 @@
 # 文档中心
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 先看 [项目状态与验证边界](STATUS.md)，再选择用户指南或技术文档。各文件顶部自动显示稳定发布、源码、运行包和固定内核；当前说明与历史记录使用不同标记。
@@ -18,7 +18,7 @@
 | [BUILD](BUILD.md) | Linux / CI 构建、测试、签名、正式发布与问题定位 |
 | [DESIGN](DESIGN.md) | DshUi、主题、布局、动效、异步生命周期和返回导航规范 |
 | [MODEL_REASONING](MODEL_REASONING.md) | 逐模型官方快照与 App 档位、Max 请求、优先级与回归 |
-| [DEEPSEEK_ACCOUNT](DEEPSEEK_ACCOUNT.md) | 原生账号登录、内核 RPC、凭据保存、配置迁移和消费回归 |
+| [DEEPSEEK_ACCOUNT](DEEPSEEK_ACCOUNT.md) | 上游账号与余额界面、浏览器登录、内核 RPC、配置迁移和消费回归 |
 | [CORE_UPGRADE](CORE_UPGRADE.md) | 固定 DSH、payload-v10、构建发布和 Android 兼容差异 |
 | [GOTCHAS](GOTCHAS.md) | 历史事故及现行防护，避免静默失败和重复踩坑 |
 | [HANDOVER-LAYOUT](HANDOVER-LAYOUT.md) | WebUI 控件拉伸根因、真实触屏回归与 0.33.9 用户验收记录 |

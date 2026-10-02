@@ -1118,6 +1118,8 @@ public class MainActivity extends Activity {
         // 复用它：直接连上去，跳过整个启动过程。
         int live = liveDshPort();
         if (live > 0) {
+            if (!appVersion().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreAppVersion", "")))
+                return "运行中的 DSH 尚未加载本版修复，请点击「重试启动」重启内核";
             chosenPort = live;
             log("复用已在运行的 DSH（端口 " + live + "），跳过启动，立即进入界面");
             setSplashStatus("正在连接已有服务…");
@@ -1221,6 +1223,7 @@ public class MainActivity extends Activity {
         String expectedModelSettings = needsLegacyImport ? ProjectModelSettings.readFile(legacySettings) : "";
         Process started = pb.start();
         HarnessService.adoptProcess(started);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("coreAppVersion", appVersion()).apply();
         log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
         // 5. 等待服务就绪后加载界面
@@ -1272,7 +1275,6 @@ public class MainActivity extends Activity {
                 WebView view = webView;
                 if (view == null || isFinishing() || isDestroyed()) return;
                 if (nativeCoreApi != null && !nativeCoreApi.matches(savedDshPort(), savedDshToken())) {
-                    if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
                     nativeCoreApi.close();
                     nativeCoreApi = null;
                 }
@@ -3405,10 +3407,9 @@ public class MainActivity extends Activity {
      * 再由 onConsoleMessage 落到 App 日志里。
      */
     private void installFetchDiagnostics() {
-        // 策略：记录**所有非静态资源**请求的状态与响应体（截断）。
+        // 策略：记录非静态资源请求的状态与有界正文；账号/凭据只记录状态。
         // 之前只记录非 2xx，但 DSH 的 RPC 很可能用 200 + 错误负载，
-        // 于是什么都没抓到。全量记录才能保证失败请求必然显现 ——
-        // 真正的错误详情（details.reason）只能从这里拿到。
+        // 于是什么都没抓到。普通 RPC 同时记录错误负载，账号授权正文除外。
         final String js =
             "(function(){"
           + "if(window.__dshDiag)return;window.__dshDiag=1;"
@@ -3423,6 +3424,7 @@ public class MainActivity extends Activity {
           + "    p.then(function(r){"
           + "      try{"
           + "        if(isAsset(u))return;"
+          + "        if(/\\/api\\/(account|credentials)\\//.test(u)){console.log('[dsh-api] '+r.status+' private-account');return;}"
           + "        var ct=(r.headers&&r.headers.get)?(r.headers.get('content-type')||''):'';"
           + "        var isJson=ct.indexOf('json')>=0;"
           + "        if(!isJson&&r.status<400){"
@@ -4944,6 +4946,9 @@ public class MainActivity extends Activity {
                     UiText.t("显示与语言", "Display & language"),
                     UiText.t("中文 / English 与文字缩放",
                             "Chinese / English and text scaling"));
+            final android.widget.Button deepSeek = addSettingsAction(body,
+                    UiText.t("DeepSeek 账号", "DeepSeek account"),
+                    UiText.t("DSH 账号设置、登录、余额与用量", "DSH account settings, sign-in, balances, and usage"));
             final android.widget.Button updates = addSettingsAction(body,
                     UiText.t("更新与维护", "Updates & maintenance"),
                     UiText.t("App、DSH 运行包与补丁状态",
@@ -4988,6 +4993,15 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) {
                     DshUi.swapDialog(dialog, false, new Runnable() {
                         @Override public void run() { showDisplaySettings(); }
+                    });
+                }
+            });
+            deepSeek.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() { showDeepSeekAccount(new Runnable() {
+                            @Override public void run() { showSettings(); }
+                        }); }
                     });
                 }
             });
@@ -5229,7 +5243,6 @@ public class MainActivity extends Activity {
     }
 
     private NativeCoreApi nativeCoreApi;
-    private DeepSeekAccountPanel deepSeekAccountPanel;
 
     private NativeCoreApi coreApi() {
         if (nativeCoreApi == null && dshPageLoaded) {
@@ -5240,15 +5253,20 @@ public class MainActivity extends Activity {
     }
 
     private void showDeepSeekAccount(final Runnable previous) {
-        NativeCoreApi api = coreApi();
-        if (api == null) {
+        if (!dshPageLoaded || webView == null) {
             toast(UiText.t("请等待 DSH 启动完成后登录", "Wait for DSH to finish starting before signing in."));
             previous.run();
             return;
         }
-        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
-        deepSeekAccountPanel = new DeepSeekAccountPanel(this, api, previous);
-        deepSeekAccountPanel.show();
+        webView.evaluateJavascript(AccountUi.openScript(), new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                if (isFinishing() || isDestroyed()) return;
+                if (!"true".equals(value)) {
+                    toast(UiText.t("DSH 账号设置尚未就绪，请重新启动 DSH 后重试", "DSH account settings are not ready. Restart DSH and retry."));
+                    previous.run();
+                }
+            }
+        });
     }
 
     private void showModelOnboarding() {
@@ -5927,7 +5945,6 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent(final String progressMessage) {
-        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
         if (nativeCoreApi != null) { nativeCoreApi.close(); nativeCoreApi = null; }
         HarnessService.stopManagedProcess();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -6615,7 +6632,9 @@ public class MainActivity extends Activity {
      *
      * <p>这样图片附件在手机上也能正常工作，且无需编译任何原生模块。
      */
-    private void applyAndroidPatches(File root, File dshDir) {
+    private void applyAndroidPatches(File root, File dshDir) throws IOException {
+        patchSessionPersistence(root, dshDir);
+        patchAccountUi(dshDir);
         patchFrontendViewport(dshDir);
         patchAttachmentDurability(dshDir);
         patchModelEffortUi(dshDir);
@@ -6657,6 +6676,32 @@ public class MainActivity extends Activity {
             recordPatch("max 请求标记", false, "文件读取或写入失败");
             log("  [警告] max 请求标记补丁失败: " + error.getClass().getSimpleName());
         }
+    }
+
+    private void patchSessionPersistence(File root, File dshDir) throws IOException {
+        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js");
+        String source = readText(module);
+        String patched = SessionPersistencePatch.patch(source, readText(new File(root, "session-publish.js")));
+        if (patched == null) {
+            recordPatch("会话保存", false, "内核结构变化，未修改文件");
+            throw new IOException("会话保存兼容补丁无法应用，请检查运行包");
+        }
+        if (!source.equals(patched)) writeText(module, patched);
+        recordPatch("会话保存", true, "首次保存与迁移均保留拒绝覆盖的复制降级");
+    }
+
+    private void patchAccountUi(File dshDir) throws IOException {
+        File account = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js");
+        File settings = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js");
+        String oldAccount = readText(account), oldSettings = readText(settings);
+        String newAccount = AccountUi.patchAccount(oldAccount), newSettings = AccountUi.patchSettings(oldSettings);
+        if (newAccount == null || newSettings == null) {
+            recordPatch("DSH 账号设置", false, "上游组件结构变化，未修改文件");
+            throw new IOException("DSH 账号界面兼容补丁无法应用，请检查运行包");
+        }
+        if (!oldAccount.equals(newAccount)) writeText(account, newAccount);
+        if (!oldSettings.equals(newSettings)) writeText(settings, newSettings);
+        recordPatch("DSH 账号设置", true, "上游账号界面、余额与浏览器授权");
     }
 
     /**
@@ -7440,7 +7485,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.33.10\n");
+            w.write("APK 版本: 0.33.11\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7628,13 +7673,11 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
-        if (deepSeekAccountPanel != null) deepSeekAccountPanel.foreground(true);
     }
 
     @Override
     protected void onPause() {
         inForeground = false;
-        if (deepSeekAccountPanel != null) deepSeekAccountPanel.foreground(false);
         super.onPause();
     }
 
@@ -8089,7 +8132,6 @@ public class MainActivity extends Activity {
         HarnessService.clearListener(harnessListener);
         DshUi.clearLogSink(dshUiLogSink);
         activityWorkers.stop();
-        if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
         if (nativeCoreApi != null) nativeCoreApi.close();
 
         // WebView 持有 Activity、回调和渲染线程。主题切换会重建 Activity，

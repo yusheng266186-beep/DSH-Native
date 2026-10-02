@@ -1,7 +1,7 @@
 # 旧会话硬链接转 rename 补丁（已归档）
 
 <!-- dsh-doc-status:start -->
-> 归档补丁：禁止应用到当前运行包；现行替代方案见正文。 已发布 stable：**0.33.10**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../../docs/STATUS.md)。
+> 归档补丁：禁止应用到当前运行包；现行替代方案见正文。 已发布 stable：**0.33.10**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 当前状态：禁止用于 payload-v10
@@ -12,10 +12,10 @@
 
 ## 现行替代方案
 
-当前运行包构建在 `scripts/prepare_core_payload.py` 中处理会话发布：
+当前运行包构建在 `scripts/prepare_core_payload.py` 中处理会话发布；APK 启动时 `SessionPersistencePatch` 修复现有运行包，二者共用 `payload/session-publish.js`，覆盖首次保存和历史迁移：
 
 1. 保留硬链接优先路径及已有文件的拒绝覆盖行为。
-2. 仅在兼容性错误导致硬链接不可用时，使用 `copyFile(..., COPYFILE_EXCL)`。
+2. 仅在 EACCES、EPERM 等兼容性错误导致硬链接不可用时，使用 `copyFile(..., COPYFILE_EXCL)`。
 3. 遇到同名目标拒绝覆盖，磁盘满等非兼容错误继续传播。
 
 这条降级保留“不可覆盖已发布历史”的边界；不要把独占复制称为硬链接完全相同的原子实现。

@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -39,7 +39,7 @@ APK 携带 Node 与启动引导，DSH 和工具链通过经过摘要校验的运
 
 1. 安装 APK，按提示授予所需的文件与通知权限。
 2. 完成语言选择和运行环境初始化，等待分片下载、SHA-256 校验及解压。
-3. 打开模型中心，选择 Command Code / DeepSeek API Key 并填写密钥，或通过“DeepSeek 账号登录与管理”在浏览器授权。
+3. 打开模型中心，选择 Command Code / DeepSeek API Key 并填写密钥，或通过“DeepSeek 账号与余额”在浏览器授权。
 4. 读取服务商实时模型目录，选择默认模型与思考强度并保存。
 5. 使用默认工作区，或创建命名项目；打开新会话开始任务。
 
@@ -47,7 +47,7 @@ APK 携带 Node 与启动引导，DSH 和工具链通过经过摘要校验的运
 
 ### App 工具在哪里
 
-展开 DSH 侧边栏，在底部点击 **App 工具 / App tools**。进入 **模型中心** 后可以点击 **更新模型列表 / Refresh models**，或打开 **DeepSeek 账号登录与管理**。
+展开 DSH 侧边栏，在底部点击 **App 工具 / App tools**。进入 **模型中心** 后可以点击 **更新模型列表 / Refresh models**，账号入口位于 **App 工具 → DeepSeek 账号**，打开 DSH 自带的 **账号与余额** 页面；模型中心也保留快捷入口。
 
 备用入口包括长按页面顶部、通知栏的设置操作，以及长按桌面图标后的设置、日志、更新快捷方式。DSH 网页中的齿轮继续打开网页自己的设置。
 
@@ -75,7 +75,7 @@ APK 携带 Node 与启动引导，DSH 和工具链通过经过摘要校验的运
 | DeepSeek 官方直连 | `GET https://api.deepseek.com/models` | 使用官方 API Key，获取可见模型 |
 | DeepSeek 账号 | 内核 `account/*` 与 `session/modelCatalog` | 浏览器授权后使用内核管理的账号模型路由 |
 
-账号登录会打开系统浏览器的 DeepSeek 授权页。完成授权后返回 App，选择 **DeepSeek 账号**，读取模型列表并保存。可重新打开授权页、取消未完成授权或退出账号；API Key 与账号授权分别保存。退出账号会停止使用该账号的运行任务，保留 API Key、会话和项目。技术路径与验证边界见 [账号登录说明](docs/DEEPSEEK_ACCOUNT.md)。
+DSH 自带的账号页面显示账户信息、充值余额和赠金余额，并保留查询用量、充值及退出入口。登录会打开系统浏览器的 DeepSeek 授权页。完成授权后返回 App，选择 **DeepSeek 账号**，读取模型列表并保存。可重新打开授权页、取消未完成授权或退出账号；API Key 与账号授权分别保存。退出账号会停止使用该账号的运行任务，保留 API Key、会话和项目。技术路径与验证边界见 [账号登录说明](docs/DEEPSEEK_ACCOUNT.md)。
 
 连接检测只读取目录，不发送测试提示词。原生选择器只展示本次成功响应返回的模型 ID；本地能力表用于解释参数与视觉能力，不用于补造账户不可见的模型。
 

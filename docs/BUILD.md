@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.10**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -64,7 +64,7 @@ CI 工作区中源码在 `bootstrap/src/`，测试在工作区 `tests/`；仓库
 
 同一路径还运行真实内核持久化、锁、FUSE 降级、磁盘错误、Web profile 与 token/Cookie 探测。所有模型请求只离线捕获，没有调用付费服务。
 
-`deepseek-account-consumer.mjs` 使用生产 Java `CoreRpcClient` 和真实内核，对本机合成平台验证 PKCE、回调、账号目录、默认配置、重启、取消、过期、退出与 API Key 保留。客户端启动 token 通过 stdin 传入，不进入命令行与测试日志。新增原生账号面板的真机验收和真实平台授权分别记录。
+`deepseek-account-consumer.mjs` 使用生产 Java `CoreRpcClient` 和真实内核，对本机合成平台验证 PKCE、回调、账号目录、默认配置、重启、取消、过期、退出与 API Key 保留。客户端启动 token 通过 stdin 传入，不进入命令行与测试日志。回归同时渲染上游账号组件、两类余额、浏览器授权、失败余额和三组触屏/主题；`session-publish-consumer.mjs` 验证强制 EACCES 下真实压缩/普通会话首次保存、重开、继续写、拒绝覆盖与磁盘错误。手机验收和真实平台请求分别记录。
 
 随后安装固定 Playwright 版本对应的 Chromium，启动真实 Web profile，应用 Java 生成的移动补丁，验证六组触屏布局与实际附件/文件关闭操作。CI 必须通过这一步，不能以 DOM 模拟替代；浏览器与依赖只用于测试，不打包进 APK。
 
