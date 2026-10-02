@@ -33,14 +33,20 @@ final class LayoutProbe {
                 + "return {w:Math.round(r.width),h:Math.round(r.height)};}"
                 + "function walk(n){if(n.nodeType!==1)return;"
                 + "var b=box(n);"
+                + "var cn=String(n.className);"
+                + "if(/visuallyHidden|VisuallyHidden/.test(cn))return;"
                 + "if(b.w>0&&b.h>0){"
                 // 方形图标类按钮：宽高差过大说明被挤压或被拉伸
-                + "if(n.tagName==='BUTTON'&&b.w<64&&b.h>18&&b.h<64){"
+                // 报告**所有**可见的方形按钮（而不是只报可疑的）：
+                // 这样才能直接看到真实 className 与尺寸，用来判断是否被挤压。
+                // 判定「疑似挤压」：宽高差超过 6px，或任一边小于 28px。
+                + "if(n.tagName==='BUTTON'&&b.w<90&&b.h>=18&&b.h<90){"
                 + "out.push({t:'sq',cls:String(n.className).slice(0,60),"
                 + "aria:(n.getAttribute('aria-label')||'').slice(0,24),"
-                + "w:b.w,h:b.h,d:Math.abs(b.w-b.h)});}"
+                + "w:b.w,h:b.h,d:Math.abs(b.w-b.h),"
+                + "susp:Math.abs(b.w-b.h)>6||b.w<28||b.h<28});}"
                 // 极窄的元素：多半被压到不可用
-                + "if(b.w>0&&(b.w<20||b.h<12)){"
+                + "if(b.w>0&&(b.w<14||b.h<10)){"
                 + "out.push({t:'thin',cls:String(n.className).slice(0,60),"
                 + "aria:(n.getAttribute('aria-label')||'').slice(0,24),"
                 + "w:b.w,h:b.h});}"
@@ -48,7 +54,7 @@ final class LayoutProbe {
                 + "for(var i=0;i<n.children.length;i++)walk(n.children[i]);"
                 + "}"
                 + "walk(document.body);"
-                + "out.sort(function(a,b){return (a.w*b.h)-(b.w*b.h);});"
+                + "out.sort(function(a,b){if(a.t!==b.t)return a.t==='sq'?-1:1;return (a.w*b.h)-(b.w*b.h);});"
                 + "console.log('" + MARKER + " '+JSON.stringify({vw:vw,n:out.length,items:out.slice(0,10)}));"
                 + "}catch(e){console.log('" + MARKER + " ERR '+e.message);}})();";
     }
