@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.8**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.9**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
