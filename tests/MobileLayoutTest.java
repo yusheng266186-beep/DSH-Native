@@ -71,31 +71,27 @@ public class MobileLayoutTest {
         check("missing viewport rejected", MobileLayout.patchHtml("<head></head>", 480) == null, "accepted");
         // 编辑器区域的窄屏规则：附件 × 按钮曾被缩略图挤变形、文件名盖住取消按钮。
         // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
-        // 属性包含匹配（[class*=Card]）——不依赖上游具体类名。
-        // 按语义匹配而不是整串匹配：拼接出的 CSS 里选择器可能跨行拆开。
-        // 注意压平会把属性值里的空格也吃掉（"0 0 auto" -> "00auto"），
-        // 所以模式串必须写成同样压平后的形式，否则又会对不上。
+        // 关键约束：规则**不得依赖 CSS Module 哈希类名**。
+        //
+        // 实测编译后的类名形如 Di.close / Ee.itemIcon，不含 remove / thumbnail
+        // 等语义词 —— 早先按源码变量名写的 [class*=remove]、[class*=thumbnail]
+        // 在真实页面上一个都匹配不到，而构建日志照样显示「已写入」，
+        // 于是「按钮被挤压」一直没解决却看起来一切正常。
         String flat = once == null ? "" : once.replaceAll("\\s+", "");
-        check("attachment remove button cannot shrink",
-                flat.contains("[class*=remove]{flex:00auto"),
-                "missing remove-button rule");
-        check("thumbnail may shrink but not overflow",
-                flat.contains("[class*=thumbnail]{flex:01auto"),
-                "missing thumbnail rule");
-        check("file name ellipsis instead of pushing siblings",
-                flat.contains("text-overflow:ellipsis"),
-                "missing ellipsis rule");
-        check("card body allowed to shrink",
-                flat.contains("[class*=body],[class*=Card][class*=meta]{min-width:0"),
-                "missing min-width:0 rule");
-        check("buttons in dialogs never shrink",
-                flat.contains("flex:00auto"), "missing flex-shrink guard");
+        check("no class-name selectors in responsive css",
+                flat.indexOf("[class*=") < 0,
+                "rules still depend on hashed CSS-module class names");
+        check("every button is unshrinkable",
+                flat.contains("button{flex-shrink:0!important;}"),
+                "missing global button flex-shrink guard");
+        check("icon buttons get a size floor",
+                flat.contains("button[aria-label]{min-width:0;}"),
+                "missing aria-label button rule");
         check("media never exceeds container",
                 flat.contains("img,svg{max-width:100%"),
                 "missing media rule");
-
-        check("card icon keeps its size",
-                flat.contains("[class*=icon]{flex:00auto"), "missing icon rule");
+        check("dialog buttons stay bounded",
+                flat.contains("[role=dialog][role=button]"), "missing dialog button rule");
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);

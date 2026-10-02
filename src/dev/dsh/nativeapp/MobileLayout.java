@@ -52,34 +52,27 @@ final class MobileLayout {
                 + "html{-webkit-text-size-adjust:100%;}"
                 + "@media(max-width:840px){"
                 + "[role=dialog]{box-sizing:border-box!important;"
-                + "max-width:calc(100vw - 16px)!important;max-height:calc(100vh - 16px)!important;}"
+                + "max-width:calc(100vw - 16px)!important;"
+                + "max-height:calc(100vh - 16px)!important;}"
                 + "textarea,input,select{box-sizing:border-box;max-width:100%;}"
-                // 编辑器区域（附件 chip、模型选择器、任务栏）在窄屏下被挤压：
-                // 图片附件的 × 按钮被 thumbnail 压变形，文件名盖住取消按钮。
-                // 上游这些节点没有 data-* 锚点、类名又是 CSS Module 哈希化的，
-                // 所以只能用**通用防御规则**命中，不依赖任何具体类名。
                 + "img,svg{max-width:100%;}"
-                // 横向排列的按钮组：窄屏下允许换行，且按钮本身不被压缩。
-                // flex-shrink:0 是关键 —— 缺了它，× 按钮就是被邻居挤扁的那个。
-                + "[role=dialog] [role=button],"
-                + "[class*=Attachment] button,"
-                + "[class*=Card] button{flex:0 0 auto!important;min-width:0;}"
-                // 文件名与路径：超长时截断而不是把兄弟节点顶出去。
-                + "[class*=Card] [class*=name],[class*=Card] [class*=meta],"
-                + "[class*=Attach] [class*=name]{"
-                + "min-width:0!important;overflow:hidden!important;"
-                + "text-overflow:ellipsis!important;white-space:nowrap!important;}"
-                // 带图标的行：让文字区可收缩，图标固定。
-                + "[class*=Card] [class*=body],[class*=Card] [class*=meta]{min-width:0!important;}"
-                + "[class*=Card] [class*=icon]{flex:0 0 auto!important;}"
-                // 附件缩略图：限制尺寸并允许收缩，× 按钮才不会被顶变形。
-                + "[class*=thumbnail]{flex:0 1 auto!important;max-width:100%!important;"
-                + "min-width:0!important;}"
-                + "[class*=remove]{flex:0 0 auto!important;}"
+                // 所有按钮都不允许被 flex 兄弟节点压扁。
+                //
+                // 关键事实：上游类名经 CSS Module 编译后是**哈希短名**
+                // （实测形如 Di.close、Ee.itemIcon），不再包含 remove / send /
+                // thumbnail 之类语义词 —— 按源码变量名写 [class*=remove] 这类
+                // 选择器在真实页面上一个都匹配不到，而构建日志照样显示
+                // 「已写入」，看着一切正常。因此这里只用与类名无关的选择器：
+                // 元素类型、ARIA 属性、以及稳定的 data-* 锚点。
+                //
+                // 缺 flex-shrink:0 时，方形图标按钮就是被邻居挤扁的那个 ——
+                // 这与它叫什么名字无关。
+                + "button{flex-shrink:0!important;}"
+                + "button[aria-label]{min-width:0;}"
+                + "[role=dialog] [role=button],[role=dialog] button{"
+                + "max-width:100%;overflow-wrap:anywhere;}"
                 + "[data-shortcut-modal=\"settings\"] [role=switch]{flex-shrink:0!important;}"
                 + "pre,code{max-width:100%;overflow-wrap:anywhere;}"
-                + "[role=dialog] button,[role=dialog] [role=button]{"
-                + "max-width:100%;overflow-wrap:anywhere;}"
                 + "}"
                 + "@media(max-width:520px){"
                 + "[data-shortcut-modal=\"settings\"][role=dialog]{"
@@ -88,14 +81,16 @@ final class MobileLayout {
                 + "width:100%!important;gap:8px!important;padding:12px 8px 8px!important;"
                 + "border-bottom:.5px solid var(--dsw-alias-border-l2)!important;}"
                 + "[data-shortcut-modal=\"settings\"]>nav>div:first-child{padding:0 8px!important;}"
-                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child{"
-                + "flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;}"
-                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child>button{"
-                + "flex:0 0 auto!important;padding-left:10px!important;padding-right:10px!important;}"
-                + "[data-shortcut-modal=\"settings\"]>div:last-child{min-height:0!important;}"
-                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:first-child{"
+                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child]{"
+                + "flex-direction:row!important;overflow-x:auto!important;"
+                + "overflow-y:hidden!important;}"
+                + "[data-shortcut-modal=\"settings\"]>nav>div:last-child>button]{"
+                + "flex:0 0 auto!important;padding-left:10px!important;"
+                + "padding-right:10px!important;}"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child]{min-height:0!important;}"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:first-child]{"
                 + "height:auto!important;min-height:48px!important;padding:10px 8px 6px!important;}"
-                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:last-child{"
+                + "[data-shortcut-modal=\"settings\"]>div:last-child>div:last-child]{"
                 + "padding:0 16px 16px!important;}"
                 + "}"
                 + "@media(max-height:520px) and (orientation:landscape){"
