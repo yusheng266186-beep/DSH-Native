@@ -109,7 +109,9 @@ public final class NetworkDiag {
      * 打开网络诊断。检测在后台线程执行，结果逐条追加到界面 ——
      * 一次性等待几秒什么都不显示，用户会以为界面卡死。
      */
-    public static void show(final Activity act, final String apkUrl) {
+    public static void show(final Activity act, final String apkUrl) { show(act, apkUrl, null); }
+
+    public static void show(final Activity act, final String apkUrl, final Runnable onClosed) {
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, "网络诊断"));
 
@@ -155,6 +157,7 @@ public final class NetworkDiag {
                 // shutdown 只停止接收新任务，已入队的照常跑完（结果因 closed 不上屏）。
                 io.shutdown();
                 ui.removeCallbacksAndMessages(null);
+                if (onClosed != null && !act.isFinishing() && !act.isDestroyed()) onClosed.run();
             }
         });
 

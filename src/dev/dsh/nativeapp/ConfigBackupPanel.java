@@ -39,8 +39,16 @@ public final class ConfigBackupPanel {
 
     private ConfigBackupPanel() { }
 
+    public interface Host {
+        void beforeRestore() throws java.io.IOException;
+        /** Runs in the same background thread as beforeRestore, including write failures. */
+        void afterWrite();
+        void afterRestore();
+        void closed();
+    }
+
     /** 打开面板。 */
-    public static void show(final Activity act, final File appRoot, final File dshHome) {
+    public static void show(final Activity act, final File appRoot, final File dshHome, final Host host) {
         final File backupDir = new File("/sdcard/DSHNative/backup");
 
         LinearLayout body = DshUi.paddedBody(act);
@@ -73,8 +81,10 @@ public final class ConfigBackupPanel {
 
         final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, export, close), 780);
         close.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { dlg.dismiss(); }
+            @Override public void onClick(View v) { dlg.dismiss(); host.closed(); }
         });
+
+        DshUi.onBack(dlg, new Runnable() { @Override public void run() { host.closed(); } });
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -108,7 +118,7 @@ public final class ConfigBackupPanel {
                 }
                 status.setText("共 " + backups.size() + " 个备份，点任意一项恢复");
                 for (final File f : backups) {
-                    listBox.addView(buildRow(act, f, dlg, dshHome, io, ui, closed),
+                    listBox.addView(buildRow(act, f, dlg, dshHome, io, ui, closed, host),
                             new LinearLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -172,7 +182,7 @@ public final class ConfigBackupPanel {
     /** 一行备份：文件名 + 大小时间，点击进入恢复确认。 */
     private static View buildRow(final Activity act, final File f, final Dialog parent,
                                  final File dshHome, final ExecutorService io,
-                                 final Handler ui, final boolean[] closed) {
+                                 final Handler ui, final boolean[] closed, final Host host) {
         LinearLayout row = new LinearLayout(act);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -201,7 +211,7 @@ public final class ConfigBackupPanel {
 
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                confirmRestore(act, f, parent, dshHome, io, ui, closed);
+                confirmRestore(act, f, parent, dshHome, io, ui, closed, host);
             }
         });
         return row;
@@ -210,7 +220,7 @@ public final class ConfigBackupPanel {
     /** 恢复确认：说明会覆盖什么、会先存一份当前配置。 */
     private static void confirmRestore(final Activity act, final File backup, final Dialog parent,
                                        final File dshHome, final ExecutorService io,
-                                       final Handler ui, final boolean[] closed) {
+                                       final Handler ui, final boolean[] closed, final Host host) {
         if (ConfigBackup.isEncrypted(backup)) {
             askPassword(act, "输入备份口令", "解密并验证这份备份。",
                     new PasswordAction() {
@@ -222,7 +232,7 @@ public final class ConfigBackupPanel {
                         return;
                     }
                     confirmRestoreReady(act, backup, parent, dshHome, io, ui, closed,
-                            password, true);
+                            password, true, host);
                 }
             });
             return;
@@ -239,7 +249,7 @@ public final class ConfigBackupPanel {
                 new PasswordAction() {
             @Override public void run(char[] password) {
                 confirmRestoreReady(act, backup, parent, dshHome, io, ui, closed,
-                        password, false);
+                        password, false, host);
             }
         });
     }
@@ -248,12 +258,12 @@ public final class ConfigBackupPanel {
                                             final Dialog parent, final File dshHome,
                                             final ExecutorService io, final Handler ui,
                                             final boolean[] closed, final char[] password,
-                                            final boolean encrypted) {
+                                            final boolean encrypted, final Host host) {
         DshUi.confirm(act, "恢复这份配置？",
                 backup.getName() + "\n"
               + "将覆盖当前的账户密钥与模型配置。\n"
               + "恢复前会自动创建一份加密安全副本。\n"
-              + "恢复后需要重启 App 才会生效。",
+              + "恢复时会停止运行或排队的任务，完成后自动重启 DSH 服务以生效。",
                 "恢复", new Runnable() {
                     @Override public void run() {
                         if (closed[0] || io.isShutdown()) {
@@ -263,13 +273,16 @@ public final class ConfigBackupPanel {
                         io.execute(new Runnable() {
                             @Override public void run() {
                                 String message;
+                                boolean stopped = false;
                                 try {
+                                    host.beforeRestore();
+                                    stopped = true;
                                     ConfigBackup.safetyCopy(dshHome, backup.getParentFile(),
                                             System.currentTimeMillis(), password);
                                     int n = encrypted
                                             ? ConfigBackup.restoreEncrypted(backup, dshHome, password)
                                             : ConfigBackup.restoreFrom(backup, dshHome);
-                                    message = "已恢复 " + n + " 个文件，重启后生效";
+                                    message = "已恢复 " + n + " 个文件，正在应用配置";
                                     DshUi.log("配置已恢复: " + backup.getName()
                                             + " → " + n + " 个文件");
                                 } catch (Throwable t) {
@@ -277,11 +290,14 @@ public final class ConfigBackupPanel {
                                     DshUi.log("配置恢复失败: " + t);
                                 } finally {
                                     java.util.Arrays.fill(password, '\0');
+                                    if (stopped) host.afterWrite();
                                 }
                                 final String result = message;
+                                final boolean resume = stopped;
                                 ui.post(new Runnable() {
                                     @Override public void run() {
                                         DshUi.toast(act, result);
+                                        if (resume && !act.isFinishing() && !act.isDestroyed()) host.afterRestore();
                                     }
                                 });
                             }

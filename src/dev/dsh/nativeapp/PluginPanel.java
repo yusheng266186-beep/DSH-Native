@@ -88,6 +88,9 @@ public final class PluginPanel {
         boolean hasPermissionGrant(String key);
         /** 保存与插件内容指纹绑定的授权。 */
         void savePermissionGrant(String key);
+        /** Ask before restarting the core to apply the persisted selection. */
+        void applyChanges(Runnable beforeRestart);
+        void closed();
     }
 
     /** 打开发布说明面板。 */
@@ -144,11 +147,14 @@ public final class PluginPanel {
         slp.topMargin = DshUi.dp(act, 10);
         body.addView(scroll, slp);
 
-        Button close = DshUi.button(act, "关闭", true);
-        final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, close), 820);
+        Button close = DshUi.button(act, "关闭", false);
+        Button apply = DshUi.button(act, UiText.t("应用并重启", "Apply & restart"), true);
+        final Dialog dlg = DshUi.dialogFill(act, body, DshUi.footer(act, close, apply), 820);
         close.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { dlg.dismiss(); }
+            @Override public void onClick(View v) { dlg.dismiss(); host.closed(); }
         });
+
+        DshUi.onBack(dlg, new Runnable() { @Override public void run() { host.closed(); } });
 
         final Handler ui = new Handler(Looper.getMainLooper());
         final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -179,6 +185,16 @@ public final class PluginPanel {
                 // shutdown 只停止接收新任务，已入队的照常跑完。
                 io.shutdown();
                 ui.removeCallbacksAndMessages(null);
+            }
+        });
+
+        apply.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                if (procRef.get() != null || !install.isEnabled()) {
+                    DshUi.toast(act, UiText.t("请等待插件安装完成", "Wait for plugin installation to finish"));
+                    return;
+                }
+                host.applyChanges(new Runnable() { @Override public void run() { dlg.dismiss(); } });
             }
         });
 

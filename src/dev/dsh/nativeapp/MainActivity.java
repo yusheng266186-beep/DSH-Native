@@ -115,6 +115,9 @@ public class MainActivity extends Activity {
     private final Object logLock = new Object();
     /** Activity 销毁时统一停止会永久等待的后台线程，避免主题重建后泄漏旧界面。 */
     private final WorkerRegistry activityWorkers = new WorkerRegistry();
+    /** Shared across Activity rebuilds: never start a core midway through configuration replacement. */
+    private static final java.util.concurrent.locks.ReentrantLock runtimeConfigLock =
+            new java.util.concurrent.locks.ReentrantLock();
     /** 静态 DshUi 日志入口必须能按实例解除，不能永久持有旧 Activity。 */
     private final DshUi.LogSink dshUiLogSink = new DshUi.LogSink() {
         @Override public void log(String msg) { MainActivity.this.log(msg); }
@@ -311,18 +314,12 @@ public class MainActivity extends Activity {
                         onWebToolsEntryMissing();
                         return true;
                     }
-                    if (SessionOrganizer.isSearchReady(m)) {
-                        log("会话管理：已聚焦搜索框");
-                        return true;
-                    }
-                    if (SessionOrganizer.isArchiveReady(m)) {
-                        log("会话管理：已打开归档筛选");
-                        return true;
-                    }
-                    if (SessionOrganizer.isUnsupported(m)) {
-                        log("会话管理：当前 DSH 页面未找到对应入口");
-                        toast(UiText.t("未找到会话入口，请先展开左侧栏",
-                                "Session control not found. Expand the sidebar first."));
+                    if (m.startsWith(AppSettingsCommands.MARKER)) {
+                        AppSettingsCommands command = AppSettingsCommands.parse(m);
+                        if (command != null && WebUrl.isCoreUrl(viewUrl(), savedDshPort())
+                                && WebUrl.isCoreUrl(cm.sourceId(), savedDshPort())) {
+                            openNativeSettingsCommand(command);
+                        }
                         return true;
                     }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
@@ -559,6 +556,7 @@ public class MainActivity extends Activity {
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
                 installWebToolsEntry();
+                publishAppSettingsState();
                 // 安装持续的只读体检：后续附件、面板、旋转会触发去抖测量。
                 view.postDelayed(new Runnable() {
                     @Override public void run() {
@@ -886,7 +884,11 @@ public class MainActivity extends Activity {
                     return;
                 }
                 String reason = null;
+                boolean configLocked = false;
                 try {
+                    runtimeConfigLock.lockInterruptibly();
+                    configLocked = true;
+                    if (isFinishing() || isDestroyed()) return;
                     reason = boot();
                 } catch (Throwable t) {
                     log("错误: " + what + "失败: " + t);
@@ -902,6 +904,7 @@ public class MainActivity extends Activity {
                         } catch (Throwable ignored) { }
                     }
                 } finally {
+                    if (configLocked) runtimeConfigLock.unlock();
                     booting.set(false);
                 }
                 if (reason != null) showBootFailure(reason);
@@ -1940,6 +1943,7 @@ public class MainActivity extends Activity {
                 @Override public void onClick(android.view.View v) {
                     DshUi.choiceActivated(v);
                     applyZoom(pct);
+                    publishAppSettingsState();
                     fillZoomRow(row);          // 重建 → 状态必然一致
                     DshUi.animateChoiceChange(row);
                     toast("显示缩放已设为 " + pct + "%");
@@ -2595,6 +2599,10 @@ public class MainActivity extends Activity {
 
     /** 在应用内直接查看运行日志（DSH 风格卡片，非系统对话框）。 */
     private void showLog() {
+        showLog(null);
+    }
+
+    private void showLog(final Runnable onClosed) {
         // 交给专门的查看器：支持「本次启动 / 全部」、级别过滤与搜索 ——
         // 旧实现只是把最后 400 行倒进一个 TextView，二十多次启动的日志
         // 混在一起，根本分不清哪条是当前的。
@@ -2618,7 +2626,7 @@ public class MainActivity extends Activity {
                     }
                 });
             }
-        });
+        }, onClosed);
     }
 
     /** 记录会话恢复失败，并在网页上方放一个不遮住输入区的原生提示卡片。 */
@@ -3207,6 +3215,7 @@ public class MainActivity extends Activity {
             }
             lastSessionStatus = state;
             pushStatus(state);
+            publishAppSettingsState();
             if (state == SessionStatus.IDLE) applyPendingModelCatalog();
             // 断线时为保护运行任务而跳过了自动刷新；一旦权威状态确认任务已
             // 结束，就可以在仍未恢复连接的情况下重新启动安全恢复计时器。
@@ -4919,7 +4928,57 @@ public class MainActivity extends Activity {
     }
 
     /** Compact top-level hub; each category opens a focused page. */
+    private String viewUrl() { return webView == null ? null : webView.getUrl(); }
+
+    private String nativeSettingsReturnPage;
+
     private void showSettings() {
+        final String page = nativeSettingsReturnPage == null ? "home" : nativeSettingsReturnPage;
+        nativeSettingsReturnPage = null;
+        if (webView != null && dshPageLoaded && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) {
+            webView.evaluateJavascript(AppSettingsUi.openScript(page), new android.webkit.ValueCallback<String>() {
+                @Override public void onReceiveValue(String ready) {
+                    if (!"true".equals(ready)) showFallbackSettings();
+                }
+            });
+        } else showFallbackSettings();
+    }
+
+    private void publishAppSettingsState() {
+        if (webView == null || !WebUrl.isCoreUrl(viewUrl(), savedDshPort())) return;
+        try {
+            org.json.JSONObject state = new org.json.JSONObject();
+            state.put("version", appVersion());
+            state.put("zoom", currentZoom());
+            state.put("task", currentTaskText(System.currentTimeMillis()));
+            webView.evaluateJavascript("window.__dshNativeAppState=" + state.toString()
+                    + ";window.dispatchEvent(new Event('dsh-native-app-state'));", null);
+        } catch (Throwable error) { log("App 设置状态同步失败: " + error.getClass().getSimpleName()); }
+    }
+
+    private String lastNativeSettingsCommand;
+
+    private void openNativeSettingsCommand(final AppSettingsCommands command) {
+        if (command.id.equals(lastNativeSettingsCommand)) return;
+        lastNativeSettingsCommand = command.id;
+        nativeSettingsReturnPage = command.action;
+        applyUiLanguage(command.locale);
+        // Acknowledge before opening a device panel so the upstream modal releases its focus layer.
+        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-native-settings-ack',"
+                + "{detail:{id:'" + command.id + "',accepted:true}}));", new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String ignored) {
+                if (isFinishing() || isDestroyed()) return;
+                if ("tasks".equals(command.action)) showTaskCenter();
+                else if ("models".equals(command.action)) showAccountSettings();
+                else if ("display".equals(command.action)) showDisplaySettings();
+                else if ("updates".equals(command.action)) showUpdateSettings();
+                else if ("data".equals(command.action)) showDataSettings();
+                else if ("diagnostics".equals(command.action)) showDiagnosticsSettings();
+            }
+        });
+    }
+
+    private void showFallbackSettings() {
         log("打开工具与设置");
         try {
             android.widget.LinearLayout body = DshUi.paddedBody(this);
@@ -5042,52 +5101,16 @@ public class MainActivity extends Activity {
         return button;
     }
 
-    /** 使用 DSH 官方会话搜索与归档界面，避免复制不稳定的内部 RPC。 */
     private void showSessionManager() {
-        android.widget.LinearLayout body = DshUi.paddedBody(this);
-        body.addView(DshUi.title(this, UiText.t("会话管理", "Session manager")));
-        body.addView(DshUi.hint(this, UiText.t(
-                "搜索覆盖会话标题与可用的历史索引。归档不会删除记录；已归档会话可恢复。",
-                "Search uses session titles and the available history index. Archiving keeps the record and can be undone.")),
-                DshUi.fullWidth(this, 7));
-        android.widget.Button search = DshUi.button(this,
-                UiText.t("搜索会话", "Search sessions"), false);
-        android.widget.Button archived = DshUi.button(this,
-                UiText.t("查看已归档会话", "View archived sessions"), false);
-        body.addView(search, DshUi.fullWidth(this, 16));
-        body.addView(archived, DshUi.fullWidth(this, 8));
-        body.addView(DshUi.hint(this, UiText.t(
-                "归档方法：在侧栏打开会话的更多操作并选择“归档会话”。任务运行中时，DSH 会要求确认停止后再归档。",
-                "To archive, open a session's More menu in the sidebar and choose Archive session. DSH asks before stopping active work.")),
-                DshUi.fullWidth(this, 14));
-        android.widget.Button back = DshUi.button(this, UiText.t("返回", "Back"), true);
-        final android.app.Dialog dialog = DshUi.dialog(this,
-                DshUi.scroll(this, body), DshUi.footer(this, back), 520);
-        back.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                DshUi.swapDialog(dialog, true, new Runnable() {
-                    @Override public void run() { showSettings(); }
-                });
+        if (webView == null || !dshPageLoaded) {
+            toast(UiText.t("请等待 DSH 服务就绪后管理会话", "Wait for DSH to be ready before managing sessions"));
+            return;
+        }
+        webView.evaluateJavascript(AppSettingsUi.openScript("sessions"), new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String ready) {
+                if (!"true".equals(ready)) toast(UiText.t("设置组件尚未就绪，请稍后重试", "Settings are not ready. Retry shortly."));
             }
         });
-        search.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                dialog.dismiss();
-                try { webView.evaluateJavascript(SessionOrganizer.focusSearchScript(), null); }
-                catch (Throwable t) { toast(UiText.t("会话搜索暂不可用", "Session search is unavailable")); }
-            }
-        });
-        archived.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                dialog.dismiss();
-                try { webView.evaluateJavascript(SessionOrganizer.showArchivedScript(), null); }
-                catch (Throwable t) { toast(UiText.t("归档入口暂不可用", "Archive view is unavailable")); }
-            }
-        });
-        DshUi.onBack(dialog, new Runnable() {
-            @Override public void run() { showSettings(); }
-        });
-        dialog.show();
     }
 
     /** 当前任务、连接恢复与最近记录的统一入口。 */
@@ -5242,7 +5265,7 @@ public class MainActivity extends Activity {
         ModelCenterPanel.show(this, modelCenterHost(false), false);
     }
 
-    private NativeCoreApi nativeCoreApi;
+    private volatile NativeCoreApi nativeCoreApi;
 
     private NativeCoreApi coreApi() {
         if (nativeCoreApi == null && dshPageLoaded) {
@@ -5336,19 +5359,9 @@ public class MainActivity extends Activity {
         android.widget.LinearLayout body = DshUi.paddedBody(this);
         body.addView(DshUi.title(this,
                 UiText.t("显示与语言", "Display & language")));
-        body.addView(DshUi.sectionLabel(this,
-                UiText.t("界面语言", "Interface language")), DshUi.fullWidth(this, 12));
         body.addView(DshUi.hint(this, UiText.t(
-                "原生工具界面使用此语言；DSH 网页语言可在网页设置中单独调整。",
-                "This controls the native tools. Change the DSH web language separately in web settings.")),
-                DshUi.fullWidth(this, 5));
-
-        final String[] choice = { uiLanguagePreference() };
-        final android.widget.LinearLayout languageRow = new android.widget.LinearLayout(this);
-        languageRow.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-        fillLanguageRow(languageRow, choice);
-        body.addView(languageRow, DshUi.fullWidth(this, 8));
-
+                "主题与语言跟随 DSH 设置。文字缩放在此调整并立即生效。",
+                "Theme and language follow DSH settings. Text scaling applies immediately.")), DshUi.fullWidth(this, 6));
         body.addView(DshUi.sectionLabel(this,
                 UiText.t("显示缩放", "Display scale")), DshUi.fullWidth(this, 22));
         body.addView(DshUi.hint(this, UiText.t(
@@ -5361,9 +5374,8 @@ public class MainActivity extends Activity {
         body.addView(zoomRow, DshUi.fullWidth(this, 8));
 
         android.widget.Button back = DshUi.button(this, "返回", false);
-        android.widget.Button apply = DshUi.button(this, "应用", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
-                DshUi.scroll(this, body), DshUi.footer(this, back, apply), 560);
+                DshUi.scroll(this, body), DshUi.footer(this, back), 560);
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 DshUi.swapDialog(dialog, true, new Runnable() {
@@ -5371,39 +5383,10 @@ public class MainActivity extends Activity {
                 });
             }
         });
-        apply.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) {
-                applyUiLanguage(choice[0]);
-                dialog.dismiss();
-                toast(UiText.t("语言已切换", "Language changed"));
-                showSettings();
-            }
-        });
         DshUi.onBack(dialog, new Runnable() {
             @Override public void run() { showSettings(); }
         });
         dialog.show();
-    }
-
-    private void fillLanguageRow(final android.widget.LinearLayout row,
-                                 final String[] choice) {
-        row.removeAllViews();
-        String[] values = { UiText.AUTO, UiText.ZH, UiText.EN };
-        String[] labels = { UiText.t("跟随系统", "System"), "中文", "English" };
-        for (int i = 0; i < values.length; i++) {
-            final String value = values[i];
-            android.widget.Button b = DshUi.toggleButton(this, labels[i],
-                    value.equals(choice[0]));
-            b.setOnClickListener(new android.view.View.OnClickListener() {
-                @Override public void onClick(android.view.View v) {
-                    DshUi.choiceActivated(v);
-                    choice[0] = value;
-                    fillLanguageRow(row, choice);
-                    DshUi.animateChoiceChange(row);
-                }
-            });
-            addEqualButton(row, b, i == 0 ? 0 : 6);
-        }
     }
 
     private void showUpdateSettings() {
@@ -5434,7 +5417,15 @@ public class MainActivity extends Activity {
                         "Update runtime (DSH / toolchain)"), false);
         payload.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                log("用户点击: 更新运行包"); updatePayloadNow(status, payload);
+                Runnable update = new Runnable() {
+                    @Override public void run() { log("用户点击: 更新运行包"); updatePayloadNow(status, payload); }
+                };
+                if (lastSessionStatus == SessionStatus.IDLE && taskTimeline.active() == null) update.run();
+                else DshUi.confirm(MainActivity.this,
+                        UiText.t("更新运行环境？", "Update runtime?"),
+                        UiText.t("任务仍在运行或状态尚未确认。更新后会重启服务，可能中断任务。",
+                                "Tasks are active or their status is unknown. Updating restarts the service and may interrupt work."),
+                        UiText.t("继续更新", "Continue update"), update);
             }
         });
         body.addView(payload, DshUi.fullWidth(this, 12));
@@ -5456,9 +5447,9 @@ public class MainActivity extends Activity {
                 DshUi.confirm(MainActivity.this,
                         UiText.t("恢复上一运行环境？", "Restore the previous runtime?"),
                         UiText.t("仅恢复 DSH 与工具链，不改动会话、账户密钥、项目文件或 App。"
-                                        + "恢复后会重启服务，并暂缓自动更新，直到你手动重试。",
+                                        + "恢复会中断运行或排队任务并重启服务；自动更新将暂缓，直到你手动重试。",
                                 "Only DSH and its toolchain are restored. Sessions, account keys, project files, and the app are unchanged. "
-                                        + "The service restarts and automatic runtime updates pause until you retry manually."),
+                                        + "Running or queued work is interrupted. The service restarts and automatic runtime updates pause until you retry manually."),
                         UiText.t("恢复并重启", "Restore & restart"), new Runnable() {
                             @Override public void run() {
                                 log("用户确认: 恢复上一运行环境");
@@ -5478,6 +5469,10 @@ public class MainActivity extends Activity {
         });
         body.addView(app, DshUi.fullWidth(this, 8));
 
+        android.widget.Button restart = DshUi.button(this,
+                UiText.t("重启服务并应用配置", "Restart service & apply configuration"), false);
+        body.addView(restart, DshUi.fullWidth(this, 8));
+
         body.addView(DshUi.sectionLabel(this,
                 UiText.t("维护状态", "Maintenance status")), DshUi.fullWidth(this, 22));
         android.widget.TextView patch = DshUi.hint(this, "");
@@ -5487,6 +5482,11 @@ public class MainActivity extends Activity {
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, back), 620);
+        restart.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                confirmSettingsRestart(new Runnable() { @Override public void run() { dialog.dismiss(); } });
+            }
+        });
         back.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
                 DshUi.swapDialog(dialog, true, new Runnable() {
@@ -5498,6 +5498,17 @@ public class MainActivity extends Activity {
             @Override public void run() { showSettings(); }
         });
         dialog.show();
+    }
+
+    private void confirmSettingsRestart() { confirmSettingsRestart(null); }
+
+    private void confirmSettingsRestart(final Runnable beforeRestart) {
+        DshUi.confirm(this, UiText.t("重启 DSH 服务？", "Restart DSH service?"),
+                UiText.t("重启会中断正在运行或排队的任务，并应用插件与已恢复的配置。会话记录会保留。",
+                        "Restart interrupts running or queued work and applies plugins and restored configuration. Session history is retained."),
+                UiText.t("重启", "Restart"), new Runnable() {
+                    @Override public void run() { if (beforeRestart != null) beforeRestart.run(); restartAgent(); }
+                });
     }
 
     private void fillUpdateChannelRow(final android.widget.LinearLayout row,
@@ -5551,7 +5562,9 @@ public class MainActivity extends Activity {
     }
 
     private void showDataSettings() {
+        if (appRoot == null) { toast(UiText.t("运行环境尚未就绪", "The runtime is not ready")); return; }
         final File dshHome = new File(appRoot, ".dsh");
+        final android.app.Dialog[] parentPanel = { null };
         android.widget.LinearLayout body = DshUi.paddedBody(this);
         body.addView(DshUi.title(this,
                 UiText.t("数据与扩展", "Data & extensions")));
@@ -5578,7 +5591,10 @@ public class MainActivity extends Activity {
                 UiText.t("浏览文件", "Browse files"), false);
         files.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                FileBrowser.show(MainActivity.this, appRoot);
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                FileBrowser.show(MainActivity.this, appRoot, new Runnable() {
+                    @Override public void run() { showDataSettings(); }
+                });
             }
         });
         body.addView(files, DshUi.fullWidth(this, 8));
@@ -5593,7 +5609,25 @@ public class MainActivity extends Activity {
                 UiText.t("备份与恢复", "Backup & restore"), false);
         backup.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                ConfigBackupPanel.show(MainActivity.this, appRoot, dshHome);
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                ConfigBackupPanel.show(MainActivity.this, appRoot, dshHome, new ConfigBackupPanel.Host() {
+                    @Override public void beforeRestore() throws IOException {
+                        try { runtimeConfigLock.lockInterruptibly(); }
+                        catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("配置恢复已中断", interrupted);
+                        }
+                        boolean stopped = false;
+                        try {
+                            if (nativeCoreApi != null) { nativeCoreApi.close(); nativeCoreApi = null; }
+                            stopped = HarnessService.stopManagedProcessAndWait(5000L);
+                            if (!stopped) throw new IOException("DSH 服务未停止，配置未覆盖，请稍后重试");
+                        } finally { if (!stopped) runtimeConfigLock.unlock(); }
+                    }
+                    @Override public void afterWrite() { runtimeConfigLock.unlock(); }
+                    @Override public void afterRestore() { restartAgent(); }
+                    @Override public void closed() { showDataSettings(); }
+                });
             }
         });
         body.addView(backup, DshUi.fullWidth(this, 8));
@@ -5614,6 +5648,7 @@ public class MainActivity extends Activity {
                             "The runtime is not ready yet. Try again shortly."));
                     return;
                 }
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
                 PluginPanel.show(MainActivity.this, new PluginPanel.Host() {
                     @Override public File dshDir() { return pluginDshDir; }
                     @Override public File root() { return appRoot; }
@@ -5628,6 +5663,8 @@ public class MainActivity extends Activity {
                     @Override public boolean hasPermissionGrant(String key) {
                         return pluginPermissionGrants().contains(key);
                     }
+                    @Override public void closed() { showDataSettings(); }
+                    @Override public void applyChanges(Runnable beforeRestart) { confirmSettingsRestart(beforeRestart); }
                     @Override public void savePermissionGrant(String key) {
                         rememberPluginPermissionGrant(key);
                     }
@@ -5662,6 +5699,7 @@ public class MainActivity extends Activity {
         DshUi.onBack(dialog, new Runnable() {
             @Override public void run() { showSettings(); }
         });
+        parentPanel[0] = dialog;
         dialog.show();
     }
 
@@ -5847,6 +5885,7 @@ public class MainActivity extends Activity {
     }
 
     private void showDiagnosticsSettings() {
+        final android.app.Dialog[] parentPanel = { null };
         android.widget.LinearLayout body = DshUi.paddedBody(this);
         body.addView(DshUi.title(this,
                 UiText.t("诊断与日志", "Diagnostics & logs")));
@@ -5854,7 +5893,10 @@ public class MainActivity extends Activity {
         android.widget.Button logButton = DshUi.button(this,
                 UiText.t("查看运行日志", "View runtime log"), false);
         logButton.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override public void onClick(android.view.View v) { showLog(); }
+            @Override public void onClick(android.view.View v) {
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                showLog(new Runnable() { @Override public void run() { showDiagnosticsSettings(); } });
+            }
         });
         body.addView(logButton, DshUi.fullWidth(this, 12));
         body.addView(DshUi.hint(this, UiText.t(
@@ -5882,7 +5924,10 @@ public class MainActivity extends Activity {
                 UiText.t("网络诊断", "Network diagnostics"), false);
         network.setOnClickListener(new android.view.View.OnClickListener() {
             @Override public void onClick(android.view.View v) {
-                NetworkDiag.show(MainActivity.this, apkDownloadUrl());
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                NetworkDiag.show(MainActivity.this, apkDownloadUrl(), new Runnable() {
+                    @Override public void run() { showDiagnosticsSettings(); }
+                });
             }
         });
         body.addView(network, DshUi.fullWidth(this, 8));
@@ -5900,6 +5945,7 @@ public class MainActivity extends Activity {
         DshUi.onBack(dialog, new Runnable() {
             @Override public void run() { showSettings(); }
         });
+        parentPanel[0] = dialog;
         dialog.show();
     }
 
@@ -6635,6 +6681,7 @@ public class MainActivity extends Activity {
     private void applyAndroidPatches(File root, File dshDir) throws IOException {
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
+        patchAppSettings(root, dshDir);
         patchFrontendViewport(dshDir);
         patchAttachmentDurability(dshDir);
         patchModelEffortUi(dshDir);
@@ -6702,6 +6749,25 @@ public class MainActivity extends Activity {
         if (!oldAccount.equals(newAccount)) writeText(account, newAccount);
         if (!oldSettings.equals(newSettings)) writeText(settings, newSettings);
         recordPatch("DSH 账号设置", true, "上游账号界面、余额与浏览器授权");
+    }
+
+    private void patchAppSettings(File root, File dshDir) throws IOException {
+        File client = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js");
+        File core = new File(dshDir, "node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js");
+        File sessions = new File(dshDir, "node_modules/@deepseek-ai/dsh-api-session-controller/lib/client.js");
+        String oldSessions = readText(sessions);
+        String newSessions = AppSettingsUi.patchSessionClient(oldSessions);
+        String oldClient = readText(client), oldCore = readText(core);
+        String newClient = AppSettingsUi.patchClient(oldClient, readText(new File(root, "app-settings-ui.js")));
+        String newCore = AppSettingsUi.patchCore(oldCore, readText(new File(root, "session-tools-core.js")));
+        if (newClient == null || newCore == null || newSessions == null) {
+            recordPatch("App 设置与会话管理", false, "上游结构变化，未修改文件");
+            throw new IOException("App 设置兼容补丁无法应用，请检查运行包");
+        }
+        if (!oldSessions.equals(newSessions)) writeText(sessions, newSessions);
+        if (!oldCore.equals(newCore)) writeText(core, newCore);
+        if (!oldClient.equals(newClient)) writeText(client, newClient);
+        recordPatch("App 设置与会话管理", true, "DSH 设置框架、真实归档恢复与可恢复回收站");
     }
 
     /**
@@ -7485,7 +7551,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.33.11\n");
+            w.write("APK 版本: 0.33.12\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

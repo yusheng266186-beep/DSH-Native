@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在 CI（Linux glibc）上准备构建工作区。
+# 在 CI 或本地 SDK 主机上准备构建工作区。
 #
 # 与设备上的构建只差两处：
 #   1. aapt2 / d8 / apksigner / android.jar 用**官方 Linux build-tools**
@@ -18,13 +18,14 @@ REPO="${REPO:-yusheng266186-beep/DSH-Native}"
 # 写死之后一旦升级，构建会继续用旧二进制而**毫无提示** ——
 # 正是这个项目反复出现的那类静默失败。
 PREV_TAG="${PREV_TAG:-}"
+PREV_APK="${DSH_PREVIOUS_APK:-}"
 # 优先走带 token 的 gh。
 #
 # 原来只用未认证的 api.github.com —— 而 GitHub 对未认证请求限流 60 次/小时
 # 且**按 IP 计**，GitHub runner 是共享 IP，于是这个查询会间歇性失败，
 # 整个构建跟着挂掉（实测踩过一次：同一份代码前一天能过、第二天失败）。
 # 构建路径上不该有这种"看运气"的步骤。
-if [ -z "$PREV_TAG" ] && command -v gh >/dev/null 2>&1; then
+if [ -z "$PREV_APK" ] && [ -z "$PREV_TAG" ] && command -v gh >/dev/null 2>&1; then
     # payload-vN releases are deliberately separate from APK releases.  A
     # payload release can therefore be newer than the last bootstrap APK and
     # must not be selected as the source of node/lib*.so.
@@ -32,15 +33,33 @@ if [ -z "$PREV_TAG" ] && command -v gh >/dev/null 2>&1; then
         --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-bootstrap$"))][0].tagName' \
         2>/dev/null || true)"
 fi
-if [ -z "$PREV_TAG" ]; then
+if [ -z "$PREV_APK" ] && [ -z "$PREV_TAG" ]; then
     echo "  [i] gh 不可用（缺 GH_TOKEN？），退回未认证 API"
     PREV_TAG="$(curl -sSL --max-time 30 \
         "https://api.github.com/repos/${REPO}/releases?per_page=50" 2>/dev/null \
         | python3 -c "import json,sys; rs=json.load(sys.stdin); print(next((r.get('tag_name','') for r in rs if __import__('re').match(r'^v[0-9]+\\.[0-9]+\\.[0-9]+-bootstrap$', r.get('tag_name',''))),'')" 2>/dev/null || true)"
 fi
-[ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag。给构建步骤加 GH_TOKEN，或显式指定 PREV_TAG=vX.Y.Z-bootstrap"; exit 1; }
+[ -n "$PREV_APK" ] || [ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag。指定已校验的 DSH_PREVIOUS_APK，或 PREV_TAG=vX.Y.Z-bootstrap"; exit 1; }
 echo "  参考版本: $PREV_TAG"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -n "$PREV_APK" ]; then
+    # A local reference is bound to the existing release manifest, never accepted merely because it is a ZIP.
+    PREV_APK="$(python3 - "$PREV_APK" "$ROOT/latest.json" <<'PY'
+import hashlib, json, pathlib, sys
+p = pathlib.Path(sys.argv[1]).resolve()
+manifest = json.loads(pathlib.Path(sys.argv[2]).read_text())
+if not p.is_file() or p.stat().st_size != manifest['apk_bytes']:
+    raise SystemExit('[FAIL] 本地参考 APK 大小与已发布清单不符')
+digest = hashlib.sha256()
+with p.open('rb') as f:
+    for block in iter(lambda: f.read(1024 * 1024), b''): digest.update(block)
+if digest.hexdigest() != manifest['sha256']:
+    raise SystemExit('[FAIL] 本地参考 APK 摘要与已发布清单不符')
+print(p)
+PY
+)"
+    echo "  本地参考 APK 已通过已发布清单校验"
+fi
 ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 [ -n "$ANDROID_HOME" ] || { echo "[FAIL] 缺少 ANDROID_HOME"; exit 1; }
 
@@ -72,7 +91,7 @@ cp "$ROOT/scripts/check_source_hygiene.py" "$BUILD/"
 cp -r "$ROOT/icon/res" "$BUILD/icon/res"
 echo "  源码 $(find "$BUILD/bootstrap/src" -name '*.java' | wc -l) 个 java 文件"
 
-say "3. Android SDK 部件（官方 Linux 版）"
+say "3. Android SDK 部件（官方主机版）"
 # 优先用调用方指定的 build-tools（CI 上固定 34.0.0，避免选到 runner 预装的更新版本）
 if [ -n "${BT:-}" ] && [ -d "${BT:-}" ]; then
     :
@@ -95,8 +114,13 @@ say "4. 从上一个 APK 取内置负载（node + 10 个 .so）"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 URL="https://github.com/${REPO}/releases/download/${PREV_TAG}/DSHNative-bootstrap.apk"
-echo "  下载 $URL"
-curl -sSL --retry 3 -o "$TMP/prev.apk" "$URL"
+if [ -n "$PREV_APK" ]; then
+    cp "$PREV_APK" "$TMP/prev.apk"
+    APKSIGNER_JAR="$BT/lib/apksigner.jar" bash "$ROOT/scripts/check_signer.sh" "$TMP/prev.apk"
+else
+    echo "  下载 $URL"
+    curl -fSL --retry 3 -o "$TMP/prev.apk" "$URL"
+fi
 [ -s "$TMP/prev.apk" ] || { echo "[FAIL] 上一个 APK 下载失败"; exit 1; }
 unzip -q -o "$TMP/prev.apk" 'assets/payload/*' -d "$TMP/x"
 [ -f "$TMP/x/assets/payload/node" ] || { echo "[FAIL] APK 里没有 assets/payload/node"; exit 1; }

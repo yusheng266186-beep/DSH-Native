@@ -1,7 +1,7 @@
 # 踩过的坑
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 这份文件记录**看起来对但实际错**的情况。每一条都是真实发生过的，
@@ -49,10 +49,10 @@ NPE 在后台线程发生 → 被吞掉 → 只显示「安装失败」，看不
 
 
 **红线：`catch (Throwable ignored)` 的总数不得超过 `check_java.py` 里的
-`SILENT_CATCH_BASELINE`（现为 121）。** 这道闸门由 `build_bootstrap.sh` 的
+`SILENT_CATCH_BASELINE`（现为 120）。** 这道闸门由 `build_bootstrap.sh` 的
 3.43 步在每次构建时执行。
 
-为什么不要求清零：现存 121 处里绝大多数是合理的 —— 关流、取消开屏动画、
+为什么不要求清零：现存清理类捕获里绝大多数是合理的 —— 关流、取消开屏动画、
 销毁旧 WebView、探测下一个端口、资源清理。逐个改写只会制造无谓 diff 和
 回归风险。真正的问题是**它还在增长**（0.26.3 时 100 处 → 0.32.3 时 121 处），
 所以锁住上限比强行清零更实际。想降低就改小基线值，并确认每一处减少都对应
@@ -570,3 +570,11 @@ API Key 修改使用内核 `credentials/set` / `unset`，真实账号消费回�
 上游账号组件包含两类余额与用量入口，独立原生面板只接 RPC 会漏功能。AccountUi 启用真实组件，只适配平台边界，不制造 Desktop 桥。原始账号菜单比旧设置齿轮多一层容器；App 工具须按真实 settings.launcher slot 定位，不能继续从按钮往上数两层。显式 data-collapsed 状态优先于宽度推断，避免 display:contents 的零宽祖先导致入口误删。
 
 自动模型引导不能覆盖已打开的账号设置。余额失败须显示不可用，不能变成零；私有账号/凭据 RPC 正文不进入诊断日志。验证层级仍按 STATUS 分开记录。
+
+## App 设置回收站：Remote 代理不能作为串行锁身份
+
+0.33.12 调试中，同一 SessionController 的两个真实并发 RPC 会绑定不同的 Cordis 代理。以 controller 为 WeakMap 键会产生两份 journal 缓存和队列，两次删除都报成功但只保留最后一次。改为 DSH_HOME 共享 Map/队列，并以实际并发删除、发布失败和重启验证。
+
+恢复不仅要 unarchive，还要处理缓存 ClientSession 的 removed 标记，否则列表恢复了，原 composer 仍不能继续。通过原 added 事件恢复状态，测试真实输入并接收合成回复。
+
+Playwright route.fulfill 替换首次 HTML 时，Chromium 可能把文档归为 public 而阻止真实 loopback WebSocket；此时历史加载失败是夹具问题。设置回归在隔离 runtime 写入生产 HTML，由核心实际服务返回，保留正常认证和网络检查。

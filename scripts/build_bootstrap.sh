@@ -30,6 +30,7 @@ RESDIR="$BUILD/icon/res"
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31m[FAIL] %s\033[0m\n' "$*" >&2; exit 1; }
+bytes() { python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$1"; }
 
 # ---------------------------------------------------------------- 0. 工具链
 say "0. 检查工具链"
@@ -77,7 +78,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js snapshot.js session-publish.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
+for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -88,7 +89,7 @@ say "2. 编译资源（图标 / 主题 / 配色）"
 [ -d "$RESDIR" ] || die "找不到资源目录 $RESDIR"
 env LD_LIBRARY_PATH="$AAPT2_LIB" "$AAPT2" compile --dir "$RESDIR" -o "$OUT/res.zip" \
     || die "aapt2 compile 失败"
-echo "  编译产物: $(stat -c%s "$OUT/res.zip") 字节"
+echo "  编译产物: $(bytes "$OUT/res.zip") 字节"
 
 cat > "$OUT/res_manifest.xml" <<'XEOF'
 <?xml version="1.0" encoding="utf-8"?>
@@ -144,7 +145,7 @@ DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
   DSH_SHORTCUTS_RES_ID="$SHORTCUTS_RES_ID" \
   DSH_NETWORK_SECURITY_CONFIG_RES_ID="$NETWORK_SECURITY_CONFIG_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
-echo "  $(stat -c%s "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
+echo "  $(bytes "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
 
 # ---------------------------------------------------------------- 3.4 纯逻辑测试
 # FileListing 是纯 Java（无 Android 依赖），可在普通 JVM 上直接验证。
@@ -166,7 +167,7 @@ bash run_tests.sh
 # 「构建期跑测试」这个保证会静默失效。这是架构约束，不是风格偏好。
 say "3.45 架构约束检查"
 PURE_FILES="bootstrap/src/dev/dsh/nativeapp/FileListing.java bootstrap/src/dev/dsh/nativeapp/TextCodec.java bootstrap/src/dev/dsh/nativeapp/Version.java bootstrap/src/dev/dsh/nativeapp/CommandCodeUsage.java bootstrap/src/dev/dsh/nativeapp/TaskNotifier.java bootstrap/src/dev/dsh/nativeapp/TaskTimeline.java bootstrap/src/dev/dsh/nativeapp/ConnectionRecovery.java bootstrap/src/dev/dsh/nativeapp/DraftRecovery.java bootstrap/src/dev/dsh/nativeapp/FileOps.java bootstrap/src/dev/dsh/nativeapp/ConfigBackup.java bootstrap/src/dev/dsh/nativeapp/ShareTargets.java bootstrap/src/dev/dsh/nativeapp/PluginSpecs.java bootstrap/src/dev/dsh/nativeapp/PayloadUpdate.java bootstrap/src/dev/dsh/nativeapp/PayloadRollback.java bootstrap/src/dev/dsh/nativeapp/ProcessSupervisor.java bootstrap/src/dev/dsh/nativeapp/TransferState.java bootstrap/src/dev/dsh/nativeapp/SecretMasker.java bootstrap/src/dev/dsh/nativeapp/DiagnosticReport.java bootstrap/src/dev/dsh/nativeapp/SessionStatus.java bootstrap/src/dev/dsh/nativeapp/SessionProbe.java bootstrap/src/dev/dsh/nativeapp/SessionRecovery.java bootstrap/src/dev/dsh/nativeapp/UiText.java bootstrap/src/dev/dsh/nativeapp/MobileLayout.java bootstrap/src/dev/dsh/nativeapp/DeviceLayout.java bootstrap/src/dev/dsh/nativeapp/WorkspaceProjects.java bootstrap/src/dev/dsh/nativeapp/ShareTask.java bootstrap/src/dev/dsh/nativeapp/PluginPermissions.java bootstrap/src/dev/dsh/nativeapp/ReleaseChannel.java bootstrap/src/dev/dsh/nativeapp/WebToolsEntry.java bootstrap/src/dev/dsh/nativeapp/UiPolicy.java bootstrap/src/dev/dsh/nativeapp/OperationGate.java bootstrap/src/dev/dsh/nativeapp/InteractionFeedback.java"
-PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/FileBatch.java bootstrap/src/dev/dsh/nativeapp/FileTrash.java bootstrap/src/dev/dsh/nativeapp/FilePreview.java bootstrap/src/dev/dsh/nativeapp/SessionOrganizer.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/FileBatch.java bootstrap/src/dev/dsh/nativeapp/FileTrash.java bootstrap/src/dev/dsh/nativeapp/FilePreview.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/PayloadManifest.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/CredentialMerge.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/WebUrl.java"
@@ -176,7 +177,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelImageSupport.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelCatalogPersistence.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/LayoutProbe.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
-PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsCommands.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then
@@ -192,12 +193,22 @@ echo "  [OK] 纯逻辑层无 Android 依赖（$(basename -a $PURE_FILES | tr '\n
 # 于是这条红线挂了三天、两处违例没人发现（PluginSpecs.java / bump_version.sh）。
 # 现在把它真正接上：命中即构建失败。
 say "3.46 emoji 红线检查"
-emoji_hits=$(grep -rnP '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}]' \
-    "$BOOT/src" "$BOOT/payload" "$BOOT/scripts" 2>/dev/null | head -5 || true)
-if [ -n "$emoji_hits" ]; then
-  echo "$emoji_hits" | sed 's/^/    /'
-  die "源码/脚本里不允许出现 emoji（见 AGENTS.md 红线）"
-fi
+python3 - "$BOOT/src" "$BOOT/payload" "$BOOT/scripts" <<'PY'
+import pathlib, re, sys
+pattern = re.compile('[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F]')
+hits = []
+for root in sys.argv[1:]:
+    for p in pathlib.Path(root).rglob('*'):
+        if p.is_file() and p.suffix in {'.java', '.js', '.py', '.sh', '.xml', '.yaml'}:
+            data = p.read_bytes()
+            # The historical scripts/AndroidManifest.xml is compiled AXML, not source text.
+            if p.name == 'AndroidManifest.xml' and data[:4] == b'\x03\x00\x08\x00': continue
+            for number, line in enumerate(data.decode('utf-8').splitlines(), 1):
+                if pattern.search(line): hits.append(f'{p}:{number}')
+if hits:
+    print('\n'.join(hits[:5]), file=sys.stderr)
+    raise SystemExit('[FAIL] 源码/脚本里不允许出现 emoji（见 AGENTS.md 红线）')
+PY
 echo "  [OK] 无 emoji"
 
 # ---------------------------------------------------------------- 3.5 UI 规范
@@ -238,12 +249,14 @@ echo "  class: $CLASS_N 个"
 
 # ---------------------------------------------------------------- 5. dex
 say "5. d8 转换 dex"
-java -cp "$D8_JAR" com.android.tools.r8.D8 \
+set +e
+DEX_OUT=$(java -cp "$D8_JAR" com.android.tools.r8.D8 \
      --min-api 24 --release --lib "$ANDROID_JAR_COMPILE" \
-     --output "$OUT/dex" $(find "$OUT/classes" -name '*.class') 2>&1 \
-     | grep -viE '^warning|superclass' | tail -3 || true
-# 注意：上面的 || true 是必需的 —— set -o pipefail 下，
-# 若 d8 只输出被过滤掉的警告，grep 返回 1 会让整个脚本静默退出。
+     --output "$OUT/dex" $(find "$OUT/classes" -name '*.class') 2>&1)
+DEX_RC=$?
+set -e
+printf '%s\n' "$DEX_OUT" | grep -viE '^warning|superclass' | tail -3 || true
+[ "$DEX_RC" -eq 0 ] || die "d8 编译失败（退出码 $DEX_RC）"
 [ -f "$OUT/dex/classes.dex" ] || die "未生成 classes.dex"
 echo "  classes.dex: $(du -h "$OUT/dex/classes.dex" | cut -f1)"
 

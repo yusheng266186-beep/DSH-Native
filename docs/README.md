@@ -1,7 +1,7 @@
 # 文档中心
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 先看 [项目状态与验证边界](STATUS.md)，再选择用户指南或技术文档。各文件顶部自动显示稳定发布、源码、运行包和固定内核；当前说明与历史记录使用不同标记。
@@ -57,6 +57,10 @@
 | 五 E：目录与英文 | [PHASE5E-MODEL-CATALOG-I18N](PHASE5E-MODEL-CATALOG-I18N.md) |
 | 五 F：目录写入运行时 | [PHASE5F-MODEL-RUNTIME-SYNC](PHASE5F-MODEL-RUNTIME-SYNC.md) |
 | 五 G：刷新与运行时重载 | [PHASE5G-MODEL-WEBUI-REFRESH](PHASE5G-MODEL-WEBUI-REFRESH.md) |
+
+## App 设置
+
+[App 设置与会话管理](APP_SETTINGS.md)：真实会话操作、可恢复删除、原设置整合与设备工具。
 
 ## 研究、上游反馈与发布记录
 
