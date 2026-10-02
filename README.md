@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.8**；源码：**0.33.8**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.8**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -161,6 +161,8 @@ bash scripts/ci_build.sh /tmp/dsh-build
 完整构建产物为 `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`。GitHub Actions 使用 JDK 17、官方 Linux build-tools 34.0.0 与 Android 28/34 平台文件；详见 [构建指南](docs/BUILD.md)。
 
 回归覆盖纯 JVM 逻辑、JS 页面与连接模拟、HTTP 认证探测、发布元数据，以及真实运行包的 Host / 模型目录 / SDK 请求体 / 会话持久化 / Web profile。聊天框回归执行真实 React 模型选择组件，验证中英文下的模型与 max RPC。实际测试数量以本次 CI 输出为准。
+
+真实运行包回归还在触屏 Chromium 中测量发送、附件、文件标签关闭与设置页，覆盖六组宽度、横屏、中英文和明暗主题。重现与修复记录见 [布局交接](docs/HANDOVER-LAYOUT.md)。
 
 这些测试不等同于 Android 真机布局、真实服务商 max 执行效果或所有 ROM 的后台行为验证；具体证据与待验证范围记录在 [项目状态](docs/STATUS.md)。
 

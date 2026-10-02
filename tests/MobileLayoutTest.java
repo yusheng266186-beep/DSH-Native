@@ -7,10 +7,19 @@ public class MobileLayoutTest {
         if (ok) pass++; else { fail++; System.out.println("  FAIL " + name + " -> " + detail); }
     }
     public static void main(String[] args) {
-        // 视口维持 480：改小虽然数学上不再溢出，但会让**所有元素整体放大**
-        // （436 比 480 窄 9% -> 元素涨约 10~20%），一屏内容少两成。
-        // 0.33.4 试过，用户反馈「整个页面被放大、可视内容偏小」。
-        // 视口过大会挤压个别组件，过小会放大一切 —— 后者影响面更大。
+        if (args.length == 3 && "--dump-html".equals(args[0])) {
+            try {
+                String html = new String(java.nio.file.Files.readAllBytes(
+                        java.nio.file.Paths.get(args[1])), java.nio.charset.StandardCharsets.UTF_8);
+                String patched = MobileLayout.patchHtml(html, Integer.parseInt(args[2]));
+                if (patched == null) throw new IllegalArgumentException("unsupported HTML");
+                System.out.print(patched);
+                return;
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        // 保留用户已确认正常的 480 CSS px 基线，不用缩放改变图标几何。
         check("narrow phone keeps 480", MobileLayout.viewportWidth(400) == 480, "wrong");
         check("real-world 436dp keeps 480", MobileLayout.viewportWidth(436) == 480,
                 "would enlarge every element");
@@ -37,15 +46,12 @@ public class MobileLayoutTest {
         check("settings switches keep native size", once != null
                 && once.contains("[role=switch]{flex-shrink:0!important;}"), "missing");
         check("global button height override removed", once != null
-                && !once.contains("button,[role=button]{min-height:44px;}"), "still present");
+                && !once.contains("min-height:44px"), "would stretch icon controls");
         check("narrow settings use vertical layout", once != null
                 && once.contains("max-width:520px")
                 && once.contains("flex-direction:column!important"), "missing");
-        check("coarse pointer touch targets", once != null
-                && once.contains("@media(pointer:coarse)")
-                && once.contains("button:not([role=switch])"), "missing");
-        check("switch excluded from touch override", once != null
-                && once.contains(":not([role=switch])"), "missing");
+        check("no guessed module class selectors", once != null
+                && !once.contains("[class*="), "guessed class matches survived");
         check("reduced motion respected", once != null
                 && once.contains("prefers-reduced-motion:reduce")
                 && once.contains("transition-duration:.01ms"), "missing");
@@ -69,18 +75,7 @@ public class MobileLayoutTest {
         check("older calculated scale is migrated", migrated != null
                 && migrated.contains("content=\"width=600\""), String.valueOf(migrated));
         check("missing viewport rejected", MobileLayout.patchHtml("<head></head>", 480) == null, "accepted");
-        // 编辑器区域的窄屏规则：附件 × 按钮曾被缩略图挤变形、文件名盖住取消按钮。
-        // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
-        // 关键约束：规则**不得依赖 CSS Module 哈希类名**。
-        //
-        // 守护一条硬约束：**不得全局覆盖 button 的布局**。
-        //
-        // 0.33.5 曾加 `button{flex-shrink:0!important}`，理由是「方形图标按钮
-        // 被 flex 兄弟节点压扁」。实测这会压倒上游组件自身的布局规则，
-        // 直接把设置界面顶乱、多个功能点不动 —— 代价远大于收益。
-        //
-        // 教训：!important 的全局元素选择器是**跨组件**的破坏性操作。
-        // 布局类补丁必须限定作用域，否则修一处坏一片。
+        // 全局按钮覆盖曾破坏设置；后续布局补丁必须限定到实测的稳定锚点。
         String flat = once == null ? "" : once.replaceAll("\\s+", "");
         check("no global button layout override",
                 !flat.contains("button{flex-shrink:0!important;}")

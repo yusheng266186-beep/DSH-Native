@@ -298,7 +298,9 @@ public class MainActivity extends Activity {
                         return true;
                     }
                     if (LayoutProbe.isResult(m)) {
-                        log("布局体检: " + (m.length() > 900 ? m.substring(0, 900) : m));
+                        // 每个控件独立输出有界 JSON，不能截掉后面的附件/发送按钮。
+                        log("布局体检: " + (m.length() <= 900 ? m
+                                : LayoutProbe.MARKER + " ERR oversized-record"));
                         return true;
                     }
                     if (WebToolsEntry.isReady(m)) {
@@ -562,10 +564,10 @@ public class MainActivity extends Activity {
                 installSessionRecoveryWatcher();
                 installStatusWatcher();
                 installWebToolsEntry();
-                // 布局体检：读真实 DOM 里被挤压的控件及其真实类名。
-                // 延迟一点再跑，等 React 把编辑器与附件渲染出来。
+                // 安装持续的只读体检：后续附件、面板、旋转会触发去抖测量。
                 view.postDelayed(new Runnable() {
                     @Override public void run() {
+                        if (isFinishing() || isDestroyed() || webView != view) return;
                         view.evaluateJavascript(LayoutProbe.script(), null);
                     }
                 }, 1500L);
@@ -7380,7 +7382,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.33.8\n");
+            w.write("APK 版本: 0.33.9\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

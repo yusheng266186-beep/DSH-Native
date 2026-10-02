@@ -202,6 +202,23 @@ else
     fi
 fi
 
+# 布局探针覆盖交互后新增的附件，逐条记录尺寸并保护文件名。
+if command -v node >/dev/null 2>&1; then
+    LAYOUT_JS="$OUT/layout-probe.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" \
+        dev.dsh.nativeapp.LayoutProbeTest --dump-script > "$LAYOUT_JS"
+    if ! node --check "$LAYOUT_JS" >/dev/null 2>&1; then
+        echo "  [FAIL] LayoutProbe JavaScript 语法错误" >&2
+        rc=1
+    elif ! out=$(node tests/js/layout-probe-simulation.js "$LAYOUT_JS" 2>&1); then
+        echo "$out"
+        echo "  [FAIL] LayoutProbe DOM 模拟失败" >&2
+        rc=1
+    else
+        echo "  $out"
+    fi
+fi
+
 # 运行环境快照必须能由 App 自带脚本创建，并由同一 unpack.js 完整恢复。
 # 测真实目录、可执行位、长文件名和符号链接，不只做字符串断言。
 if command -v node >/dev/null 2>&1; then

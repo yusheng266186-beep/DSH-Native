@@ -1,61 +1,90 @@
 package dev.dsh.nativeapp;
 
 /**
- * 在真实页面上测量「哪些控件被挤压」，并把**实际类名与尺寸**回报到 App 日志。
- *
- * <p><b>为什么需要它</b>
- *
- * <p>这一类缺陷（图标按钮被 flex 兄弟节点压扁、文件名盖住取消按钮）此前只能靠
- * 用户截图逐个发现。根因是上游的类名经过 CSS Module 编译后**变成哈希**，
- * 不再包含 remove / send 之类的语义词 —— 于是按源码里的变量名写选择器
- * （如 {@code [class*=remove]}）在真实页面上**永远匹配不到**，补丁形同虚设，
- * 而构建日志却显示「已写入」，看起来一切正常。
- *
- * <p>所以这里不猜：直接在运行时读 DOM，报告元素的真实 className、
- * aria-label 与渲染尺寸。由这些事实决定该写什么选择器。
- *
- * <p>只读：脚本不修改页面、不发送任何请求，仅通过既有的 console 桥输出。
+ * 有界、只读的布局诊断。加载、附件变动、打开面板与旋转后重新测量。
+ * 仅报告固定动作名、CSS 类名与几何尺寸，不记录文件名、路径或页面正文。
  */
 final class LayoutProbe {
     static final String MARKER = "[dsh-native] layout-probe";
-
     private LayoutProbe() { }
 
     static boolean isResult(String message) {
-        return message != null && message.indexOf(MARKER) >= 0;
+        return message != null && message.startsWith(MARKER + " ");
     }
 
-    /** 扫描页面上所有「可见但尺寸可疑」的控件。 */
     static String script() {
-        return "(function(){try{"
-                + "var out=[];var vw=document.documentElement.clientWidth;"
-                + "function box(e){var r=e.getBoundingClientRect();"
-                + "return {w:Math.round(r.width),h:Math.round(r.height)};}"
-                + "function walk(n){if(n.nodeType!==1)return;"
-                + "var b=box(n);"
-                + "var cn=String(n.className);"
-                + "if(/visuallyHidden|VisuallyHidden/.test(cn))return;"
-                + "if(b.w>0&&b.h>0){"
-                // 方形图标类按钮：宽高差过大说明被挤压或被拉伸
-                // 报告**所有**可见的方形按钮（而不是只报可疑的）：
-                // 这样才能直接看到真实 className 与尺寸，用来判断是否被挤压。
-                // 判定「疑似挤压」：宽高差超过 6px，或任一边小于 28px。
-                + "if(n.tagName==='BUTTON'&&b.w<90&&b.h>=18&&b.h<90){"
-                + "out.push({t:'sq',cls:String(n.className).slice(0,60),"
-                + "aria:(n.getAttribute('aria-label')||'').slice(0,24),"
-                + "w:b.w,h:b.h,d:Math.abs(b.w-b.h),"
-                + "susp:Math.abs(b.w-b.h)>6||b.w<28||b.h<28});}"
-                // 极窄的元素：多半被压到不可用
-                + "if(b.w>0&&(b.w<14||b.h<10)){"
-                + "out.push({t:'thin',cls:String(n.className).slice(0,60),"
-                + "aria:(n.getAttribute('aria-label')||'').slice(0,24),"
-                + "w:b.w,h:b.h});}"
-                + "}"
-                + "for(var i=0;i<n.children.length;i++)walk(n.children[i]);"
-                + "}"
-                + "walk(document.body);"
-                + "out.sort(function(a,b){if(a.t!==b.t)return a.t==='sq'?-1:1;return (a.w*b.h)-(b.w*b.h);});"
-                + "console.log('" + MARKER + " '+JSON.stringify({vw:vw,n:out.length,items:out.slice(0,10)}));"
-                + "}catch(e){console.log('" + MARKER + " ERR '+e.message);}})();";
+        return "(function(){"
+                + "if(window.__dshLayoutProbe){window.__dshLayoutProbe.scan();return;}"
+                + "var timer=0,last=0,previous='',active=false;"
+                + "var selector='button,[role=button],[role=switch]';"
+                + "function action(n){var a=n.getAttribute('aria-label')||'';"
+                + "if(/^(Remove image |移除图片 )/.test(a))return 'remove-image';"
+                + "if(/^(Remove file |移除文件 )/.test(a))return 'remove-file';"
+                + "if(/^(Send message|发送消息)$/.test(a))return 'send';"
+                + "if(/^(Queue message|排队发送)$/.test(a))return 'queue';"
+                + "if(/^(Steer message|插话发送)$/.test(a))return 'steer';"
+                + "if(/^(Stop generating|停止生成)$/.test(a))return 'stop';"
+                + "if(/^(Close|关闭)$/.test(a))return 'close';"
+                + "if(n.hasAttribute('data-textpreview-tool'))return 'file-tool';"
+                + "if(n.getAttribute('role')==='switch')return 'switch';"
+                + "return 'control';}"
+                + "function round(x){return Math.round(x*10)/10;}"
+                + "function measure(n){var r=n.getBoundingClientRect(),s=getComputedStyle(n);"
+                + "if(r.width<=0||r.height<=0||s.visibility==='hidden'||s.display==='none'"
+                + "||r.bottom<=0||r.top>=innerHeight||r.right<=0||r.left>=innerWidth)return null;"
+                + "var p=n.parentElement,pr=p?p.getBoundingClientRect():{width:0,height:0};"
+                + "var a=action(n),issue='';"
+                + "if(/^(remove-image|remove-file|send|queue|steer|stop|close)$/.test(a)"
+                + "&&Math.abs(r.width-r.height)>6)issue='stretched';"
+                + "if(a==='control'&&r.width<=40&&n.querySelector('svg')"
+                + "&&parseFloat(s.minHeight)>r.width+6)issue='stretched';"
+                + "if(pr.width>0&&pr.height>0&&s.position!=='absolute'&&s.position!=='fixed'"
+                + "&&p.getAttribute('role')==='tab'&&r.bottom>pr.bottom+1)issue='tab-overflow';"
+                + "return {action:a,cls:String(n.className).slice(0,64),w:round(r.width),"
+                + "h:round(r.height),minH:s.minHeight,shrink:s.flexShrink,"
+                + "pw:round(pr.width),ph:round(pr.height),issue:issue};}"
+                + "function report(){timer=0;if(!active||document.hidden)return;last=Date.now();"
+                + "try{var q=document.querySelectorAll(selector),priority=[],other=[],out=[];"
+                + "for(var i=0;i<q.length;i++){if(action(q[i])!=='control')priority.push(q[i]);"
+                + "else if(other.length<160)other.push(q[i]);}"
+                + "q=priority.concat(other);for(var j=0;j<q.length&&j<200;j++){"
+                + "var b=measure(q[j]);if(b)out.push(b);}"
+                + "out.sort(function(a,b){if(!!a.issue!==!!b.issue)return a.issue?-1:1;"
+                + "return (a.action==='control'?1:0)-(b.action==='control'?1:0);});"
+                + "var vw=document.documentElement.clientWidth,items=out.slice(0,20);"
+                + "var signature=JSON.stringify({vw:vw,items:items});"
+                + "if(signature===previous)return;previous=signature;"
+                + "console.log('" + MARKER + " '+JSON.stringify({kind:'summary',vw:vw,"
+                + "visible:out.length,reported:items.length}));"
+                + "for(var k=0;k<items.length;k++)console.log('" + MARKER
+                + " '+JSON.stringify(items[k]));"
+                + "}catch(e){console.log('" + MARKER + " ERR measurement');}}"
+                + "function schedule(){if(!active||timer)return;"
+                + "timer=setTimeout(report,Math.max(700,2000-(Date.now()-last)));}"
+                + "function changed(rows){for(var i=0;i<rows.length;i++){var m=rows[i];"
+                + "if(m.type==='attributes'){schedule();return;}"
+                + "var nodes=Array.prototype.slice.call(m.addedNodes).concat("
+                + "Array.prototype.slice.call(m.removedNodes));"
+                + "for(var j=0;j<nodes.length;j++){var n=nodes[j];"
+                + "if(n.nodeType===1&&(n.matches(selector)||n.querySelector(selector))){"
+                + "schedule();return;}}}}"
+                + "var observer=new MutationObserver(changed);"
+                + "function start(){if(active)return;active=true;"
+                + "observer.observe(document.documentElement,{childList:true,subtree:true,"
+                + "attributes:true,attributeFilter:['aria-label','aria-expanded','hidden']});"
+                + "document.addEventListener('input',schedule,true);"
+                + "document.addEventListener('change',schedule,true);"
+                + "document.addEventListener('click',schedule,true);"
+                + "document.addEventListener('visibilitychange',schedule);"
+                + "window.addEventListener('resize',schedule);schedule();}"
+                + "function stop(){active=false;clearTimeout(timer);timer=0;observer.disconnect();"
+                + "document.removeEventListener('input',schedule,true);"
+                + "document.removeEventListener('change',schedule,true);"
+                + "document.removeEventListener('click',schedule,true);"
+                + "document.removeEventListener('visibilitychange',schedule);"
+                + "window.removeEventListener('resize',schedule);}"
+                + "window.__dshLayoutProbe={scan:schedule};"
+                + "window.addEventListener('pagehide',stop);window.addEventListener('pageshow',start);"
+                + "start();})();";
     }
 }
