@@ -7,18 +7,18 @@ public class MobileLayoutTest {
         if (ok) pass++; else { fail++; System.out.println("  FAIL " + name + " -> " + detail); }
     }
     public static void main(String[] args) {
-        // 视口必须**永不宽于屏幕**：一台 436dp 的手机拿到 480 CSS px 的视口，
-        // 页面比屏幕宽 10%，每个 flex 容器都在压缩（附件 chip 的文字盖住 ×
-        // 按钮、模型选择器尾字被切）。撑大视口救不了组件，只会把挤压摊开。
-        check("narrow phone uses real width", MobileLayout.viewportWidth(400) == 400, "wrong");
-        check("viewport never exceeds screen",
-                MobileLayout.viewportWidth(436) == 436, "wider than screen");
-        check("very narrow phone not inflated",
-                MobileLayout.viewportWidth(320) == 320, "wrong");
+        // 视口维持 480：改小虽然数学上不再溢出，但会让**所有元素整体放大**
+        // （436 比 480 窄 9% -> 元素涨约 10~20%），一屏内容少两成。
+        // 0.33.4 试过，用户反馈「整个页面被放大、可视内容偏小」。
+        // 视口过大会挤压个别组件，过小会放大一切 —— 后者影响面更大。
+        check("narrow phone keeps 480", MobileLayout.viewportWidth(400) == 480, "wrong");
+        check("real-world 436dp keeps 480", MobileLayout.viewportWidth(436) == 480,
+                "would enlarge every element");
+        check("very narrow phone not shrunk", MobileLayout.viewportWidth(320) == 480, "wrong");
         check("wide phone uses real width", MobileLayout.viewportWidth(600) == 600, "wrong");
         check("landscape not multiplied", MobileLayout.viewportWidth(869) == 869, "wrong");
         check("huge width capped", MobileLayout.viewportWidth(2000) == 1440, "wrong");
-        check("invalid width falls back", MobileLayout.viewportWidth(0) == 400, "wrong");
+        check("invalid width falls back to 480", MobileLayout.viewportWidth(0) == 480, "wrong");
         String html = "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body></body></html>";
         String once = MobileLayout.patchHtml(html, 480);
         check("viewport patched", once != null && once.contains("width=480"), String.valueOf(once));
