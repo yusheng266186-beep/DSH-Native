@@ -9,13 +9,17 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
+import {chromium} from 'playwright';
 
 const runtime = path.resolve(process.argv[2]), classes = path.resolve(process.argv[3]);
+const mobileHtml = await fs.readFile(process.argv[4], 'utf8');
+const mobileInjection = mobileHtml.slice(mobileHtml.indexOf('<style id="dsh-native-responsive">'), mobileHtml.indexOf('</head>'));
+assert(mobileInjection.startsWith('<style'), 'account UI must use the production mobile layout');
 const requireRuntime = createRequire(path.join(runtime, 'package.json'));
 const yaml = requireRuntime('js-yaml');
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-account-'));
 const home = path.join(scratch, 'home'), project = path.join(scratch, 'project');
-let child, native, platform, output = '', attempts = [], mode = 'success', checks = 0, exchanges = 0, cancellations = 0;
+let child, native, platform, browser, accountPage, output = '', attempts = [], mode = 'success', checks = 0, exchanges = 0, cancellations = 0, balanceFailed = false;
 const check = (condition, message) => {assert(condition, message); checks++;};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const metadata = {version: '0.2.0-rc.2', locale: 'zh-CN', timezoneOffsetSeconds: 28800};
@@ -119,7 +123,8 @@ try {
       body(response, {id: 'synthetic-user', email: 'masked@example.test', id_profile: {name: 'Test account'}});
     } else if (request.url === '/api/v0/users/get_user_summary') {
       check(request.headers['x-dsh-auth-token'] === fakeToken, 'balance grant missing');
-      body(response, {normal_wallets: [{currency: 'CNY', balance: '1.50'}], bonus_wallets: []});
+      if (balanceFailed) {response.writeHead(503); response.end(); return;}
+      body(response, {normal_wallets: [{currency: 'CNY', balance: '1.50'}], bonus_wallets: [{currency: 'CNY', balance: '2.25'}]});
     } else {response.writeHead(404); response.end();}
   });
   await new Promise(resolve => platform.listen(0, '127.0.0.1', resolve));
@@ -137,7 +142,44 @@ try {
   check(projected['llm-pi-ai'].providers.commandcode.models[0].reasoningEfforts.max === 'max', 'reasoning map lost during projection');
   check(!(await rpc('session/modelCatalog')).groups.some(g => g.id === 'deepseek-account'), 'signed-out account models are visible');
 
-  await rpc('account/startSignIn', {client: metadata, callbackOrigin: new URL(launch).origin, loginSource: 'web'});
+  browser = await chromium.launch({headless: true});
+  let context = await browser.newContext({viewport: {width: 480, height: 850}, isMobile: true, hasTouch: true, locale: 'zh-CN'});
+  const origin = new URL(launch).origin;
+  await context.grantPermissions(['local-network-access'], {origin});
+  await context.request.get(launch);
+  const httpRpc = async (method, args) => {
+    const response = await context.request.post(origin + '/api/' + method, {data: {type: 'client-request', rpcId: 'account-ui-' + method,
+      method, payload: {args}}});
+    const reply = await response.json(); assert(reply.result?.ok, method + ' failed');
+  };
+  await httpRpc('settings/update', {ns: 'locale', patch: {preference: 'zh'}});
+  await httpRpc('settings/update', {ns: 'ui-settings-general', patch: {welcomeNoticeVersion: '2026-09-28.1'}});
+  await httpRpc('workspace/create', {request: {path: project}});
+  accountPage = await context.newPage();
+  const mobileRoute = (page, width) => page.route(origin + '/', async route => {
+      const response = await route.fetch();
+      const html = (await response.text()).replace(/content="width=device-width, initial-scale=1"/,
+        'content="width=' + Math.max(480, width) + '"');
+      await route.fulfill({response, body: html.replace('</head>', mobileInjection + '</head>')});
+    });
+  await mobileRoute(accountPage, 480);
+  const pageErrors = []; accountPage.on('pageerror', error => pageErrors.push(error.message));
+  await accountPage.goto(origin + '/');
+  const later = accountPage.getByRole('button', {name: /^(稍后配置|Configure later)$/});
+  if (await later.waitFor({state: 'visible', timeout: 5000}).then(() => true, () => false)) {
+    await later.click(); await accountPage.getByRole('dialog').waitFor({state: 'hidden'});
+  }
+  await accountPage.waitForFunction(() => document.querySelector('button[aria-label="账号菜单"]'));
+  check(await accountPage.evaluate(() => !('dshDesktop' in globalThis)), 'account UI manufactured a Desktop bridge');
+  check(await accountPage.evaluate(() => !window.dispatchEvent(new Event('dsh-native-account-settings', {cancelable: true}))), 'native App settings did not open upstream settings');
+  let settings = accountPage.locator('[data-shortcut-modal="settings"]');
+  await settings.getByRole('button', {name: '登录', exact: true}).waitFor({state: 'visible'});
+  const opened = context.waitForEvent('page');
+  await settings.getByRole('button', {name: '登录', exact: true}).click();
+  const authorization = await opened;
+  await authorization.waitForURL(platformOrigin + '/dsh/authorize**');
+  check(new URL(authorization.url()).pathname === '/dsh/authorize', 'upstream sign-in did not open browser authorization');
+  await authorization.close();
   let view = await until(rpc, 'waiting-browser');
   check(new URL(view.attempt.authorizeUrl).pathname === '/dsh/authorize', 'authorization link not projected');
   const same = await rpc('account/startSignIn', {client: metadata, callbackOrigin: new URL(launch).origin, loginSource: 'web'});
@@ -153,6 +195,45 @@ try {
   check((await rpc('session/modelCatalog')).groups.find(g => g.id === 'deepseek-account')?.models.length > 0, 'authenticated models unavailable');
   check((await rpc('account/getProfile', {client: metadata})).status === 'ready', 'profile read failed');
   check((await rpc('account/getBalance', {client: metadata})).value[0].balance === '1.50', 'balance read failed');
+  await accountPage.getByRole('dialog').filter({hasText: '等待登录'}).waitFor({state: 'hidden'});
+  await settings.getByText('Test account', {exact: true}).waitFor({state: 'visible'});
+  await settings.getByText('充值余额', {exact: true}).waitFor({state: 'visible'});
+  await settings.getByText('赠金余额', {exact: true}).waitFor({state: 'visible'});
+  check(/1\.50|1\.5/.test(await settings.textContent()) && /2\.25/.test(await settings.textContent()), 'upstream balances were not rendered');
+  check((await settings.getByRole('link', {name: '查询用量', exact: true}).getAttribute('href')) === platformOrigin + '/usage', 'usage destination lost');
+  check((await settings.getByRole('link', {name: '充值', exact: true}).getAttribute('href')) === platformOrigin + '/top_up', 'top-up destination lost');
+  for (const scenario of [{width: 320, height: 850, theme: 'light'}, {width: 436, height: 850, theme: 'dark'}, {width: 869, height: 436, theme: 'light'}]) {
+    await httpRpc('settings/update', {ns: 'ui-theme', patch: {preference: scenario.theme}});
+    await context.close();
+    context = await browser.newContext({viewport: {width: scenario.width, height: scenario.height}, isMobile: true, hasTouch: true, locale: 'zh-CN'});
+    await context.grantPermissions(['local-network-access'], {origin}); await context.request.get(launch);
+    accountPage = await context.newPage(); accountPage.on('pageerror', error => pageErrors.push(error.message));
+    await mobileRoute(accountPage, scenario.width);
+    await accountPage.goto(origin + '/');
+    settings = accountPage.locator('[data-shortcut-modal="settings"]');
+    await accountPage.waitForFunction(() => document.querySelector('button[aria-label="账号菜单"]'));
+    check(await accountPage.evaluate(() => !window.dispatchEvent(new Event('dsh-native-account-settings', {cancelable: true}))), 'account entry failed after reload');
+    await settings.getByText('Test account', {exact: true}).waitFor({state: 'visible'});
+    await settings.getByText('赠金余额', {exact: true}).waitFor({state: 'visible'});
+    const box = await settings.boundingBox(), vw = await accountPage.evaluate(() => document.documentElement.clientWidth);
+    check(box.x >= -.5 && box.x + box.width <= vw + .5, 'account settings off screen');
+    check(await settings.evaluate(e => e.scrollWidth <= e.clientWidth + 1), 'account settings horizontal overflow');
+    check(await settings.getByRole('link', {name: '充值', exact: true}).isVisible(), 'top-up action hidden');
+    check(await accountPage.evaluate(() => document.body.hasAttribute('data-ds-dark-theme')) === (scenario.theme === 'dark'), 'account theme mismatch');
+    if (process.env.DSH_ACCOUNT_EVIDENCE_DIR) {
+      await fs.mkdir(process.env.DSH_ACCOUNT_EVIDENCE_DIR, {recursive: true});
+      await accountPage.screenshot({path: path.join(process.env.DSH_ACCOUNT_EVIDENCE_DIR, 'account-' + scenario.width + '-' + scenario.theme + '.png')});
+    }
+  }
+  balanceFailed = true;
+  await settings.getByRole('button', {name: '关闭', exact: true}).click();
+  await accountPage.evaluate(() => window.dispatchEvent(new Event('dsh-native-account-settings', {cancelable: true})));
+  await settings.getByRole('link', {name: '前往开放平台查看', exact: true}).first().waitFor({state: 'visible'});
+  check(!(await settings.textContent()).includes('0.00'), 'failed balance became zero');
+  check((await rpc('account/getProfile', {client: metadata})).status === 'ready', 'balance failure also broke profile');
+  balanceFailed = false;
+  check(pageErrors.length === 0, 'account component raised browser errors');
+  await context.close(); await browser.close(); browser = undefined;
   await rpc('credentials/set', {ref: 'DEEPSEEK_API_KEY', value: 'synthetic-api-key'});
   check((await rpc('account/getState')).status === 'credential-stored', 'API key write removed account authorization');
   let credentials = await fs.readFile(path.join(home, '.credentials.yaml'), 'utf8');
@@ -186,8 +267,16 @@ try {
   check((await until(rpc, 'failed')).attempt.errorCode === 'network', 'network failure not projected');
   check(!output.includes(fakeToken) && !output.includes('synthetic-api-key'), 'core log leaked credentials');
   check(exchanges === 1 && cancellations >= 1, 'authorization fixture did not exercise exchange and cancellation');
-  console.log(`DeepSeekAccountConsumer: ${checks} checks; real native RPC / PKCE / metadata / callback rejection / credentials / restart / sign-out / cancel / expiry / failure`);
+  console.log(`DeepSeekAccountConsumer: ${checks} checks; original account UI / balances / browser sign-in / native RPC / PKCE / callback rejection / credentials / restart / sign-out / cancel / expiry / failure`);
+} catch (error) {
+  if (accountPage && process.env.DSH_ACCOUNT_EVIDENCE_DIR) {
+    await fs.mkdir(process.env.DSH_ACCOUNT_EVIDENCE_DIR, {recursive: true});
+    await accountPage.screenshot({path: path.join(process.env.DSH_ACCOUNT_EVIDENCE_DIR, 'failure.png')}).catch(() => {});
+    await fs.writeFile(path.join(process.env.DSH_ACCOUNT_EVIDENCE_DIR, 'failure.txt'), await accountPage.locator('body').innerText().catch(() => '') + '\n' + error.message);
+  }
+  throw error;
 } finally {
+  if (browser) await browser.close();
   await stop();
   if (platform) await new Promise(resolve => platform.close(resolve));
   await fs.rm(scratch, {recursive: true, force: true});

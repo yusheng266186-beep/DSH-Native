@@ -168,11 +168,12 @@ def patch_android(runtime, base):
                  'import { copyFile as androidCopyFile, link, lstat,')
     replace_once(persistence, 'import { readdirSync } from "node:fs";',
                  'import { readdirSync, constants as androidFsConstants } from "node:fs";')
-    replace_once(persistence, '\t\tawait internals.fs.link(staged, currentPath);',
-                 '\t\ttry { await internals.fs.link(staged, currentPath); } catch (error) {\n'
-                 "            if (!['EPERM', 'EXDEV', 'ENOSYS', 'EOPNOTSUPP'].includes(error?.code)) throw error;\n"
-                 '            await androidCopyFile(staged, currentPath, androidFsConstants.COPYFILE_EXCL);\n'
-                 '        }')
+    replace_once(persistence, 'await internals.fs.link(staged, currentPath);',
+                 'await __dshPublishLink(staged, currentPath, internals.fs.link, internals.fs.copyFile);')
+    replace_once(persistence, 'await link(tmp, finalPath);',
+                 'await __dshPublishLink(tmp, finalPath, link);')
+    helper = (pathlib.Path(__file__).resolve().parent.parent / 'payload/session-publish.js').read_text()
+    persistence.write_text(helper.rstrip() + '\n' + persistence.read_text())
 
     # sharp 被 App 用 Pillow 整体替换（见 payload/sharp-android.js），因此它所有
     # 平台变体都不会被加载。

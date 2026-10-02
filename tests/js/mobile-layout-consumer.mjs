@@ -96,9 +96,15 @@ try {
       });
       await page.goto(origin + '/');
       const later = page.getByRole('button', {name: /^(Configure later|稍后配置)$/});
-      await later.waitFor({state: 'visible'});
-      await later.click();
-      await page.getByRole('dialog').waitFor({state: 'hidden'});
+      if (await later.waitFor({state: 'visible', timeout: 1500}).then(() => true, () => false)) {
+        await later.click();
+        await page.getByRole('dialog').waitFor({state: 'hidden'});
+      }
+      const loginIntro = page.getByRole('dialog').filter({hasText: /Get started|开始使用/});
+      if (await loginIntro.waitFor({state: 'visible', timeout: 1500}).then(() => true, () => false)) {
+        await loginIntro.getByRole('button', {name: /^(Close|关闭)$/}).click();
+        await loginIntro.waitFor({state: 'hidden'});
+      }
       await page.evaluate(probe);
       await page.evaluate(tools);
       const send = page.getByRole('button', {name: /^(Send message|发送消息)$/});
@@ -198,13 +204,16 @@ try {
       check(nativeActions.length === 1, 'actual App tools click did not reach the native marker');
       check(await page.locator('[data-shortcut-modal="settings"][role=dialog]').count() === 0, 'App entry triggered the Web settings');
       await page.evaluate(tools);
-      check(await appTools.count() === 1, 'reinjecting tools duplicated the live sidebar');
+      check(await appTools.count() === 1, 'reinjecting tools changed count to ' + await appTools.count());
+      check((await size(page.getByRole('button', {name: /^(Account menu|账号菜单)$/}))).width > 64, 'App tools squeezed the upstream account menu');
       await noPageOverflow();
 
       // Preserve the working settings adaptation and verify its actual switch geometry.
-      await page.getByRole('button', {name: /^(Settings|设置)$/}).click();
+      await page.getByRole('button', {name: /^(Account menu|账号菜单)$/}).click();
+      await page.getByRole('menuitem', {name: /^(Settings|设置)$/}).click();
       const settings = page.locator('[data-shortcut-modal="settings"][role=dialog]');
       await settings.waitFor({state: 'visible'});
+      await settings.locator('nav button').filter({hasText: /^(General|General settings|常规|通用|通用设置)$/}).click();
       const settingsBox = await size(settings);
       const vw = await page.evaluate(() => document.documentElement.clientWidth);
       check(settingsBox.width <= vw - 16 + 1, 'settings exceed the viewport');
