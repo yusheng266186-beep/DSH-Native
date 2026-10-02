@@ -29,8 +29,8 @@ public class WebToolsEntryTest {
         check("English settings anchor", script.contains("/^settings$/i"), "missing");
         check("Chinese tools label", script.contains("App 工具"), "missing");
         check("English tools label", script.contains("App tools"), "missing");
-        check("Chinese model refresh label", script.contains("更新模型列表"), "missing");
-        check("English model refresh label", script.contains("Refresh models"), "missing");
+        check("refresh moved out of sidebar", !script.contains("更新模型列表"), "still in sidebar");
+        check("refresh control removed", !script.contains("data-dsh-native-models"), "still in sidebar");
         check("clones live WebUI styles", script.contains("trigger.cloneNode(false)")
                 && script.contains("settings.cloneNode(true)"), "not cloned");
         check("collapsed sidebar removes ambiguous gear",
@@ -47,7 +47,6 @@ public class WebToolsEntryTest {
         check("ready marker present", script.contains(WebToolsEntry.READY_MARKER), "missing");
         check("missing marker present", script.contains(WebToolsEntry.MISSING_MARKER), "missing");
         check("open marker present", script.contains(WebToolsEntry.OPEN_MARKER), "missing");
-        check("refresh marker present", script.contains(WebToolsEntry.REFRESH_MODELS_MARKER), "missing");
         check("no fixed overlay", !script.contains("position:fixed")
                 && !script.contains("position: fixed"), "overlay found");
         check("no native bridge exposure", !script.contains("addJavascriptInterface"),

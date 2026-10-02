@@ -160,6 +160,50 @@ public class ConfigBackupTest {
                 !ConfigBackup.isBackupName("settings.yaml"), "wrong");
         check("null name safe", !ConfigBackup.isBackupName(null), "wrong");
 
+        System.out.println("=== 9. imported core profile ===");
+        File profile = new File(dsh, "profiles/web/cordis.patch.yml");
+        profile.getParentFile().mkdirs();
+        String profileText = "entries:\n  agent-default-model:\n    provider: deepseek-account\n";
+        write(profile, profileText);
+        write(new File(dsh, "settings.yaml.imported"), "previous imported settings\n");
+        new File(dsh, "settings.yaml").delete();
+        File current = new File(backups, "dsh-config-current.dshbak");
+        check("current core configuration exports four files",
+                ConfigBackup.exportEncrypted(dsh, current, password) == 4, "wrong count");
+        File fresh = new File(base, "fresh");
+        check("restores into a new configuration directory",
+                ConfigBackup.restoreEncrypted(current, fresh, password) == 4, "wrong count");
+        check("active nested profile restored exactly",
+                profileText.equals(read(new File(fresh, "profiles/web/cordis.patch.yml"))),
+                "profile lost");
+        check("imported legacy snapshot restored",
+                read(new File(fresh, "settings.yaml.imported")).contains("previous imported"),
+                "snapshot lost");
+        check("credentials retained alongside active profile",
+                read(new File(fresh, ".credentials.yaml")).contains("user_secret123"), "lost");
+        check("unrelated files remain excluded", !new File(fresh, "unrelated.txt").exists(), "included");
+
+        File outside = new File(base, "outside");
+        outside.mkdirs();
+        File linked = new File(base, "linked");
+        linked.mkdirs();
+        File linkedProfile = new File(linked, "profiles");
+        java.nio.file.Files.createSymbolicLink(linkedProfile.toPath(), outside.toPath());
+        write(new File(linked, ".credentials.yaml"), "untouched\n");
+        threw = false;
+        try { ConfigBackup.restoreEncrypted(current, linked, password); }
+        catch (java.io.IOException expected) { threw = true; }
+        check("restore rejects a parent symlink escaping configuration directory", threw, "accepted");
+        check("all targets checked before replacing credentials",
+                "untouched\n".equals(read(new File(linked, ".credentials.yaml"))), "partial restore");
+        check("no profile written outside configuration directory",
+                !new File(outside, "web/cordis.patch.yml").exists(), "escaped");
+        threw = false;
+        try { ConfigBackup.exportEncrypted(linked, new File(backups, "dsh-config-escape.dshbak"), password); }
+        catch (java.io.IOException expected) { threw = true; }
+        check("export refuses configuration paths escaping through symlinks", threw, "accepted");
+        linkedProfile.delete();
+
         rmrf(base);
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

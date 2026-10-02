@@ -1,7 +1,7 @@
 # 踩过的坑
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.9**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.9**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 这份文件记录**看起来对但实际错**的情况。每一条都是真实发生过的，
@@ -534,3 +534,31 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 原体检只在加载后扫描一次、截断整段 JSON，会漏掉后来的附件。现改为交互后去抖测量、
 固定动作名脱敏、独立有界记录，并加入真实运行包的触屏浏览器回归。
 详见 [布局交接](HANDOVER-LAYOUT.md)；浏览器验证与新版真机反馈分别记录。
+
+## 0.33.10：账号授权与已导入配置
+
+### legacy 文件不等于当前配置
+
+DSH 0.2 导入 `settings.yaml` 后改为 `settings.yaml.imported`，实际配置位于 Web profile。
+原生读取若只看旧路径，模型目录会退回预设，项目切换也可能跳过覆盖。现在有待导入文件时读取它，
+否则通过内核 `settings/describe` 投影公开模型配置；项目切换使用同一快照。
+加密备份也必须包含 active profile，不能只备份已被迁移的路径。
+
+### 不用旧凭据全文覆盖内核 grant
+
+账号授权会向 `.credentials.yaml` 的 `records` 写入 grant，API Key 在 `refs`。
+对话框打开时缓存的全文可能早于浏览器登录，保存整份旧文件会丢失授权。
+API Key 修改使用内核 `credentials/set` / `unset`，真实账号消费回归验证授权前后修改均保留 grant 和密钥。
+
+### Desktop 前端检查不是后端缺功能
+
+上游账号页有 `dshDesktop` 条件，但固定 Web profile 已加载账号 RPC。
+原生面板消费现有后端，不制造假的 Desktop 桥；授权 URL、PKCE、state 与回调各有不同边界。
+网络错误和日志不得包含 token、Cookie、authorization code 或 PKCE verifier。
+`127.0.0.1` 子串或 `localhost` 前缀也不能作为本机 origin 判定；host、port、scheme 必须准确匹配。
+
+### 服务地址早于模型导入
+
+内核在异步 legacy 导入结束前就打印 Web 地址。CI 曾读到默认模型已经更新，但 Command Code 目录尚未出现的中间状态。
+完成日志默认不输出到终端，不能通过固定 sleep 或猜测日志来判断。启动前保留预期模型配置，
+通过真实 `settings/describe` 核对默认、目录 ID 与能力；超时明确失败。合成平台账号回归使用同一生产判断。

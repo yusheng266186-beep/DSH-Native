@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 final class ModelConfig {
     static final String COMMAND_CODE = "commandcode";
     static final String DEEPSEEK = "deepseek-official";
+    static final String DEEPSEEK_ACCOUNT = "deepseek-account";
 
     private static final Set<String> EFFORTS = new LinkedHashSet<String>();
     static {
@@ -72,7 +73,7 @@ final class ModelConfig {
 
     static String normalizeProvider(String raw) {
         String value = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
-        if (COMMAND_CODE.equals(value) || DEEPSEEK.equals(value)) return value;
+        if (COMMAND_CODE.equals(value) || DEEPSEEK.equals(value) || DEEPSEEK_ACCOUNT.equals(value)) return value;
         return "";
     }
 
@@ -93,6 +94,7 @@ final class ModelConfig {
     }
 
     static String providerName(String provider, boolean english) {
+        if (DEEPSEEK_ACCOUNT.equals(provider)) return english ? "DeepSeek account" : "DeepSeek 账号";
         if (DEEPSEEK.equals(provider)) return english ? "DeepSeek direct" : "DeepSeek 官方";
         return "Command Code";
     }
@@ -117,9 +119,11 @@ final class ModelConfig {
     }
 
     static List<Model> modelsForProvider(String yaml, String provider) {
-        if (DEEPSEEK.equals(normalizeProvider(provider))) {
-            String direct = topLevelBlock(yaml, "llm-deepseek-api-key");
-            if (direct == null) direct = topLevelBlock(yaml, "llm-deepseek");
+        String normalized = normalizeProvider(provider);
+        if (DEEPSEEK.equals(normalized) || DEEPSEEK_ACCOUNT.equals(normalized)) {
+            String direct = topLevelBlock(yaml, DEEPSEEK_ACCOUNT.equals(normalized)
+                    ? "llm-deepseek-account" : "llm-deepseek-api-key");
+            if (direct == null && !DEEPSEEK_ACCOUNT.equals(normalized)) direct = topLevelBlock(yaml, "llm-deepseek");
             List<Model> configured = ModelCatalogSync.readModels(direct);
             if (!configured.isEmpty()) return configured;
             List<Model> out = new ArrayList<Model>();
@@ -216,6 +220,7 @@ final class ModelConfig {
     }
 
     static String credentialKey(String provider) {
+        if (DEEPSEEK_ACCOUNT.equals(provider)) return "";
         return DEEPSEEK.equals(provider) ? "DEEPSEEK_API_KEY" : "COMMANDCODE_API_KEY";
     }
 

@@ -10,6 +10,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -24,6 +26,8 @@ import java.util.Map;
 /** 模型中心、服务商检测、项目覆盖和首次账号配置。 */
 final class ModelCenterPanel {
     interface Host {
+        NativeCoreApi coreApi();
+        void openDeepSeekAccount(Runnable previous);
         File dshHome();
         String activeProject();
         void log(String message);
@@ -36,79 +40,68 @@ final class ModelCenterPanel {
 
     private ModelCenterPanel() { }
 
-    private static boolean refreshingCatalog;
-
     /** Update saved provider catalogs without changing the current default model. */
     static void refreshConfigured(final Activity activity, final Host host) {
-        if (refreshingCatalog) {
+        final NativeCoreApi api = host.coreApi();
+        if (api == null) {
+            DshUi.toast(activity, UiText.t("请等待 DSH 启动完成", "Wait for DSH to finish starting."));
+            return;
+        }
+        if (!api.catalogGate.tryStart("model catalog")) {
             DshUi.toast(activity, UiText.t("正在更新模型目录…", "Updating the model catalog…"));
             return;
         }
-        try {
-            String credentials = ProjectModelSettings.readFile(new File(host.dshHome(), ".credentials.yaml"));
-            if (ModelConfig.readCredentialRef(credentials, "COMMANDCODE_API_KEY").length() == 0
-                    && ModelConfig.readCredentialRef(credentials, "DEEPSEEK_API_KEY").length() == 0) {
-                show(activity, host, false);
-                return;
-            }
-            refreshingCatalog = true;
-            DshUi.toast(activity, UiText.t("正在读取并同步上游模型…", "Fetching and syncing upstream models…"));
-            refreshProvider(activity, host, 0, 0, new ArrayList<String>());
-        } catch (Throwable error) {
-            refreshingCatalog = false;
-            host.log("模型目录更新失败: " + error.getClass().getSimpleName());
-            DshUi.toast(activity, UiText.t("模型目录更新失败", "Model catalog update failed"));
-        }
-    }
-
-    private static void refreshProvider(final Activity activity, final Host host,
-                                         final int index, final int synced,
-                                         final List<String> failures) {
-        final String[] providers = {ModelConfig.COMMAND_CODE, ModelConfig.DEEPSEEK};
-        if (index >= providers.length) {
-            refreshingCatalog = false;
-            if (!failures.isEmpty()) DshUi.toast(activity, UiText.t("更新失败：", "Update failed: ") + failures);
-            if (synced > 0) host.refreshModelCatalog();
-            return;
-        }
-        final String provider = providers[index];
-        try {
-            String credentials = ProjectModelSettings.readFile(new File(host.dshHome(), ".credentials.yaml"));
-            final String key = ModelConfig.readCredentialRef(credentials, ModelConfig.credentialKey(provider));
-            if (key.length() == 0) {
-                refreshProvider(activity, host, index + 1, synced, failures);
-                return;
-            }
-            requestCatalog(activity, provider, key, new CatalogCallback() {
-                @Override public void complete(ProviderCheck.Result result, Throwable error) {
-                    int updated = synced;
+        DshUi.toast(activity, UiText.t("正在读取并同步上游模型…", "Fetching and syncing upstream models…"));
+        api.execute(new NativeCoreApi.Work() {
+            @Override public Object run() throws Exception {
+                RefreshResult result = new RefreshResult();
+                File home = host.dshHome();
+                String settings = api.modelSettings(home);
+                File credentials = new File(home, ".credentials.yaml");
+                for (String provider : new String[]{ModelConfig.COMMAND_CODE, ModelConfig.DEEPSEEK, ModelConfig.DEEPSEEK_ACCOUNT}) {
+                    api.checkOpen();
+                    String key = ModelConfig.readCredentialRef(ProjectModelSettings.readFile(credentials), ModelConfig.credentialKey(provider));
+                    if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && key.length() == 0) continue;
                     try {
-                        if (error != null || result == null || result.state != ProviderCheck.READY)
-                            throw new java.io.IOException(error == null && result != null
-                                    ? "HTTP " + result.httpCode : "network error");
-                        File credentialsFile = new File(host.dshHome(), ".credentials.yaml");
-                        String latestKey = ModelConfig.readCredentialRef(
-                                ProjectModelSettings.readFile(credentialsFile), ModelConfig.credentialKey(provider));
-                        if (!key.equals(latestKey)) throw new java.io.IOException("credentials changed; retry");
-                        File settingsFile = new File(host.dshHome(), "settings.yaml");
-                        String settings = ProjectModelSettings.readFile(settingsFile);
-                        List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(result,
+                        ProviderCheck.Result catalog = fetchCatalog(api, provider, key);
+                        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)
+                                && catalog.state == ProviderCheck.KEY_REJECTED) continue;
+                        if (catalog.state != ProviderCheck.READY) throw new java.io.IOException("provider unavailable");
+                        String latest = ModelConfig.readCredentialRef(ProjectModelSettings.readFile(credentials), ModelConfig.credentialKey(provider));
+                        if (!key.equals(latest)) throw new java.io.IOException("credentials changed");
+                        List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(catalog,
                                 ModelConfig.modelsForProvider(settings, provider), provider);
-                        String next = ModelCatalogSync.writeLiveCatalog(settings, provider, entries);
-                        ProjectModelSettings.writeFileAtomic(settingsFile, next);
-                        updated++;
+                        settings = ModelCatalogSync.writeLiveCatalog(settings, provider, entries);
+                        result.synced++;
                         host.log("已同步上游模型到 DSH: " + provider + "，" + entries.size() + " 个");
-                    } catch (Throwable failure) {
-                        failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
+                    } catch (Exception failure) {
+                        result.failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
                         host.log("模型目录同步失败: " + provider + " / " + failure.getClass().getSimpleName());
                     }
-                    refreshProvider(activity, host, index + 1, updated, failures);
                 }
-            });
-        } catch (Throwable error) {
-            failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
-            refreshProvider(activity, host, index + 1, synced, failures);
-        }
+                api.checkOpen();
+                if (result.synced > 0) ProjectModelSettings.writeFileAtomic(new File(home, "settings.yaml"), settings);
+                return result;
+            }
+        }, new NativeCoreApi.Callback() {
+            @Override public void complete(Object value, Throwable failure) {
+                api.catalogGate.finish("model catalog");
+                if (failure != null) {
+                    host.log("模型目录更新失败: " + failure.getClass().getSimpleName());
+                    DshUi.toast(activity, UiText.t("模型目录更新失败，请重试", "Model catalog update failed. Please retry."));
+                    return;
+                }
+                RefreshResult result = (RefreshResult) value;
+                if (!result.failures.isEmpty()) DshUi.toast(activity, UiText.t("更新失败：", "Update failed: ") + result.failures);
+                else if (result.synced == 0) DshUi.toast(activity, UiText.t("请先保存 API Key 或登录 DeepSeek 账号", "Save an API key or sign in to DeepSeek first."));
+                if (result.synced > 0) host.refreshModelCatalog();
+            }
+        });
+    }
+
+    private static final class RefreshResult {
+        int synced;
+        final List<String> failures = new ArrayList<String>();
     }
 
     static void show(Activity activity, Host host, boolean onboarding) {
@@ -121,12 +114,32 @@ final class ModelCenterPanel {
 
     private static void show(final Activity act, final Host host, final String project,
                              final boolean onboarding, final boolean projectOnly) {
+        final NativeCoreApi api = host.coreApi();
+        if (api == null) {
+            DshUi.toast(act, UiText.t("请等待 DSH 启动完成", "Wait for DSH to finish starting."));
+            host.closeModelCenter(onboarding, false);
+            return;
+        }
+        api.execute(new NativeCoreApi.Work() {
+            @Override public Object run() throws Exception { return api.modelSettings(host.dshHome()); }
+        }, new NativeCoreApi.Callback() {
+            @Override public void complete(Object value, Throwable failure) {
+                if (failure != null) {
+                    host.log("读取模型配置失败: " + failure.getClass().getSimpleName());
+                    DshUi.toast(act, UiText.t("读取模型配置失败，请重试", "Could not read model settings. Please retry."));
+                    host.closeModelCenter(onboarding, false);
+                } else showLoaded(act, host, project, onboarding, projectOnly, (String) value);
+            }
+        });
+    }
+
+    private static void showLoaded(final Activity act, final Host host, final String project,
+                                   final boolean onboarding, final boolean projectOnly, final String settingsText) {
         try {
             final File home = host.dshHome();
             final File settingsFile = new File(home, "settings.yaml");
             final File credentialsFile = new File(home, ".credentials.yaml");
             final File projectsFile = new File(home, ProjectModelSettings.FILE_NAME);
-            final String settingsText = ProjectModelSettings.readFile(settingsFile);
             final String credentialsText = ProjectModelSettings.readFile(credentialsFile);
             final ProjectModelSettings.State projectState =
                     ProjectModelSettings.parse(ProjectModelSettings.readFile(projectsFile));
@@ -147,8 +160,8 @@ final class ModelCenterPanel {
                     ? UiText.t("连接模型服务", "Connect a model provider")
                     : UiText.t("模型中心", "Model center")));
             body.addView(DshUi.hint(act, onboarding
-                    ? UiText.t("选择服务商、填写密钥并确认默认模型。检测只读取模型列表，不会产生模型调用费用。",
-                            "Choose a provider, add its key, and confirm a default model. The check only reads the model list and does not make a billed model call.")
+                    ? UiText.t("选择服务商，登录账号或填写 API Key，并确认默认模型。检测只读取模型列表，不会产生模型调用费用。",
+                            "Choose a provider, sign in or add an API key, and confirm a default model. The check only reads the model list and does not make a billed model call.")
                     : UiText.t("统一管理服务商、模型和思考强度。模型变更用于新会话，已有会话保留自己的模型。",
                             "Manage providers, models, and reasoning effort. Changes apply to new sessions; existing sessions keep their recorded model.")),
                     DshUi.fullWidth(act, 7));
@@ -175,18 +188,25 @@ final class ModelCenterPanel {
             final Button cc = DshUi.toggleButton(act, "Command Code",
                     ModelConfig.COMMAND_CODE.equals(draft.provider));
             final Button ds = DshUi.toggleButton(act,
-                    UiText.t("DeepSeek 官方", "DeepSeek direct"),
+                    UiText.t("DeepSeek API Key", "DeepSeek API key"),
                     ModelConfig.DEEPSEEK.equals(draft.provider));
-            LinearLayout providerRow = row(act);
-            addEqual(providerRow, cc, 0);
-            addEqual(providerRow, ds, 6);
-            body.addView(providerRow, DshUi.fullWidth(act, 6));
+            final Button dsAccount = DshUi.toggleButton(act,
+                    UiText.t("DeepSeek 账号", "DeepSeek account"),
+                    ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider));
+            body.addView(cc, DshUi.fullWidth(act, 6));
+            body.addView(ds, DshUi.fullWidth(act, 6));
+            body.addView(dsAccount, DshUi.fullWidth(act, 6));
+            Button accountSettings = DshUi.button(act,
+                    UiText.t("DeepSeek 账号登录与管理", "DeepSeek sign-in & account settings"), false);
+            body.addView(accountSettings, DshUi.fullWidth(act, 6));
 
-            body.addView(DshUi.label(act, "Command Code API Key"), DshUi.fullWidth(act, 14));
+            final TextView ccLabel = DshUi.label(act, "Command Code API Key");
+            body.addView(ccLabel, DshUi.fullWidth(act, 14));
             final EditText ccKey = DshUi.input(act, ModelConfig.readCredentialRef(
                     credentialsText, "COMMANDCODE_API_KEY"), true);
             body.addView(ccKey, DshUi.fullWidth(act, 6));
-            body.addView(DshUi.label(act, "DeepSeek API Key"), DshUi.fullWidth(act, 14));
+            final TextView dsLabel = DshUi.label(act, "DeepSeek API Key");
+            body.addView(dsLabel, DshUi.fullWidth(act, 14));
             final EditText dsKey = DshUi.input(act, ModelConfig.readCredentialRef(
                     credentialsText, "DEEPSEEK_API_KEY"), true);
             body.addView(dsKey, DshUi.fullWidth(act, 6));
@@ -203,7 +223,7 @@ final class ModelCenterPanel {
                     UiText.t("选择模型", "Choose model"), false);
             body.addView(choose, DshUi.fullWidth(act, 6));
             final Button updateCatalog = DshUi.button(act,
-                    UiText.t("更新上游模型列表", "Update upstream model list"), false);
+                    UiText.t("更新模型列表", "Refresh models"), false);
             body.addView(updateCatalog, DshUi.fullWidth(act, 6));
             body.addView(DshUi.hint(act, UiText.t(
                     "更新会直接同步已配置服务商的目录；确认空闲后自动应用。选择新的默认模型仍需保存。",
@@ -265,6 +285,11 @@ final class ModelCenterPanel {
                     invalidateCheck.run();
                     DshUi.setToggleState(cc, ModelConfig.COMMAND_CODE.equals(draft.provider));
                     DshUi.setToggleState(ds, ModelConfig.DEEPSEEK.equals(draft.provider));
+                    DshUi.setToggleState(dsAccount, ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider));
+                    ccLabel.setVisibility(ModelConfig.COMMAND_CODE.equals(draft.provider) ? View.VISIBLE : View.GONE);
+                    ccKey.setVisibility(ccLabel.getVisibility());
+                    dsLabel.setVisibility(ModelConfig.DEEPSEEK.equals(draft.provider) ? View.VISIBLE : View.GONE);
+                    dsKey.setVisibility(dsLabel.getVisibility());
                     DshUi.setToggleState(global, draft.globalScope);
                     DshUi.setToggleState(perProject, !draft.globalScope);
                     followGlobal.setVisibility(!onboarding && !draft.globalScope
@@ -296,6 +321,25 @@ final class ModelCenterPanel {
                     selectProvider(draft, ModelConfig.DEEPSEEK);
                     refresh.run();
                     DshUi.choiceActivated(v);
+                }
+            });
+            dsAccount.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    draft.followGlobal = false;
+                    selectProvider(draft, ModelConfig.DEEPSEEK_ACCOUNT);
+                    refresh.run();
+                    DshUi.choiceActivated(v);
+                }
+            });
+            accountSettings.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    DshUi.swapDialog(dialog, false, new Runnable() {
+                        @Override public void run() {
+                            host.openDeepSeekAccount(new Runnable() {
+                                @Override public void run() { show(act, host, project, onboarding, projectOnly); }
+                            });
+                        }
+                    });
                 }
             });
             global.setOnClickListener(new View.OnClickListener() {
@@ -339,7 +383,8 @@ final class ModelCenterPanel {
                     try {
                         String savedKey = ModelConfig.readCredentialRef(
                                 ProjectModelSettings.readFile(credentialsFile), ModelConfig.credentialKey(draft.provider));
-                        if (savedKey.length() == 0 || !savedKey.equals(selectedKey(draft.provider, ccKey, dsKey))) {
+                        if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider)
+                                && (savedKey.length() == 0 || !savedKey.equals(selectedKey(draft.provider, ccKey, dsKey)))) {
                             openChooser.onClick(v);
                         } else refreshConfigured(act, host);
                     } catch (Throwable error) {
@@ -367,7 +412,7 @@ final class ModelCenterPanel {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
                     refreshEfforts.run();
-                    ModelConfig.Selection selection = new ModelConfig.Selection(
+                    final ModelConfig.Selection selection = new ModelConfig.Selection(
                             draft.provider, draft.model, draft.effort);
                     if (draft.followGlobal && projectState.global != null
                             && !selection.equals(projectState.global)) {
@@ -389,7 +434,7 @@ final class ModelCenterPanel {
                     String selectedKey = ModelConfig.DEEPSEEK.equals(selection.provider)
                             ? dsKey.getText().toString().trim()
                             : ccKey.getText().toString().trim();
-                    if (selectedKey.length() == 0) {
+                    if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(selection.provider) && selectedKey.length() == 0) {
                         DshUi.toast(act, UiText.t("请先填写当前服务商的 API Key",
                                 "Add the API key for the selected provider"));
                         return;
@@ -399,55 +444,73 @@ final class ModelCenterPanel {
                             : UiText.t("保存", "Save");
                     DshUi.setBusy(save, saveIdle,
                             UiText.t("保存中", "Saving"), true);
-                    try {
-                        String latestSettings = ProjectModelSettings.readFile(settingsFile);
-                        String latestCredentials = ProjectModelSettings.readFile(credentialsFile);
-                        ProjectModelSettings.State latestState = ProjectModelSettings.parse(
-                                ProjectModelSettings.readFile(projectsFile));
-                        ModelConfig.Selection latestFileSelection =
-                                ModelConfig.readSelection(latestSettings);
-                        if (latestState.global == null || !latestState.global.valid()) {
-                            ProjectModelSettings.setGlobal(latestState,
-                                    projectState.global != null && projectState.global.valid()
-                                            ? projectState.global : latestFileSelection);
-                        }
-                        if (draft.globalScope || onboarding) {
-                            ProjectModelSettings.setGlobal(latestState, selection);
-                        } else if (draft.followGlobal) {
-                            ProjectModelSettings.clearOverride(latestState, project);
-                        } else {
-                            ProjectModelSettings.setOverride(latestState, project, selection);
-                        }
-                        ModelConfig.Selection effective = ProjectModelSettings.effective(
-                                latestState, project, latestFileSelection);
-                        String nextSettings = ModelConfig.updateSelection(latestSettings, effective);
-                        List<LiveModelCatalog.Entry> liveEntries = draft.catalog(selection.provider);
-                        if (draft.catalogLoaded(selection.provider)) {
-                            nextSettings = ModelCatalogSync.writeLiveCatalog(nextSettings,
-                                    selection.provider, liveEntries);
-                        }
-                        String nextCredentials = ModelConfig.updateCredentialRef(latestCredentials,
-                                "COMMANDCODE_API_KEY", ccKey.getText().toString().trim());
-                        nextCredentials = ModelConfig.updateCredentialRef(nextCredentials,
-                                "DEEPSEEK_API_KEY", dsKey.getText().toString().trim());
-                        ProjectModelSettings.writeFileAtomic(projectsFile,
-                                ProjectModelSettings.serialize(latestState));
-                        ProjectModelSettings.writeFileAtomic(settingsFile, nextSettings);
-                        ProjectModelSettings.writeFileAtomic(credentialsFile, nextCredentials);
-                        host.refreshModelCatalog();
-                        host.log("模型配置已保存: " + selection.provider + " / "
-                                + selection.model + " / " + selection.effort
-                                + (draft.globalScope || onboarding ? "（全局）"
-                                : draft.followGlobal ? "（跟随全局）" : "（项目覆盖）"));
-                        dialog.dismiss();
-                        host.closeModelCenter(onboarding, true);
-                    } catch (Throwable error) {
-                        host.log("模型配置保存失败: " + error.getClass().getSimpleName());
-                        DshUi.setBusy(save, saveIdle,
-                                UiText.t("保存中", "Saving"), false);
-                        DshUi.toast(act, UiText.t("保存失败：", "Save failed: ")
-                                + safeMessage(error));
+                    final String commandKey = ccKey.getText().toString().trim();
+                    final String deepSeekKey = dsKey.getText().toString().trim();
+                    final boolean globalScope = draft.globalScope;
+                    final boolean followsGlobal = draft.followGlobal;
+                    final boolean catalogLoaded = draft.catalogLoaded(selection.provider);
+                    final List<LiveModelCatalog.Entry> liveEntries =
+                            new ArrayList<LiveModelCatalog.Entry>(draft.catalog(selection.provider));
+                    final NativeCoreApi api = host.coreApi();
+                    if (api == null) {
+                        DshUi.setBusy(save, saveIdle, UiText.t("保存中", "Saving"), false);
+                        DshUi.toast(act, UiText.t("请等待 DSH 启动完成", "Wait for DSH to finish starting."));
+                        return;
                     }
+                    api.execute(new NativeCoreApi.Work() {
+                        @Override public Object run() throws Exception {
+                            String latestSettings = api.modelSettings(home);
+                            ProjectModelSettings.State latestState = ProjectModelSettings.parse(
+                                    ProjectModelSettings.readFile(projectsFile));
+                            ModelConfig.Selection latestFileSelection =
+                                    ModelConfig.readSelection(latestSettings);
+                            if (latestState.global == null || !latestState.global.valid()) {
+                                ProjectModelSettings.setGlobal(latestState,
+                                        projectState.global != null && projectState.global.valid()
+                                                ? projectState.global : latestFileSelection);
+                            }
+                            if (globalScope || onboarding) {
+                                ProjectModelSettings.setGlobal(latestState, selection);
+                            } else if (followsGlobal) {
+                                ProjectModelSettings.clearOverride(latestState, project);
+                            } else {
+                                ProjectModelSettings.setOverride(latestState, project, selection);
+                            }
+                            ModelConfig.Selection effective = ProjectModelSettings.effective(
+                                    latestState, project, latestFileSelection);
+                            String nextSettings = ModelConfig.updateSelection(latestSettings, effective);
+                            if (catalogLoaded) {
+                                nextSettings = ModelCatalogSync.writeLiveCatalog(nextSettings,
+                                        selection.provider, liveEntries);
+                            }
+                            saveKey(api, credentialsText, "COMMANDCODE_API_KEY", commandKey);
+                            saveKey(api, credentialsText, "DEEPSEEK_API_KEY", deepSeekKey);
+                            api.checkOpen();
+                            ProjectModelSettings.writeFileAtomic(projectsFile,
+                                    ProjectModelSettings.serialize(latestState));
+                            ProjectModelSettings.writeFileAtomic(settingsFile, nextSettings);
+                            return null;
+                        }
+                    }, new NativeCoreApi.Callback() {
+                        @Override public void complete(Object value, Throwable error) {
+                            if (error == null) {
+                                host.refreshModelCatalog();
+                                host.log("模型配置已保存: " + selection.provider + " / "
+                                        + selection.model + " / " + selection.effort
+                                        + (globalScope || onboarding ? "（全局）"
+                                        : followsGlobal ? "（跟随全局）" : "（项目覆盖）"));
+                                if (!dialog.isShowing()) return;
+                                dialog.dismiss();
+                                host.closeModelCenter(onboarding, true);
+                            } else {
+                                host.log("模型配置保存失败: " + error.getClass().getSimpleName());
+                                if (!dialog.isShowing()) return;
+                                DshUi.setBusy(save, saveIdle, UiText.t("保存中", "Saving"), false);
+                                DshUi.toast(act, UiText.t("保存失败：", "Save failed: ")
+                                        + safeMessage(error));
+                            }
+                        }
+                    });
                 }
             });
 
@@ -475,7 +538,7 @@ final class ModelCenterPanel {
                                          final Dialog owner, final String settings,
                                          final Draft draft, final EditText target,
                                          final String key, final Runnable onSelection) {
-        if (key.length() == 0) {
+        if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider) && key.length() == 0) {
             DshUi.toast(act, UiText.t("请先填写当前服务商的 API Key",
                     "Add the API key for the selected provider"));
             return;
@@ -483,7 +546,10 @@ final class ModelCenterPanel {
         final String provider = draft.provider;
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, UiText.t("选择模型", "Choose model")));
-        body.addView(DshUi.hint(act, UiText.t(
+        body.addView(DshUi.hint(act, ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)
+                ? UiText.t("读取账号模型目录。实际使用取决于 DeepSeek 账号权限和额度；图片和思考标签为能力提示。",
+                        "Read the account model catalog. Usage depends on DeepSeek account permissions and balance; image and reasoning labels are capability hints.")
+                : UiText.t(
                 "列表直接从服务商网络接口读取，不使用 App 内置列表。上游返回的模型都可以直接选择；"
                         + "图片和思考标签仅作为当前运行环境的能力提示。",
                 "The list is fetched directly from the provider. Every model returned upstream can be selected; "
@@ -569,7 +635,7 @@ final class ModelCenterPanel {
                 status.setText(UiText.t("正在从服务商读取模型列表…",
                         "Loading models from the provider…"));
                 status.setTextColor(DshUi.TEXT_2());
-                requestCatalog(act, provider, key, new CatalogCallback() {
+                requestCatalog(act, host.coreApi(), provider, key, new CatalogCallback() {
                     @Override public void complete(ProviderCheck.Result result, Throwable error) {
                         if (act.isFinishing() || act.isDestroyed() || !dialog.isShowing()
                                 || !owner.isShowing() || state.generation != generation) return;
@@ -588,7 +654,10 @@ final class ModelCenterPanel {
                         }
                         if (result.state != ProviderCheck.READY) {
                             state.entries = new ArrayList<LiveModelCatalog.Entry>();
-                            renderCatalogFailure(status, result);
+                            if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && result.state == ProviderCheck.KEY_REJECTED) {
+                                status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
+                                status.setTextColor(DshUi.WARN());
+                            } else renderCatalogFailure(status, result);
                             fill.run();
                             host.log("上游模型目录读取失败: " + provider + " HTTP "
                                     + result.httpCode);
@@ -626,7 +695,7 @@ final class ModelCenterPanel {
                                  final String provider,
                                  final String key, final String selectedModel,
                                  final TextView status, final Button button, final Runnable onCapabilities) {
-        if (key.length() == 0) {
+        if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && key.length() == 0) {
             DshUi.toast(act, UiText.t("请先填写当前服务商的 API Key",
                     "Add the API key for the selected provider"));
             return;
@@ -635,7 +704,7 @@ final class ModelCenterPanel {
                 UiText.t("正在检测…", "Checking…"), true);
         status.setText(UiText.t("正在连接服务商…", "Connecting to provider…"));
         status.setTextColor(DshUi.TEXT_2());
-        requestCatalog(act, provider, key, new CatalogCallback() {
+        requestCatalog(act, host.coreApi(), provider, key, new CatalogCallback() {
             @Override public void complete(ProviderCheck.Result checked, Throwable error) {
                 if (act.isFinishing() || act.isDestroyed() || !owner.isShowing()) return;
                 if (draft.checkRevision != revision) return;
@@ -655,7 +724,17 @@ final class ModelCenterPanel {
                     draft.putCatalog(provider, entries);
                     if (onCapabilities != null) onCapabilities.run();
                 }
-                renderCheck(status, checked, entries, selectedModel);
+                if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.state == ProviderCheck.KEY_REJECTED) {
+                    status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
+                    status.setTextColor(DshUi.WARN());
+                } else if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.state == ProviderCheck.READY) {
+                    status.setText(ProviderCheck.contains(checked, selectedModel)
+                            ? UiText.t("账号授权已保存，当前模型已列入账号目录。实际使用取决于账号权限和额度。",
+                                    "Authorization is saved and the model is in the account catalog. Usage depends on account permissions and balance.")
+                            : UiText.t("账号目录没有当前模型，请重新选择。",
+                                    "The account catalog does not include this model. Choose another model."));
+                    status.setTextColor(ProviderCheck.contains(checked, selectedModel) ? DshUi.SUCCESS() : DshUi.WARN());
+                } else renderCheck(status, checked, entries, selectedModel);
                 host.log("服务商检测完成: " + provider + " HTTP "
                         + checked.httpCode + "，模型 " + checked.models.size() + " 个");
             }
@@ -731,8 +810,16 @@ final class ModelCenterPanel {
     }
 
     private static String selectedKey(String provider, EditText ccKey, EditText dsKey) {
+        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)) return "";
         return ModelConfig.DEEPSEEK.equals(provider)
                 ? dsKey.getText().toString().trim() : ccKey.getText().toString().trim();
+    }
+
+    private static void saveKey(NativeCoreApi api, String baseline, String ref, String value) throws Exception {
+        if (value.equals(ModelConfig.readCredentialRef(baseline, ref))) return;
+        JSONObject args = new JSONObject().put("ref", ref);
+        if (value.length() == 0) api.call("credentials/unset", args);
+        else api.call("credentials/set", args.put("value", value));
     }
 
     private static String reasoningDetails(Draft draft, String settings) {
@@ -797,45 +884,44 @@ final class ModelCenterPanel {
         void complete(ProviderCheck.Result result, Throwable error);
     }
 
-    /** 发起只读 GET /models；回调始终回到主线程。 */
-    private static void requestCatalog(final Activity act, final String provider,
+    /** 通过服务商目录或内核账号 RPC 读取模型；回调始终回到主线程。 */
+    private static void requestCatalog(final Activity act, final NativeCoreApi api, final String provider,
                                        final String key, final CatalogCallback callback) {
-        new Thread(new Runnable() {
-            @Override public void run() {
-                ProviderCheck.Result result = null;
-                Throwable failure = null;
-                HttpURLConnection connection = null;
-                InputStream stream = null;
-                try {
-                    connection = (HttpURLConnection) new URL(ProviderCheck.endpoint(provider))
-                            .openConnection();
-                    connection.setConnectTimeout(12000);
-                    connection.setReadTimeout(15000);
-                    connection.setRequestMethod("GET");
-                    connection.setRequestProperty("Authorization", "Bearer " + key);
-                    connection.setRequestProperty("Accept", "application/json");
-                    connection.setRequestProperty("User-Agent", "DSHNative-ModelCatalog");
-                    int code = connection.getResponseCode();
-                    stream = code >= 400
-                            ? connection.getErrorStream() : connection.getInputStream();
-                    result = ProviderCheck.classify(code, readLimited(stream, 1024 * 1024));
-                } catch (Throwable error) {
-                    failure = error;
-                } finally {
-                    if (stream != null) {
-                        try { stream.close(); } catch (Throwable ignored) { }
-                    }
-                    if (connection != null) connection.disconnect();
-                }
-                final ProviderCheck.Result completed = result;
-                final Throwable error = failure;
-                act.runOnUiThread(new Runnable() {
-                    @Override public void run() {
-                        if (callback != null) callback.complete(completed, error);
-                    }
-                });
+        if (api == null) { callback.complete(null, new java.io.IOException("core unavailable")); return; }
+        api.execute(new NativeCoreApi.Work() {
+            @Override public Object run() throws Exception { return fetchCatalog(api, provider, key); }
+        }, new NativeCoreApi.Callback() {
+            @Override public void complete(Object value, Throwable failure) {
+                callback.complete((ProviderCheck.Result) value, failure);
             }
-        }, "provider-catalog").start();
+        });
+    }
+
+    private static ProviderCheck.Result fetchCatalog(NativeCoreApi api, String provider, String key) throws Exception {
+        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)) {
+            JSONObject state = (JSONObject) api.call("account/getState", new JSONObject());
+            if (!"credential-stored".equals(state.optString("status"))) return ProviderCheck.classify(401, "");
+            JSONObject catalog = (JSONObject) api.call("session/modelCatalog", new JSONObject());
+            JSONArray groups = catalog.getJSONArray("groups"), models = new JSONArray();
+            for (int i = 0; i < groups.length(); i++) {
+                JSONObject group = groups.getJSONObject(i);
+                if (provider.equals(group.optString("id"))) models = group.getJSONArray("models");
+            }
+            return ProviderCheck.classify(200, new JSONObject().put("data", models).toString());
+        }
+        HttpURLConnection connection = (HttpURLConnection) new URL(ProviderCheck.endpoint(provider)).openConnection();
+        try {
+            connection.setConnectTimeout(12000); connection.setReadTimeout(15000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Authorization", "Bearer " + key);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "DSHNative-ModelCatalog");
+            int code = connection.getResponseCode();
+            try (InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+                return ProviderCheck.classify(code, readLimited(stream, 1024 * 1024));
+            }
+        } finally { connection.disconnect(); }
     }
 
     private static String readLimited(InputStream input, int max) throws Exception {

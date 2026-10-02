@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.9**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.9**；源码：**0.33.10**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -39,19 +39,27 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 页面每次加载都重新安装辅助脚本。会话探针必须早于模块脚本，完整解析真实列表 RPC，不能截断正文后数 `running:true`。复用已观察到的认证只读 RPC，每 5 秒刷新并使用新 rpcId；90 秒没有可信数据时报告未知。DOM 只补充等待批准，不承担运行状态权威。
 
+服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
+
 ### 模型目录与强度
 
 `ProviderCheck` 只读当前服务商目录；`LiveModelCatalog` 以返回 ID 为可见集合，保留视觉、token 和兼容字段。`ModelCatalogSync` 写入完整 DSH provider models 并保留 live-catalog 标记，防止升级静态预设覆盖实时目录。
 
 DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patch.yml` 的 active profile；排查时不能只看一个文件就认为运行时已应用。目录成功保存后，空闲时受控重载；运行或未知时持久化 pending，确认空闲后执行。仅刷新 WebView 不足以重建 provider topology。
 
+导入后 legacy 文件变为 `settings.yaml.imported`。没有待导入文件时，`NativeCoreApi.modelSettings` 通过 `settings/describe` 与 `ModelSettingsSnapshot` 读取公开模型 namespace；模型面板与项目切换使用同一快照。切换项目的未知任务状态也必须进入中断确认，不能当作空闲。
+
 `ModelReasoning` 区分官方支持声明与用户要求的全模型 max 请求扩展。所有模型添加 `max: max`，未知/非可调模型保留 `off: null` 默认路径。`ModelEffortUi` 有锚点、幂等地修改实际聊天框组件标签；不匹配时不写文件并记录诊断。
 
 全局/项目默认只影响新会话；聊天框可显式更改已有会话的后续调用配置。不回写历史，不改变已发请求，不把上游拒绝 max 隐藏为其他强度。
 
+### DeepSeek 账号
+
+模型刷新位于 App 工具的模型中心，侧栏只保留 App 工具入口。`DeepSeekAccountPanel` 使用固定内核已有账号 RPC，浏览器完成 PKCE 授权后返回 App；不伪造上游 Desktop 桥。账号 provider 为 `deepseek-account`，与 DeepSeek API Key 独立。API Key 修改通过内核 credentials RPC，不用旧凭据全文覆盖新账号 records。后台队列、关闭取消与前台轮询见 [账号交接](DEEPSEEK_ACCOUNT.md)。
+
 ### 文件、备份与恢复
 
-文件操作经过规范路径白名单；目录复制不跟随符号链接，默认删除进入同卷回收站。恢复同名保留两份。配置备份包含凭据并要求至少 8 位口令认证加密，覆盖全局/项目模型设置；不含完整工作区、历史与附件。
+文件操作经过规范路径白名单；目录复制不跟随符号链接，默认删除进入同卷回收站。恢复同名保留两份。配置备份包含凭据并要求至少 8 位口令认证加密，覆盖全局/项目模型设置、`settings.yaml.imported` 和 active Web profile。嵌套路径严格白名单，全部目标先检查并拒绝越界符号链接；不含完整工作区、历史与附件。
 
 运行包快照只允许 `dsh` / `tools`；记录与归档必须核对大小和摘要。恢复不触碰用户 `.dsh`，不降低 APK。自动恢复设置 hold，避免重启后再次触发同一失败更新。
 
@@ -62,6 +70,7 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 | 生命周期、整合 | `MainActivity.java`、`HarnessService.java` |
 | 原生设计 | `DshUi.java`、`DeviceLayout.java`、`UiText.java` |
 | 模型 | `ModelConfig.java`、`ModelCatalogSync.java`、`ModelReasoning.java`、`ModelEffortUi.java` |
+| 内核 RPC 与账号 | `CoreRpcClient.java`、`NativeCoreApi.java`、`ModelSettingsSnapshot.java`、`DeepSeekAccountPanel.java` |
 | 连接与任务 | `SessionProbe.java`、`SessionStatus.java`、`ConnectionRecovery.java`、`TaskTimeline.java` |
 | 更新 | `PayloadUpdate.java`、`PayloadRollback.java`、`TransferState.java` |
 | 诊断 | `SecretMasker.java`、`DiagnosticReport.java`、`LogViewer.java` |
@@ -82,9 +91,11 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 模型回归包含实际 Host、目录投影、`resolveCallConfig`、离线 SDK 请求体，以及真实聊天框 React 组件的模型/强度 RPC；两种语言均验证。内核回归包含持久化、独占发布/FUSE 降级、磁盘错误、Linux 锁及认证 Web profile。没有调用付费模型服务。
 
+账号回归使用真实内核、生产 Java RPC 与本机合成平台，覆盖授权、凭据保留、账号默认消费、重启、退出、取消、过期和网络错误。它不代表真实 DeepSeek 平台授权或新增原生面板已在手机验收。
+
 ## 6. 已有证据与剩余事项
 
-阶段四 B 的明确清单于 2026-09-27 经用户确认真机验收；用户后来确认模型目录可更新、聊天框思考选项已出现。完整构建和签名由每次 CI 核验。
+阶段四 B 的明确清单于 2026-09-27 经用户确认真机验收；用户后来确认模型目录可更新、聊天框思考选项已出现。2026-10-02 用户确认 0.33.9 布局问题基本修复，当前未看到问题。完整构建和签名由每次 CI 核验。
 
 仍需分别验证新内核真机终端/图片、全量与增量更新、恢复、所有页面深浅色/大字体/横屏/平板、不同 Android 版本与 ROM 后台行为。服务商实际接受 max 的结果没有付费在线证据。历史主线程卡死尚无完整复现结论。
 

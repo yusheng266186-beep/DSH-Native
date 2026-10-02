@@ -12,8 +12,9 @@ final class SecretMasker {
                 "(?i)(authorization[\\\"']?\\s*[:=]\\s*[\\\"']?(?:bearer\\s+)?)[^\\s,;\\\"'}]+",
                 "$1***");
         out = out.replaceAll(
-                "(?i)((?:api[_-]?key|password|secret|credential)[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\s,;\\\"'}]+",
+                "(?i)((?:api[_-]?key|password|secret|credential|code_verifier|code_challenge|authorize_id|auth_code)[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\s&;,\\\"'}]+",
                 "$1***");
+        out = out.replaceAll("(?i)([?&](?:code|state)=)[^\\s&]+", "$1***");
         out = out.replaceAll(
                 "(?i)(token[\\\"']?\\s*[:=]\\s*[\\\"']?)[^\\s&;,\\\"'}]+",
                 "$1***");

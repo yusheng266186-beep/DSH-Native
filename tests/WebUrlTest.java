@@ -62,6 +62,14 @@ public class WebUrlTest {
         check("brief keeps head", brief.startsWith("https://example.com/"), brief);
         check("brief keeps tail", brief.endsWith(longUrl.substring(longUrl.length() - 15)), brief);
         check("brief has ellipsis", brief.contains("…"), brief);
+        check("authorization query hidden", WebUrl.brief("https://platform.deepseek.com/dsh/authorize?state=private&code=private#private")
+                .equals("https://platform.deepseek.com/dsh/authorize"), "authorization details leaked");
+        check("userinfo hidden", !WebUrl.brief("https://user:password@example.com/path").contains("password"), "userinfo leaked");
+        check("loopback origin accepted", WebUrl.isCoreUrl("http://127.0.0.1:3080/?token=x", 3080), "rejected");
+        check("loopback prefix rejected", !WebUrl.isCoreUrl("http://127.0.0.1.evil:3080/", 3080)
+                && !WebUrl.isCoreUrl("http://localhost.evil:3080/", 3080), "external host accepted");
+        check("wrong local port rejected", !WebUrl.isCoreUrl("http://127.0.0.1:3081/", 3080), "other server accepted");
+        check("loopback userinfo rejected", !WebUrl.isCoreUrl("http://secret@127.0.0.1:3080/", 3080), "userinfo accepted");
 
         System.out.println("=== 7. HTML 转义 ===");
         check("null -> empty", WebUrl.escapeHtml(null).equals(""), "wrong");

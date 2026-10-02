@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.9**; source: **0.33.9**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.33.9**; source: **0.33.10**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -28,7 +28,7 @@ SHA-256: `0c0c4b710f3352739a2d1e12d86346c760fb333a18797136deb000730482fb4f`
 | CPU | ARM64; no ARM32 or x86 package is currently provided |
 | First launch | Downloads a roughly 120.9 MiB runtime; later updates download changed parts |
 | Storage | Allow room for extraction, downloads, and rollback snapshots; reserve 1.5–2 GiB and follow the App's actual space check |
-| Model access | Command Code or DeepSeek API credentials; available models and quotas depend on your account |
+| Model access | Command Code API key, DeepSeek API key, or DeepSeek account authorization; models and quotas depend on your account |
 | Background tasks | Allow notifications and background operation as appropriate for your device; a foreground service cannot prevent every ROM from terminating the process |
 
 The APK carries Node and bootstrap logic. DSH and the toolchain are installed from runtime parts verified by hash. Extracted storage is considerably larger than compressed downloads, and safe updates require additional snapshot space.
@@ -39,7 +39,7 @@ The APK carries Node and bootstrap logic. DSH and the toolchain are installed fr
 
 1. Install the APK and grant the requested file and notification permissions.
 2. Select a language and complete runtime download, SHA-256 verification, and extraction.
-3. Open Model Center, choose Command Code or direct DeepSeek access, and enter an API key.
+3. Open Model Center and enter a Command Code / DeepSeek API key, or use DeepSeek sign-in & account settings to authorize in your browser.
 4. Fetch the provider's live model directory, choose a default model and effort, and save.
 5. Use the default workspace or create a named project, then start a new conversation.
 
@@ -47,7 +47,7 @@ Native language settings offer system default, Chinese, and English. DSH WebUI l
 
 ### Finding App tools
 
-Expand the DSH sidebar and select **App tools** at the bottom. **Refresh models** is in the same area; the entries are arranged vertically for narrow screens.
+Expand the DSH sidebar and select **App tools** at the bottom. Open **Model center** to use **Refresh models** or **DeepSeek sign-in & account settings**.
 
 Fallback entry points include a long press on the top of the page, the notification's settings action, and launcher shortcuts for settings, logs, and updates. The web gear continues to open DSH's own settings.
 
@@ -64,7 +64,7 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 | Tasks and connection | Task center, timeline, approval alerts, background completion notifications, WebSocket status, local draft recovery |
 | Conversations | Entry points to official DSH search, archive, and restore UI |
 | Maintenance | App/runtime updates, runtime snapshots and recovery, network diagnostics, logs, redacted diagnostic ZIP |
-| Configuration backup | Authenticated encryption with a password of at least eight characters; includes credentials and global/project model settings |
+| Configuration backup | Authenticated encryption with a password of at least eight characters; includes credentials, the active Web profile, and global/project model settings |
 | Plugins | Built-in management and external installation, with capability disclosure and version-fingerprint authorization |
 
 ### Models come from your provider account
@@ -73,6 +73,9 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 |---|---|---|
 | Command Code | `GET https://api.commandcode.ai/provider/v1/models` | Authenticated directory visible to your account |
 | Direct DeepSeek | `GET https://api.deepseek.com/models` | Directory returned for your official API key |
+| DeepSeek account | Core `account/*` and `session/modelCatalog` | Core-managed account model route after browser authorization |
+
+Sign-in opens DeepSeek's authorization page in your browser. After authorization, return to the App, choose **DeepSeek account**, fetch the model list, and save. You can reopen authorization, cancel a pending attempt, or sign out. API keys and account authorization are stored separately. Signing out stops tasks using that account and retains API keys, sessions, and projects. See [account integration and verification boundaries](docs/DEEPSEEK_ACCOUNT.md).
 
 Connection checks read the directory without sending a test prompt. The native picker displays IDs from the current successful response. Local capability records explain effort and image support; they do not fabricate models unavailable to your account.
 

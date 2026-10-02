@@ -66,6 +66,11 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ModelEffortUi.java
      $JAVA_DIR/ModelCatalogSync.java
      $JAVA_DIR/LocalServerProbe.java
+     $JAVA_DIR/JsonValue.java
+     $JAVA_DIR/CoreRpcClient.java
+     $JAVA_DIR/CoreReadiness.java
+     $JAVA_DIR/DeepSeekAccount.java
+     $JAVA_DIR/ModelSettingsSnapshot.java
      $JAVA_DIR/ProviderCheck.java
      $JAVA_DIR/LiveModelCatalog.java
      $JAVA_DIR/ProjectModelSettings.java
@@ -121,6 +126,10 @@ TESTS="tests/FileListingTest.java
        tests/ModelEffortUiTest.java
        tests/ModelCatalogSyncTest.java
        tests/LocalServerProbeTest.java
+       tests/CoreRpcClientTest.java
+       tests/CoreReadinessTest.java
+       tests/DeepSeekAccountTest.java
+       tests/ModelSettingsSnapshotTest.java
        tests/ProviderCheckTest.java
        tests/LiveModelCatalogTest.java
        tests/ProjectModelSettingsTest.java
@@ -168,7 +177,7 @@ fi
 
 rc=0
 seen_tests=" "
-for t in dev.dsh.nativeapp.LocalServerProbeTest dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelReasoningTest dev.dsh.nativeapp.ModelEffortUiTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest dev.dsh.nativeapp.PayloadManifestTest dev.dsh.nativeapp.CredentialMergeTest dev.dsh.nativeapp.WebUrlTest dev.dsh.nativeapp.YamlBlocksTest dev.dsh.nativeapp.RuntimeDirTest dev.dsh.nativeapp.ModelImageSupportTest dev.dsh.nativeapp.ModelCatalogPersistenceTest dev.dsh.nativeapp.LayoutProbeTest; do
+for t in dev.dsh.nativeapp.LocalServerProbeTest dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.SessionOrganizerTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelReasoningTest dev.dsh.nativeapp.ModelEffortUiTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.CoreRpcClientTest dev.dsh.nativeapp.CoreReadinessTest dev.dsh.nativeapp.DeepSeekAccountTest dev.dsh.nativeapp.ModelSettingsSnapshotTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest dev.dsh.nativeapp.PayloadManifestTest dev.dsh.nativeapp.CredentialMergeTest dev.dsh.nativeapp.WebUrlTest dev.dsh.nativeapp.YamlBlocksTest dev.dsh.nativeapp.RuntimeDirTest dev.dsh.nativeapp.ModelImageSupportTest dev.dsh.nativeapp.ModelCatalogPersistenceTest dev.dsh.nativeapp.LayoutProbeTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -373,7 +382,8 @@ fi
 # 阶段五 C：模型选择必须结构化写入 agent-default-model，服务商检测只读模型列表；
 # 项目覆盖随切换应用，首次配置标记只能由新安装引导创建。
 if ! grep -q 'ModelCenterPanel.show' "$MAIN_ACTIVITY" \
-        || ! grep -q 'applyProjectModelConfig(project)' "$MAIN_ACTIVITY" \
+        || ! grep -q 'snapshot = api.modelSettings(home)' "$MAIN_ACTIVITY" \
+        || ! grep -q 'applyProjectModelConfig(project, new File(home, "settings.yaml"), snapshot)' "$MAIN_ACTIVITY" \
         || ! grep -q 'modelOnboardingPending' "$MAIN_ACTIVITY" \
         || ! grep -q 'ProviderCheck.endpoint' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'ProjectModelSettings.FILE_NAME' "$JAVA_DIR/ConfigBackup.java" \
@@ -392,7 +402,7 @@ fi
 
 # 阶段五 E：模型选择器的可见列表和可选性必须来自本次上游响应；本地目录只能做
 # 能力提示。模型中心和设置子页的 Android 返回手势必须复用父级导航。
-if ! grep -q 'requestCatalog(act, provider, key' "$JAVA_DIR/ModelCenterPanel.java" \
+if ! grep -q 'requestCatalog(act, host.coreApi(), provider, key' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'LiveModelCatalog.reconcile' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'true, known != null && known.image' "$JAVA_DIR/LiveModelCatalog.java" \
         || grep -q 'setEnabled(item.selectable)' "$JAVA_DIR/ModelCenterPanel.java" \
@@ -410,16 +420,16 @@ else
     echo "  Phase5ELiveCatalogWiring: upstream-only visibility / all upstream selectable / back navigation / English README"
 fi
 
-# 阶段五 G：WebUI 必须提供可见的上游模型刷新入口，保存目录后空闲 DSH
+# 模型刷新位于原生模型设置，不再占侧栏；保存目录后空闲 DSH
 # 需要重载运行时而不是只刷新 WebView；任务运行中不能被重启打断。
-if ! grep -q 'REFRESH_MODELS_MARKER' "$JAVA_DIR/WebToolsEntry.java" \
-        || ! grep -q '更新上游模型列表' "$JAVA_DIR/ModelCenterPanel.java" \
+if grep -q 'REFRESH_MODELS_MARKER' "$JAVA_DIR/WebToolsEntry.java" \
+        || ! grep -q '更新模型列表' "$JAVA_DIR/ModelCenterPanel.java" \
         || ! grep -q 'restartAgent(UiText.t("正在应用上游模型目录' "$MAIN_ACTIVITY" \
         || ! grep -q '当前任务运行中，暂不重启运行时' "$MAIN_ACTIVITY"; then
     echo "  [FAIL] 阶段五 G WebUI 模型刷新入口或运行时重载接线不完整" >&2
     rc=1
 else
-    echo "  Phase5GModelWebUiRefresh: visible refresh entry / runtime reload / active-task guard"
+    echo "  ModelSettingsRefresh: native refresh entry / runtime reload / active-task guard"
 fi
 
 
