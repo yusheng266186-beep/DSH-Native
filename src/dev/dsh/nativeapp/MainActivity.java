@@ -778,8 +778,8 @@ public class MainActivity extends Activity {
 
         addFirstRunStep(body, "1",
                 UiText.t("准备运行环境", "Prepare the runtime"),
-                UiText.t("首次启动会下载约 117 MiB 的 DSH 与工具链，建议预留至少 550 MiB 空间并连接 Wi-Fi。",
-                        "The first launch downloads about 117 MiB of DSH and tools. Keep at least 550 MiB free and use Wi-Fi when possible."));
+                UiText.t("首次启动会下载并解压 DSH 与工具链。解压需要比下载文件更大的空间；下载前会按发布清单检查可用空间，建议连接 Wi-Fi。",
+                        "The first launch downloads and extracts DSH and tools. Extraction needs more space than the downloads; available storage is checked against the release manifest before downloading. Use Wi-Fi when possible."));
         addFirstRunStep(body, "2",
                 UiText.t("选择权限", "Choose permissions"),
                 UiText.t("共享存储用于工作区、导入和诊断导出；通知用于显示后台任务状态。拒绝后仍可使用私有工作区。",
@@ -1268,6 +1268,12 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 WebView view = webView;
                 if (view == null || isFinishing() || isDestroyed()) return;
+                if (nativeCoreApi != null && !nativeCoreApi.matches(savedDshPort(), savedDshToken())) {
+                    if (deepSeekAccountPanel != null) deepSeekAccountPanel.close();
+                    nativeCoreApi.close();
+                    nativeCoreApi = null;
+                }
+                dshPageLoaded = false;
                 // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
                 // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
                 view.setInitialScale(0);

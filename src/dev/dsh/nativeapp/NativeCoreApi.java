@@ -34,6 +34,7 @@ final class NativeCoreApi {
     }
 
     String origin() { return client.origin(); }
+    boolean matches(int port, String token) { return !closed && client.matches(port, token); }
 
     Object call(String method, JSONObject args) throws Exception {
         CoreRpcClient.Reply reply = client.call(method, args.toString());

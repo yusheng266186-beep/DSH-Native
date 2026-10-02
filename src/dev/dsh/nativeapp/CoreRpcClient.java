@@ -35,6 +35,10 @@ final class CoreRpcClient {
 
     String origin() { return origin; }
 
+    boolean matches(int port, String token) {
+        return !closed && origin.equals("http://127.0.0.1:" + port) && this.token.equals(token);
+    }
+
     static final class Reply {
         final String id;
         final String body;

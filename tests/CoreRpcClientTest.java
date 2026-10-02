@@ -39,6 +39,9 @@ public class CoreRpcClientTest {
         server.start();
         CoreRpcClient client = new CoreRpcClient(server.getAddress().getPort(), "test-token");
         try {
+            check(client.matches(server.getAddress().getPort(), "test-token"));
+            check(!client.matches(server.getAddress().getPort() + 1, "test-token")
+                    && !client.matches(server.getAddress().getPort(), "replacement-token"));
             CoreRpcClient.Reply first = client.call("account/getState", "{}");
             check(first.body.contains(first.id) && first.body.contains("signed-out"));
             client.call("account/getState", "{}");
@@ -51,6 +54,7 @@ public class CoreRpcClientTest {
             try { reject(() -> other.call("account/getState", "{}")); check(foreign.get() == 0); }
             finally { other.close(); }
             client.close(); reject(() -> client.call("account/getState", "{}"));
+            check(!client.matches(server.getAddress().getPort(), "test-token"));
             check(requests.get() == 2);
         } finally { client.close(); server.stop(0); }
         System.out.println("TOTAL: " + pass + " pass / 0 fail");
