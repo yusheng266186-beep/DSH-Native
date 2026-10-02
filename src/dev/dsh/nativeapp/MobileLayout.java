@@ -56,28 +56,7 @@ final class MobileLayout {
                 + "[role=dialog]{box-sizing:border-box!important;"
                 + "max-width:calc(100vw - 16px)!important;max-height:calc(100vh - 16px)!important;}"
                 + "textarea,input,select{box-sizing:border-box;max-width:100%;}"
-                // 编辑器区域（附件 chip、模型选择器、任务栏）在窄屏下被挤压：
-                // 图片附件的 × 按钮被 thumbnail 压变形，文件名盖住取消按钮。
-                // 上游这些节点没有 data-* 锚点、类名又是 CSS Module 哈希化的，
-                // 所以只能用**通用防御规则**命中，不依赖任何具体类名。
                 + "img,svg{max-width:100%;}"
-                // 横向排列的按钮组：窄屏下允许换行，且按钮本身不被压缩。
-                // flex-shrink:0 是关键 —— 缺了它，× 按钮就是被邻居挤扁的那个。
-                + "[role=dialog] [role=button],"
-                + "[class*=Attachment] button,"
-                + "[class*=Card] button{flex:0 0 auto!important;min-width:0;}"
-                // 文件名与路径：超长时截断而不是把兄弟节点顶出去。
-                + "[class*=Card] [class*=name],[class*=Card] [class*=meta],"
-                + "[class*=Attach] [class*=name]{"
-                + "min-width:0!important;overflow:hidden!important;"
-                + "text-overflow:ellipsis!important;white-space:nowrap!important;}"
-                // 带图标的行：让文字区可收缩，图标固定。
-                + "[class*=Card] [class*=body],[class*=Card] [class*=meta]{min-width:0!important;}"
-                + "[class*=Card] [class*=icon]{flex:0 0 auto!important;}"
-                // 附件缩略图：限制尺寸并允许收缩，× 按钮才不会被顶变形。
-                + "[class*=thumbnail]{flex:0 1 auto!important;max-width:100%!important;"
-                + "min-width:0!important;}"
-                + "[class*=remove]{flex:0 0 auto!important;}"
                 + "[data-shortcut-modal=\"settings\"] [role=switch]{flex-shrink:0!important;}"
                 + "pre,code{max-width:100%;overflow-wrap:anywhere;}"
                 + "[role=dialog] button,[role=dialog] [role=button]{"
@@ -103,10 +82,9 @@ final class MobileLayout {
                 + "@media(max-height:520px) and (orientation:landscape){"
                 + "[role=dialog]{max-height:calc(100vh - 8px)!important;}"
                 + "}"
-                + "@media(pointer:coarse){"
-                + "button:not([role=switch]),[role=button]:not([role=switch]){"
-                + "min-height:44px;}"
-                + "}"
+                // 上游为图标按钮定义 18/28/34/36px 等尺寸。全局 min-height:44px
+                // 曾把它们拉成长条，并让文件标签的关闭图标溢出标题行。
+                // 保留组件自己的几何尺寸，后续适配只使用实测的稳定锚点。
                 + "@media(prefers-reduced-motion:reduce){"
                 + "*,*::before,*::after{animation-duration:.01ms!important;"
                 + "animation-iteration-count:1!important;transition-duration:.01ms!important;"

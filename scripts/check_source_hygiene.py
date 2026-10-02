@@ -37,7 +37,9 @@ NAME_RE = re.compile(r'\b(?:check|assert(?:True|False)?)\(\s*"([^"]*)"')
 def java_sources():
     for base in SCAN_DIRS:
         top = os.path.join(ROOT, base)
-        for dirpath, _dirnames, filenames in os.walk(top):
+        for dirpath, dirnames, filenames in os.walk(top):
+            # npm 测试依赖的说明文档可能合法地展示替换字符；只检查项目源码。
+            dirnames[:] = [name for name in dirnames if name != "node_modules"]
             for name in filenames:
                 if name.endswith(SCAN_EXT):
                     yield os.path.join(dirpath, name)

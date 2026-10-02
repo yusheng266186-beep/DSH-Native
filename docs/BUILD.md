@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.8**；源码：**0.33.8**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.8**；源码：**0.33.9**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -63,6 +63,8 @@ CI 工作区中源码在 `bootstrap/src/`，测试在工作区 `tests/`；仓库
 `check_model_consumer.sh` 下载对应 DSH 片并校验摘要，生成真实原生配置供 Host 消费；执行模型目录、视觉、思考声明、LLM 调用配置、离线 SDK 请求体，以及聊天框真实 React 组件和会话 RPC 回归。`tests/js` 固定测试依赖不进入 APK。
 
 同一路径还运行真实内核持久化、锁、FUSE 降级、磁盘错误、Web profile 与 token/Cookie 探测。所有模型请求只离线捕获，没有调用付费服务。
+
+随后安装固定 Playwright 版本对应的 Chromium，启动真实 Web profile，应用 Java 生成的移动补丁，验证六组触屏布局与实际附件/文件关闭操作。CI 必须通过这一步，不能以 DOM 模拟替代；浏览器与依赖只用于测试，不打包进 APK。
 
 检查数量随版本变化，记录本次日志。Android 页面布局、真机 PTY、真实 provider max 行为与 ROM 后台策略另行验收，见 [STATUS](STATUS.md)。
 

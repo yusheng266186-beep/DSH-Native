@@ -65,7 +65,7 @@ jobs:
       - name: 构建
         run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
 
-      - name: 使用真实运行包验证模型目录和视觉能力
+      - name: 使用真实运行包验证模型目录、视觉能力和触屏布局
         run: bash scripts/check_model_consumer.sh
 
       - name: 校验签名与清单
