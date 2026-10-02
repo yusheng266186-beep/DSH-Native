@@ -20,6 +20,7 @@
 | [MODEL_REASONING](MODEL_REASONING.md) | 逐模型官方快照与 App 档位、Max 请求、优先级与回归 |
 | [CORE_UPGRADE](CORE_UPGRADE.md) | 固定 DSH、payload-v10、构建发布和 Android 兼容差异 |
 | [GOTCHAS](GOTCHAS.md) | 历史事故及现行防护，避免静默失败和重复踩坑 |
+| [HANDOVER-LAYOUT](HANDOVER-LAYOUT.md) | **未完成**：WebUI 窄屏挤压问题的现状、探针数据与踩坑记录 |
 | [scripts/README](../scripts/README.md) | 脚本接口、用途、环境和文档同步机制 |
 | [发布检查清单](../scripts/release_checklist.md) | 正式/测试通道、签名、资产与清单顺序 |
 | [tools/README](../tools/README.md) | 旧设备调试工具的适用范围与非破坏性调试方式 |
