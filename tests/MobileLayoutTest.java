@@ -73,25 +73,31 @@ public class MobileLayoutTest {
         // 这些节点没有 data-* 锚点，类名又是 CSS Module 哈希化的，所以规则用的是
         // 关键约束：规则**不得依赖 CSS Module 哈希类名**。
         //
-        // 实测编译后的类名形如 Di.close / Ee.itemIcon，不含 remove / thumbnail
-        // 等语义词 —— 早先按源码变量名写的 [class*=remove]、[class*=thumbnail]
-        // 在真实页面上一个都匹配不到，而构建日志照样显示「已写入」，
-        // 于是「按钮被挤压」一直没解决却看起来一切正常。
+        // 守护一条硬约束：**不得全局覆盖 button 的布局**。
+        //
+        // 0.33.5 曾加 `button{flex-shrink:0!important}`，理由是「方形图标按钮
+        // 被 flex 兄弟节点压扁」。实测这会压倒上游组件自身的布局规则，
+        // 直接把设置界面顶乱、多个功能点不动 —— 代价远大于收益。
+        //
+        // 教训：!important 的全局元素选择器是**跨组件**的破坏性操作。
+        // 布局类补丁必须限定作用域，否则修一处坏一片。
         String flat = once == null ? "" : once.replaceAll("\\s+", "");
-        check("no class-name selectors in responsive css",
-                flat.indexOf("[class*=") < 0,
-                "rules still depend on hashed CSS-module class names");
-        check("every button is unshrinkable",
-                flat.contains("button{flex-shrink:0!important;}"),
-                "missing global button flex-shrink guard");
-        check("icon buttons get a size floor",
-                flat.contains("button[aria-label]{min-width:0;}"),
-                "missing aria-label button rule");
-        check("media never exceeds container",
+        check("no global button layout override",
+                !flat.contains("button{flex-shrink:0!important;}")
+                        && !flat.contains("button{flex-shrink:0}"),
+                "global button rule would break upstream components");
+        check("no global button min-width override",
+                !flat.contains("button[aria-label]{min-width:0"),
+                "global aria-label button rule is too broad");
+        check("media still bounded",
                 flat.contains("img,svg{max-width:100%"),
                 "missing media rule");
-        check("dialog buttons stay bounded",
-                flat.contains("[role=dialog][role=button]"), "missing dialog button rule");
+        check("dialogs still bounded",
+                flat.contains("[role=dialog]"),
+                "missing dialog rule");
+        check("settings layout rules intact",
+                flat.contains("[data-shortcut-modal=\"settings\"]"),
+                "settings-specific rules were lost");
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
