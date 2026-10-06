@@ -1,7 +1,7 @@
 # 给接手开发者与 Agent 的工作约定
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
@@ -33,7 +33,7 @@
 | 运行包恢复 | 校验记录、大小、摘要和目标集合；恢复后暂缓再次更新，避免循环 |
 | App 更新 | 保持 `dev.dsh.native` 包名与既有签名；不通过卸载解决签名问题 |
 | 签名 | 不换密钥，不在缺失时生成新的；证书 SHA-256 见交接第 8 节 |
-| APK | 不提交进 Git；只由 Actions 构建，通过 Releases 分发 |
+| APK | 不提交进 Git；正常由 Actions 构建、Releases 分发。2026-10-02 用户因账号暂停明确授权本地编译，使用 local_build.sh、官方 SDK、既有签名及全部闸门；单独交付、不伪造公开发布 |
 | 发布清单 | 只用发布脚本生成 `latest.json` / `latest-test.json`，先验证资产与下载路径 |
 | 源码与发布版本 | 候选源码可以领先已发布清单；清单仍绑定自身 APK 和 payload，不假造已经发布 |
 | 文档生成区 | 运行同步脚本，不手工改版本、摘要、状态块或固定模型表 |

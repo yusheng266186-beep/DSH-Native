@@ -137,6 +137,12 @@ public class HarnessService extends Service {
         return PROCESS.stop();
     }
 
+    public static boolean stopManagedProcessAndWait(long timeoutMs) {
+        boolean stopped = PROCESS.stopAndWait(timeoutMs);
+        if (stopped) managedUrl = null;
+        return stopped;
+    }
+
     private static synchronized Listener currentListener() {
         return listenerRef.get();
     }

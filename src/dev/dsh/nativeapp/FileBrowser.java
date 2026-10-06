@@ -1370,7 +1370,9 @@ public final class FileBrowser {
     }
 
     /** 打开文件浏览器。 */
-    public static void show(final Activity act, final File appDir) {
+    public static void show(final Activity act, final File appDir) { show(act, appDir, null); }
+
+    public static void show(final Activity act, final File appDir, final Runnable onClosed) {
         final Browser b = new Browser(act);
 
         if (appDir != null) b.roots.add(new Root("应用", appDir));
@@ -1563,6 +1565,7 @@ public final class FileBrowser {
         dlg.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
             @Override public void onDismiss(android.content.DialogInterface d) {
                 b.shutdown();       // 停掉后台线程，避免泄漏
+                if (onClosed != null && !act.isFinishing() && !act.isDestroyed()) onClosed.run();
             }
         });
 

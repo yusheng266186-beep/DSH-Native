@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -11,6 +11,7 @@
 | 本地静态检查 | `check_java.py` | Python；javalang 可选，不代替真实编译 |
 | 逻辑和脚本回归 | `run_tests.sh` | JDK、Python 3、Node.js |
 | 元数据与文档检查 | `sync_project_metadata.py --check` | 仓库完整文件，Python 3 |
+| 本地 macOS / Linux 构建 | `local_build.sh <隔离目录> <已发布APK>` | JDK 17、官方 SDK 28/34、build-tools 34.0.0；无 GitHub 依赖 |
 | 完整 Linux / CI 构建 | `ci_build.sh <隔离目录>` | JDK 17、Android SDK、网络；GitHub CLI 推荐并用于消费者回归 |
 | 底层打包 | `build_bootstrap.sh` | 已由 ci_stage 或历史设备路径准备的工作区 |
 | 实际 payload 消费验证 | `check_model_consumer.sh` | JDK、Node/npm、gh、zstd/tar、网络 |
@@ -56,6 +57,17 @@ bash scripts/ci_build.sh /tmp/dsh-build
 
 CI 工作区中源码在 `bootstrap/src/`，测试在工作区 `tests/`；仓库源码在 `src/`。不要用旧 `/root/build` 硬编码替代脚本的目录发现。
 
+### GitHub 不可用时的本地构建
+
+用户于 2026-10-02 明确授权本地构建。准备官方主机 SDK 28/34 和 build-tools 34.0.0，使用已下载正式 APK：
+
+```bash
+export ANDROID_SDK_ROOT=/path/to/android-sdk
+bash scripts/local_build.sh /tmp/dsh-local-build /path/to/DSHNative-bootstrap.apk
+```
+
+参考 APK 的大小/SHA-256 必须匹配现有 latest.json，签名匹配既有 keystore 后才提取 Android Node/库。macOS 用官方 universal aapt2 与同版 d8/apksigner，Android 负载保持原字节，构建闸门全部保留，d8 非零退出必须失败。产物同包名、同签名、递增 versionCode，可覆盖安装。此入口不上传、不改公开清单，不替代 Linux 消费回归或手机验收。首次安装仍需运行包，覆盖安装复用已有 payload。
+
 ## 4. CI 分层
 
 `.github/workflows/build.yml` 在 PR、main 与手动触发中复用 `ci_build.sh`，先检查元数据和文档，再构建，并消费源码实际引用的运行包。验证 APK 作为 Actions artifact 上传，不等于公开正式 Release。
@@ -65,6 +77,8 @@ CI 工作区中源码在 `bootstrap/src/`，测试在工作区 `tests/`；仓库
 同一路径还运行真实内核持久化、锁、FUSE 降级、磁盘错误、Web profile 与 token/Cookie 探测。所有模型请求只离线捕获，没有调用付费服务。
 
 `deepseek-account-consumer.mjs` 使用生产 Java `CoreRpcClient` 和真实内核，对本机合成平台验证 PKCE、回调、账号目录、默认配置、重启、取消、过期、退出与 API Key 保留。客户端启动 token 通过 stdin 传入，不进入命令行与测试日志。回归同时渲染上游账号组件、两类余额、浏览器授权、失败余额和三组触屏/主题；`session-publish-consumer.mjs` 验证强制 EACCES 下真实压缩/普通会话首次保存、重开、继续写、拒绝覆盖与磁盘错误。手机验收和真实平台请求分别记录。
+
+`app-settings-consumer.mjs` 对真实内核验证归档、回收站、恢复继续、并发写入、失败回滚和重启，再渲染原 App 设置组件，验证错误重试、六种设备命令、原 General/Account 导航与六组触屏布局。回复来自本机合成 SSE 服务，不使用真实账户或付费服务。
 
 随后安装固定 Playwright 版本对应的 Chromium，启动真实 Web profile，应用 Java 生成的移动补丁，验证六组触屏布局与实际附件/文件关闭操作。CI 必须通过这一步，不能以 DOM 模拟替代；浏览器与依赖只用于测试，不打包进 APK。
 

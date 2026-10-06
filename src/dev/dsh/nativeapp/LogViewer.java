@@ -115,8 +115,14 @@ public final class LogViewer {
      * @param onClear 清空回调（可为 null）
      */
     public static void show(final Activity act, final File logFile, final Runnable onClear) {
+        show(act, logFile, onClear, null);
+    }
+
+    public static void show(final Activity act, final File logFile, final Runnable onClear,
+                            final Runnable onClosed) {
         if (logFile == null || !logFile.exists()) {
             DshUi.toast(act, "暂无日志文件");
+            if (onClosed != null) onClosed.run();
             return;
         }
 
@@ -386,6 +392,7 @@ public final class LogViewer {
                 // 后台线程此后新 post 的回调只能靠旗标挡住
                 closed[0] = true;
                 try { ui.removeCallbacksAndMessages(null); } catch (Throwable ignored) { }
+                if (onClosed != null && !act.isFinishing() && !act.isDestroyed()) onClosed.run();
             }
         });
         dlg.show();

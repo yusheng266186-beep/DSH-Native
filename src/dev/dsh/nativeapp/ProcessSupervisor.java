@@ -48,6 +48,21 @@ final class ProcessSupervisor {
         return true;
     }
 
+    /** Configuration replacement requires the previous core to finish writing first. */
+    synchronized boolean stopAndWait(long timeoutMs) {
+        Process current = process;
+        if (current == null) return true;
+        current.destroy();
+        long deadline = System.nanoTime() + Math.max(0L, Math.min(timeoutMs, 10000L)) * 1000000L;
+        while (alive(current) && System.nanoTime() < deadline) {
+            try { Thread.sleep(25L); }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return false; }
+        }
+        if (alive(current)) return false;
+        if (process == current) process = null;
+        return true;
+    }
+
     /** 使用 API 1 就存在的 exitValue 判断，兼容本项目的最低系统版本。 */
     static boolean alive(Process p) {
         if (p == null) return false;

@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.11**; source: **0.33.11**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.33.11**; source: **0.33.12**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -43,11 +43,11 @@ The APK carries Node and bootstrap logic. DSH and the toolchain are installed fr
 4. Fetch the provider's live model directory, choose a default model and effort, and save.
 5. Use the default workspace or create a named project, then start a new conversation.
 
-Native language settings offer system default, Chinese, and English. DSH WebUI language and theme are controlled separately in the web settings; native panels follow the web theme. Existing installations with `.dsh` data are not forced through first-run onboarding again.
+Choose language and theme in DSH General settings. App settings shares its navigation, theme and language; device tools use the current language when opened. App Display settings controls text scale. Existing installations with `.dsh` data are not forced through first-run onboarding again.
 
 ### Finding App tools
 
-Expand the DSH sidebar and select **App tools** at the bottom. Open **Model center** for **Refresh models**. **App tools → DeepSeek account** opens DSH’s original **Account** settings with a shortcut in Model center.
+Expand the DSH sidebar and select **App tools** at the bottom to open **App settings** inside DSH settings. **Models** opens provider tools with **Refresh models**. **DeepSeek account, balances & usage** opens DSH’s original **Account** section.
 
 Fallback entry points include a long press on the top of the page, the notification's settings action, and launcher shortcuts for settings, logs, and updates. The web gear continues to open DSH's own settings.
 
@@ -62,7 +62,7 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 | Projects and files | Named projects, file browsing and text editing, image preview, batch copy/move, recoverable trash |
 | Share import | Import text or files from other Apps into the current project and explicitly create a task |
 | Tasks and connection | Task center, timeline, approval alerts, background completion notifications, WebSocket status, local draft recovery |
-| Conversations | Entry points to official DSH search, archive, and restore UI |
+| Conversations | Real list, title filter, pagination, rename, archive, restore and continue, recoverable deletion |
 | Maintenance | App/runtime updates, runtime snapshots and recovery, network diagnostics, logs, redacted diagnostic ZIP |
 | Configuration backup | Authenticated encryption with a password of at least eight characters; includes credentials, the active Web profile, and global/project model settings |
 | Plugins | Built-in management and external installation, with capability disclosure and version-fingerprint authorization |
@@ -106,7 +106,9 @@ The default workspace is `/sdcard/DSHNative/workspace`; named projects live unde
 
 File writes are restricted by canonical-path allowlists. Directory copies do not follow symlinks. Deletion normally moves files to same-volume trash; restoration preserves both copies when a name conflicts. Text editing includes unsaved-change handling and safe save behavior.
 
-Draft recovery restores local text without sending it. Official DSH UI handles conversation search, archive, and restoration. Configuration backup excludes full workspaces, complete history, and attachments; back up project files separately.
+Draft recovery restores local text without sending it. **App settings → Sessions** can rename, archive, restore and continue, or move a conversation to Trash. Trashed records are hidden from the sidebar and search and can be restored. They retain storage. Stop active or queued work before archiving or deletion. Original DSH title/workspace search remains available. Content search is opt-in upstream and disabled by default.
+
+Configuration restoration stops DSH before writing and restarts it to apply the result. Plugins has an explicit Apply & restart action. Configuration backup excludes full workspaces, complete history, and attachments; back up project files separately.
 
 ### Updates and recovery
 

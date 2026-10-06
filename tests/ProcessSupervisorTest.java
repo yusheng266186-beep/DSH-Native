@@ -41,6 +41,16 @@ public class ProcessSupervisorTest {
         check("stop destroys process", third.destroyed, "not destroyed");
         check("second stop reports empty", !s.stop(), "should report false");
 
+        check("stopping empty core is safe for config restore", s.stopAndWait(0), "empty failed");
+        FakeProcess fourth = new FakeProcess(); s.adopt(fourth);
+        check("config restore waits for stopped core", s.stopAndWait(100), "did not stop");
+        check("quiescent stop releases handle", s.current() == null && fourth.destroyed, "handle retained");
+        Process stuck = new FakeProcess() { @Override public void destroy() { destroyed = true; } };
+        s.adopt(stuck);
+        check("live core blocks config overwrite", !s.stopAndWait(0), "stuck accepted");
+        check("failed stop keeps supervision", s.current() == stuck && s.isAlive(), "handle lost");
+        s.stop();
+
         boolean rejected = false;
         try { s.adopt(null); } catch (IllegalArgumentException expected) { rejected = true; }
         check("null process rejected", rejected, "should throw");
@@ -50,7 +60,7 @@ public class ProcessSupervisorTest {
         if (fail > 0) System.exit(1);
     }
 
-    static final class FakeProcess extends Process {
+    static class FakeProcess extends Process {
         boolean destroyed;
         boolean running = true;
 

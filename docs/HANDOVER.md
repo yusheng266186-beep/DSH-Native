@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -53,6 +53,10 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 
 全局/项目默认只影响新会话；聊天框可显式更改已有会话的后续调用配置。不回写历史，不改变已发请求，不把上游拒绝 max 隐藏为其他强度。
 
+### App 设置与会话
+
+0.33.12 将 App 设置注册到 DSH 原始框架；设备工具从对应类别进入并返回。`AppSettingsUi` 启动时严格修补 General、SessionController 和会话客户端缓存，辅助脚本从 APK 更新。不要恢复旧 `SessionOrganizer` 按文字找按钮的方案。会话列表支持标题筛选、分页、重命名、归档、恢复继续和可恢复回收站。恢复必须清除缓存 removed 状态；journal 不能按 Remote 代理 WeakMap 分组，要按 DSH_HOME 共享队列。配置恢复用静态 `runtimeConfigLock` 并等待托管进程退出，插件有应用重启。详见 [App 设置](APP_SETTINGS.md)。
+
 ### DeepSeek 账号
 
 模型刷新位于 App 工具的模型中心。App 工具的 DeepSeek 账号入口通过页面内的无权限事件打开 DSH 原始账号设置；`AccountUi` 仅适配桌面判断、浏览器授权和原设置导航，保留 profile、充值/赠金余额、用量、充值、取消与退出。不存在伪造的 Desktop 桥，旧 `DeepSeekAccountPanel` 已删除。账号 provider 与 API Key 独立，API Key 继续使用内核 credentials RPC，避免覆盖 grant。详情见 [账号交接](DEEPSEEK_ACCOUNT.md)。
@@ -87,7 +91,7 @@ python3 scripts/sync_project_metadata.py --docs-only
 python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 ```
 
-完整 Android 构建由 Actions 验证；真实运行包另执行 `check_model_consumer.sh`。本地没有 SDK 不能把静态检查写成已构建 APK。测试计数看当次日志，不把旧 1049 项等数字写成长期固定承诺。
+正常发布由 Actions 验证；真实运行包另执行 `check_model_consumer.sh`。2026-10-02 用户确认 GitHub 账号暂停并明确要求本地编译，新增 `local_build.sh` 复用官方 macOS SDK、已校验旧 APK 与同一打包链。本地产物与公开清单分开记录；2026-10-06 GitHub 恢复后，用户授权继续正式 CI 与发布。测试计数看当次日志，不把旧 1049 项等数字写成长期固定承诺。
 
 模型回归包含实际 Host、目录投影、`resolveCallConfig`、离线 SDK 请求体，以及真实聊天框 React 组件的模型/强度 RPC；两种语言均验证。内核回归包含持久化、独占发布/FUSE 降级、磁盘错误、Linux 锁及认证 Web profile。没有调用付费模型服务。
 
@@ -103,7 +107,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 ## 7. 发布与文档交付
 
-用户已要求每轮修改递增并直接发布 stable。PR 的完整 Android CI 成功后合并，再运行现有 release 工作流；保持既有密钥，先验证资产/下载，最后更新清单。
+用户已要求每轮修改递增并直接发布 stable。正常流程为完整 PR Android CI 成功后合并，再运行 release 工作流，保持既有密钥、先资产后清单。2026-10-02 用户因 GitHub 账号暂停明确改为本地构建，当日不上传、不改公开 latest。2026-10-06 账号访问恢复，用户授权继续 PR、完整 CI、合并与正式发布流程。
 
 文档同步脚本覆盖中英文 README、所有 Markdown 状态块、STATUS 事实表、固定模型表和本地链接。每版来源字段要从实际产物计算，不使用估算 SHA 或预先宣布尚未发布的 APK。
 

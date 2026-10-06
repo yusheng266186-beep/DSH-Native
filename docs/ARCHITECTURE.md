@@ -1,7 +1,7 @@
 # 架构与运行边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 目标与约束
@@ -27,7 +27,7 @@ flowchart TD
 | 边界 | 职责 |
 |---|---|
 | 原生整合 | 启动、安装、权限、配置、进程与页面生命周期 |
-| WebView | DSH 交互、模型聊天框、官方会话操作 |
+| WebView | DSH 交互、模型聊天框、原设置框架中的 App 设置及会话操作 |
 | 纯逻辑 | 路径、能力、模型归一化、版本、状态机、空间与恢复决策 |
 | 前台服务 | 常驻任务看板及通知；实际存活仍受 Android/ROM 控制 |
 | DSH runtime | provider topology、agent、会话、插件、工具执行 |
@@ -61,6 +61,7 @@ v10 DSH 部分的 `unpacked_size` 按展开后文件块与目录占用计算，�
 | `.dsh/profiles/web/cordis.patch.yml` | Web profile 配置层；排查时与实际启动 patch 一并检查 |
 | `.native-project-models` | 全局基线与项目模型覆盖，加入加密配置备份 |
 | 会话与附件 | 用户数据；不在 payload 删除和 runtime 恢复目标内 |
+| `.dsh/.native-session-trash.json` | 可恢复会话删除的 ID/时间元数据，不含正文；排他暂存、同步、原子替换 |
 | 工作区 | 项目文件；配置备份不包含完整工作区 |
 
 配置叠加涉及 bundle、profile 和启动器 `--patch`；CLI 顺序要求 patch 在 profile 前。升级合并静态传输字段时保留 live catalog 标记模型，不重置用户目录和能力。
@@ -102,13 +103,17 @@ Command Code 目录写入 `llm-pi-ai.providers.commandcode.models`；DeepSeek �
 
 `LocalServerProbe` 在同一 origin 处理 token/303/Cookie，限时、限大小、限跳转；跨 origin 立即拒绝，避免认证泄露和重复启动。
 
+### App 设置与会话管理
+
+`AppSettingsUi` 严格、幂等地适配固定上游 General 设置、SessionController 及客户端会话缓存。`app-settings-ui.js` 使用真实 `settings.section` 和 `uiWorkspace`；`session-tools-core.js` 注册原认证保护的列表、回收站及恢复 RPC，调用原会话服务和归档 registry，不直接编辑会话日志。回收站操作按 DSH_HOME 共享串行队列，防止 Remote 每请求代理造成并发丢失。原生桥只接受六个设备工具导航，检查当前页和消息来源的准确 loopback host/port。详见 [App 设置](APP_SETTINGS.md)。
+
 ## 7. 更新、快照与数据保护
 
 更新前空间预检和快照覆盖运行环境，替换失败时恢复。`PayloadRollback` 验证 journal、大小、SHA-256 和安全目标，只能恢复 `dsh` / `tools`，不把 `.dsh` 或项目纳入快照目标。
 
 自动恢复后设置更新暂缓，直到用户主动更新成功才解除。手动恢复不降低 APK，也不要求清除 App 数据。覆盖安装必须同包名同签名。
 
-配置备份认证加密并要求至少 8 位密码，恢复检查 zip-slip；不是完整数据备份。诊断 ZIP 只含摘要与脱敏日志，排除配置全文、凭据、会话正文、附件和项目文件。
+配置备份认证加密并要求至少 8 位密码，恢复检查 zip-slip；不是完整数据备份。恢复先等待旧进程退出，静态锁将配置写入与跨 Activity 重建的启动串行化，完成后重启；停止失败不覆盖。诊断 ZIP 只含摘要与脱敏日志，排除配置全文、凭据、会话正文、附件和项目文件。
 
 ## 8. Android 兼容层
 

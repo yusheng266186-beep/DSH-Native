@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.11**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -12,6 +12,7 @@
 |---|---|---|
 | `check_java.py` | 静态语法、引用与约束检查 | Python；javalang 可选，不代替 CI 编译 |
 | `run_tests.sh` | JVM、JS、HTTP、元数据与文档逻辑回归 | JDK / Python / Node；数量以本次日志为准 |
+| `local_build.sh <dir> <已发布APK>` | 官方本机 SDK 与已校验旧 APK 本地构建 | macOS/Linux、JDK、Python、Node；保留全部闸门与既有签名 |
 | `ci_build.sh <dir>` | SDK 准备、隔离工作区、完整 APK 构建 | Linux、JDK 17、Android SDK、网络 |
 | `ci_stage.sh <dir>` | 源码/资源与上一正式 APK 内置负载准备 | 会重建指定目录，只传专用临时目录 |
 | `build_bootstrap.sh` | 测试、闸门、编译、DEX、资源、打包和签名 | 已准备的工作区；Linux/bionic 工具分别处理 |
@@ -49,6 +50,8 @@ bash scripts/ci_build.sh /tmp/dsh-build
 ```
 
 官方 Linux build-tools 默认 34.0.0，Android 平台文件需要 28 和 34。ci_stage 从上一 bootstrap APK 提取 Node 与十个库，payload Release 不能当作 APK 来源。
+
+GitHub 不可用时执行 `bash scripts/local_build.sh /tmp/dsh-local-build /path/to/DSHNative-bootstrap.apk`；参考 APK 必须匹配 published stable 大小、摘要与签名。官方 macOS build-tools 34 的 aapt2 可在 Apple Silicon 原生运行。本地流程不改公开清单、不上传。
 
 输出 `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`。底层 build_bootstrap 需要 `DSH_BUILD_DIR` 指定已准备的目录；手写清单与 DEX 工具链不意味着“零资源 APK”，图标、主题、快捷方式与动效资源必须编译验证。
 
