@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.11**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.12**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -11,10 +11,10 @@
 <!-- dsh-release-facts:start -->
 | 项目 | 当前值 / 权威来源 |
 |---|---|
-| 已发布稳定版 | `0.33.11` · `v0.33.11-bootstrap` · `latest.json` |
+| 已发布稳定版 | `0.33.12` · `v0.33.12-bootstrap` · `latest.json` |
 | 稳定 APK | `DSHNative-bootstrap.apk` · 33.7 MiB |
 | 稳定运行包 | `payload-v12` · 压缩总量 120.9 MiB |
-| APK SHA-256 | `9057df396b5f4131b65ef991cc84806637f2a9d372c39b671e7da49472008508` |
+| APK SHA-256 | `f0b79a6536b511a2a02cb19abc29e526671eba34152a5af97e0da16b36f14d36` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
 | 当前源码版本 | `0.33.12` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v12` · `MainActivity.java` |
