@@ -52,6 +52,13 @@
 - 2026-10-02 因 GitHub 账号暂停，按用户要求用官方 macOS SDK 与既有签名完成本地资源、Java、DEX、APK、签名构建并交付；当时未公开发布。
 - 2026-10-06 GitHub 访问恢复，用户授权将本版上传并恢复正式构建/发布流程。公开发布版本和资产摘要以本页生成事实表为准，本地初次交付摘要单独保留。
 
+2026-10-06 正式发布已完成：
+
+- [PR #33](https://github.com/yusheng266186-beep/DSH-Native/pull/33) 在完整 [PR Android CI](https://github.com/yusheng266186-beep/DSH-Native/actions/runs/37463695395) 成功后合并，提交 `5bb7765c37763e74217c6436cef347785a32e4fb`。
+- 合并后的 [main 构建](https://github.com/yusheng266186-beep/DSH-Native/actions/runs/37464210235) 与 [stable 发布](https://github.com/yusheng266186-beep/DSH-Native/actions/runs/37464220855) 均成功。发布内真实设置检查 385 项、账号 85 项、触屏布局 312 项、保存兼容 39 项，含 Linux 原生锁和实际模型/聊天框消费回归。
+- [v0.33.12-bootstrap](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.12-bootstrap) 是正式、非草稿 Release；APK 35,364,571 字节，摘要与本地初次交付恰好相同。发布流程确认直连与镜像可下载后更新 latest，元数据提交 `2a542bf`。签名与 0.33.11 的既有证书一致，正式资产信息以上方生成表为准。
+- README 中英文下载入口与文档生成块均更新为正式 0.33.12；本版真机验收边界仍保留。
+
 2026-10-02 本地初次交付 APK：0.33.12 / versionCode 3312，35,364,571 字节，SHA-256 `f0b79a6536b511a2a02cb19abc29e526671eba34152a5af97e0da16b36f14d36`；证书与 0.33.11 一致。APK 内生产脚本与当前源码一致，Node 与十个库逐字节保留；不含测试依赖或 keystore。
 
 本版真机设置、归档恢复、系统浏览器、硬件返回与大字体体验待用户验收；回收站保留存储，不是永久删除。
