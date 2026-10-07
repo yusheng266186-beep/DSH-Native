@@ -12,6 +12,25 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 模型推理仍通过所选服务商的 API 完成。项目文件与工具执行位于设备端；发送给模型的消息、附件和工具结果按 DSH 与服务商的调用方式传输。本项目是独立的 Android 适配项目。
 
+<!-- project-navigation:start -->
+## 项目概览
+
+| 项目 | 说明 |
+| --- | --- |
+| 分类 | Android AI 工作台 |
+| 平台 | Android / ARM64 / 原生运行时 |
+| 当前定位 | 独立 Android 适配项目 |
+
+将 Android 原生 Node.js、DeepSeek Harness 与开发工具封装到一个移动应用。
+
+[版本与下载](https://github.com/yusheng266186-beep/DSH-Native/releases) · [使用与开发](#下载与运行要求) · [项目总导航](https://github.com/yusheng266186-beep/yusheng266186-beep)
+
+项目的发布、源码和验证状态统一见 [STATUS](docs/STATUS.md)。[Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) 使用 Termux / Debian，是另一种移动工作台方案。
+
+**阅读导航：** [下载与运行要求](#下载与运行要求) · [从安装到第一项任务](#从安装到第一项任务) · [开发与验证](#开发与验证) · [已知限制与来源](#已知限制与来源) · [架构与工程设计](#架构与工程设计)
+
+<!-- project-navigation:end -->
+
 ## 下载与运行要求
 
 **当前版本：0.33.12**

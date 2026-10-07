@@ -12,6 +12,21 @@ DSH Native packages Android-native Node.js, DeepSeek Harness (DSH), and developm
 
 Model inference uses your selected provider's API. Project storage and tool execution are local; messages, attachments, and tool results are transmitted according to DSH and the provider's request behavior. This is an independent Android adaptation project.
 
+<!-- project-navigation:start -->
+## Project overview
+
+| Item | Details |
+| --- | --- |
+| Category | Android AI workbench |
+| Platform | Android / ARM64 / native runtime |
+| Role | Independent Android adaptation of DeepSeek Harness |
+
+For installation, use the download and setup sections below. Source, release and validation facts are maintained in [STATUS](docs/STATUS.md).
+[Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) uses a separate Termux / Debian environment.
+[All public projects](https://github.com/yusheng266186-beep)
+
+<!-- project-navigation:end -->
+
 ## Download and requirements
 
 **Current stable release: 0.33.12**
