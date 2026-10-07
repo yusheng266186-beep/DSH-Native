@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.12**; source: **0.33.12**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.33.12**; source: **0.33.13**; source payload: `payload-v12`; pinned DSH: `0.2.0-rc.2` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -126,6 +126,9 @@ Draft recovery restores local text without sending it. **App settings → Sessio
 Configuration restoration stops DSH before writing and restarts it to apply the result. Plugins has an explicit Apply & restart action. Configuration backup excludes full workspaces, complete history, and attachments; back up project files separately.
 
 ### Updates and recovery
+
+Model Center keeps the selected provider’s refresh progress, model count, or error visible. Failed requests preserve the existing catalog. The chat catalog applies when DSH is idle; save separately to change the default model.
+
 
 | Operation | Scope |
 |---|---|

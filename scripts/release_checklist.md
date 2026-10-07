@@ -1,7 +1,7 @@
 # 发版检查清单
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.12**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.12**；源码：**0.33.13**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 每轮用户修改按现行约定递增并发布 stable，先完成 PR 的完整 Android CI，再合并 main，然后只用 `.github/workflows/release.yml` / `scripts/release.sh`。历史阶段的候选边界不覆盖这个交付约定。
