@@ -1,11 +1,11 @@
 {
-  "version": "0.33.12",
-  "tag": "v0.33.12-bootstrap",
+  "version": "0.33.13",
+  "tag": "v0.33.13-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v12",
-  "notes": "0.33.12 — App 设置与会话管理",
+  "notes": "0.33.13 — 模型列表刷新反馈",
   "apk_bytes": 35364571,
   "payload_bytes": 126743494,
-  "sha256": "f0b79a6536b511a2a02cb19abc29e526671eba34152a5af97e0da16b36f14d36",
+  "sha256": "8be88ff4ea7f777d264dfe0b39c4395933a26c8f45fd4b65708da12da6082912",
   "channel": "stable"
 }
