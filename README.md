@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.12**；源码：**0.33.12**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.12**；源码：**0.33.13**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -130,6 +130,9 @@ App 保留各模型已有的 `off / minimal / low / medium / high / xhigh` 等�
 配置恢复会先停止 DSH，完成后自动重启应用配置；插件页提供“应用并重启”入口。配置备份不包含完整工作区、全部历史或附件，需要保存的项目文件应另行备份。
 
 ### 更新与恢复
+
+模型中心刷新会显示当前服务商的读取进度、返回数量或错误，失败保留原目录。成功后聊天列表在任务空闲时应用；改变默认模型仍需单独保存。
+
 
 | 操作 | 影响范围 |
 |---|---|

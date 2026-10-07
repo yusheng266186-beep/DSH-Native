@@ -40,68 +40,108 @@ final class ModelCenterPanel {
 
     private ModelCenterPanel() { }
 
-    /** Update saved provider catalogs without changing the current default model. */
-    static void refreshConfigured(final Activity activity, final Host host) {
+    /** Refresh only the selected provider and keep its result visible in the panel. */
+    private static void refreshConfigured(final Activity activity, final Host host,
+                                          final Dialog owner, final String provider,
+                                          final String key, final Draft draft,
+                                          final Button button, final TextView status,
+                                          final Runnable refreshEfforts) {
         final NativeCoreApi api = host.coreApi();
         if (api == null) {
-            DshUi.toast(activity, UiText.t("请等待 DSH 启动完成", "Wait for DSH to finish starting."));
+            status.setText(UiText.t("请等待 DSH 启动完成后重试", "Wait for DSH to finish starting, then retry."));
+            status.setTextColor(DshUi.WARN());
             return;
         }
         if (!api.catalogGate.tryStart("model catalog")) {
-            DshUi.toast(activity, UiText.t("正在更新模型目录…", "Updating the model catalog…"));
+            status.setText(UiText.t("模型目录正在更新，请等待本次请求完成", "A catalog refresh is already running. Wait for it to finish."));
+            status.setTextColor(DshUi.WARN());
             return;
         }
-        DshUi.toast(activity, UiText.t("正在读取并同步上游模型…", "Fetching and syncing upstream models…"));
+        final int revision = draft.checkRevision;
+        DshUi.setBusy(button, UiText.t("更新模型列表", "Refresh models"),
+                UiText.t("正在读取…", "Loading…"), true);
+        status.setText(UiText.t("正在读取 ", "Loading ")
+                + ModelConfig.providerName(provider, UiText.isEnglish())
+                + UiText.t(" 的模型列表…", " model catalog…"));
+        status.setTextColor(DshUi.TEXT_2());
+        host.log("开始读取上游模型目录: " + provider);
         api.execute(new NativeCoreApi.Work() {
             @Override public Object run() throws Exception {
-                RefreshResult result = new RefreshResult();
-                File home = host.dshHome();
-                String settings = api.modelSettings(home);
-                File credentials = new File(home, ".credentials.yaml");
-                for (String provider : new String[]{ModelConfig.COMMAND_CODE, ModelConfig.DEEPSEEK, ModelConfig.DEEPSEEK_ACCOUNT}) {
-                    api.checkOpen();
-                    String key = ModelConfig.readCredentialRef(ProjectModelSettings.readFile(credentials), ModelConfig.credentialKey(provider));
-                    if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && key.length() == 0) continue;
-                    try {
-                        ProviderCheck.Result catalog = fetchCatalog(api, provider, key);
-                        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)
-                                && catalog.state == ProviderCheck.KEY_REJECTED) continue;
-                        if (catalog.state != ProviderCheck.READY) throw new java.io.IOException("provider unavailable");
-                        String latest = ModelConfig.readCredentialRef(ProjectModelSettings.readFile(credentials), ModelConfig.credentialKey(provider));
-                        if (!key.equals(latest)) throw new java.io.IOException("credentials changed");
-                        List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(catalog,
-                                ModelConfig.modelsForProvider(settings, provider), provider);
-                        settings = ModelCatalogSync.writeLiveCatalog(settings, provider, entries);
-                        result.synced++;
-                        host.log("已同步上游模型到 DSH: " + provider + "，" + entries.size() + " 个");
-                    } catch (Exception failure) {
-                        result.failures.add(ModelConfig.providerName(provider, UiText.isEnglish()));
-                        host.log("模型目录同步失败: " + provider + " / " + failure.getClass().getSimpleName());
+                final File home = host.dshHome();
+                return ModelCatalogRefresh.run(provider, key, new ModelCatalogRefresh.Backend() {
+                    @Override public void checkOpen() throws java.io.IOException { api.checkOpen(); }
+                    @Override public String credential(String selected) throws Exception {
+                        return ModelConfig.readCredentialRef(ProjectModelSettings.readFile(
+                                new File(home, ".credentials.yaml")), ModelConfig.credentialKey(selected));
                     }
-                }
-                api.checkOpen();
-                if (result.synced > 0) ProjectModelSettings.writeFileAtomic(new File(home, "settings.yaml"), settings);
-                return result;
+                    @Override public ProviderCheck.Result fetch(String selected, String savedKey) throws Exception {
+                        ProviderCheck.Result result = fetchCatalog(api, selected, savedKey);
+                        host.log("上游模型目录响应: " + selected + " HTTP " + result.httpCode
+                                + "，模型 " + result.models.size() + " 个");
+                        if (result.state == ProviderCheck.READY) activity.runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                if (owner.isShowing()) status.setText(UiText.t("模型列表已读取，正在保存…",
+                                        "Model catalog fetched; saving…"));
+                            }
+                        });
+                        return result;
+                    }
+                    @Override public String settings() throws Exception { return api.modelSettings(home); }
+                    @Override public void write(String settings) throws Exception {
+                        ProjectModelSettings.writeFileAtomic(new File(home, "settings.yaml"), settings);
+                    }
+                });
             }
         }, new NativeCoreApi.Callback() {
             @Override public void complete(Object value, Throwable failure) {
                 api.catalogGate.finish("model catalog");
+                if (owner.isShowing()) DshUi.setBusy(button,
+                        UiText.t("更新模型列表", "Refresh models"), UiText.t("正在读取…", "Loading…"), false);
                 if (failure != null) {
-                    host.log("模型目录更新失败: " + failure.getClass().getSimpleName());
-                    DshUi.toast(activity, UiText.t("模型目录更新失败，请重试", "Model catalog update failed. Please retry."));
+                    host.log("模型目录更新失败: " + provider + " / " + failure.getClass().getSimpleName());
+                    if (owner.isShowing()) {
+                        status.setText(catalogExceptionMessage(failure));
+                        status.setTextColor(DshUi.ERROR());
+                    }
                     return;
                 }
-                RefreshResult result = (RefreshResult) value;
-                if (!result.failures.isEmpty()) DshUi.toast(activity, UiText.t("更新失败：", "Update failed: ") + result.failures);
-                else if (result.synced == 0) DshUi.toast(activity, UiText.t("请先保存 API Key 或登录 DeepSeek 账号", "Save an API key or sign in to DeepSeek first."));
-                if (result.synced > 0) host.refreshModelCatalog();
+                ModelCatalogRefresh.Result result = (ModelCatalogRefresh.Result) value;
+                if (!result.saved()) {
+                    host.log("上游模型目录读取失败: " + provider + " HTTP " + result.upstream.httpCode);
+                    if (owner.isShowing()) renderCatalogFailure(status, result.upstream);
+                    return;
+                }
+                host.log("已同步上游模型到 DSH: " + provider + "，" + result.entries.size() + " 个");
+                if (owner.isShowing()) {
+                    if (revision == draft.checkRevision && provider.equals(draft.provider)) {
+                        draft.putCatalog(provider, result.entries);
+                        if (refreshEfforts != null) refreshEfforts.run();
+                    }
+                    status.setText(ModelConfig.providerName(provider, UiText.isEnglish())
+                            + UiText.t("：已读取并保存 ", ": fetched and saved ")
+                            + result.entries.size() + UiText.t(" 个模型。聊天列表将在任务空闲时更新。",
+                                    " models. The chat catalog will apply when DSH is idle.")
+                            + (revision == draft.checkRevision ? "" : UiText.t(
+                                    "当前输入已改变，请重新刷新后保存。",
+                                    "Your inputs changed. Refresh again before saving.")));
+                    status.setTextColor(DshUi.SUCCESS());
+                }
+                host.refreshModelCatalog();
             }
         });
     }
 
-    private static final class RefreshResult {
-        int synced;
-        final List<String> failures = new ArrayList<String>();
+    private static String catalogExceptionMessage(Throwable failure) {
+        if (failure instanceof java.net.SocketTimeoutException) return UiText.t(
+                "读取模型列表超时，请检查网络后重试。原有模型列表已保留。",
+                "The model request timed out. Check your connection and retry. Your existing catalog is preserved.");
+        if (failure instanceof java.net.UnknownHostException || failure instanceof java.net.ConnectException)
+            return UiText.t("无法连接模型服务，请检查网络或代理后重试。原有模型列表已保留。",
+                    "Could not reach the model provider. Check your connection or proxy and retry. Your existing catalog is preserved.");
+        return UiText.t("更新模型列表失败（", "Model refresh failed (")
+                + (failure == null ? "unknown" : failure.getClass().getSimpleName())
+                + UiText.t("）。请重试；原有模型列表已保留。",
+                        "). Please retry; your existing catalog is preserved.");
     }
 
     static void show(Activity activity, Host host, boolean onboarding) {
@@ -225,6 +265,10 @@ final class ModelCenterPanel {
             final Button updateCatalog = DshUi.button(act,
                     UiText.t("更新模型列表", "Refresh models"), false);
             body.addView(updateCatalog, DshUi.fullWidth(act, 6));
+            final TextView catalogStatus = DshUi.status(act,
+                    UiText.t("模型列表尚未刷新", "The model catalog has not been refreshed."));
+            catalogStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            body.addView(catalogStatus, DshUi.fullWidth(act, 6));
             body.addView(DshUi.hint(act, UiText.t(
                     "更新会直接同步已配置服务商的目录；确认空闲后自动应用。选择新的默认模型仍需保存。",
                     "Updating directly syncs saved provider catalogs and applies them when idle. Save separately to change the default model.")),
@@ -373,6 +417,13 @@ final class ModelCenterPanel {
             final View.OnClickListener openChooser = new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
+                    if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider)
+                            && selectedKey(draft.provider, ccKey, dsKey).length() == 0) {
+                        catalogStatus.setText(UiText.t("请先填写当前服务商的 API Key",
+                                "Add the API key for the selected provider first."));
+                        catalogStatus.setTextColor(DshUi.WARN());
+                        return;
+                    }
                     showModelChooser(act, host, dialog, settingsText, draft, model,
                             selectedKey(draft.provider, ccKey, dsKey), refresh);
                 }
@@ -385,19 +436,23 @@ final class ModelCenterPanel {
                                 ProjectModelSettings.readFile(credentialsFile), ModelConfig.credentialKey(draft.provider));
                         if (!ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider)
                                 && (savedKey.length() == 0 || !savedKey.equals(selectedKey(draft.provider, ccKey, dsKey)))) {
+                            catalogStatus.setText(selectedKey(draft.provider, ccKey, dsKey).length() == 0
+                                    ? UiText.t("请先填写当前服务商的 API Key", "Add the API key for the selected provider first.")
+                                    : UiText.t("当前密钥尚未保存。请在实时列表选择模型，再点击保存。",
+                                            "This key has not been saved. Choose a live model, then select Save."));
+                            catalogStatus.setTextColor(DshUi.WARN());
                             openChooser.onClick(v);
-                        } else refreshConfigured(act, host);
+                        } else refreshConfigured(act, host, dialog, draft.provider,
+                                selectedKey(draft.provider, ccKey, dsKey), draft,
+                                updateCatalog, catalogStatus, refreshEfforts);
                     } catch (Throwable error) {
-                        DshUi.toast(act, UiText.t("读取已保存的账号失败", "Could not read the saved account"));
+                        host.log("读取已保存的账号失败: " + error.getClass().getSimpleName());
+                        catalogStatus.setText(UiText.t("读取已保存的账号失败，请重试", "Could not read the saved account. Please retry."));
+                        catalogStatus.setTextColor(DshUi.ERROR());
                     }
                 }
             });
-            model.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    showModelChooser(act, host, dialog, settingsText, draft, model,
-                            selectedKey(draft.provider, ccKey, dsKey), refresh);
-                }
-            });
+            model.setOnClickListener(openChooser);
             check.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.model = model.getText().toString().trim();
@@ -570,7 +625,7 @@ final class ModelCenterPanel {
         Button back = DshUi.button(act, UiText.t("返回模型中心", "Back to model center"), false);
         final Button reload = DshUi.button(act,
                 UiText.t("刷新上游列表", "Refresh upstream catalog"), true);
-        final Dialog dialog = DshUi.dialog(act, DshUi.scroll(act, body),
+        final Dialog dialog = DshUi.dialogFill(act, DshUi.scroll(act, body),
                 DshUi.footer(act, back, reload), 720);
         final CatalogDialogState state = new CatalogDialogState();
         final Runnable fill = new Runnable() {
@@ -758,8 +813,10 @@ final class ModelCenterPanel {
                 status.setTextColor(DshUi.WARN());
             }
         } else if (result.state == ProviderCheck.KEY_REJECTED) {
-            status.setText(UiText.t("密钥被拒绝，请检查是否复制完整或是否具有 API 权限。",
-                    "The key was rejected. Check that it is complete and has API access."));
+            status.setText(UiText.t("服务商拒绝访问（HTTP " + result.httpCode
+                            + "），请检查密钥及账户 API 权限。",
+                    "Provider access was denied (HTTP " + result.httpCode
+                            + "). Check your API key and account API access."));
             status.setTextColor(DshUi.ERROR());
         } else if (result.state == ProviderCheck.RATE_LIMITED) {
             status.setText(UiText.t("服务商已识别密钥，但当前触发限流，请稍后重试。",
@@ -770,8 +827,10 @@ final class ModelCenterPanel {
                     "The model-list endpoint is unavailable and may have changed."));
             status.setTextColor(DshUi.ERROR());
         } else if (result.state == ProviderCheck.INVALID_RESPONSE) {
-            status.setText(UiText.t("服务商已响应，但没有返回可识别的模型列表。",
-                    "The provider responded without a recognizable model catalog."));
+            status.setText(UiText.t("服务商已响应（HTTP " + result.httpCode
+                            + "），但没有返回可识别的模型列表。原有目录已保留。",
+                    "The provider responded (HTTP " + result.httpCode
+                            + ") without a recognizable model catalog. Your existing catalog is preserved."));
             status.setTextColor(DshUi.WARN());
         } else {
             status.setText(UiText.t("服务商暂时不可用（HTTP " + result.httpCode + "）。",
