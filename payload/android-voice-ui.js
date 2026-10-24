@@ -83,6 +83,8 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
                 setMessage(en ? 'Your draft changed. The transcript is kept below; insert it at the current cursor.' : '草稿已变化，识别文字已保留，可插入到当前光标。');
             } else setMessage(value.reason === 'inline-unavailable'
                 ? (en ? 'This phone has no usable speech service for in-page recording. Choose an engine in the voice plugin, or use system voice below.' : '手机尚未提供可直接连接的识别服务。可在语音插件中选择引擎，或点击下方“使用系统语音”。')
+                : value.error === 9 && value.permission === true
+                ? (en ? 'Microphone permission is allowed, but the speech service could not access it. Return to DSH and retry; check the engine permissions and microphone privacy switch.' : 'App 已获麦克风授权，但语音服务未能访问。请返回 DSH 后重试，并检查识别引擎权限与麦克风隐私开关。')
                 : dshVoiceError(value.error || 5, en));
             setPhase('feedback');
         };

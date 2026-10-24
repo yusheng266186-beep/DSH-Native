@@ -42,6 +42,7 @@ try{
  id=await start();await click('取消');await emit({id,state:'result',text:'late'});check(insertions===2&&!active,'cancel rejects late result');
  id=await start();await emit({id,state:'error',error:1002});check(document.body.textContent.includes('应用窗口尚未就绪')&&!!button('重试'),'foreground timeout offers retry without misreporting permission');await click('取消');
  id=await start();await emit({id,state:'error',error:9});check(document.body.textContent.includes('麦克风未授权'),'permission denial actionable');await click('取消');
+ id=await start();await emit({id,state:'error',error:9,permission:true});check(document.body.textContent.includes('App 已获麦克风授权')&&!document.body.textContent.includes('麦克风未授权'),'engine rejection does not misreport an existing App grant');await click('取消');
  id=await start();await emit({id,state:'error',error:5,windowAvailable:true});check(document.body.textContent.includes('启动或连接失败')&&!!button('系统语音设置'),'client error offers engine settings');
  check(!!button('使用系统语音'),'failed inline request offers explicit window action');await click('使用系统语音');
  check(commands.at(-1).action==='start-window','system activity requires user action');await click('取消');
