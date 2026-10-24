@@ -134,7 +134,7 @@ try {
       await square(send, 34, 'empty composer send');
       const expandedSidebar = page.getByRole('button', {name: /^(Collapse sidebar|收起侧边栏)$/});
       if (await expandedSidebar.isVisible()) await expandedSidebar.click();
-      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), 36, 'sidebar toggle');
+      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), scenario.w >= 1000 ? 28 : 36, 'sidebar toggle');
       await noPageOverflow();
       await page.locator('[data-composer-input]').fill('PRIVATE-DRAFT-CONTENT');
       await page.locator('input[type=file]').setInputFiles([
@@ -289,6 +289,20 @@ try {
       await settingsClose.click();
       await settings.waitFor({state: 'hidden'});
       check(await settings.count() === 0, 'settings close interaction failed');
+      for (const panel of [
+        {label: /^(Plugins|插件)$/, selector: '[data-plugin-panel]'},
+        {label: /^(Automation tasks|自动化任务)$/, selector: '[data-testid="task-manager-page"]'},
+      ]) {
+        const openSidebar = page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/});
+        if (await openSidebar.isVisible()) await openSidebar.tap();
+        await page.getByRole('button', {name: panel.label, exact: true}).tap();
+        const surface = page.locator(panel.selector);
+        await surface.waitFor({state: 'visible'});
+        check(await surface.evaluate(e => e.scrollWidth <= e.clientWidth + 1), 'plugin/automation panel has horizontal overflow');
+        await noPageOverflow();
+        if (evidence) await page.screenshot({path: path.join(evidence, `${scenario.w}-${scenario.lang}-${scenario.theme}-${panel.selector.includes('plugin') ? 'plugins' : 'automation'}.png`)});
+      }
+
       check(errors.length === 0, 'WebUI raised an exception');
       check(logs.every(s => s.length < 900 && !/PRIVATE-|Synthetic file preview/.test(s)), 'layout diagnostics leaked content or exceeded the native limit');
       measurements.push({...scenario, send: [sendBox.width, sendBox.height], model: [modelBox.width, modelBox.height], settings: [settingsBox.width, settingsBox.height]});
