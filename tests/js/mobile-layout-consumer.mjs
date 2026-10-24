@@ -145,20 +145,31 @@ try {
       for(let n=0;n<100&&!voiceActions.some(item=>item.action==='start');n++)await sleep(10);
       const voiceId=voiceActions.filter(item=>item.action==='start').at(-1)?.id;check(!!voiceId,'real voice slot emits scoped start');
       check(new URL(voiceActions.filter(item=>item.action==='start').at(-1).url).origin===origin,'voice command source must pass the native origin guard');
+      check(await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).count()===0,'unready engine has no stop action');
+      await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'listening'}})),voiceId);
+      await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).waitFor();
       await noPageOverflow();
       for(const action of await page.locator('[data-native-voice] button').all()){
         const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
         check(r.x>=-.5&&r.x+r.width<=v.w+.5&&r.y>=-.5&&r.y+r.height<=v.h+.5,'active voice control clipped');
       }
       if(evidence)await page.screenshot({path:path.join(evidence,`${scenario.w}-${scenario.lang}-${scenario.theme}-voice-active.png`)});
+      await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'fallback',error:5}})),voiceId);
+      await page.locator('[data-native-voice][data-state=fallback]').waitFor();await noPageOverflow();
+      await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'system-window'}})),voiceId);
+      await page.locator('[data-native-voice][data-state=system-window]').waitFor();await noPageOverflow();
       if(scenario.w===320){
         await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'result',text:'SYNTHETIC-VOICE-DRAFT'}})),voiceId);
         await page.waitForFunction(()=>document.querySelector('[data-composer-input]')?.textContent.includes('SYNTHETIC-VOICE-DRAFT'));
         check(await microphone.isVisible(),'recognition returns to compact voice control');
         await page.locator('[data-composer-input]').fill('');
       }else{
-        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'error',error:9}})),voiceId);
+        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'error',error:5}})),voiceId);
         await page.locator('[data-native-voice] [role=alert]').waitFor();await noPageOverflow();
+        for(const action of await page.locator('[data-native-voice] button').all()){
+          const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
+          check(r.x>=-.5&&r.x+r.width<=v.w+.5&&r.y>=-.5&&r.y+r.height<=v.h+.5,'voice error recovery action clipped');
+        }
         await page.locator('[data-native-voice]').getByRole('button',{name:/^(Cancel|取消)$/}).click();
       }
 

@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.35.0**；源码：**0.35.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.35.0**；源码：**0.35.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -19,6 +19,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.34.2 修复旧环境升级后技能/团队依赖被空目录遮挡、账号旧模型缓存阻断启动，以及调试插件子线程缺少 Android 启动参数的问题。覆盖安装后重启内核即可保留原有配置和历史继续使用。
 
 0.35.0 修复通知栏任务状态，接入 Android 系统语音输入，并修复工具命令、临时目录与共享存储新建文件。覆盖安装后重启内核；语音插件启用后可检测系统服务，识别结果只填草稿。见[语音与状态排查](docs/VOICE_INPUT.md)、[环境指南复核](docs/ENVIRONMENT_UPGRADE.md)。
+
+0.35.1 修复点击麦克风立即报错误 5 时缺少兼容回退的问题：核对可用默认引擎，启动失败后尝试系统语音窗口，并防止过早或重复结束识别。覆盖安装后重启内核再试；没有兼容系统接口时会提示配置识别引擎。
 
 <!-- project-navigation:start -->
 ## 项目概览

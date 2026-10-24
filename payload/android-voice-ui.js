@@ -17,13 +17,16 @@ function dshVoiceError(code, en) {
         1: ['语音服务网络超时，请重试', 'Speech service timed out. Please retry.'],
         2: ['语音服务网络不可用，请检查连接', 'Speech service network is unavailable.'],
         3: ['无法打开麦克风，请关闭其他录音应用后重试', 'Microphone unavailable. Close other recording apps and retry.'],
+        4: ['系统语音服务处理失败，请检查所选识别引擎', 'The speech service failed. Check the selected engine.'],
+        5: ['系统语音服务启动或连接失败（错误 5），请在系统语音设置选择可用识别引擎，也可使用键盘语音输入', 'The system speech service could not start or connect (error 5). Select a working engine in system voice settings, or use keyboard dictation.'],
         6: ['没有检测到语音，请重试', 'No speech detected. Please retry.'],
         7: ['没有识别到文字，请重试', 'No words recognized. Please retry.'],
         8: ['语音服务忙，请稍后重试', 'Speech service is busy. Please retry.'],
         9: ['麦克风未授权，可在应用权限中开启后重试', 'Allow microphone access in App permissions, then retry.'],
         11: ['系统未提供语音识别服务，请安装或启用语音服务，也可使用键盘语音输入', 'No system speech service. Install or enable one, or use keyboard dictation.'],
         12: ['系统语音服务不支持当前语言，请检查系统语音设置', 'The speech service does not support this language. Check system voice settings.'],
-        13: ['当前语言的离线模型未就绪，请检查系统语音设置', 'The offline language model is unavailable. Check system voice settings.']
+        13: ['当前语言的离线模型未就绪，请检查系统语音设置', 'The offline language model is unavailable. Check system voice settings.'],
+        1001: ['识别文字过长，请缩短单次输入', 'The transcript is too long. Please use a shorter recording.']
     };
     return (errors[code] || ['语音识别失败，请重试（错误 ' + code + '）', 'Speech recognition failed. Please retry (error ' + code + ').'])[en ? 1 : 0];
 }
@@ -48,17 +51,21 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
             if (value.state === 'listening' || value.state === 'starting' || value.state === 'permission') {
                 setPhase(value.state); return;
             }
-            if (value.state === 'recognizing') { setPhase('recognizing'); return; }
+            if (value.state === 'recognizing' || value.state === 'fallback' || value.state === 'system-window') {
+                setPhase(value.state); return;
+            }
             clearTimeout(run.timer); active.current = null;
             if (value.state === 'cancelled') { setPhase('idle'); return; }
             if (value.state === 'result') {
                 const text = typeof value.text === 'string' ? value.text.trim() : '';
                 if (!text) { setPhase('feedback'); setMessage(dshVoiceError(7, en)); return; }
-                if (text.length > 16000) { setPhase('feedback'); setMessage(dshVoiceError(5, en)); return; }
+                if (text.length > 16000) { setPhase('feedback'); setMessage(dshVoiceError(1001, en)); return; }
                 if (!currentLocked.current && currentActions.current.insertText(text, run.span)) { setPhase('idle'); return; }
                 setPending(text);
                 setMessage(en ? 'Your draft changed. The transcript is kept below; insert it at the current cursor.' : '草稿已变化，识别文字已保留，可插入到当前光标。');
-            } else setMessage(dshVoiceError(value.error || 5, en));
+            } else setMessage(value.reason === 'default-service-unavailable'
+                ? (en ? 'No usable default speech engine or system speech window. Select or enable a speech engine in system voice settings, or use keyboard dictation.' : '系统未配置可用的语音识别引擎，也没有可用语音窗口。请在系统语音设置选择或启用识别引擎，也可使用键盘语音输入。')
+                : dshVoiceError(value.error || 5, en));
             setPhase('feedback');
         };
         const escape = event => { if (event.key === 'Escape' && active.current) { event.preventDefault(); reset(); } };
@@ -92,11 +99,14 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
         'aria-label':en ? 'Start Android voice input' : '开始语音输入', title:en ? 'Android voice input' : '系统语音输入',
         onMouseDown:event => event.preventDefault(), onClick:start, style:{minWidth:36,minHeight:36}}, h(P.IconMicrophoneOutlineRegular,{size:18}));
     const labels = {starting:en?'Starting speech recognition…':'正在启动语音识别…', permission:en?'Allow microphone access…':'请允许麦克风权限…',
-        listening:en?'Listening…':'正在聆听…', recognizing:en?'Recognizing…':'正在识别…'};
+        listening:en?'Listening…':'正在聆听…', recognizing:en?'Recognizing…':'正在识别…',
+        fallback:en?'Switching speech recognition…':'正在切换语音识别方式…',
+        'system-window':en?'Speak in the system speech window…':'请在系统语音窗口中说话…'};
     return h('div', {'data-native-voice':true,'data-state':phase,style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',minWidth:0,width:'100%'}},
         h('span',{role:phase==='feedback'?'alert':'status',style:{flex:'1 1 120px',minWidth:0,overflowWrap:'anywhere',fontSize:12}},message||labels[phase]),
-        phase!=='feedback'&&button(en?'Stop and recognize':'结束并识别',()=>{if(active.current)dshVoiceCommand(active.current.id,'stop');},'stop'),
+        phase==='listening'&&button(en?'Stop and recognize':'结束并识别',()=>{if(active.current)dshVoiceCommand(active.current.id,'stop');},'stop'),
         phase==='feedback'&&!pending&&button(en?'Retry':'重试',start,'retry',locked),
+        phase==='feedback'&&!pending&&button(en?'System voice settings':'系统语音设置',()=>dshVoiceCommand(dshVoiceId(),'settings'),'settings'),
         pending&&h('div',{'data-native-transcript':true,style:{flexBasis:'100%',overflowWrap:'anywhere',maxHeight:128,overflow:'auto',whiteSpace:'pre-wrap'}},pending),
         pending&&button(en?'Insert at cursor':'插入到当前光标',()=>{if(!locked&&inputActions.insertText(pending,inputActions.captureInsertion()))reset();},'insert',locked),
         button(en?'Cancel':'取消',reset,'cancel'));
@@ -114,7 +124,9 @@ function DshNativeVoiceSettings({t}) {
     return h('section',{'data-native-voice-settings':true,style:{display:'grid',gap:12,minWidth:0,overflowWrap:'anywhere'}},
         h('h3',null,en?'Android voice input':'Android 系统语音输入'),
         h('p',null,en?'Uses the speech recognition service installed on this phone. On-device recognition is preferred when supported; the system service may use a network connection. No desktop speech model download is needed.':'使用手机已安装的语音识别服务，支持时优先使用端侧识别；系统服务也可能联网识别，无需下载桌面语音模型。'),
-        h('p',{role:'status'},!capabilities?(en?'Checking speech service…':'正在检测语音服务…'):!capabilities.available?dshVoiceError(11,en):capabilities.permission?(en?'Speech service available; microphone allowed.':'语音服务可用，麦克风已授权。'):(en?'Speech service available. Microphone permission is requested when you start.':'语音服务可用，开始输入时申请麦克风权限。')),
+        h('p',{role:'status'},!capabilities?(en?'Checking speech service…':'正在检测语音服务…'):!capabilities.available?dshVoiceError(11,en):
+            capabilities.defaultService===false&&!capabilities.onDeviceAvailable?(en?'No usable default engine; the system speech window will be used.':'未配置可用默认引擎，将使用系统语音窗口。'):
+            capabilities.permission?(en?'Speech entry detected; microphone allowed. Starting recognition will check the engine connection.':'已检测到语音入口，麦克风已授权；启动识别时检查引擎连接。'):(en?'Speech entry detected. Microphone permission is requested when you start.':'已检测到语音入口，开始输入时申请麦克风权限。')),
         h('p',null,en?'Tap the microphone in a conversation. Recognition only fills the draft; review it before sending.':'在对话输入框点击麦克风即可。识别结果只填入草稿，确认后再发送。'),
         h('div',{style:{display:'flex',gap:8,flexWrap:'wrap'}},
             h(P.Button,{onClick:check},en?'Check speech service':'检测语音服务'),
