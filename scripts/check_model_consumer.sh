@@ -14,7 +14,8 @@ print(m.group(1))
 PY
 )"
 gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
-    --pattern dsh.tar.zst --pattern SHA256SUMS.txt --dir "$PROBE"
+    --pattern dsh.tar.zst --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE"
+bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
 (cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
     test -s dsh.sha256; sha256sum -c dsh.sha256)
 mkdir "$PROBE/runtime" "$PROBE/classes"
