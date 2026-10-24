@@ -10,22 +10,27 @@ final class VoiceUi {
     private VoiceUi() { }
 
     static final class Command {
-        final String id, action, language;
+        final String id, action, language, engine;
         Command(String id, String action, String language) {
-            this.id = id; this.action = action; this.language = language;
+            this(id, action, language, "auto");
+        }
+        Command(String id, String action, String language, String engine) {
+            this.id = id; this.action = action; this.language = language; this.engine = engine;
         }
     }
 
     static Command parse(String message) {
-        if (message == null || !message.startsWith(MARKER) || message.length() > 512) return null;
+        if (message == null || !message.startsWith(MARKER) || message.length() > 768) return null;
         try {
             Map<?, ?> value = (Map<?, ?>) JsonValue.parse(message.substring(MARKER.length()));
             String id = (String) value.get("id"), action = (String) value.get("action");
             String language = value.get("language") instanceof String ? (String) value.get("language") : "zh-CN";
+            String engine = value.get("engine") instanceof String ? (String) value.get("engine") : "auto";
             if (id == null || !id.matches("[A-Za-z0-9_-]{1,80}") || action == null
-                    || !action.matches("start|stop|cancel|check|settings")
+                    || !action.matches("start|start-window|engine|stop|cancel|check|settings")
+                    || engine.length() > 240 || !engine.matches("auto|[A-Za-z0-9_.$]+/[A-Za-z0-9_.$]+")
                     || !language.matches("[a-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}")) return null;
-            return new Command(id, action, language);
+            return new Command(id, action, language, engine);
         } catch (RuntimeException invalid) { return null; }
     }
 

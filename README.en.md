@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.35.1**; source: **0.35.1**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.35.1**; source: **0.36.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -21,6 +21,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.35.0 repairs notification task status, adds Android system dictation to the existing voice plugin, and fixes tool commands, temporary directories and new files on shared storage. Install over the existing App and restart the core, then enable the voice plugin and check the system speech service. Dictation only fills the draft. See [voice and status troubleshooting](docs/VOICE_INPUT.md) and the [environment guide review](docs/ENVIRONMENT_UPGRADE.md) (Chinese). System speech support depends on the installed engine; device testing remains with the user.
 
 0.35.1 adds the missing compatibility fallback for immediate speech error 5: it checks the selected default engine, tries the system speech window after startup failure, and prevents premature or duplicate stop calls. Install over the existing App and restart the core. A compatible installed system speech interface is still required.
+
+0.36.0 integrates voice interaction into the DSH composer with themed controls, real audio levels, elapsed time and interim text previews. It connects to public recognition services and offers engine selection in plugin settings. It no longer opens a system speech window automatically; phones exposing only that interface retain an explicit “Use system voice” action. Restart the core after installing.
 
 <!-- project-navigation:start -->
 ## Project overview

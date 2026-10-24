@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.35.1**；源码：**0.35.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.35.1**；源码：**0.36.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -44,6 +44,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 语音沿用原插件三个 slot，`VoiceUi` 幂等修补真实模块；`NativeVoiceController` 在前台准确本机 origin 处理受限命令。无任意 WebView 权限桥，不记录语音正文。处理权限先于 onResume 返回、系统窗口导致 onPause、取消后晚回调及草稿变化；详情见[语音输入](VOICE_INPUT.md)。
 
 0.35.1 核对实际默认识别服务，而不是只用 isRecognitionAvailable；默认缺失或直接启动错误 5 等情况按有界顺序回退系统窗口。清理前递增 generation，延迟回退复核前台/请求；停止只在 ready 且未 stopping 时执行。失败保留 stage/reason/异常类/尝试链，不能再把各类本地错误都折叠成无来源的 5。`tests/check_native_voice.py` 执行生产控制器和 Android API 替身，不进 APK，也不等于真机 ASR。
+
+0.36.0 改为页面内优先：默认/系统窗口同提供方的公开服务通过显式 component 绑定，手选服务持久化到私有 voiceEngine。只绑定实际列出的启用导出组件，不硬编码厂商包、不偷偷换无关服务。start 不打开 Activity，start-window 才是用户手动的窗口入口；不要恢复自动弹框。RMS 按 120ms 节流，partial 仅进页面预览不进日志/草稿。UI 使用原主题和控件，CSS 通过变量压缩短屏装饰，避免 inline style 覆盖媒体规则。
 
 服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
 

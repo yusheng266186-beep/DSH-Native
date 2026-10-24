@@ -148,6 +148,12 @@ try {
       check(await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).count()===0,'unready engine has no stop action');
       await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'listening'}})),voiceId);
       await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).waitFor();
+      await page.evaluate(id=>{
+        window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'level',level:.7}}));
+        window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'partial',text:'SYNTHETIC-PREVIEW'}}));
+      },voiceId);
+      await page.locator('[data-native-partial]').waitFor();
+      check(!(await page.locator('[data-composer-input]').innerText()).includes('SYNTHETIC-PREVIEW'),'partial transcript must not change draft');
       await noPageOverflow();
       for(const action of await page.locator('[data-native-voice] button').all()){
         const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
@@ -164,7 +170,7 @@ try {
         check(await microphone.isVisible(),'recognition returns to compact voice control');
         await page.locator('[data-composer-input]').fill('');
       }else{
-        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'error',error:5}})),voiceId);
+        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'error',error:5,windowAvailable:true}})),voiceId);
         await page.locator('[data-native-voice] [role=alert]').waitFor();await noPageOverflow();
         for(const action of await page.locator('[data-native-voice] button').all()){
           const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
