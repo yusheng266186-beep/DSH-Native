@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.0**；源码：**0.36.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.0**；源码：**0.36.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -92,3 +92,5 @@ python3 scripts/sync_project_metadata.py --check
 不要将 `release.sh` 当作任意工作区手动上传的快捷命令，不预写 latest，不生成新密钥，不提交 APK。独立 payload 先完成所有资产并最后上传 manifest，App 才能引用它。
 
 签名事故与运行安全边界见 [HANDOVER 第 8 节](../docs/HANDOVER.md#8-持续有效的事故防护与红线)，流程清单见 [release_checklist](release_checklist.md)。
+
+0.36.1 将 VoiceStartGate 加入纯逻辑检查与 JVM 回归。生产 NativeVoiceController 的边界测试覆盖授权先于焦点返回、焦点抖动、等待超时、权限撤销、一次启动重试与取消/后台清理；0.36.0 起保持默认无自动系统窗口，只有显式 start-window 打开 Activity。真实 WebUI 触屏回归也检查前台等待状态的溢出与取消入口。

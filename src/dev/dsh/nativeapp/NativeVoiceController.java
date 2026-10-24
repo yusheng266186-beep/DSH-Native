@@ -24,6 +24,7 @@ final class NativeVoiceController {
     static final int REQUEST_SYSTEM_VOICE = 0x2003;
     interface Host {
         boolean canListen();
+        boolean canStartRecording();
         void event(String json);
         void diagnostic(String detail);
     }
@@ -38,8 +39,9 @@ final class NativeVoiceController {
     private String engineLabel = "";
     private long lastLevelAt;
     private String stage = "idle", reason = "", failureClass = "", failures = "";
-    private boolean resumePending;
-    private long resumeUntil;
+    private final VoiceStartGate startGate = new VoiceStartGate();
+    private boolean startPending, permissionReturnPending, permissionAnswered, startupRetried;
+    private Runnable startCheck;
     private int generation;
     private Runnable deadline;
     private volatile String diagnostic = "not used";
@@ -62,26 +64,17 @@ final class NativeVoiceController {
             try { activity.startActivity(new Intent("android.settings.VOICE_INPUT_SETTINGS")); }
             catch (RuntimeException unavailable) { emit(command.id, "error", "", 11); }
         } else if ("start".equals(command.action) || "start-window".equals(command.action)) {
-            if (!host.canListen()) { emit(command.id, "error", "", 9); return; }
+            if (!host.canListen()) { emit(command.id, "error", "", 1002); return; }
             if (active != null) { emit(command.id, "error", "", 8); return; }
             active = command; fallback = false; windowAttempted = false; ready = false; stopping = false;
+            permissionAnswered = false; permissionReturnPending = false; startupRetried = false;
             reason = ""; failureClass = ""; failures = ""; onDevice = false; external = false; stage = "availability";
             component = preferredService(); engineLabel = label(component); lastLevelAt = 0L;
-            if ("start-window".equals(command.action)) { openSystemVoice(); return; }
-            if (!inlineAvailable()) {
+            if (!"start-window".equals(command.action) && !inlineAvailable()) {
                 stage = "availability"; recordFailure(11, "inline-unavailable", null);
                 finish("error", "", 11); return;
             }
-            if (Build.VERSION.SDK_INT >= 23 && activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                pendingPermission = true;
-                stage = "permission";
-                emit(command.id, "permission", "", 0);
-                try { activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_MICROPHONE); }
-                catch (RuntimeException unavailable) {
-                    recordFailure(9, "permission-request", unavailable); finish("error", "", 9);
-                }
-            } else begin();
+            awaitForeground(0L);
         } else if (active != null && active.id.equals(command.id)) {
             if ("cancel".equals(command.action)) cancel();
             else if ("stop".equals(command.action) && recognizer != null) {
@@ -199,28 +192,68 @@ final class NativeVoiceController {
         if (!pendingPermission || active == null) return;
         pendingPermission = false;
         if (!granted) { recordFailure(9, "permission-denied", null); finish("error", "", 9); }
-        else if (host.canListen()) begin();
         else {
-            // Some ROMs return the grant before Activity.onResume. Wait only
-            // for that immediate foreground return, never record in background.
-            resumePending = true;
-            resumeUntil = android.os.SystemClock.uptimeMillis() + 2000L;
-            deadline = new Runnable() {
-                @Override public void run() { if (resumePending) cancel(); }
-            };
-            handler.postDelayed(deadline, 2000L);
+            // The permission callback can precede onResume or window focus.
+            // A grant alone never proves that while-in-use access is ready.
+            permissionAnswered = true; permissionReturnPending = true;
+            awaitForeground(0L);
         }
     }
 
     void resume() {
-        if (resumePending && active != null && host.canListen()
-                && android.os.SystemClock.uptimeMillis() <= resumeUntil) {
-            resumePending = false; begin();
+        if (startPending && startCheck != null) {
+            // Observe focus loss immediately as well as polling; a short loss
+            // between timer ticks must reset the stable foreground interval.
+            if (!host.canStartRecording()) startGate.poll(android.os.SystemClock.uptimeMillis(), false);
         }
+    }
+
+    private boolean microphoneGranted() {
+        return Build.VERSION.SDK_INT < 23 || activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void awaitForeground(long delay) {
+        if (active == null) return;
+        if (startCheck != null) handler.removeCallbacks(startCheck);
+        startPending = true;
+        startGate.reset(android.os.SystemClock.uptimeMillis());
+        stage = "foreground-wait"; emit(active.id, "foreground", "", 0);
+        final int current = generation;
+        startCheck = new Runnable() {
+            @Override public void run() {
+                if (!startPending || active == null || current != generation) return;
+                if (!host.canListen() && !permissionReturnPending) { cancel(); return; }
+                int result = startGate.poll(android.os.SystemClock.uptimeMillis(), host.canStartRecording());
+                if (result == VoiceStartGate.WAIT) { handler.postDelayed(this, 50L); return; }
+                startPending = false; startCheck = null;
+                if (result == VoiceStartGate.EXPIRED) {
+                    recordFailure(1002, "foreground-timeout", null); finish("error", "", 1002); return;
+                }
+                permissionReturnPending = false;
+                if ("start-window".equals(active.action)) { openSystemVoice(); return; }
+                if (!microphoneGranted()) {
+                    if (permissionAnswered) {
+                        recordFailure(9, "permission-revoked", null); finish("error", "", 9); return;
+                    }
+                    pendingPermission = true; stage = "permission";
+                    emit(active.id, "permission", "", 0);
+                    try { activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_MICROPHONE); }
+                    catch (RuntimeException unavailable) {
+                        recordFailure(9, "permission-request", unavailable); finish("error", "", 9);
+                    }
+                } else begin();
+            }
+        };
+        handler.postDelayed(startCheck, delay);
     }
 
     private void begin() {
         if (active == null || !host.canListen()) { cancel(); return; }
+        if (!host.canStartRecording()) { awaitForeground(0L); return; }
+        if (!microphoneGranted()) {
+            recordFailure(9, "permission-revoked", null); finish("error", "", 9); return;
+        }
         final int current = ++generation;
         onDevice = false; ready = false; stopping = false; stage = "engine-create";
         try {
@@ -310,27 +343,28 @@ final class NativeVoiceController {
         failures = (failures.length() == 0 ? "" : failures + " > ") + item;
         if (failures.length() > 600) failures = failures.substring(failures.length() - 600);
         host.diagnostic("error=" + error + ", stage=" + stage + ", mode=" + mode()
-                + ", reason=" + reason + ", exception=" + failureClass);
+                + ", reason=" + reason + ", exception=" + failureClass
+                + ", permission=" + microphoneGranted() + ", foregroundReady=" + host.canStartRecording());
     }
 
     private void failed(int error, String why, Throwable failure) {
         if (active == null) return;
         recordFailure(error, why, failure);
         boolean compatible = error == 5 || error == 11 || error == 12 || error == 13;
-        boolean retryDefault = compatible && onDevice && !fallback && component != null;
+        boolean retryDefault = compatible && !ready && microphoneGranted() && onDevice && !fallback && component != null;
         if (host.canListen() && retryDefault) {
-            final int next = ++generation;
+            ++generation;
             destroyRecognizer(); fallback = true; ready = false; stopping = false;
             stage = "fallback";
             emit(active.id, "fallback", "", error);
-            deadline = new Runnable() {
-                @Override public void run() {
-                    if (active == null || next != generation) return;
-                    if (!host.canListen()) { cancel(); return; }
-                    begin();
-                }
-            };
-            handler.postDelayed(deadline, 250L);
+            awaitForeground(250L);
+        } else if (!ready && !startupRetried && (error == 5 || error == 9)
+                && "service-error".equals(why) && microphoneGranted() && host.canListen()) {
+            // Some engines deliver a transient permission/client error while
+            // Android is returning from a permission window. Retry once only,
+            // before recording has begun, and require fresh foreground proof.
+            startupRetried = true; ++generation; destroyRecognizer();
+            awaitForeground(500L);
         } else finish("error", "", error);
     }
 
@@ -362,6 +396,8 @@ final class NativeVoiceController {
             diagnostic = "state=" + state + ", error=" + error + ", available=" + available()
                     + ", mode=" + mode() + ", stage=" + stage + ", reason=" + reason
                     + ", exception=" + failureClass + ", default=" + selectedService()
+                    + ", permission=" + microphoneGranted() + ", foregroundReady=" + host.canStartRecording()
+                    + ", startupRetried=" + startupRetried
                     + ", component=" + (component == null ? "none" : component.flattenToString()) + ", attempts=" + failures;
             JSONObject result = new JSONObject().put("id", id).put("state", state).put("text", text)
                     .put("error", error).put("available", available()).put("onDevice", onDevice)
@@ -379,7 +415,8 @@ final class NativeVoiceController {
     private void finish(String state, String text, int error) {
         if (active == null) return;
         String id = active.id;
-        active = null; pendingPermission = false; resumePending = false; generation++;
+        active = null; pendingPermission = false; permissionReturnPending = false; generation++;
+        clearStart();
         destroyRecognizer();
         emit(id, state, text, error);
         external = false;
@@ -404,6 +441,7 @@ final class NativeVoiceController {
 
     private void openSystemVoice() {
         if (active == null || !host.canListen()) { cancel(); return; }
+        if (!host.canStartRecording()) { awaitForeground(0L); return; }
         if (windowAttempted || !windowAvailable()) {
             recordFailure(5, "window-unavailable", null);
             finish("error", "", 5); return;
@@ -439,7 +477,18 @@ final class NativeVoiceController {
         }
     }
 
-    void pause() { if (!pendingPermission && !resumePending && !external) cancel(); }
+    private void clearStart() {
+        startPending = false; startGate.cancel();
+        if (startCheck != null) handler.removeCallbacks(startCheck);
+        startCheck = null;
+    }
+    void pause() {
+        resume();
+        if (!pendingPermission && !permissionReturnPending && !external) cancel();
+    }
     void cancel() { finish("cancelled", "", 0); }
-    void dispose() { active = null; pendingPermission = false; resumePending = false; generation++; destroyRecognizer(); }
+    void dispose() {
+        active = null; pendingPermission = false; permissionReturnPending = false; generation++;
+        clearStart(); destroyRecognizer();
+    }
 }

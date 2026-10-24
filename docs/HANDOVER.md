@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.0**；源码：**0.36.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.0**；源码：**0.36.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -74,6 +74,8 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 文件操作经过规范路径白名单；目录复制不跟随符号链接，默认删除进入同卷回收站。恢复同名保留两份。配置备份包含凭据并要求至少 8 位口令认证加密，覆盖全局/项目模型设置、`settings.yaml.imported` 和 active Web profile。嵌套路径严格白名单，全部目标先检查并拒绝越界符号链接；不含完整工作区、历史与附件。
 
 运行包快照只允许 `dsh` / `tools`；记录与归档必须核对大小和摘要。恢复不触碰用户 `.dsh`，不降低 APK。自动恢复设置 hold，避免重启后再次触发同一失败更新。
+
+0.36.1 用 VoiceStartGate 同时约束请求授权与启动录音；Host.canListen 只表示前台和页面身份，canStartRecording 再要求窗口焦点与 WebView 可见。权限回调不直接 begin：重新等待连续 250ms 就绪，4 秒上限；onResume 不能替代 onWindowFocusChanged，onPause 先清前台标志。真正 begin 再检查实际权限。服务错误 5/9 只在 ready 前且授权仍有效时最多重试一次；取消、后台及销毁清理独立 startCheck，旧 generation 不得回调。只允许相同本机 origin 的 cancel 穿过后台标志，避免页面超时无法撤销正在等待授权的请求；其他命令仍要求前台。不调用 AudioRecord 预热，不做后台麦克风服务，不自动打开系统语音框。
 
 ## 4. 开发入口
 

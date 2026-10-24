@@ -72,6 +72,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/CoreUpgrade.java
      $JAVA_DIR/CoreTaskState.java
      $JAVA_DIR/VoiceUi.java
+     $JAVA_DIR/VoiceStartGate.java
      $JAVA_DIR/FsWritePatch.java
      $JAVA_DIR/ToolEnvironment.java
      $JAVA_DIR/SessionPersistencePatch.java
@@ -139,6 +140,7 @@ TESTS="tests/FileListingTest.java
        tests/CoreUpgradeTest.java
        tests/CoreTaskStateTest.java
        tests/VoiceUiTest.java
+       tests/VoiceStartGateTest.java
        tests/FsWritePatchTest.java
        tests/ToolEnvironmentTest.java
        tests/SessionPersistencePatchTest.java
@@ -192,7 +194,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "

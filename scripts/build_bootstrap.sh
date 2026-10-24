@@ -179,7 +179,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelCatalogRefresh.java
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/LayoutProbe.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsCommands.java"
-PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

@@ -26,7 +26,8 @@ function dshVoiceError(code, en) {
         11: ['系统未提供语音识别服务，请安装或启用语音服务，也可使用键盘语音输入', 'No system speech service. Install or enable one, or use keyboard dictation.'],
         12: ['系统语音服务不支持当前语言，请检查系统语音设置', 'The speech service does not support this language. Check system voice settings.'],
         13: ['当前语言的离线模型未就绪，请检查系统语音设置', 'The offline language model is unavailable. Check system voice settings.'],
-        1001: ['识别文字过长，请缩短单次输入', 'The transcript is too long. Please use a shorter recording.']
+        1001: ['识别文字过长，请缩短单次输入', 'The transcript is too long. Please use a shorter recording.'],
+        1002: ['应用窗口尚未就绪，请关闭系统弹窗、返回 DSH 后重试', 'The App window is not ready. Close system dialogs, return to DSH and retry.']
     };
     return (errors[code] || ['语音识别失败，请重试（错误 ' + code + '）', 'Speech recognition failed. Please retry (error ' + code + ').'])[en ? 1 : 0];
 }
@@ -65,7 +66,7 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
             }
             if (typeof value.windowAvailable === 'boolean') setWindowAvailable(value.windowAvailable);
             if (typeof value.engineLabel === 'string') setEngine(value.engineLabel);
-            if (value.state === 'listening' || value.state === 'starting' || value.state === 'permission') {
+            if (value.state === 'listening' || value.state === 'starting' || value.state === 'permission' || value.state === 'foreground') {
                 setPhase(value.state); return;
             }
             if (value.state === 'recognizing' || value.state === 'fallback' || value.state === 'system-window') {
@@ -116,6 +117,7 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
         'aria-label':en ? 'Start Android voice input' : '开始语音输入', title:en ? 'Android voice input' : '系统语音输入',
         onMouseDown:event => event.preventDefault(), onClick:()=>start(), style:{minWidth:36,minHeight:36}}, h(P.IconMicrophoneOutlineRegular,{size:18}));
     const labels = {starting:en?'Starting speech recognition…':'正在启动语音识别…', permission:en?'Allow microphone access…':'请允许麦克风权限…',
+        foreground:en?'Waiting for the App window…':'正在等待应用窗口就绪…',
         listening:en?'Listening…':'正在聆听…', recognizing:en?'Recognizing…':'正在识别…',
         fallback:en?'Switching speech recognition…':'正在切换语音识别方式…',
         'system-window':en?'Speak in the system speech window…':'请在系统语音窗口中说话…'};

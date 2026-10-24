@@ -146,6 +146,9 @@ try {
       const voiceId=voiceActions.filter(item=>item.action==='start').at(-1)?.id;check(!!voiceId,'real voice slot emits scoped start');
       check(new URL(voiceActions.filter(item=>item.action==='start').at(-1).url).origin===origin,'voice command source must pass the native origin guard');
       check(await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).count()===0,'unready engine has no stop action');
+      await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'foreground'}})),voiceId);
+      await page.locator('[data-native-voice][data-state=foreground]').waitFor();await noPageOverflow();
+      check(await page.locator('[data-native-voice]').getByRole('button',{name:/^(Cancel|取消)$/}).isVisible(),'foreground wait keeps cancel visible');
       await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'listening'}})),voiceId);
       await page.locator('[data-native-voice]').getByRole('button',{name:/^(Stop and recognize|结束并识别)$/}).waitFor();
       await page.evaluate(id=>{

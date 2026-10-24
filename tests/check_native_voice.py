@@ -120,6 +120,6 @@ with tempfile.TemporaryDirectory(prefix="dsh-native-voice-test-") as temporary:
         target.write_text(source, encoding="utf-8")
     compiler = [shutil.which("javac")] if shutil.which("javac") else ["java", "-m", "jdk.compiler/com.sun.tools.javac.Main"]
     controller = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SOURCE / "NativeVoiceController.java"
-    files = [*path.rglob("*.java"), controller, SOURCE / "VoiceUi.java", SOURCE / "JsonValue.java", ROOT / "tests/NativeVoiceControllerTest.java"]
+    files = [*path.rglob("*.java"), controller, SOURCE / "VoiceUi.java", SOURCE / "VoiceStartGate.java", SOURCE / "JsonValue.java", ROOT / "tests/NativeVoiceControllerTest.java"]
     subprocess.run([*compiler, "-encoding", "UTF-8", "-d", str(path / "classes"), *map(str, files)], check=True)
     subprocess.run(["java", "-cp", str(path / "classes"), "dev.dsh.nativeapp.NativeVoiceControllerTest"], check=True)
