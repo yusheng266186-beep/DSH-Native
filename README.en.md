@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.33.13**; source: **0.34.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.34.0**; source: **0.34.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -31,19 +31,19 @@ For installation, use the download and setup sections below. Source, release and
 
 ## Download and requirements
 
-**Current stable release: 0.33.13**
+**Current stable release: 0.34.0**
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.33.13-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.34.0-bootstrap/DSHNative-bootstrap.apk)** (33.7 MiB)
 
-[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.33.13-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.34.0-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256: `8be88ff4ea7f777d264dfe0b39c4395933a26c8f45fd4b65708da12da6082912`
+SHA-256: `f6b368fac689da8f5b631397fc1c07e746eea17be12d71b88a66e296bf166d6e`
 
 | Item | Requirement or behavior |
 |---|---|
 | Android | Android 7.0 or later; minSdk 24 |
 | CPU | ARM64; no ARM32 or x86 package is currently provided |
-| First launch | Downloads a roughly 120.9 MiB runtime; later updates download changed parts |
+| First launch | Downloads a roughly 143.6 MiB runtime; later updates download changed parts |
 | Storage | Allow room for extraction, downloads, and rollback snapshots; reserve 1.5–2 GiB and follow the App's actual space check |
 | Model access | Command Code API key, DeepSeek API key, or DeepSeek account authorization; models and quotas depend on your account |
 | Background tasks | Allow notifications and background operation as appropriate for your device; a foreground service cannot prevent every ROM from terminating the process |
