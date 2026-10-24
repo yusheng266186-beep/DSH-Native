@@ -12,6 +12,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 模型推理仍通过所选服务商的 API 完成。项目文件与工具执行位于设备端；发送给模型的消息、附件和工具结果按 DSH 与服务商的调用方式传输。本项目是独立的 Android 适配项目。
 
+本轮 0.34.0 将内核升级到 DSH 0.2.1-rc.3，并回查旧的手机布局、原生弹窗和草稿适配。详细变更与验证边界见 [版本说明](release-notes/v0.34.0.md)。
+
 <!-- project-navigation:start -->
 ## 项目概览
 

@@ -11,6 +11,7 @@ const runtime = path.resolve(process.argv[2]);
 const patched = await fs.readFile(process.argv[3], 'utf8');
 const probe = await fs.readFile(process.argv[4], 'utf8');
 const tools = await fs.readFile(process.argv[5], 'utf8');
+const touch = await fs.readFile(process.argv[6], 'utf8');
 const injection = patched.slice(patched.indexOf('<style id="dsh-native-responsive">'), patched.indexOf('</head>'));
 assert(injection.startsWith('<style'), 'must consume the generated Java patch');
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-layout-'));
@@ -29,7 +30,7 @@ try {
   await fs.writeFile(path.join(project, 'second.js'), 'const synthetic = true;\n');
   child = spawn(process.execPath, ['--expose-internals', path.join(runtime, 'lib/bin.js'),
     '--profile', 'web', '--no-open', '--port', '0'], {
-    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: 'synthetic-layout-only', DEEPSEEK_API_KEY: 'synthetic-layout-only'},
+    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: 'synthetic-layout-only', DEEPSEEK_API_KEY: ''},
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const collect = chunk => {output = (output + chunk).slice(-32000);};
@@ -75,7 +76,7 @@ try {
     {w: 480, h: 320, lang: 'en', theme: 'dark'},
     {w: 768, h: 1024, lang: 'en', theme: 'light'},
     {w: 1024, h: 600, lang: 'zh', theme: 'light'},
-  ];
+  ].filter(s => !process.env.DSH_LAYOUT_WIDTH || s.w === Number(process.env.DSH_LAYOUT_WIDTH));
   const measurements = [];
   for (const scenario of scenarios) {
     await rpc('settings/update', {ns: 'locale', patch: {preference: scenario.lang}});
@@ -115,6 +116,7 @@ try {
       }
       await page.evaluate(probe);
       await page.evaluate(tools);
+      await page.evaluate(touch);
       const send = page.getByRole('button', {name: /^(Send message|发送消息)$/});
       const size = async locator => {
         const r = await locator.boundingBox(); assert(r, 'control must be visible'); return r;
@@ -130,7 +132,7 @@ try {
       check(await page.evaluate(() => document.documentElement.clientWidth) === Math.max(480, scenario.w), 'viewport floor changed');
       check(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), 'must exercise the coarse pointer CSS path');
       await square(send, 34, 'empty composer send');
-      const expandedSidebar = page.getByRole('button', {name: /^(Close sidebar|关闭侧边栏)$/});
+      const expandedSidebar = page.getByRole('button', {name: /^(Collapse sidebar|收起侧边栏)$/});
       if (await expandedSidebar.isVisible()) await expandedSidebar.click();
       await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), 36, 'sidebar toggle');
       await noPageOverflow();
@@ -150,7 +152,7 @@ try {
       const model = page.locator('[data-slot="conversation.input.model"] button[aria-haspopup=menu]');
       const modelBox = await size(model);
       check(modelBox.x + modelBox.width <= sendBox.x + .5, 'model selector overlaps send button');
-      await model.click();
+      await model.tap();
       const modelMenu = page.getByRole('menu'); await modelMenu.waitFor({state: 'visible'});
       const menuBox = await size(modelMenu), menuVw = await page.evaluate(() => document.documentElement.clientWidth);
       check(menuBox.x >= -.5 && menuBox.x + menuBox.width <= menuVw + .5, 'model menu extends off screen');
@@ -175,6 +177,24 @@ try {
       await imageClose.click(); await lightbox.waitFor({state: 'hidden'});
       await removeFiles.first().click();
       check(await removeFiles.count() === 1, 'file remove action did not update the composer');
+      if (scenario.w === 320) {
+        await page.waitForTimeout(700);
+        await page.reload();
+        await page.locator('[data-composer-input]').waitFor();
+        await page.evaluate(probe); await page.evaluate(tools); await page.evaluate(touch);
+        await page.waitForFunction(() => document.querySelector('[data-composer-input]')?.textContent.trim() === 'PRIVATE-DRAFT-CONTENT');
+        check((await page.locator('[data-composer-input]').innerText()).trim() === 'PRIVATE-DRAFT-CONTENT',
+          'core rich draft did not survive reload');
+        await square(send, 34, 'send after core draft restore');
+        // Browser File objects are transient, unlike the core's semantic text
+        // and file/directory references. Restage disposable upload fixtures.
+        await page.locator('input[type=file]').setInputFiles([
+          {name: 'second-upload.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic second attachment')},
+          {name: 'PRIVATE-IMAGE-NAME.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6WJkAAAAASUVORK5CYII=', 'base64')},
+        ]);
+        await removeImage.waitFor({state: 'visible'});
+      }
+
 
       // The dockkit file tab is where the user observed the cross below the title.
       await page.locator('[data-sidebar-right-expand]').click();
@@ -210,7 +230,7 @@ try {
       check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
       const toolsBox = await size(appTools);
       check(toolsBox.height >= 43.5, 'App tools touch target is too small');
-      await appTools.click();
+      await appTools.tap();
       check(nativeActions.length === 1, 'actual App tools click did not reach the native marker');
       check(await page.locator('[data-shortcut-modal="settings"][role=dialog]').count() === 0, 'App entry triggered the Web settings');
       await page.evaluate(tools);
@@ -220,7 +240,7 @@ try {
 
       // Preserve the working settings adaptation and verify its actual switch geometry.
       await page.getByRole('button', {name: /^(Account menu|账号菜单)$/}).click();
-      await page.getByRole('menuitem', {name: /^(Settings|设置)$/}).click();
+      await page.getByRole('menuitem', {name: /^(Settings|设置)$/}).tap();
       const settings = page.locator('[data-shortcut-modal="settings"][role=dialog]');
       await settings.waitFor({state: 'visible'});
       await settings.locator('nav button').filter({hasText: /^(General|General settings|常规|通用|通用设置)$/}).click();
@@ -253,7 +273,7 @@ try {
       // Visit every existing settings category, including optional plugin pages.
       const categories = await settings.locator('nav button').all();
       for (const category of categories) {
-        await category.click();
+        await category.tap();
         await page.waitForTimeout(80);
         check(await settings.evaluate(e => {
           const content = e.lastElementChild;

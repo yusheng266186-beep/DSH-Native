@@ -12,6 +12,8 @@ DSH Native packages Android-native Node.js, DeepSeek Harness (DSH), and developm
 
 Model inference uses your selected provider's API. Project storage and tool execution are local; messages, attachments, and tool results are transmitted according to DSH and the provider's request behavior. This is an independent Android adaptation project.
 
+Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile layouts, native dialogs and draft integration. See [release notes](release-notes/v0.34.0.md) for changes and validation boundaries.
+
 <!-- project-navigation:start -->
 ## Project overview
 

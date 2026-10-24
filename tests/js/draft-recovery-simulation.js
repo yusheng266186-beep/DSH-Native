@@ -22,7 +22,10 @@ function makePage(logs) {
     },
     document: {
       documentElement: {},
-      querySelectorAll: () => [editor],
+      querySelectorAll: selector => {
+        if (selector !== 'textarea[data-composer-input]') throw new Error('must leave rich editors and other text fields to the core');
+        return [editor];
+      },
     },
     getComputedStyle: () => ({display: 'block', visibility: 'visible'}),
     MutationObserver: function (callback) { this.observe = function () {}; this.callback = callback; },

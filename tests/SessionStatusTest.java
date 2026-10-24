@@ -18,6 +18,10 @@ public class SessionStatusTest {
     }
 
     public static void main(String[] args) {
+        if (args.length > 0 && "--dump-touch-script".equals(args[0])) {
+            System.out.print(SessionStatus.touchMenuFixScript());
+            return;
+        }
         if (args.length > 0 && "--dump-script".equals(args[0])) {
             System.out.print(SessionStatus.pollScript());
             return;
