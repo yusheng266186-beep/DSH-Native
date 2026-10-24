@@ -3,6 +3,9 @@ package dev.dsh.nativeapp;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ComponentName;
+import android.content.pm.ResolveInfo;
+import android.provider.Settings;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,6 +23,7 @@ final class NativeVoiceController {
     interface Host {
         boolean canListen();
         void event(String json);
+        void diagnostic(String detail);
     }
     private final Activity activity;
     private final Host host;
@@ -27,7 +31,8 @@ final class NativeVoiceController {
     private SpeechRecognizer recognizer;
     private VoiceUi.Command active;
     private boolean pendingPermission, onDevice, fallback;
-    private boolean external;
+    private boolean external, ready, stopping, windowAttempted;
+    private String stage = "idle", reason = "", failureClass = "", failures = "";
     private boolean resumePending;
     private long resumeUntil;
     private int generation;
@@ -47,14 +52,22 @@ final class NativeVoiceController {
         } else if ("start".equals(command.action)) {
             if (!host.canListen()) { emit(command.id, "error", "", 9); return; }
             if (active != null) { emit(command.id, "error", "", 8); return; }
-            if (!available()) { emit(command.id, "error", "", 11); return; }
-            active = command; fallback = false;
-            if (!recognitionServiceAvailable()) { openSystemVoice(); return; }
+            active = command; fallback = false; windowAttempted = false; ready = false; stopping = false;
+            reason = ""; failureClass = ""; failures = ""; onDevice = false; external = false; stage = "availability";
+            if (!available()) {
+                stage = "availability"; recordFailure(11, "default-service-unavailable", null);
+                finish("error", "", 11); return;
+            }
+            if (!onDeviceAvailable() && !defaultServiceAvailable()) { openSystemVoice(); return; }
             if (Build.VERSION.SDK_INT >= 23 && activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                     != PackageManager.PERMISSION_GRANTED) {
                 pendingPermission = true;
+                stage = "permission";
                 emit(command.id, "permission", "", 0);
-                activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_MICROPHONE);
+                try { activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_MICROPHONE); }
+                catch (RuntimeException unavailable) {
+                    recordFailure(9, "permission-request", unavailable); finish("error", "", 9);
+                }
             } else begin();
         } else if (active != null && active.id.equals(command.id)) {
             if ("cancel".equals(command.action)) cancel();
@@ -64,27 +77,55 @@ final class NativeVoiceController {
         }
     }
 
-    private boolean available() {
-        try { return recognitionServiceAvailable()
-                || new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(activity.getPackageManager()) != null; }
+    private boolean available() { return onDeviceAvailable() || defaultServiceAvailable() || windowAvailable(); }
+
+    private boolean windowAvailable() {
+        try { return new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .resolveActivity(activity.getPackageManager()) != null; }
         catch (RuntimeException unavailable) { return false; }
     }
 
-    private boolean recognitionServiceAvailable() {
-        try { return SpeechRecognizer.isRecognitionAvailable(activity); }
-        catch (RuntimeException unavailable) { return false; }
+    private boolean onDeviceAvailable() {
+        if (Build.VERSION.SDK_INT < 31) return false;
+        try { return (Boolean) SpeechRecognizer.class.getMethod("isOnDeviceRecognitionAvailable",
+                android.content.Context.class).invoke(null, activity); }
+        catch (ReflectiveOperationException | RuntimeException unavailable) { return false; }
+    }
+
+    private String selectedService() {
+        try {
+            String value = Settings.Secure.getString(activity.getContentResolver(), "voice_recognition_service");
+            return value == null || value.length() > 240 ? "" : value;
+        } catch (RuntimeException unavailable) { return ""; }
+    }
+
+    private boolean defaultServiceAvailable() {
+        ComponentName component = ComponentName.unflattenFromString(selectedService());
+        if (component == null) return false;
+        try {
+            for (ResolveInfo info : activity.getPackageManager().queryIntentServices(
+                    new Intent("android.speech.RecognitionService").setComponent(component), 0)) {
+                if (info.serviceInfo != null && info.serviceInfo.enabled) return true;
+            }
+        } catch (RuntimeException unavailable) { return false; }
+        return false;
     }
 
     private void stopListening() {
+        // Calling stop before onReady, or twice while processing, can itself
+        // produce ERROR_CLIENT on ROM recognizers. Only stop an active recording.
+        if (!ready || stopping || active == null || recognizer == null) return;
+        stopping = true;
         try {
-            recognizer.stopListening(); emit(active.id, "recognizing", "", 0); timeout(15000L);
-        } catch (RuntimeException unavailable) { finish("error", "", 5); }
+            recognizer.stopListening(); stage = "recognizing";
+            emit(active.id, "recognizing", "", 0); timeout(15000L);
+        } catch (RuntimeException unavailable) { failed(5, "stop-listening", unavailable); }
     }
 
     void permissionResult(boolean granted) {
         if (!pendingPermission || active == null) return;
         pendingPermission = false;
-        if (!granted) finish("error", "", 9);
+        if (!granted) { recordFailure(9, "permission-denied", null); finish("error", "", 9); }
         else if (host.canListen()) begin();
         else {
             // Some ROMs return the grant before Activity.onResume. Wait only
@@ -108,41 +149,48 @@ final class NativeVoiceController {
     private void begin() {
         if (active == null || !host.canListen()) { cancel(); return; }
         final int current = ++generation;
-        onDevice = false;
+        onDevice = false; ready = false; stopping = false; stage = "engine-create";
         try {
-            if (!fallback && Build.VERSION.SDK_INT >= 31) {
+            if (!fallback && onDeviceAvailable()) {
                 try {
-                    boolean supported = (Boolean) SpeechRecognizer.class.getMethod("isOnDeviceRecognitionAvailable",
+                    recognizer = (SpeechRecognizer) SpeechRecognizer.class.getMethod("createOnDeviceSpeechRecognizer",
                             android.content.Context.class).invoke(null, activity);
-                    if (supported) {
-                        recognizer = (SpeechRecognizer) SpeechRecognizer.class.getMethod("createOnDeviceSpeechRecognizer",
-                                android.content.Context.class).invoke(null, activity);
-                        onDevice = true;
-                    }
-                } catch (ReflectiveOperationException unavailable) { recognizer = null; }
+                    onDevice = true;
+                } catch (ReflectiveOperationException unavailable) {
+                    recordFailure(5, "on-device-create", unavailable); fallback = true;
+                }
             }
-            if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(activity);
+            if (recognizer == null) {
+                if (!defaultServiceAvailable()) { openSystemVoice(); return; }
+                recognizer = SpeechRecognizer.createSpeechRecognizer(activity);
+            }
             recognizer.setRecognitionListener(new RecognitionListener() {
                 private boolean valid() { return current == generation && active != null; }
-                @Override public void onReadyForSpeech(Bundle params) { if (valid()) emit(active.id, "listening", "", 0); }
+                @Override public void onReadyForSpeech(Bundle params) {
+                    if (valid()) {
+                        ready = true; stage = "listening"; emit(active.id, "listening", "", 0);
+                        if (deadline != null) handler.removeCallbacks(deadline);
+                        deadline = new Runnable() {
+                            @Override public void run() { if (valid()) stopListening(); }
+                        };
+                        handler.postDelayed(deadline, 60000L);
+                    }
+                }
                 @Override public void onBeginningOfSpeech() { }
                 @Override public void onRmsChanged(float rmsdB) { }
                 @Override public void onBufferReceived(byte[] buffer) { }
                 @Override public void onEndOfSpeech() {
-                    if (valid()) { emit(active.id, "recognizing", "", 0); timeout(15000L); }
+                    if (valid()) { stopping = true; stage = "recognizing"; emit(active.id, "recognizing", "", 0); timeout(15000L); }
                 }
                 @Override public void onError(int error) {
                     if (!valid()) return;
-                    if (onDevice && !fallback && (error == 11 || error == 12 || error == 13 || error == 5)) {
-                        destroyRecognizer(); fallback = true; begin(); return;
-                    }
-                    finish("error", "", error);
+                    failed(error, "service-error", null);
                 }
                 @Override public void onResults(Bundle results) {
                     if (!valid()) return;
                     ArrayList<String> texts = results == null ? null : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     String text = texts == null || texts.isEmpty() || texts.get(0) == null ? "" : texts.get(0).trim();
-                    if (text.length() > 16000) finish("error", "", 5);
+                    if (text.length() > 16000) { recordFailure(1001, "result-too-long", null); finish("error", "", 1001); }
                     else finish("result", text, 0);
                 }
                 @Override public void onPartialResults(Bundle results) { }
@@ -153,25 +201,67 @@ final class NativeVoiceController {
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE, active.language)
                     .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                     .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-            emit(active.id, "starting", "", 0);
-            recognizer.startListening(request);
+            stage = "engine-start"; emit(active.id, "starting", "", 0);
+            // Install before startListening so a synchronous ROM callback cannot
+            // have its listening/recognition deadline overwritten on return.
             if (deadline != null) handler.removeCallbacks(deadline);
             deadline = new Runnable() {
                 @Override public void run() {
-                    if (active != null && current == generation && recognizer != null) {
-                        stopListening();
-                    }
+                    if (active != null && current == generation && !ready)
+                        failed(5, "engine-start-timeout", null);
                 }
             };
-            handler.postDelayed(deadline, 60000L);
-        } catch (RuntimeException unavailable) { finish("error", "", 5); }
+            handler.postDelayed(deadline, 12000L);
+            recognizer.startListening(request);
+        } catch (RuntimeException unavailable) { failed(5, "engine-exception", unavailable); }
     }
+
+    private void recordFailure(int error, String why, Throwable failure) {
+        reason = why;
+        Throwable detail = failure instanceof java.lang.reflect.InvocationTargetException && failure.getCause() != null
+                ? failure.getCause() : failure;
+        failureClass = detail == null ? "" : detail.getClass().getSimpleName();
+        String item = mode() + "/" + stage + ":" + error + "/" + why;
+        failures = (failures.length() == 0 ? "" : failures + " > ") + item;
+        if (failures.length() > 600) failures = failures.substring(failures.length() - 600);
+        host.diagnostic("error=" + error + ", stage=" + stage + ", mode=" + mode()
+                + ", reason=" + reason + ", exception=" + failureClass);
+    }
+
+    private void failed(int error, String why, Throwable failure) {
+        if (active == null) return;
+        recordFailure(error, why, failure);
+        boolean compatible = error == 5 || error == 11 || error == 12 || error == 13;
+        boolean retryDefault = compatible && onDevice && !fallback && defaultServiceAvailable();
+        boolean retryWindow = compatible && !windowAttempted && windowAvailable();
+        if (host.canListen() && (retryDefault || retryWindow)) {
+            final int next = ++generation;
+            destroyRecognizer(); fallback = true; ready = false; stopping = false;
+            stage = "fallback";
+            emit(active.id, "fallback", "", error);
+            final boolean useDefault = retryDefault;
+            deadline = new Runnable() {
+                @Override public void run() {
+                    if (active == null || next != generation) return;
+                    if (!host.canListen()) { cancel(); return; }
+                    if (useDefault) begin(); else openSystemVoice();
+                }
+            };
+            handler.postDelayed(deadline, 250L);
+        } else finish("error", "", error);
+    }
+
+    private String mode() { return external ? "system-window" : onDevice ? "on-device" : "system-service"; }
 
     private void timeout(long delay) {
         if (deadline != null) handler.removeCallbacks(deadline);
         final int current = generation;
         deadline = new Runnable() {
-            @Override public void run() { if (active != null && current == generation) finish("error", "", 6); }
+            @Override public void run() {
+                if (active != null && current == generation) {
+                    recordFailure(6, "result-timeout", null); finish("error", "", 6);
+                }
+            }
         };
         handler.postDelayed(deadline, delay);
     }
@@ -179,10 +269,13 @@ final class NativeVoiceController {
     private void emit(String id, String state, String text, int error) {
         try {
             diagnostic = "state=" + state + ", error=" + error + ", available=" + available()
-                    + ", mode=" + (external ? "system-window" : onDevice ? "on-device" : "system-service");
+                    + ", mode=" + mode() + ", stage=" + stage + ", reason=" + reason
+                    + ", exception=" + failureClass + ", default=" + selectedService() + ", attempts=" + failures;
             JSONObject result = new JSONObject().put("id", id).put("state", state).put("text", text)
                     .put("error", error).put("available", available()).put("onDevice", onDevice)
-                    .put("mode", recognitionServiceAvailable() ? "system-service" : "system-window")
+                    .put("mode", mode()).put("stage", stage).put("reason", reason)
+                    .put("defaultService", defaultServiceAvailable()).put("defaultSelected", selectedService().length() > 0)
+                    .put("onDeviceAvailable", onDeviceAvailable()).put("windowAvailable", windowAvailable())
                     .put("permission", Build.VERSION.SDK_INT < 23 || activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                         == PackageManager.PERMISSION_GRANTED);
             host.event(result.toString());
@@ -216,22 +309,38 @@ final class NativeVoiceController {
     }
 
     private void openSystemVoice() {
+        if (active == null || !host.canListen()) { cancel(); return; }
+        if (windowAttempted || !windowAvailable()) {
+            recordFailure(5, defaultServiceAvailable() ? "window-unavailable" : "default-service-unavailable", null);
+            finish("error", "", 5); return;
+        }
         try {
-            external = true;
+            windowAttempted = true; external = true; onDevice = false; stage = "system-window";
+            emit(active.id, "system-window", "", 0);
+            timeout(90000L);
             activity.startActivityForResult(new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     .putExtra(RecognizerIntent.EXTRA_LANGUAGE, active.language)
                     .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1), REQUEST_SYSTEM_VOICE);
-        } catch (RuntimeException unavailable) { external = false; finish("error", "", 11); }
+        } catch (RuntimeException unavailable) {
+            recordFailure(5, "window-launch", unavailable); finish("error", "", 5);
+        }
     }
 
     void activityResult(int resultCode, Intent data) {
         if (!external || active == null) return;
         ArrayList<String> values = data == null ? null : data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-        if (resultCode != Activity.RESULT_OK) finish("cancelled", "", 0);
+        if (resultCode == Activity.RESULT_CANCELED) finish("cancelled", "", 0);
+        else if (resultCode != Activity.RESULT_OK) {
+            int error = resultCode == RecognizerIntent.RESULT_NETWORK_ERROR ? 2
+                    : resultCode == RecognizerIntent.RESULT_NO_MATCH ? 7
+                    : resultCode == RecognizerIntent.RESULT_AUDIO_ERROR ? 3
+                    : resultCode == RecognizerIntent.RESULT_SERVER_ERROR ? 4 : 5;
+            recordFailure(error, "window-result", null); finish("error", "", error);
+        }
         else {
             String text = values == null || values.isEmpty() || values.get(0) == null ? "" : values.get(0).trim();
-            if (text.length() > 16000) finish("error", "", 5);
+            if (text.length() > 16000) { recordFailure(1001, "result-too-long", null); finish("error", "", 1001); }
             else finish("result", text, 0);
         }
     }

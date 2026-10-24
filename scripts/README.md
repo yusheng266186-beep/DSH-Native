@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.35.0**；源码：**0.35.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.35.0**；源码：**0.35.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -35,6 +35,8 @@
 `check_model_consumer.sh` 还会运行 `upgrade-runtime-consumer.mjs`：用实际 manifest 构造增量升级遗留目录，复现旧错误后执行 App 的 CoreUpgrade，验证新建/重启恢复会话、旧账号缓存和调试 Worker。账号消费回归另验证合成授权、实时目录及显式覆盖保留。
 
 0.35.0 增加实际文件后端的 `fs-write-consumer.mjs`、语音组件合成事件 `android-voice-simulation.mjs`，并在 App 设置回归中通过生产 Java RPC 验证内核任务状态。触屏回归启用真实语音插件并检查展开状态与草稿插入；合成识别结果不能当作 Android 系统录音验收。
+
+`run_tests.sh` 从 0.35.1 起执行 `tests/check_native_voice.py`：临时生成 Android API 边界替身，编译并执行生产 NativeVoiceController，验证默认引擎缺失、错误 5 的系统窗口回退、停止时序、超时、权限与生命周期。替身和依赖不进入 APK，无设备/音频/ASR；完整 Android SDK 编译仍由构建检查。
 
 ```bash
 python3 scripts/check_java.py

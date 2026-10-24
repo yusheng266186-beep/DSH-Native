@@ -24,7 +24,11 @@ try{
  await act(()=>{window.__dshNativeVoice=1;window.dispatchEvent(new dom.window.Event('dsh-native-voice-ready'));});
  check(!!button('开始语音输入'),'late native bridge enables adapter');
  let id=await start();check(commands.at(-1).action==='start'&&active,'voice click starts exactly one scoped request');
+ check(!button('结束并识别'),'starting phase cannot stop an unready recognizer');
+ await emit({id,state:'fallback',error:5});check(document.body.textContent.includes('切换语音识别'),'client error fallback keeps request alive');
+ await emit({id,state:'system-window'});check(document.body.textContent.includes('系统语音窗口')&&!button('结束并识别'),'system window keeps request without in-app stop');
  await emit({id,state:'listening'});check(document.body.textContent.includes('正在聆听'),'listening state shown');
+ check(!!button('结束并识别'),'stop is available only after ready');
  await emit({id:'wrong',state:'result',text:'must ignore'});check(insertions===0,'unrelated results ignored');
  await emit({id,state:'result',text:'测试语音'});check(draft==='测试语音'&&insertions===1&&!active,'result inserted into draft only');
  id=await start();version++;draft+=' manual edit';await emit({id,state:'result',text:'保留的结果'});
@@ -33,6 +37,8 @@ try{
  await click('插入到当前光标');check(insertions===2&&draft.endsWith('保留的结果'),'explicit insert uses current cursor');
  id=await start();await click('取消');await emit({id,state:'result',text:'late'});check(insertions===2&&!active,'cancel rejects late result');
  id=await start();await emit({id,state:'error',error:9});check(document.body.textContent.includes('麦克风未授权'),'permission denial actionable');await click('取消');
+ id=await start();await emit({id,state:'error',error:5});check(document.body.textContent.includes('启动或连接失败')&&!!button('系统语音设置'),'client error offers engine settings');await click('取消');
+ id=await start();await emit({id,state:'error',error:11,reason:'default-service-unavailable'});check(document.body.textContent.includes('系统未配置可用'),'missing default is not reported as successful detection');await click('取消');
  id=await start();props={...props,locked:true};await render();await emit({id,state:'result',text:'locked transcript'});
  check(insertions===2&&button('插入到当前光标').disabled,'locked composer retains transcript without insertion');
  props={...props,locked:false};await render();await click('插入到当前光标');check(insertions===3,'unlock permits explicit insertion');
@@ -42,6 +48,7 @@ try{
  id=await start();await emit({id,state:'result',text:'x'.repeat(16001)});check(insertions===3,'oversized transcript rejected');await click('取消');
  await act(()=>root.render(React.createElement(DshVoicePreparation,props)));id=commands.at(-1).id;
  await emit({id,state:'capabilities',available:false,permission:false});check(document.body.textContent.includes('系统未提供语音识别服务'),'missing engine is explicit');
+ await emit({id,state:'capabilities',available:true,defaultService:false,onDeviceAvailable:false,windowAvailable:true});check(document.body.textContent.includes('将使用系统语音窗口'),'settings distinguish a system window from a configured engine');
  check(!document.body.textContent.includes('下载桌面语音模型。首次'),'native settings do not launch desktop model installation');
  props={...props,t:key=>key==='cancel'?'Cancel':key};await act(()=>root.render(React.createElement(DshVoiceInput,props)));
  check(!!button('Start Android voice input'),'English entry localized');

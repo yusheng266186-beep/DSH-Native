@@ -6800,6 +6800,7 @@ public class MainActivity extends Activity {
             @Override public boolean canListen() {
                 return inForeground && !isFinishing() && !isDestroyed() && WebUrl.isCoreUrl(viewUrl(), savedDshPort());
             }
+            @Override public void diagnostic(String detail) { log("语音识别: " + detail); }
             @Override public void event(String json) {
                 if (webView != null && WebUrl.isCoreUrl(viewUrl(), savedDshPort()))
                     webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:"
@@ -7672,7 +7673,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.35.0\n");
+            w.write("APK 版本: 0.35.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

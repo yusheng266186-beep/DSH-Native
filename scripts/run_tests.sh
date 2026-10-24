@@ -511,6 +511,7 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 # 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
+if ! python3 tests/check_native_voice.py; then rc=1; fi
 
 # 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
 #
