@@ -30,6 +30,12 @@ final class ModelCatalogSync {
      */
     static String writeLiveCatalog(String yaml, String provider,
                                     List<LiveModelCatalog.Entry> upstream) {
+        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(ModelConfig.normalizeProvider(provider))) {
+            if (clean(upstream).isEmpty()) throw new IllegalArgumentException("empty live catalog");
+            // rc.3 owns this authenticated catalog. Persisting models here
+            // invalidates the provider; retain connection settings and overrides.
+            return yaml == null ? "" : yaml;
+        }
         List<LiveModelCatalog.Entry> enriched = new ArrayList<LiveModelCatalog.Entry>();
         // 视觉能力不再从本地配置继承 —— 上游不提供该字段，本地预设也只覆盖了
         // 极少数模型，把它当权威反而会让大多数模型重新变成「仅文字」。
@@ -70,17 +76,6 @@ final class ModelCatalogSync {
             return replaceTopLevelBlock(source, COMMAND_BLOCK, updated);
         }
 
-        if (ModelConfig.DEEPSEEK_ACCOUNT.equals(normalized)) {
-            String name = "llm-deepseek-account";
-            String current = topLevelBlock(source, name);
-            String updated = current == null
-                    ? name + ":\n" + modelSection(entries, 2, normalized, true)
-                    : replaceModels(current, null, entries, false).replace(
-                            LIVE_MARKER_PREFIX + ModelConfig.DEEPSEEK,
-                            LIVE_MARKER_PREFIX + ModelConfig.DEEPSEEK_ACCOUNT);
-            return current == null ? appendTopLevel(source, updated)
-                    : replaceTopLevelBlock(source, name, updated);
-        }
         String blockName = topLevelBlock(source, DEEPSEEK_BLOCK) != null
                 ? DEEPSEEK_BLOCK : DEEPSEEK_LEGACY_BLOCK;
         String block = topLevelBlock(source, blockName);

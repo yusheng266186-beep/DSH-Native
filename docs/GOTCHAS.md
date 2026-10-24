@@ -1,7 +1,7 @@
 # 踩过的坑
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 这份文件记录**看起来对但实际错**的情况。每一条都是真实发生过的，
@@ -588,3 +588,11 @@ Playwright route.fulfill 替换首次 HTML 时，Chromium 可能把文档归为 
 payload-v13 的依赖升级带来累计删除路径，manifest.json 达到 302,511 字节。旧版 App 上限为 256 KiB，下载正确且摘要匹配也会先被大小检查拒绝。回退到 payload-v12 缓存时摘要不同是正常保护，反复重试或清理缓存不能修复 APK 中的限制。
 
 0.34.1 将有界上限调至 1 MiB，并新增 `check_payload_manifest.sh`：下载源码引用的实际清单，核对 APK 固定摘要，运行同一 `PayloadManifest` 大小、结构与路径规则。完整构建在打包前执行，真实运行包消费也执行；不能再只核对归档 SHA 后直接解压测试前端。
+
+## 0.34.2：干净解压不能证明旧环境升级可运行
+
+删除清单只枚举旧文件，增量更新会留下空的嵌套依赖目录。Node 遇到空包目录时停止向上找包，skill-filesystem 的嵌套 chokidar 与团队 UI 均因此失败；预设稍后才报 never started。CoreUpgrade 在每次启动清理 node_modules 的空目录，保留文件与符号链接，使用非递归 rmdir，避免跟随链接越界或删除并发新文件。
+
+账号插件 rc.3 禁止配置 models，但旧 App 刷新会持久化该缓存。保留旧配置原文以便回退，运行时只移除该废弃字段，保留 modelOverrides 与连接选项；新原生刷新和 settings 投影不再写它。账号回归带过期缓存和显式覆盖启动，并通过真实合成平台验证登录后目录。
+
+Inspector 为隔离子线程主动清空 execArgv，主进程已有 --expose-internals 不能证明 Worker 的 JS 垫片可用。补丁只加入该必需参数，以真实 bootstrap 200 和会话创建/重启/恢复验证。CI 先构造累计删除路径的遗留目录，再执行 App 的同一 Java 修复，不能只测干净归档。

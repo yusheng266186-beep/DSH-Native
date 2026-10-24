@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,7 +16,7 @@
 | 稳定运行包 | `payload-v13` · 压缩总量 143.6 MiB |
 | APK SHA-256 | `6fadc8b8cff47b9ba3907420da3527da42ef401b913f6f3710a8f8986c6aae88` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `0.34.1` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `0.34.2` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v13` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
@@ -41,6 +41,14 @@
 | 发布与文档 | 同签名 CI 发布；本轮补全中英文 README、全部文档状态、模型表和链接校验 | [构建](BUILD.md)、[脚本](../scripts/README.md) |
 
 阶段一至五 G 的文档是各次实现与验收记录。其“候选”“暂不合并”“待发版”等描述属于当时的发布边界，不是当前主分支待办。不要把历史测试数字当作本版测试总量。
+
+## 0.34.2 的旧环境升级修复
+
+- 用户提供的 0.34.1 / 小米 17 Ultra / Android SDK 37 诊断确认：清单和运行包更新已成功，但标准预设新建/恢复会话报 skill-filesystem never started；团队和调试插件也有激活错误。
+- 实际复现累计删除旧依赖文件后留下空目录，Node 停在空的嵌套 chokidar / 团队包目录，不再解析可用的顶层依赖。启动时只在运行包 node_modules 内清理空目录，不删除文件、不跟随符号链接、不触及用户数据。
+- 账号兼容层忽略旧 App 存储的 models 缓存，目录由新内核认证后的 /models 提供；保留存储原文、默认选择、连接参数和显式 modelOverrides。原生刷新和 settings 投影不再重新写入过时账号 models。
+- 调试插件 Worker 显式携带 --expose-internals，保持原生替代垫片可用，不继承其他启动参数。
+- 新增真实运行包升级回归：先复现空目录故障，再调用生产 Java 修复，验证技能/团队导入、带旧账号缓存的 profile、调试 Worker、新建会话、重启与恢复。完整构建仍须通过既有账号、设置、布局和签名检查；本版真机由用户自行调试。
 
 ## 0.34.1 的运行包更新修复
 

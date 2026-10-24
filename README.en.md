@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.34.1**; source: **0.34.1**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.34.1**; source: **0.34.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -15,6 +15,8 @@ Model inference uses your selected provider's API. Project storage and tool exec
 Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile layouts, native dialogs and draft integration. See [release notes](release-notes/v0.34.0.md) for changes and validation boundaries.
 
 0.34.1 fixes the runtime manifest size limit; users whose core update failed on 0.34.0 can install the fixed APK over the existing App and retry.
+
+0.34.2 repairs upgrade remnants that shadow skill/team dependencies, accepts old account catalog caches while using the authenticated live listing, and supplies the Android runtime flag to the inspector Worker. Install over the existing App and restart the core; configuration and history are retained.
 
 <!-- project-navigation:start -->
 ## Project overview

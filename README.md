@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -15,6 +15,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 本轮 0.34.0 将内核升级到 DSH 0.2.1-rc.3，并回查旧的手机布局、原生弹窗和草稿适配。详细变更与验证边界见 [版本说明](release-notes/v0.34.0.md)。
 
 0.34.1 修复运行包清单大小限制，0.34.0 更新内核失败的用户请覆盖安装修复版后重试。
+
+0.34.2 修复旧环境升级后技能/团队依赖被空目录遮挡、账号旧模型缓存阻断启动，以及调试插件子线程缺少 Android 启动参数的问题。覆盖安装后重启内核即可保留原有配置和历史继续使用。
 
 <!-- project-navigation:start -->
 ## 项目概览

@@ -24,7 +24,8 @@ if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
     "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi}.java \
-    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,SessionStatusTest}.java
+    "$ROOT"/src/dev/dsh/nativeapp/CoreUpgrade.java \
+    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,SessionStatusTest,CoreUpgradeTest}.java
 PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
     --dump-module "$PERSISTENCE" "$ROOT/payload/session-publish.js" > "$PROBE/persistence.js"
@@ -53,6 +54,7 @@ LAYOUT="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest \
     --dump-layout "$LAYOUT" > "$PROBE/layout-client.js"
 mv "$PROBE/layout-client.js" "$LAYOUT"
+node "$ROOT/tests/js/upgrade-runtime-consumer.mjs" "$PROBE/runtime" "$PROBE/manifest.json" "$PROBE/classes"
 node --expose-internals "$ROOT/tests/js/session-publish-consumer.mjs" "$PROBE/runtime"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
