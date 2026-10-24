@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -94,3 +94,5 @@ python3 scripts/sync_project_metadata.py --check
 签名事故与运行安全边界见 [HANDOVER 第 8 节](../docs/HANDOVER.md#8-持续有效的事故防护与红线)，流程清单见 [release_checklist](release_checklist.md)。
 
 0.36.1 将 VoiceStartGate 加入纯逻辑检查与 JVM 回归。生产 NativeVoiceController 的边界测试覆盖授权先于焦点返回、焦点抖动、等待超时、权限撤销、一次启动重试与取消/后台清理；0.36.0 起保持默认无自动系统窗口，只有显式 start-window 打开 Activity。真实 WebUI 触屏回归也检查前台等待状态的溢出与取消入口。
+
+0.36.2 的 `runtime-checks.js` 随 APK 下发，在私有 tmp / 当前工作区检查实际 LocalFileSystem API；`runtime-environment-consumer.mjs` 在校验后的真实运行包上验证链接拒绝、保护、失败和清理，并执行生产 preflight（工具命令/网络边界替身）。它不安装包、不读用户会话，也不等于手机测试。

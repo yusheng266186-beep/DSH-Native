@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -25,6 +25,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.36.0 把语音交互整合到 DSH 输入框：主题一致的面板、真实音量、计时和临时文字预览，默认不弹系统语音窗口。可直接连接公开识别服务，并在插件详情选择引擎；仅支持窗口的手机仍可手动点击“使用系统语音”。覆盖安装后重启内核，详见[语音输入](docs/VOICE_INPUT.md)。
 
 0.36.1 修复麦克风“仅在使用时允许”与权限窗口返回之间的启动时序：等待前台窗口恢复并重新核对权限，启动前的瞬时错误最多重试一次。继续使用页面内语音面板，覆盖安装后重启内核，无需先调用其他麦克风功能。
+
+0.36.2 根据更新后的环境指南补齐带空格的 Python 解释器修复，并用真实文件工具检查私有目录和工作区的新建、读取、同名保护与更新；自检增加可选 Python 库的实际导入结果。覆盖安装后重启内核，详见[环境指南复核](docs/ENVIRONMENT_UPGRADE.md)。
 
 <!-- project-navigation:start -->
 ## 项目概览

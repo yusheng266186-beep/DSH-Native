@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 
 const ROOT = process.argv[2] || __dirname;
+const WORKSPACE = process.argv[3];
 const results = [];
 const ok = (n, d) => results.push([n, true, d === undefined ? '' : String(d)]);
 const bad = (n, e) => results.push([n, false, (e && e.message ? e.message : String(e)).split('\n')[0]]);
@@ -36,11 +37,12 @@ sync('zlib/zstd', () => {
 });
 
 sync('文件读写', () => {
-  const f = path.join(ROOT, '.preflight');
-  fs.writeFileSync(f, 'ok');
-  const back = fs.readFileSync(f, 'utf8');
-  fs.unlinkSync(f);
-  if (back !== 'ok') throw new Error('内容不符');
+  const directory = fs.mkdtempSync(path.join(ROOT, '.dsh-preflight-'));
+  try {
+    const f = path.join(directory, 'probe');
+    fs.writeFileSync(f, 'ok');
+    if (fs.readFileSync(f, 'utf8') !== 'ok') throw new Error('内容不符');
+  } finally { fs.rmSync(directory, {recursive:true, force:true}); }
   return '正常';
 });
 
@@ -117,6 +119,24 @@ for (const [exe, argv, why, label] of tools) {
 // ---- 异步检查 ----
 (async () => {
   const async_ = [];
+
+  let legacy = false;
+  try { legacy = JSON.parse(fs.readFileSync(path.join(ROOT,'dsh/package.json'),'utf8')).version === '0.2.0-rc.2'; }
+  catch (error) { /* Import checks below will report an incomplete runtime. */ }
+  if (legacy) results.push(['文件工具', 'info', '旧内核未执行新版文件工具探针']);
+  for (const [label, directory] of (legacy ? [] : [['私有目录文件工具', path.join(ROOT, 'tmp')],
+      ...(WORKSPACE ? [['工作区文件工具', WORKSPACE]] : [])])) {
+    try { ok(label, await require('./runtime-checks.js').checkFileTool(path.join(ROOT, 'dsh'), directory)); }
+    catch (error) { bad(label, error); }
+  }
+
+  // Optional libraries are capability facts, not mandatory startup failures.
+  try {
+    const code = 'import importlib,json\nmodules=["requests","bs4","docx","pptx","lxml","numpy","pandas","matplotlib"]\nresult={}\nfor name in modules:\n try:\n  importlib.import_module(name);result[name]="available"\n except ModuleNotFoundError:\n  result[name]="missing or dependency missing"\n except Exception:\n  result[name]="import failed"\nprint(json.dumps(result))';
+    const available = JSON.parse(require('child_process').execFileSync('python3', ['-c', code],
+        {encoding:'utf8', timeout:15000, stdio:['ignore','pipe','ignore']}).trim());
+    results.push(['可选 Python 库', 'info', Object.entries(available).map(([name,state])=>name+': '+state).join('; ')]);
+  } catch (error) { results.push(['可选 Python 库', 'warn', '能力清单未取得；请用实际 import 检查依赖']); }
 
   async_.push(await timed('worker_threads', new Promise((res, rej) => {
     const { Worker } = require('worker_threads');
