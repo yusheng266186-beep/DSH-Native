@@ -23,6 +23,7 @@ on:
       - 'patch/**/*.md'
       - 'tools/*.md'
       - 'runtime/core-source.json'
+      - 'runtime/core-package*.json'
       - '.github/workflows/build.yml'
   push:
     branches: [ main ]
@@ -38,6 +39,7 @@ on:
       - 'patch/**/*.md'
       - 'tools/*.md'
       - 'runtime/core-source.json'
+      - 'runtime/core-package*.json'
       - '.github/workflows/build.yml'
 
 permissions:
@@ -58,6 +60,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: 安装 Node 24
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '24'
 
       - name: 检查发布元数据（源码可领先已发布版本）
         run: python3 scripts/sync_project_metadata.py --check --allow-unpublished-source

@@ -22,7 +22,7 @@ const home = path.join(scratch, 'home'), project = path.join(scratch, 'project')
 let child, native, platform, browser, accountPage, output = '', attempts = [], mode = 'success', checks = 0, exchanges = 0, cancellations = 0, balanceFailed = false;
 const check = (condition, message) => {assert(condition, message); checks++;};
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const metadata = {version: '0.2.0-rc.2', locale: 'zh-CN', timezoneOffsetSeconds: 28800};
+const metadata = {version: JSON.parse(await fs.readFile(new URL('../../runtime/core-source.json', import.meta.url))).version, locale: 'zh-CN', timezoneOffsetSeconds: 28800};
 const fakeToken = 'synthetic-account-grant';
 let platformOrigin, launch;
 

@@ -9,9 +9,18 @@ final class AccountUi {
     static String patchAccount(String source) {
         if (source == null) return null;
         if (source.startsWith(TAG)) return source;
-        String out = once(source, "if (!(\"dshDesktop\" in globalThis)) return;",
-                "// Android uses the real account UI without a Desktop bridge.");
-        out = once(out, "window.location.origin, \"desktop\")).ok", "window.location.origin, \"web\")).ok");
+        String out;
+        if (source.contains("const desktop = \"dshDesktop\" in globalThis;")) {
+            // 0.2.1 supports Web itself, but its preopened about:blank tab cannot
+            // navigate the Android system browser. Open the final authorize URL
+            // below after the real Host attempt becomes ready instead.
+            out = once(source, "else await browser.start(request, () => snapshot.view);",
+                    "else await request();");
+        } else {
+            out = once(source, "if (!(\"dshDesktop\" in globalThis)) return;",
+                    "// Android uses the real account UI without a Desktop bridge.");
+            out = once(out, "window.location.origin, \"desktop\")).ok", "window.location.origin, \"web\")).ok");
+        }
         out = once(out, "if (snapshot.view?.status === \"credential-stored\") unregister ??= ctx.slots.register({",
                 "if (snapshot.view !== void 0) unregister ??= ctx.slots.register({");
         String anchor = "const attempt = account.view?.attempt;";

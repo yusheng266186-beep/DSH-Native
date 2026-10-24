@@ -17,7 +17,7 @@ const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-layout-'));
 const evidence = process.env.DSH_LAYOUT_EVIDENCE_DIR;
 const fileName = 'long-unbroken-file-title-'.repeat(4) + '.txt';
 const uploadName = 'PRIVATE-UPLOAD-NAME-'.repeat(5) + '.txt';
-let child, browser, output = '';
+let child, browser, currentPage, output = '';
 let checks = 0;
 function check(ok, detail) {assert(ok, detail); checks++;}
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -68,18 +68,26 @@ try {
     {w: 436, h: 880, lang: 'en', theme: 'dark'},
     {w: 600, h: 960, lang: 'zh', theme: 'dark'},
     {w: 869, h: 436, lang: 'en', theme: 'light'},
+    {w: 440, h: 956, lang: 'zh', theme: 'dark', dpr: 3.5},
+    {w: 956, h: 440, lang: 'zh', theme: 'dark', dpr: 3.5},
+    {w: 440, h: 480, lang: 'zh', theme: 'light', dpr: 3.5},
+    {w: 393, h: 450, lang: 'zh', theme: 'dark'},
+    {w: 480, h: 320, lang: 'en', theme: 'dark'},
+    {w: 768, h: 1024, lang: 'en', theme: 'light'},
+    {w: 1024, h: 600, lang: 'zh', theme: 'light'},
   ];
   const measurements = [];
   for (const scenario of scenarios) {
     await rpc('settings/update', {ns: 'locale', patch: {preference: scenario.lang}});
     await rpc('settings/update', {ns: 'ui-theme', patch: {preference: scenario.theme}});
     const context = await browser.newContext({viewport: {width: scenario.w, height: scenario.h},
-      isMobile: true, hasTouch: true, reducedMotion: 'reduce', colorScheme: scenario.theme,
+      isMobile: true, hasTouch: true, deviceScaleFactor: scenario.dpr || 2, reducedMotion: 'reduce', colorScheme: scenario.theme,
       locale: scenario.lang === 'zh' ? 'zh-CN' : 'en-US'});
     try {
       await context.grantPermissions(['local-network-access'], {origin});
       await context.request.get(launch);
       const page = await context.newPage(), logs = [], errors = [], nativeActions = [];
+      currentPage = page;
       page.setDefaultTimeout(10000);
       page.on('console', m => {
         if (m.text().startsWith('[dsh-native] layout-probe ')) logs.push(m.text());
@@ -251,6 +259,13 @@ try {
   }
   if (evidence) await fs.writeFile(path.join(evidence, 'measurements.json'), JSON.stringify(measurements, null, 2));
   console.log(`Actual mobile layout: ${checks} geometry/interaction/privacy checks passed across ${scenarios.length} touch scenarios.`);
+} catch (error) {
+  if (evidence && currentPage && !currentPage.isClosed()) {
+    await currentPage.screenshot({path: path.join(evidence, 'failure.png')}).catch(() => {});
+    await fs.writeFile(path.join(evidence, 'failure-dom.txt'), await currentPage.locator('body').innerText()).catch(() => {});
+  }
+  console.error('Synthetic layout core:', output.replace(/token=\S+/g, 'token=REDACTED').slice(-4000));
+  throw error;
 } finally {
   await browser?.close();
   if (child && child.exitCode === null) {
