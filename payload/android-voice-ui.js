@@ -102,14 +102,17 @@ function DshNativeVoiceInput({sessionId, inputActions, locked, onActiveChange, t
         listening:en?'Listening…':'正在聆听…', recognizing:en?'Recognizing…':'正在识别…',
         fallback:en?'Switching speech recognition…':'正在切换语音识别方式…',
         'system-window':en?'Speak in the system speech window…':'请在系统语音窗口中说话…'};
-    return h('div', {'data-native-voice':true,'data-state':phase,style:{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',minWidth:0,width:'100%'}},
-        h('span',{role:phase==='feedback'?'alert':'status',style:{flex:'1 1 120px',minWidth:0,overflowWrap:'anywhere',fontSize:12}},message||labels[phase]),
+    return h('div', {'data-native-voice':true,'data-state':phase,style:{display:'flex',flexDirection:'column',gap:8,minWidth:0,width:'100%'}},
+        h('div',{'data-native-voice-body':true,role:'region',tabIndex:0,'aria-label':en?'Voice input details':'语音输入详情',
+            style:{display:'grid',gap:8,minHeight:0,minWidth:0,maxHeight:'min(160px, 30dvh)',overflow:'auto',overflowWrap:'anywhere',fontSize:12,lineHeight:1.4}},
+            h('span',{role:phase==='feedback'?'alert':'status'},message||labels[phase]),
+            pending&&h('div',{'data-native-transcript':true,style:{minWidth:0,whiteSpace:'pre-wrap',overflowWrap:'anywhere'}},pending)),
+        h('div',{'data-native-voice-actions':true,style:{display:'flex',gap:8,flexWrap:'wrap',flexShrink:0,minWidth:0}},
         phase==='listening'&&button(en?'Stop and recognize':'结束并识别',()=>{if(active.current)dshVoiceCommand(active.current.id,'stop');},'stop'),
         phase==='feedback'&&!pending&&button(en?'Retry':'重试',start,'retry',locked),
         phase==='feedback'&&!pending&&button(en?'System voice settings':'系统语音设置',()=>dshVoiceCommand(dshVoiceId(),'settings'),'settings'),
-        pending&&h('div',{'data-native-transcript':true,style:{flexBasis:'100%',overflowWrap:'anywhere',maxHeight:128,overflow:'auto',whiteSpace:'pre-wrap'}},pending),
         pending&&button(en?'Insert at cursor':'插入到当前光标',()=>{if(!locked&&inputActions.insertText(pending,inputActions.captureInsertion()))reset();},'insert',locked),
-        button(en?'Cancel':'取消',reset,'cancel'));
+        button(en?'Cancel':'取消',reset,'cancel')));
 }
 function DshNativeVoiceSettings({t}) {
     const en = t('cancel') !== '取消';

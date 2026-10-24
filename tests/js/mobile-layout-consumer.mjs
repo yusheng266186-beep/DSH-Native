@@ -168,8 +168,10 @@ try {
         await page.locator('[data-native-voice] [role=alert]').waitFor();await noPageOverflow();
         for(const action of await page.locator('[data-native-voice] button').all()){
           const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
-          check(r.x>=-.5&&r.x+r.width<=v.w+.5&&r.y>=-.5&&r.y+r.height<=v.h+.5,'voice error recovery action clipped');
+          check(r.x>=-.5&&r.x+r.width<=v.w+.5&&r.y>=-.5&&r.y+r.height<=v.h+.5,
+            'voice error recovery action clipped: '+JSON.stringify({scenario,control:await action.innerText(),r,v}));
         }
+        if(evidence)await page.screenshot({path:path.join(evidence,`${scenario.w}-${scenario.lang}-${scenario.theme}-voice-error.png`)});
         await page.locator('[data-native-voice]').getByRole('button',{name:/^(Cancel|取消)$/}).click();
       }
 
