@@ -29,6 +29,9 @@ try{
  await emit({id,state:'system-window'});check(document.body.textContent.includes('系统语音窗口')&&!button('结束并识别'),'system window keeps request without in-app stop');
  await emit({id,state:'listening'});check(document.body.textContent.includes('正在聆听'),'listening state shown');
  check(!!button('结束并识别'),'stop is available only after ready');
+ await emit({id,state:'level',level:.8});check(document.querySelector('[data-voice-bar]').style.height!=='4px','real audio level changes the inline meter');
+ await emit({id,state:'partial',text:'临时识别文字'});check(document.querySelector('[data-native-partial]').textContent==='临时识别文字'&&insertions===0,'partial is preview only');
+ check(!!document.querySelector('[data-voice-timer]'),'inline panel has recording time');
  await emit({id:'wrong',state:'result',text:'must ignore'});check(insertions===0,'unrelated results ignored');
  await emit({id,state:'result',text:'测试语音'});check(draft==='测试语音'&&insertions===1&&!active,'result inserted into draft only');
  id=await start();version++;draft+=' manual edit';await emit({id,state:'result',text:'保留的结果'});
@@ -37,8 +40,10 @@ try{
  await click('插入到当前光标');check(insertions===2&&draft.endsWith('保留的结果'),'explicit insert uses current cursor');
  id=await start();await click('取消');await emit({id,state:'result',text:'late'});check(insertions===2&&!active,'cancel rejects late result');
  id=await start();await emit({id,state:'error',error:9});check(document.body.textContent.includes('麦克风未授权'),'permission denial actionable');await click('取消');
- id=await start();await emit({id,state:'error',error:5});check(document.body.textContent.includes('启动或连接失败')&&!!button('系统语音设置'),'client error offers engine settings');await click('取消');
- id=await start();await emit({id,state:'error',error:11,reason:'default-service-unavailable'});check(document.body.textContent.includes('系统未配置可用'),'missing default is not reported as successful detection');await click('取消');
+ id=await start();await emit({id,state:'error',error:5,windowAvailable:true});check(document.body.textContent.includes('启动或连接失败')&&!!button('系统语音设置'),'client error offers engine settings');
+ check(!!button('使用系统语音'),'failed inline request offers explicit window action');await click('使用系统语音');
+ check(commands.at(-1).action==='start-window','system activity requires user action');await click('取消');
+ id=await start();await emit({id,state:'error',error:11,reason:'inline-unavailable'});check(document.body.textContent.includes('手机尚未提供'),'missing default is not reported as successful detection');await click('取消');
  id=await start();props={...props,locked:true};await render();await emit({id,state:'result',text:'locked transcript'});
  check(insertions===2&&button('插入到当前光标').disabled,'locked composer retains transcript without insertion');
  props={...props,locked:false};await render();await click('插入到当前光标');check(insertions===3,'unlock permits explicit insertion');
@@ -48,7 +53,11 @@ try{
  id=await start();await emit({id,state:'result',text:'x'.repeat(16001)});check(insertions===3,'oversized transcript rejected');await click('取消');
  await act(()=>root.render(React.createElement(DshVoicePreparation,props)));id=commands.at(-1).id;
  await emit({id,state:'capabilities',available:false,permission:false});check(document.body.textContent.includes('系统未提供语音识别服务'),'missing engine is explicit');
- await emit({id,state:'capabilities',available:true,defaultService:false,onDeviceAvailable:false,windowAvailable:true});check(document.body.textContent.includes('将使用系统语音窗口'),'settings distinguish a system window from a configured engine');
+ await emit({id,state:'capabilities',available:true,inlineAvailable:false,windowAvailable:true,engines:[{id:'synthetic/Engine',label:'合成引擎'}]});check(document.body.textContent.includes('只有点击'),'settings distinguish a system window from a configured engine');
+ const select=document.querySelector('select[aria-label="识别引擎"]');
+ check(select.options.length===2,'only actual native choices and automatic mode are shown');
+ await act(()=>{select.value='synthetic/Engine';select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+ check(commands.at(-1).action==='engine'&&commands.at(-1).engine==='synthetic/Engine','engine selection uses constrained native command');
  check(!document.body.textContent.includes('下载桌面语音模型。首次'),'native settings do not launch desktop model installation');
  props={...props,t:key=>key==='cancel'?'Cancel':key};await act(()=>root.render(React.createElement(DshVoiceInput,props)));
  check(!!button('Start Android voice input'),'English entry localized');

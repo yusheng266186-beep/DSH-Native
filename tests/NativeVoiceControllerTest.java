@@ -41,79 +41,86 @@ public class NativeVoiceControllerTest {
     public static void main(String[] args) {
         Run run = new Run(); Settings.Secure.selected = null;
         run.command("start");
-        check(run.activity.windows==1,"registered service without a default must route to system window");
-        check(SpeechRecognizer.created.isEmpty(),"no unusable default recognizer is constructed");
-        check(run.activity.permissionRequests==0,"system window owns its microphone permission");
-        run.voice.pause(); run.windowResult(Activity.RESULT_OK,"SYNTHETIC-DICTATION");
-        check(run.host.state("result"),"system activity pause must retain result delivery");
-        check("SYNTHETIC-DICTATION".equals(run.host.last().get("text")),"system transcript returned to scoped event");
-        check(!run.voice.diagnostic().contains("SYNTHETIC-DICTATION"),"diagnostic never contains transcript");
+        check(run.activity.windows==0,"inline start never opens system activity");
+        check(run.engine().component.flattenToString().equals("synthetic/RecognitionService"),"missing default can directly use the same window provider's public service");
+        run.engine().listener.onReadyForSpeech(new Bundle());
+        android.os.Handler.advance(130);
+        run.engine().listener.onRmsChanged(7);
+        check(run.host.state("level")&&((Number)run.host.last().get("level")).doubleValue()>0,"real RMS is forwarded");
+        int before=run.host.events.size();run.engine().listener.onRmsChanged(8);
+        check(run.host.events.size()==before,"RMS events are throttled");
+        Bundle partial=new Bundle();partial.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION,new ArrayList<String>(Arrays.asList("PRIVATE-PARTIAL")));
+        run.engine().listener.onPartialResults(partial);
+        check(run.host.state("partial")&&"PRIVATE-PARTIAL".equals(run.host.last().get("text")),"partial transcript is a preview event");
+        check(!run.voice.diagnostic().contains("PRIVATE-PARTIAL"),"partial does not enter diagnostics");run.voice.dispose();
 
-        run = new Run(); Settings.Secure.selected = null; run.activity.pm.window=false;
-        run.command("check"); check(Boolean.FALSE.equals(run.host.last().get("available")),"registered does not imply usable");
-        run.command("start"); check(run.host.state("error"),"missing default and window must show error");
-        check("default-service-unavailable".equals(run.host.last().get("reason")),"missing default is diagnosable");
+        run = new Run();Settings.Secure.selected=null;run.activity.pm.windowPackage="unrelated";
+        run.command("start");check(run.host.state("error")&&run.activity.windows==0,"unrelated registered provider is not silently selected");
+        check("inline-unavailable".equals(run.host.last().get("reason")),"inline-only limitation is explicit");
+        run.command("start-window");check(run.activity.windows==1,"system window requires explicit action");
+        run.voice.pause();run.windowResult(Activity.RESULT_OK,"SYNTHETIC-DICTATION");
+        check(run.host.state("result")&&"SYNTHETIC-DICTATION".equals(run.host.last().get("text")),"explicit window remains usable across activity pause");
+        check(!run.voice.diagnostic().contains("SYNTHETIC-DICTATION"),"window transcript excluded from diagnostics");
 
-        run = new Run(); run.command("start"); SpeechRecognizer first=run.engine(); first.listener.onError(5);
-        check(run.host.state("fallback"),"immediate client error must enter bounded compatibility fallback");
-        check(first.destroyed,"release failed service before launching system window");
-        Handler.advance(250); check(run.activity.windows==1,"client error uses the system window");
-        int before=run.host.events.size(); first.listener.onResults(new Bundle());
-        check(run.host.events.size()==before,"old service callback cannot end system window request");
-        run.windowResult(Activity.RESULT_OK,"safe");check(run.host.state("result"),"fallback succeeds without a new draft request");
-        check(run.voice.diagnostic().contains("engine-start:5/service-error"),"failure path retained after success");
+        run = new Run();Settings.Secure.selected=null;run.activity.pm.configured=false;run.activity.pm.window=false;
+        run.command("check");check(Boolean.FALSE.equals(run.host.last().get("available")),"no entry is not available");
+        run.command("start");check(run.host.state("error")&&run.activity.windows==0,"no service never launches activity");
 
-        run = new Run(); run.activity.pm.window=false;run.command("start");run.engine().listener.onError(5);
-        check(run.host.state("error")&&((Number)run.host.last().get("error")).intValue()==5,"no window preserves concrete client error");
-        Handler.advance(100000);check(SpeechRecognizer.created.size()==1,"no engine retry loop");
+        run = new Run();run.command("start");SpeechRecognizer first=run.engine();first.listener.onError(5);
+        check(run.host.state("error"),"inline failure stays in panel");check(first.destroyed,"failed inline recognizer destroyed");
+        Handler.advance(100000);check(run.activity.windows==0&&SpeechRecognizer.created.size()==1,"client failure has no popup or retry loop");
+        before=run.host.events.size();first.listener.onResults(new Bundle());check(run.host.events.size()==before,"stale callback ignored");
+        run.command("start-window");run.windowResult(Activity.RESULT_OK,"safe");check(run.host.state("result"),"manual window still works after inline failure");
 
-        run = new Run(); SpeechRecognizer.onDevice=true;run.command("start");first=run.engine();
-        check(first.device,"supported on-device path is preferred");first.listener.onError(5);Handler.advance(250);
-        check(SpeechRecognizer.created.size()==2&&!run.engine().device,"on-device failure tries default once");
-        run.engine().listener.onError(5);Handler.advance(250);check(run.activity.windows==1,"default failure then uses system window once");
-        run.windowResult(RecognizerIntent.RESULT_CLIENT_ERROR,"");check(run.host.state("error"),"system window error is not reported as cancellation");
-        check(((Number)run.host.last().get("error")).intValue()==5,"system result error mapping");
-        check("system-window".equals(run.host.last().get("mode")),"window error reports actual route");
-        Handler.advance(100000);check(run.activity.windows==1,"window error does not recursively reopen");
+        run = new Run();SpeechRecognizer.onDevice=true;run.command("start");first=run.engine();check(first.device,"auto prefers on-device");
+        first.listener.onError(5);Handler.advance(250);check(SpeechRecognizer.created.size()==2&&!run.engine().device,"on-device failure tries chosen inline service once");
+        run.engine().listener.onError(5);Handler.advance(250);check(run.host.state("error")&&run.activity.windows==0,"inline fallback never escalates to popup");
+        run = new Run();SpeechRecognizer.failStart=true;run.command("start");check(run.host.state("error")&&run.activity.windows==0,"start exception stays inline");
+        check(run.voice.diagnostic().contains("IllegalStateException"),"exception class retained");
+        run = new Run();SpeechRecognizer.failCreate=true;run.command("start");check(run.host.state("error")&&run.activity.windows==0,"creation exception stays inline");
 
-        run = new Run(); SpeechRecognizer.failStart=true;run.command("start");Handler.advance(250);
-        check(run.activity.windows==1,"startup exception also uses system window");
-        check(run.voice.diagnostic().contains("IllegalStateException"),"exception class is retained");
-        run = new Run(); SpeechRecognizer.failCreate=true;run.command("start");Handler.advance(250);
-        check(run.activity.windows==1,"creation exception uses system window");
+        run = new Run();SpeechRecognizer.onDevice=true;run.command("start");run.engine().listener.onError(5);run.command("cancel");Handler.advance(250);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("cancelled"),"cancel prevents delayed inline fallback");
+        run = new Run();SpeechRecognizer.onDevice=true;run.command("start");run.engine().listener.onError(5);run.host.foreground=false;Handler.advance(250);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("cancelled"),"background prevents delayed inline fallback");
 
-        run = new Run();run.command("start");run.engine().listener.onError(5);run.command("cancel");Handler.advance(250);
-        check(run.activity.windows==0&&run.host.state("cancelled"),"cancel prevents delayed fallback window");
-        run = new Run();run.command("start");run.engine().listener.onError(5);run.host.foreground=false;Handler.advance(250);
-        check(run.activity.windows==0&&run.host.state("cancelled"),"background must not launch fallback window");
-
-        run = new Run();run.command("start");run.command("stop");check(run.engine().stops==0,"stop before ready must not cause client error");
-        run.engine().listener.onReadyForSpeech(new Bundle());run.command("stop");run.command("stop");
-        check(run.engine().stops==1,"only one stop while waiting for results");run.voice.dispose();
+        run = new Run();run.command("start");run.command("stop");check(run.engine().stops==0,"stop before ready ignored");
+        run.engine().listener.onReadyForSpeech(new Bundle());run.command("stop");run.command("stop");check(run.engine().stops==1,"stop once only");run.voice.dispose();
         run = new Run();SpeechRecognizer.syncReady=true;run.command("start");Handler.advance(12000);
-        check(run.host.state("listening")&&run.activity.windows==0,"synchronous ready keeps recording deadline");
-        Handler.advance(48000);check(run.engine().stops==1,"recording duration remains bounded");
-        run.voice.dispose();
-
-        run = new Run();run.command("start");Handler.advance(12250);
-        check(run.activity.windows==1,"missing startup callback falls back within bounded time");
-        check(run.voice.diagnostic().contains("engine-start-timeout"),"startup timeout is distinct from recognition failure");
-        run.windowResult(Activity.RESULT_CANCELED,"");check(run.host.state("cancelled"),"user cancellation remains cancellation");
+        check(run.host.state("listening")&&run.activity.windows==0,"synchronous ready preserves recording deadline");
+        Handler.advance(48000);check(run.engine().stops==1,"recording remains bounded");run.voice.dispose();
+        run = new Run();run.command("start");Handler.advance(12000);
+        check(run.host.state("error")&&run.activity.windows==0,"unready timeout stays inline");
+        check(run.voice.diagnostic().contains("engine-start-timeout"),"startup timeout diagnosable");
 
         run = new Run();run.activity.permission=-1;run.command("start");run.voice.pause();
-        check(run.host.state("permission")&&SpeechRecognizer.created.isEmpty(),"permission dialog does not start microphone");
-        run.voice.permissionResult(false);check(run.host.state("error")&&run.activity.windows==0,"permission denial does not auto-open other recorder");
+        check(run.host.state("permission")&&SpeechRecognizer.created.isEmpty(),"no recording before permission");
+        run.voice.permissionResult(false);check(run.host.state("error")&&run.activity.windows==0,"permission denial does not open window");
         run = new Run();run.activity.permission=-1;run.command("start");run.host.foreground=false;run.voice.permissionResult(true);
-        check(SpeechRecognizer.created.isEmpty(),"grant before resume cannot record in background");
-        run.host.foreground=true;run.voice.resume();check(SpeechRecognizer.created.size()==1,"grant starts only after foreground resume");
-        run.voice.dispose();
+        check(SpeechRecognizer.created.isEmpty(),"grant before resume cannot record");run.host.foreground=true;run.voice.resume();
+        check(SpeechRecognizer.created.size()==1,"starts after resume");run.voice.dispose();
 
-        run = new Run();Settings.Secure.selected=null;run.activity.failWindow=true;run.command("start");
-        check(run.host.state("error")&&"window-launch".equals(run.host.last().get("reason")),"failed activity launch is actionable");
+        run = new Run();run.command("start-window");run.windowResult(RecognizerIntent.RESULT_CLIENT_ERROR,"");
+        check(run.host.state("error")&&((Number)run.host.last().get("error")).intValue()==5,"window errors remain distinct from cancellation");
+        run = new Run();run.command("start-window");run.windowResult(Activity.RESULT_CANCELED,"");check(run.host.state("cancelled"),"window cancellation preserved");
+        run = new Run();run.activity.failWindow=true;run.command("start-window");
+        check(run.host.state("error")&&"window-launch".equals(run.host.last().get("reason")),"explicit window launch failure actionable");
         run = new Run();run.command("start");Bundle result=new Bundle();
         result.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION,new ArrayList<String>(Arrays.asList(new String(new char[16001]).replace('\0','x'))));
-        run.engine().listener.onResults(result);check(((Number)run.host.last().get("error")).intValue()==1001,"oversized transcript is not misreported as system client error");
-        check(run.host.logs.stream().noneMatch(value->value.contains("SYNTHETIC-DICTATION")),"operational logs exclude transcript");
+        run.engine().listener.onResults(result);check(((Number)run.host.last().get("error")).intValue()==1001,"oversized result has separate error");
+
+        run = new Run();run.activity.pm.services.get(0).serviceInfo.exported=false;run.command("start");
+        check(SpeechRecognizer.created.isEmpty()&&run.activity.windows==0,"non-exported service never bound");
+        run = new Run();run.activity.pm.services.get(0).serviceInfo.applicationInfo.enabled=false;run.command("start");
+        check(SpeechRecognizer.created.isEmpty(),"disabled provider never bound");
+        run = new Run();run.voice.command(new VoiceUi.Command("select","engine","zh-CN","uninstalled/Engine"));
+        check(run.host.state("error")&&run.activity.prefs.getString("voiceEngine","auto").equals("auto"),"uninstalled component cannot be selected");
+        run = new Run();SpeechRecognizer.onDevice=true;run.voice.command(new VoiceUi.Command("select","engine","zh-CN","synthetic/RecognitionService"));
+        check(run.host.state("capabilities"),"installed public service can be selected");run.command("start");
+        check(!run.engine().device&&run.engine().component!=null,"manual engine choice respected over automatic on-device");
+        check(Boolean.TRUE.equals(run.host.last().get("inlineAvailable")),"inline capability is separate from window");
+        check(((List<?>)run.host.last().get("engines")).size()==1,"settings list only public recognition services");
+        run.voice.dispose();
         System.out.println("Native voice controller: "+checks+" routing/lifecycle checks passed (Android boundary fakes; no device/audio/ASR).");
     }
 }
