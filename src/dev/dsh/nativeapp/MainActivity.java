@@ -6679,6 +6679,7 @@ public class MainActivity extends Activity {
      * <p>这样图片附件在手机上也能正常工作，且无需编译任何原生模块。
      */
     private void applyAndroidPatches(File root, File dshDir) throws IOException {
+        patchCoreUpgrade(dshDir);
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
         patchAppSettings(root, dshDir);
@@ -6705,6 +6706,28 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("  [警告] Android 补丁应用失败: " + t);
         }
+    }
+
+    private void patchCoreUpgrade(File dshDir) throws IOException {
+        int cleaned = CoreUpgrade.pruneEmptyModules(dshDir);
+        if (cleaned > 0) log("  已清理增量更新遗留的空依赖目录：" + cleaned + " 个");
+        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) {
+            // A failed/offline update or explicit rollback may still use v12.
+            recordPatch("内核升级兼容", true, "保留上一运行包的账号与插件接口");
+            return;
+        }
+        File account = new File(dshDir, "node_modules/@deepseek-ai/dsh-llm-deepseek-account/lib/index.js");
+        File inspector = new File(dshDir, "node_modules/@deepseek-ai/dsh-experimental-inspector/lib/index.js");
+        String originalAccount = readText(account), originalInspector = readText(inspector);
+        String nextAccount = CoreUpgrade.account(originalAccount);
+        String nextInspector = CoreUpgrade.inspector(originalInspector);
+        if (nextAccount == null || nextInspector == null) {
+            recordPatch("内核升级兼容", false, "上游结构变化，未修改模块");
+            throw new IOException("内核升级兼容补丁无法应用，请检查运行包");
+        }
+        if (!nextAccount.equals(originalAccount)) writeText(account, nextAccount);
+        if (!nextInspector.equals(originalInspector)) writeText(inspector, nextInspector);
+        recordPatch("内核升级兼容", true, "账号实时目录、调试子线程与增量依赖目录");
     }
 
     private void patchFrontendLayout(File dshDir) throws IOException {
@@ -7564,7 +7587,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.34.1\n");
+            w.write("APK 版本: 0.34.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

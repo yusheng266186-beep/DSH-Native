@@ -131,7 +131,9 @@ try {
   platformOrigin = 'http://127.0.0.1:' + platform.address().port;
   await fs.writeFile(path.join(scratch, 'platform.yml'), '- id: deepseek-account\n  config:\n    platformOrigin: ' + platformOrigin
     + '\n    inferenceOrigin: ' + platformOrigin + '\n    allowLoopbackHttp: true\n    requestTimeoutMs: 2000\n    logoutRetryDelayMs: 10\n'
-    + '- id: llm-deepseek-account\n  config:\n    baseURL: ' + platformOrigin + '\n');
+    + '- id: llm-deepseek-account\n  config:\n    baseURL: ' + platformOrigin
+    + '\n    models:\n      - id: obsolete-cached-model\n        name: Legacy cached catalog\n'
+    + '    modelOverrides:\n      deepseek-flash:\n        maxTokens: 1024\n');
   let rpc = await boot();
   check((await rpc('account/getState')).status === 'signed-out', 'fresh core is unexpectedly signed in');
   const snapshot = await rpc('settings/describe', {}, true);
@@ -140,6 +142,8 @@ try {
   check(projected['llm-pi-ai'].providers.commandcode.models.length === preset['llm-pi-ai'].providers.commandcode.models.length, 'live model catalog lost during projection');
   check(projected['llm-pi-ai'].providers.commandcode.models[0].input.includes('image'), 'vision input lost during projection');
   check(projected['llm-pi-ai'].providers.commandcode.models[0].reasoningEfforts.max === 'max', 'reasoning map lost during projection');
+  check(!Object.hasOwn(projected['llm-deepseek-account'], 'models'), 'obsolete account cache is still projected');
+  check(projected['llm-deepseek-account'].modelOverrides['deepseek-flash'].maxTokens === 1024, 'explicit account override lost');
   check(!(await rpc('session/modelCatalog')).groups.some(g => g.id === 'deepseek-account'), 'signed-out account models are visible');
 
   browser = await chromium.launch({headless: true});

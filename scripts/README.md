@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.1**；源码：**0.34.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -31,6 +31,8 @@
 | `mkzip.py` | 将构建产物组装为 APK | 不负责签名或发布 |
 
 ## 日常开发
+
+`check_model_consumer.sh` 还会运行 `upgrade-runtime-consumer.mjs`：用实际 manifest 构造增量升级遗留目录，复现旧错误后执行 App 的 CoreUpgrade，验证新建/重启恢复会话、旧账号缓存和调试 Worker。账号消费回归另验证合成授权、实时目录及显式覆盖保留。
 
 ```bash
 python3 scripts/check_java.py

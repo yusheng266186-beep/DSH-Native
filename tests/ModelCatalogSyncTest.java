@@ -28,6 +28,13 @@ public class ModelCatalogSyncTest {
         live.add(new LiveModelCatalog.Entry("fresh/model", "duplicate", true, false, false));
 
         String synced = ModelCatalogSync.writeLiveCatalog(base, ModelConfig.COMMAND_CODE, live);
+        String accountSettings = "llm-deepseek-account:\n  baseURL: https://example.test\n"
+                + "  modelOverrides:\n    deepseek-flash:\n      maxTokens: 4096\n";
+        check("account refresh preserves settings and overrides without a stored catalog",
+                accountSettings.equals(ModelCatalogSync.writeLiveCatalog(accountSettings,
+                    ModelConfig.DEEPSEEK_ACCOUNT, live)), accountSettings);
+        check("account catalog remains owned by core",
+                base.equals(ModelCatalogSync.writeLiveCatalog(base, ModelConfig.DEEPSEEK_ACCOUNT, live)), base);
         check("command catalog marked live", synced.contains(
                 ModelCatalogSync.LIVE_MARKER_PREFIX + ModelConfig.COMMAND_CODE), synced);
         check("command catalog contains fresh id", synced.contains("id: \"fresh/model\""), synced);

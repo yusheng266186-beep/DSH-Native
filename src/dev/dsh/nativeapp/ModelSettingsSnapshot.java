@@ -2,6 +2,7 @@ package dev.dsh.nativeapp;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /** Project the live core's public model settings into the native YAML readers. */
 final class ModelSettingsSnapshot {
@@ -25,7 +26,15 @@ final class ModelSettingsSnapshot {
                     && !"llm-deepseek-account".equals(name)) continue;
             if (!(ns.get("value") instanceof Map)) throw new IllegalArgumentException("invalid model settings");
             out.append(name).append(":\n");
-            object(out, (Map<?, ?>) ns.get("value"), 2);
+            Map<?, ?> settings = (Map<?, ?>) ns.get("value");
+            if ("llm-deepseek-account".equals(name)) {
+                Map<Object, Object> current = new LinkedHashMap<Object, Object>();
+                for (Map.Entry<?, ?> field : settings.entrySet())
+                    if (!"models".equals(field.getKey())) current.put(field.getKey(), field.getValue());
+                settings = current;
+            }
+            if (settings.isEmpty()) out.append("  {}\n");
+            else object(out, settings, 2);
         }
         if (!ModelConfig.readSelection(out.toString()).valid())
             throw new IllegalArgumentException("default model unavailable");
