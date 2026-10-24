@@ -6682,6 +6682,7 @@ public class MainActivity extends Activity {
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
         patchAppSettings(root, dshDir);
+        patchFrontendLayout(dshDir);
         patchFrontendViewport(dshDir);
         patchAttachmentDurability(dshDir);
         patchModelEffortUi(dshDir);
@@ -6704,6 +6705,18 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("  [警告] Android 补丁应用失败: " + t);
         }
+    }
+
+    private void patchFrontendLayout(File dshDir) throws IOException {
+        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js");
+        String source = readText(module);
+        String patched = MobileLayout.patchLayoutModule(source);
+        if (patched == null) {
+            recordPatch("窄屏面板导航", false, "上游布局结构变化，未修改文件");
+            throw new IOException("移动布局兼容补丁无法应用，请检查运行包");
+        }
+        if (!source.equals(patched)) writeText(module, patched);
+        recordPatch("窄屏面板导航", true, "打开面板时收起侧栏，保留正文宽度");
     }
 
     private void patchModelEffortUi(File dshDir) {

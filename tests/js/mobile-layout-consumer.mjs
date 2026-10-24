@@ -298,6 +298,11 @@ try {
         await page.getByRole('button', {name: panel.label, exact: true}).tap();
         const surface = page.locator(panel.selector);
         await surface.waitFor({state: 'visible'});
+        if (scenario.w < 1024) {
+          await page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}).waitFor({state: 'visible'});
+          const available = await page.evaluate(() => document.documentElement.clientWidth);
+          check((await size(surface)).width >= available - 58, 'sidebar still squeezes the selected panel');
+        }
         check(await surface.evaluate(e => e.scrollWidth <= e.clientWidth + 1), 'plugin/automation panel has horizontal overflow');
         await noPageOverflow();
         if (evidence) await page.screenshot({path: path.join(evidence, `${scenario.w}-${scenario.lang}-${scenario.theme}-${panel.selector.includes('plugin') ? 'plugins' : 'automation'}.png`)});

@@ -19,6 +19,17 @@ final class MobileLayout {
 
     private MobileLayout() { }
 
+    /** Keep narrow panel navigation from leaving a 280px sidebar beside the page. */
+    static String patchLayoutModule(String source) {
+        if (source == null) return null;
+        String anchor = "d.panelInfo.activePanelId = panelId;";
+        String applied = anchor + "\n\t\t\t\t\t\tif (d.layoutInfo.viewportWidth < 1024) d.layoutInfo.narrowExpanded = false;";
+        if (source.contains(applied)) return source;
+        int at = source.indexOf(anchor);
+        if (at < 0 || source.indexOf(anchor, at + anchor.length()) >= 0) return null;
+        return source.substring(0, at) + applied + source.substring(at + anchor.length());
+    }
+
     /**
      * 窄屏保留 480 CSS px。
      *

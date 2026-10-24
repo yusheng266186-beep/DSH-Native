@@ -48,6 +48,10 @@ for kind in core client sessions; do
         "--dump-$kind" "$MODULE" "$HELPER" > "$PROBE/app-settings.js"
     mv "$PROBE/app-settings.js" "$MODULE"
 done
+LAYOUT="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest \
+    --dump-layout "$LAYOUT" > "$PROBE/layout-client.js"
+mv "$PROBE/layout-client.js" "$LAYOUT"
 node --expose-internals "$ROOT/tests/js/session-publish-consumer.mjs" "$PROBE/runtime"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
