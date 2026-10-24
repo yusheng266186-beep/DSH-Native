@@ -68,16 +68,19 @@ final class ToolEnvironment {
         return fixed;
     }
 
-    static String shebang(String first, File root) {
+    static String shebang(String first, File root) throws IOException {
+        if (!first.startsWith("#!")) return first;
+        String interpreterLine = first.substring(2).trim();
         String command;
-        if (first.startsWith("#!" + TERMUX)) command = first.substring(2 + TERMUX.length());
-        else if (first.startsWith("#!/usr/bin/")) command = first.substring("#!/usr/bin/".length());
-        else if (first.startsWith("#!/bin/")) command = first.substring("#!/bin/".length());
+        if (interpreterLine.startsWith(TERMUX)) command = interpreterLine.substring(TERMUX.length());
+        else if (interpreterLine.startsWith("/usr/bin/")) command = interpreterLine.substring("/usr/bin/".length());
+        else if (interpreterLine.startsWith("/bin/")) command = interpreterLine.substring("/bin/".length());
         else return first;
         String executable = command.split("\\s+", 2)[0];
         if (!executable.matches("[A-Za-z0-9_.+-]+")) return first;
         File interpreter = new File(root, "tools/bin/" + executable);
-        if (!interpreter.isFile()) return first;
+        if (!interpreter.getCanonicalFile().getPath().startsWith(new File(root, "tools").getAbsolutePath() + File.separator)
+                || !interpreter.isFile()) return first;
         return "#!" + interpreter.getAbsolutePath() + command.substring(executable.length());
     }
 

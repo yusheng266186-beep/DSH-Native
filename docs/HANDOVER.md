@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.1**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -48,6 +48,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 0.36.0 改为页面内优先：默认/系统窗口同提供方的公开服务通过显式 component 绑定，手选服务持久化到私有 voiceEngine。只绑定实际列出的启用导出组件，不硬编码厂商包、不偷偷换无关服务。start 不打开 Activity，start-window 才是用户手动的窗口入口；不要恢复自动弹框。RMS 按 120ms 节流，partial 仅进页面预览不进日志/草稿。UI 使用原主题和控件，CSS 通过变量压缩短屏装饰，避免 inline style 覆盖媒体规则。
 
 服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
+
+0.36.2 修复 `#!` 后空白的 shebang，并核对解释器实际目标仍在 tools 内。`runtime-checks.js` 通过真实 LocalFileSystem API 自检，在唯一临时目录中验证新建/读回/拒绝同名/按版本更新，只清理自己创建的目录。preflight 分别检查私有 tmp 与所选工作区；缓存键包含工作区，失败不缓存；旧 rc.2 明确跳过不支持的新版探针。可选 Python import 是 INFO，不能为了“全通过”自动装包或启用插件。新 helper 必须进入 APK assets 并随版本提取，实际运行包消费回归执行生产 helper 和 preflight 接线。
 
 ### 模型目录与强度
 

@@ -1118,9 +1118,10 @@ public class MainActivity extends Activity {
 
         // 自检要跑十几次 node 调用（crypto / 子进程 / git / python / rg / bash …），
         // 每次启动都做一遍是「关掉再打开很慢」的一大来源。
-        // 环境没变就没必要重测：用「运行包修订 + 资源版本」当指纹，
-        // 两者都没变时直接跳过。真出问题时日志里仍能看到它是被跳过的。
-        String envKey = payloadRevisionKey() + "/" + appVersion();
+        // 环境没变就没必要重测：用「运行包修订 + 资源版本 + 工作区」当指纹，
+        // 三者都没变时直接跳过。真出问题时日志里仍能看到它是被跳过的。
+        String envKey = payloadRevisionKey() + "/" + appVersion() + "/"
+                + (workspace != null ? workspace : root).getAbsolutePath();
         if (envKey.equals(lastPreflightKey())) {
             log("运行环境自检已通过过（环境未变），跳过以加快启动");
         } else {
@@ -6964,7 +6965,8 @@ public class MainActivity extends Activity {
         if (!script.exists()) { log("  [警告] 缺少 preflight.js，跳过"); return false; }
 
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
-                script.getAbsolutePath(), root.getAbsolutePath());
+                "--expose-internals", script.getAbsolutePath(), root.getAbsolutePath(),
+                (workspace != null ? workspace : root).getAbsolutePath());
         pb.redirectErrorStream(true);
         pb.directory(root);
         pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath()
@@ -7678,7 +7680,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.36.1\n");
+            w.write("APK 版本: 0.36.2\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

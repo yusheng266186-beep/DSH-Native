@@ -69,6 +69,7 @@ for kind in voice filesystem; do
     mv "$PROBE/native-adapter.js" "$MODULE"
 done
 node --expose-internals "$ROOT/tests/js/fs-write-consumer.mjs" "$PROBE/runtime"
+node --expose-internals "$ROOT/tests/js/runtime-environment-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/session-publish-consumer.mjs" "$PROBE/runtime"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelCatalogSyncTest --dump-config > "$PROBE/models.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/models.yaml"
