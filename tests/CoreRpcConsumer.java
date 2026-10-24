@@ -22,7 +22,9 @@ public class CoreRpcConsumer {
                 try {
                     Map<?, ?> request = (Map<?, ?>) JsonValue.parse(line);
                     CoreRpcClient.Reply reply = client.call((String) request.get("method"), (String) request.get("args"));
-                    if (Boolean.TRUE.equals(request.get("snapshot"))) {
+                    if (Boolean.TRUE.equals(request.get("taskState"))) {
+                        System.out.println("{\"state\":" + CoreTaskState.parse(reply.body, reply.id) + "}");
+                    } else if (Boolean.TRUE.equals(request.get("snapshot"))) {
                         Map<?, ?> response = (Map<?, ?>) JsonValue.parse(reply.body);
                         Map<?, ?> result = (Map<?, ?>) response.get("result");
                         String yaml = ModelSettingsSnapshot.fromDescriptionObject(result.get("value"));

@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.34.2**; source: **0.34.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.34.2**; source: **0.35.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -17,6 +17,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.34.1 fixes the runtime manifest size limit; users whose core update failed on 0.34.0 can install the fixed APK over the existing App and retry.
 
 0.34.2 repairs upgrade remnants that shadow skill/team dependencies, accepts old account catalog caches while using the authenticated live listing, and supplies the Android runtime flag to the inspector Worker. Install over the existing App and restart the core; configuration and history are retained.
+
+0.35.0 repairs notification task status, adds Android system dictation to the existing voice plugin, and fixes tool commands, temporary directories and new files on shared storage. Install over the existing App and restart the core, then enable the voice plugin and check the system speech service. Dictation only fills the draft. See [voice and status troubleshooting](docs/VOICE_INPUT.md) and the [environment guide review](docs/ENVIRONMENT_UPGRADE.md) (Chinese). System speech support depends on the installed engine; device testing remains with the user.
 
 <!-- project-navigation:start -->
 ## Project overview

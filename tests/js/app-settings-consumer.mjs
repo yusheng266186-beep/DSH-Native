@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import http from 'node:http';
+import {connectNativeStatus} from './native-status-consumer.mjs';
 import {chromium} from 'playwright';
 const runtime=path.resolve(process.argv[2]);
 const mobile=await fs.readFile(process.argv[3],'utf8');
@@ -14,6 +15,7 @@ const frontend=path.join(runtime,'node_modules/@deepseek-ai/dsh-web-frontend/dis
 const originalFrontend=await fs.readFile(frontend,'utf8');
 const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-app-settings-'));
 const home=path.join(scratch,'home'), project=path.join(scratch,'project');
+let nativeStatus;
 let child,browser,context,page,origin,cookie,provider,checks=0,seq=0,providerCalls=0,delayReply=false,coreOutput='';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const check=(value,message)=>{assert(value,message);checks++;};
@@ -68,7 +70,7 @@ llm-pi-ai:
           maxTokens: 512
           input: [text]
 `);
- const launch=await boot();const workspace=(await ok('workspace/create',{path:project})).workspace;assert((await rpc('settings/update',{ns:'ui-settings-general',patch:{welcomeNoticeVersion:'2026-09-28.1'}})).ok);
+ const launch=await boot();nativeStatus=await connectNativeStatus(launch,path.resolve(process.argv[4]));check(await nativeStatus.state()===0,'native task source works before WebView exists');const workspace=(await ok('workspace/create',{path:project})).workspace;assert((await rpc('settings/update',{ns:'ui-settings-general',patch:{welcomeNoticeVersion:'2026-09-28.1'}})).ok);
  const create=async title=>{const created=await ok('session/create',{workspaceId:workspace.workspaceId});await ok('session/rename',{sessionId:created.sessionId,title});return created.sessionId;};
  const alpha=await create('Synthetic Alpha'), beta=await create('Synthetic Beta');
  browser=await chromium.launch({headless:true});context=await browser.newContext({locale:'zh-CN',viewport:{width:393,height:852},isMobile:true,hasTouch:true,deviceScaleFactor:3});
@@ -122,9 +124,11 @@ llm-pi-ai:
  delayReply=true;await ok('session/prompt',{sessionId:alpha,requestId:'activity-fixture',mode:'queue',content:[{type:'text',text:'Synthetic delayed response'}]});
  for(let i=0;i<100;i++){if((await ok('session/androidList')).items.find(r=>r.sessionId===alpha).running)break;await sleep(20);}
  check(!(await rpc('workspace/archiveSession',{request:{sessionId:alpha}})).ok,'active archive rejected');
+ check(await nativeStatus.state()===1,'native source observes actual running task');
  check(!(await rpc('session/androidTrash',{request:{sessionId:alpha}})).ok,'active trash rejected');
  check(!(await ok('session/androidList')).items.find(r=>r.sessionId===alpha).trashed,'active conversation preserved');
  for(let i=0;i<200;i++){if(!(await ok('session/androidList')).items.find(r=>r.sessionId===alpha).running)break;await sleep(25);}delayReply=false;
+ check(await nativeStatus.state()===0,'native source observes actual task completion');
  let found=await rpc('session/search',{request:{query:'Synthetic prompt after trash restore'}});check(found.ok&&found.value.items.some(item=>item.sessionId===alpha),'original full-text search works: '+JSON.stringify(found));
  await ok('session/androidTrash',{sessionId:alpha});found=await rpc('session/search',{request:{query:'Synthetic prompt after trash restore'}});check(found.ok&&!found.value.items.some(item=>item.sessionId===alpha)&&!found.value.hasMore,'trash excluded before search result limit');
  await ok('session/androidRestore',{sessionId:alpha});found=await rpc('session/search',{request:{query:'Synthetic prompt after trash restore'}});check(found.ok&&found.value.items.some(item=>item.sessionId===alpha),'restore makes original full-text search available');
@@ -149,6 +153,8 @@ llm-pi-ai:
  await context.close();context=null;await stop();
  await fs.writeFile(journalPath,'{broken synthetic journal');await boot();
  check(!(await rpc('session/androidList')).ok,'corrupt journal is reported, never treated as empty');
+ await assert.rejects(()=>nativeStatus.state());checks++;
+ nativeStatus.close();nativeStatus=null;
  check(!(await rpc('session/list',{_request:{}})).ok,'corrupt journal cannot expose hidden sessions');
  await stop();await fs.writeFile(journalPath,preserved);await boot();
  check((await ok('session/androidList')).items.find(r=>r.sessionId===beta).trashed,'trash persists across actual core restart');
@@ -171,4 +177,4 @@ llm-pi-ai:
   await context.close();context=null;
  }
  console.log('App settings actual core/browser: '+checks+' checks passed');
-}catch(error){if(process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page?.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'failure.png')});}console.log('Local fixture calls',providerCalls);console.log('Synthetic core',coreOutput.replace(/token=\S+/g,'token=REDACTED').slice(-8000));console.log('Synthetic UI failure', (await page?.locator('body').innerText())?.slice(0,4000));throw error;}finally{await browser?.close();await stop();await fs.writeFile(frontend,originalFrontend);if(provider)await new Promise(resolve=>provider.close(resolve));await fs.rm(scratch,{recursive:true,force:true});}
+}catch(error){if(process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page?.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'failure.png')});}console.log('Local fixture calls',providerCalls);console.log('Synthetic core',coreOutput.replace(/token=\S+/g,'token=REDACTED').slice(-8000));console.log('Synthetic UI failure', (await page?.locator('body').innerText())?.slice(0,4000));throw error;}finally{nativeStatus?.close();await browser?.close();await stop();await fs.writeFile(frontend,originalFrontend);if(provider)await new Promise(resolve=>provider.close(resolve));await fs.rm(scratch,{recursive:true,force:true});}

@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.2**；源码：**0.34.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.2**；源码：**0.35.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -37,7 +37,11 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 `MainActivity` 初始化环境、配置、补丁与 WebView；`SessionPersistencePatch` 在每次启动修复首次保存和格式迁移的两个硬链接发布点，兼容旧 payload-v12。链接 EACCES 等兼容错误才降级为排他复制并 fsync，同名历史拒绝覆盖，真实写权限和磁盘错误仍传播。旧进程若加载的是较早 APK 的模块，明确要求从更新与维护重启，不误报已采用补丁。`LocalServerProbe` 在同一 localhost origin 完成 token → 303 → Cookie 探测，限跳转、响应大小与超时，不向其他 origin 发送凭据。已可用实例尽量复用，进程失败按 `ProcessSupervisor` 有界退避。
 
-页面每次加载都重新安装辅助脚本。会话探针必须早于模块脚本，完整解析真实列表 RPC，不能截断正文后数 `running:true`。复用已观察到的认证只读 RPC，每 5 秒刷新并使用新 rpcId；90 秒没有可信数据时报告未知。DOM 只补充等待批准，不承担运行状态权威。
+页面每次加载都重新安装辅助脚本。0.35.0 起 `HarnessService` 通过 `CoreTaskState` 每约 3 秒独立读取认证 `session/list`，15 秒内有效；查询失败立即未知，不发送完成。跨端口/令牌切换丢弃旧响应与任务计时，不依赖 WebView 先发出 fetch。`SessionProbe` 仍完整解析网页 RPC，DOM 只补充等待批准及连接信息。常驻通知只首次 startForeground，后续状态更新不得用占位文案覆盖后再被签名去重。
+
+启动时 `ToolEnvironment` 准备 `.native-bin` 包装、托管 shebang 与私有 tmp；`FsWritePatch` 修复新文件发布硬链接，沿用排他复制 helper。自检失败不能 rememberPreflightKey。环境事实与旧报告更正在[环境指南复核](ENVIRONMENT_UPGRADE.md)。
+
+语音沿用原插件三个 slot，`VoiceUi` 幂等修补真实模块；`NativeVoiceController` 在前台准确本机 origin 处理受限命令。无任意 WebView 权限桥，不记录语音正文。处理权限先于 onResume 返回、系统窗口导致 onPause、取消后晚回调及草稿变化；详情见[语音输入](VOICE_INPUT.md)。
 
 服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
 

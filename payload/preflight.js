@@ -65,7 +65,7 @@ sync('node-pty', () => {
 //   'warn' = 缺失会让某项功能真正降级，需要用户知晓。
 const optional = [
   ['koffi', 'info', '仅 Windows 使用（代码里加载的是 advapi32.dll / kernel32.dll）'],
-  ['sharp', 'warn', '仅图片附件使用（无 Android 构建）'],
+  ['sharp', 'info', '已由 Pillow Android 兼容层替代；图片能力另行实际自检'],
   ['@deepseek-ai/node-addon-system', 'info',
    '文件锁与 Landlock 沙箱；已用纯 JS 降级替代，单用户无影响'],
   ['node-addon-require-builtin', 'info', '已由纯 JS 垫片替代'],
@@ -86,19 +86,31 @@ for (const [mod, level, why] of optional) {
 
 // ---- 工具链探测（这些是运行包里应带的，缺失则功能受限）----
 const tools = [
+  ['node', ['--version'], 'Node 命令'],
+  ['npm', ['--version'], 'npm 命令'],
+  ['npx', ['--version'], 'npx 命令'],
+  ['pip3', ['--version'], 'Python 包管理'],
+  ['python3', ['-c', 'from PIL import Image;import io; b=io.BytesIO();Image.new("RGB",(2,2)).save(b,"PNG");assert Image.open(io.BytesIO(b.getvalue())).size==(2,2);print("Pillow PNG round-trip OK")'], '图片处理', 'Pillow'],
   ['git', ['--version'], '版本管理'],
   ['python3', ['-c', 'import ssl,sqlite3,json;print("ok")'], 'Python 脚本'],
   ['rg', ['--version'], '代码搜索'],
   ['bash', ['-c', 'echo ok'], 'shell'],
   ['jq', ['--version'], 'JSON 处理'],
 ];
-for (const [exe, argv, why] of tools) {
+sync('临时目录', () => {
+  if (!process.env.TMPDIR) throw new Error('TMPDIR 未设置');
+  const directory = fs.mkdtempSync(path.join(process.env.TMPDIR, 'dsh-preflight-'));
+  try { fs.writeFileSync(path.join(directory, 'check'), 'ok'); }
+  finally { fs.rmSync(directory, {recursive:true, force:true}); }
+  return '可写';
+});
+for (const [exe, argv, why, label] of tools) {
   try {
     const out = require('child_process')
       .execFileSync(exe, argv, { encoding: 'utf8', timeout: 15000 }).trim();
-    results.push([`工具:${exe}`, true, out.split('\n')[0].slice(0, 32)]);
+    results.push([`工具:${label || exe}`, true, out.split('\n')[0].slice(0, 32)]);
   } catch (e) {
-    results.push([`工具:${exe}`, false, `${why} —— ${(e.message || '').split('\n')[0].slice(0, 60)}`]);
+    results.push([`工具:${label || exe}`, false, `${why} —— ${(e.message || '').split('\n')[0].slice(0, 60)}`]);
   }
 }
 

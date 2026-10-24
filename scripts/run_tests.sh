@@ -70,6 +70,10 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/CoreRpcClient.java
      $JAVA_DIR/CoreReadiness.java
      $JAVA_DIR/CoreUpgrade.java
+     $JAVA_DIR/CoreTaskState.java
+     $JAVA_DIR/VoiceUi.java
+     $JAVA_DIR/FsWritePatch.java
+     $JAVA_DIR/ToolEnvironment.java
      $JAVA_DIR/SessionPersistencePatch.java
      $JAVA_DIR/AccountUi.java
      $JAVA_DIR/AppSettingsUi.java
@@ -133,6 +137,10 @@ TESTS="tests/FileListingTest.java
        tests/CoreRpcClientTest.java
        tests/CoreReadinessTest.java
        tests/CoreUpgradeTest.java
+       tests/CoreTaskStateTest.java
+       tests/VoiceUiTest.java
+       tests/FsWritePatchTest.java
+       tests/ToolEnvironmentTest.java
        tests/SessionPersistencePatchTest.java
        tests/AccountUiTest.java
        tests/AppSettingsUiTest.java
@@ -184,7 +192,9 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.CoreUpgradeTest
+for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest FsWritePatchTest ToolEnvironmentTest; do
+    java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
+done
 seen_tests=" "
 for t in dev.dsh.nativeapp.LocalServerProbeTest dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelReasoningTest dev.dsh.nativeapp.ModelEffortUiTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.ModelCatalogRefreshTest dev.dsh.nativeapp.CoreRpcClientTest dev.dsh.nativeapp.CoreReadinessTest dev.dsh.nativeapp.SessionPersistencePatchTest dev.dsh.nativeapp.AccountUiTest dev.dsh.nativeapp.AppSettingsUiTest dev.dsh.nativeapp.AppSettingsCommandsTest dev.dsh.nativeapp.ModelSettingsSnapshotTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest dev.dsh.nativeapp.PayloadManifestTest dev.dsh.nativeapp.CredentialMergeTest dev.dsh.nativeapp.WebUrlTest dev.dsh.nativeapp.YamlBlocksTest dev.dsh.nativeapp.RuntimeDirTest dev.dsh.nativeapp.ModelImageSupportTest dev.dsh.nativeapp.ModelCatalogPersistenceTest dev.dsh.nativeapp.LayoutProbeTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
