@@ -1,11 +1,11 @@
 {
-  "version": "0.34.2",
-  "tag": "v0.34.2-bootstrap",
+  "version": "0.35.0",
+  "tag": "v0.35.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v13",
-  "notes": "0.34.2",
-  "apk_bytes": 35364571,
+  "notes": "0.35.0",
+  "apk_bytes": 35381118,
   "payload_bytes": 150566054,
-  "sha256": "ede176f63f55fefdcf8f9d6b7375bb36a9797372bc0f79b768599d9d19c42428",
+  "sha256": "e67a25daca604e697331a35f877f0977afff9f873950685b5bb6596759310be7",
   "channel": "stable"
 }
