@@ -37,7 +37,11 @@ public class PayloadManifestTest {
         return new ArrayList<PayloadManifest.Part>(Arrays.asList(parts));
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        if (args.length == 3 && "--check-file".equals(args[0])) {
+            checkPublishedFile(args[1], args[2]);
+            return;
+        }
         System.out.println("=== 1. 正常清单必须通过 ===");
         check("two valid parts accepted",
                 PayloadManifest.validate(1, list(
@@ -131,10 +135,54 @@ public class PayloadManifestTest {
                 "accepted");
         check("normal size accepted",
                 PayloadManifest.validateManifestFileSize(4096) == null, "rejected");
+        check("v13 removal inventory size accepted",
+                PayloadManifest.validateManifestFileSize(302511L) == null, "published payload-v13 rejected");
+        check("larger than legacy 256KiB accepted",
+                PayloadManifest.validateManifestFileSize(256L * 1024L + 1L) == null, "legacy cap remains");
+        check("exact manifest limit accepted",
+                PayloadManifest.validateManifestFileSize(PayloadManifest.MAX_MANIFEST_BYTES) == null, "rejected");
 
         System.out.println();
         System.out.println("PayloadManifestTest: TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);
+    }
+
+    /** Check the real published bytes with the size/structure rules used by the App. */
+    @SuppressWarnings("unchecked")
+    private static void checkPublishedFile(String manifestPath, String activityPath) throws Exception {
+        java.nio.file.Path path = java.nio.file.Paths.get(manifestPath);
+        long length = java.nio.file.Files.size(path);
+        String problem = PayloadManifest.validateManifestFileSize(length);
+        if (problem != null) throw new AssertionError("App rejects published manifest: " + problem + " (" + length + " bytes)");
+        byte[] bytes = java.nio.file.Files.readAllBytes(path);
+        String activity = java.nio.file.Files.readString(java.nio.file.Paths.get(activityPath));
+        java.util.regex.Matcher pin = java.util.regex.Pattern.compile(
+                "PAYLOAD_MANIFEST_SHA256\\s*=\\s*\"([a-fA-F0-9]{64})\"").matcher(activity);
+        if (!pin.find()) throw new AssertionError("APK manifest pin missing");
+        String expected = pin.group(1);
+        if (pin.find()) throw new AssertionError("ambiguous APK manifest pin");
+        StringBuilder digest = new StringBuilder();
+        for (byte b : java.security.MessageDigest.getInstance("SHA-256").digest(bytes))
+            digest.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
+        if (!expected.equalsIgnoreCase(digest.toString())) throw new AssertionError("published manifest differs from APK pin");
+        java.util.Map<String, Object> manifest = (java.util.Map<String, Object>) JsonValue.parse(
+                new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+        List<PayloadManifest.Part> parts = new ArrayList<PayloadManifest.Part>();
+        for (Object value : (List<?>) manifest.get("parts")) {
+            java.util.Map<String, Object> part = (java.util.Map<String, Object>) value;
+            java.util.Map<String, Object> sentinel = (java.util.Map<String, Object>) part.get("sentinel");
+            parts.add(PayloadManifest.Part.of((String) part.get("name"), (String) part.get("target"),
+                    ((Number) part.get("size")).longValue(), (String) part.get("sha256"),
+                    (String) sentinel.get("path"), ((Number) sentinel.get("size")).longValue(),
+                    (String) sentinel.get("sha256"))
+                    .withUnpackedSize(part.containsKey("unpacked_size")
+                            ? ((Number) part.get("unpacked_size")).longValue() : -1L)
+                    .withRemovals((List<String>) part.get("remove")));
+        }
+        problem = PayloadManifest.validate(((Number) manifest.get("version")).intValue(), parts);
+        if (problem != null) throw new AssertionError("App rejects published manifest structure: " + problem);
+        System.out.println("Actual payload manifest: " + length + " bytes, " + parts.size()
+                + " parts; APK pin, App size limits, paths and structure passed.");
     }
 
     static List<PayloadManifest.Part> manyParts(int n) {

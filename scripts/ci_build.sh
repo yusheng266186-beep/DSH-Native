@@ -11,6 +11,9 @@ set -euo pipefail
 BUILD="${1:?用法: ci_build.sh <构建目录>}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# A valid archive is unusable if the APK rejects its manifest before download.
+bash "$ROOT/scripts/check_payload_manifest.sh"
+
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
 export ANDROID_SDK_ROOT="$SDK"
 export ANDROID_HOME="$SDK"

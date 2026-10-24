@@ -26,7 +26,9 @@ final class PayloadManifest {
     static final long MAX_UNPACKED_SIZE = 8L * 1024L * 1024L * 1024L;
     /** 清单文件本身的大小区间。 */
     static final long MIN_MANIFEST_BYTES = 1L;
-    static final long MAX_MANIFEST_BYTES = 256L * 1024L;
+    // The cumulative removal inventory makes payload-v13's manifest 302511
+    // bytes. Retain a finite cap with room for future dependency upgrades.
+    static final long MAX_MANIFEST_BYTES = 1024L * 1024L;
     /** 结构版本与分片数量的合理区间。 */
     static final int MIN_VERSION = 1;
     static final int MAX_VERSION = 100;

@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.34.0**；源码：**0.34.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.34.0**；源码：**0.34.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -24,6 +24,7 @@
 | `release.sh <version> <build> <notes> [channel]` | 上传、验证下载、最后写清单并同步文档 | 由 release.yml 调用，已有构建产物与 gh 权限 |
 | `verify_release.sh <version>` | bootstrap 正式版本辅助验证 | 在实际 APK 所在目录运行；不通用适配 test/payload |
 | `prepare_core_payload.py` | 从固定官方归档与依赖锁构建 Android DSH 片 | 保留已验证 Android PTY/垫片，参数见 help |
+| `check_payload_manifest.sh` | 用 App 规则检查真实发布清单的大小、固定摘要、结构和路径 | CI 构建前自动执行；可传本地清单路径 |
 | `make_payload_parts.py` | 工具链分片与 manifest 生成 | 按脚本环境变量指定工具链/输出目录 |
 | `release_payload.py` | 独立运行包资产校验与发布 | manifest 最后上传；不改 App latest 清单 |
 | `mkmanifest.py` | 二进制 AndroidManifest 生成 | 配合实际资源与构建工作区 |
