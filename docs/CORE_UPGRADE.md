@@ -1,12 +1,18 @@
 # DSH 0.2.0-rc.2 / payload-v10
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.33.13**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.34.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 App 0.32.0 起使用 payload-v10，将 DSH CLI 及全部 277 个 `dsh-*` 模块从 0.1.7-rc.2 升到固定的 0.2.0-rc.2。这是 2026-09-30 核对并锁定的上游候选版，不是对未来 npm latest 的动态声明。当前来源与完整性以 `runtime/core-source.json` / 锁文件为准；App stable 与上游候选级别分别记录。
 
 来源：https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2 。上游带来模型搜索、计划审阅和 Agent 预设修复，以及 pi-ai 0.87.1 兼容更新。原生实时模型目录和思考等级配置继续保留；App 0.32.1 又按用户要求对所有模型追加 max 请求，详见 [模型思考说明](MODEL_REASONING.md)。不因 pi-ai 内置旧 ID 移除而覆盖用户的 Provider API 目录。
+
+## 0.34.0 / payload-v13
+
+2026-10-24 固定官方 `dsh-v0.2.1-rc.3`（2026-10-23 发布），归档完整性与锁文件位于 `runtime/`。payload 从已校验 v12 继承 Android PTY、Node 垫片和工具，继续以官方 x86_64 CI 重建。App 内置新 manifest 摘要，不改写旧 APK/清单。
+
+账号 Web 登录已由上游提供，Android 仅改为直接请求授权并在真实 URL 就绪后打开系统浏览器；App 设置保留新的 modules 依赖。真实消费回归通过新版插件生命周期安装持久化后端，并验证新模型标签 Slot 的 fallback。新增内核草稿与全设置分类的触屏检查。下文保留 0.32.0 升级背景。
 
 ## 构建与增量更新
 

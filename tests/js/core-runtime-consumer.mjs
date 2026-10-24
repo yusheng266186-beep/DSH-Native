@@ -14,7 +14,8 @@ const sourcePath = requireRuntime.resolve('@deepseek-ai/dsh-session-persistence-
 const probePath = path.join(path.dirname(sourcePath), 'native-consumer-probe.mjs');
 let child;
 try {
-  assert.equal(JSON.parse(await fs.readFile(path.join(root, 'package.json'))).version, '0.2.0-rc.2');
+  const pinned = JSON.parse(await fs.readFile(new URL('../../runtime/core-source.json', import.meta.url)));
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, 'package.json'))).version, pinned.version);
   await fs.writeFile(probePath, await fs.readFile(sourcePath, 'utf8') +
     '\nexport { publishCurrentExclusive, SessionWriteLease };\n');
   const { publishCurrentExclusive, SessionWriteLease } = await import(pathToFileURL(probePath));
@@ -47,10 +48,11 @@ try {
   await nextLease.release();
 
   const { Context } = requireRuntime('@deepseek-ai/cordis');
-  const { default: Persistence } = await import(pathToFileURL(sourcePath));
+  const persistenceModule = await import(pathToFileURL(sourcePath));
   const context = new Context();
   const sessions = path.join(scratch, 'sessions');
-  const persistence = new Persistence(context, { root: sessions });
+  await context.plugin(persistenceModule, {root: sessions}).await();
+  const persistence = context.sessionPersistence;
   const header = { version: 4, id: 'native-core-history', createdAt: 1, cwd: scratch, isSeeded: false };
   const write = await persistence.create(header);
   await write.flush();

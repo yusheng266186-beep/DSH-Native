@@ -21,7 +21,8 @@ try {
     + '\nlet linkError = "EACCES";\nasync function link(...args) {if (linkError) throw Object.assign(new Error("synthetic link refusal"), {code: linkError}); return nativeLink(...args);}\n'
     + 'export function setLinkError(code) {linkError = code;}\nexport {publishCurrentExclusive};\n');
   Object.defineProperty(process, 'platform', {value: 'android'});
-  const {default: Persistence, publishCurrentExclusive, setLinkError} = await import(pathToFileURL(probe));
+  const persistenceModule = await import(pathToFileURL(probe));
+  const {publishCurrentExclusive, setLinkError} = persistenceModule;
   const staged = path.join(scratch, 'staged'), target = path.join(scratch, 'current');
   await fs.writeFile(staged, 'protected history');
   for (const code of ['EACCES', 'EPERM', 'EXDEV', 'ENOSYS', 'EOPNOTSUPP', 'ENOTSUP', 'EMLINK']) {
@@ -42,7 +43,8 @@ try {
   const {Context} = requireRuntime('@deepseek-ai/cordis');
   for (const compression of ['zstd', 'none']) {
     const context = new Context();
-    const persistence = new Persistence(context, {root: path.join(scratch, compression), compression});
+    await context.plugin(persistenceModule, {root: path.join(scratch, compression), compression}).await();
+    const persistence = context.sessionPersistence;
     const header = {version: 4, id: 'android-' + compression, createdAt: 1, cwd: scratch, isSeeded: false};
     const write = await persistence.create(header);
     await write.flush(); await write.close();
@@ -57,7 +59,8 @@ try {
   }
   setLinkError('ENOSPC');
   const context = new Context();
-  const persistence = new Persistence(context, {root: path.join(scratch, 'full'), compression: 'zstd'});
+  await context.plugin(persistenceModule, {root: path.join(scratch, 'full'), compression: 'zstd'}).await();
+  const persistence = context.sessionPersistence;
   const header = {version: 4, id: 'disk-full', createdAt: 1, cwd: scratch, isSeeded: false};
   const failed = await persistence.create(header);
   await assert.rejects(failed.flush(), {code: 'ENOSPC'}); checks++;

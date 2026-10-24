@@ -7,6 +7,22 @@ public class MobileLayoutTest {
         if (ok) pass++; else { fail++; System.out.println("  FAIL " + name + " -> " + detail); }
     }
     public static void main(String[] args) {
+        if (args.length == 2 && "--dump-layout".equals(args[0])) {
+            try {
+                String source = java.nio.file.Files.readString(java.nio.file.Paths.get(args[1]));
+                String patched = MobileLayout.patchLayoutModule(source);
+                if (patched == null || !patched.equals(MobileLayout.patchLayoutModule(patched)))
+                    throw new AssertionError("layout module must patch idempotently");
+                System.out.print(patched);
+                return;
+            } catch (Exception e) { throw new IllegalStateException(e); }
+        }
+        String panel = MobileLayout.patchLayoutModule("d.panelInfo.activePanelId = panelId;");
+        check("narrow navigation closes sidebar", panel != null && panel.contains("viewportWidth < 1024")
+                && panel.contains("narrowExpanded = false"), "missing");
+        check("layout module idempotent", panel != null && panel.equals(MobileLayout.patchLayoutModule(panel)), "changed");
+        check("changed layout refused", MobileLayout.patchLayoutModule("changed") == null, "accepted");
+        check("ambiguous layout refused", MobileLayout.patchLayoutModule("d.panelInfo.activePanelId = panelId;d.panelInfo.activePanelId = panelId;") == null, "accepted");
         if (args.length == 3 && "--dump-html".equals(args[0])) {
             try {
                 String html = new String(java.nio.file.Files.readAllBytes(

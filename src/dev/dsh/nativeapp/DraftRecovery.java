@@ -1,6 +1,6 @@
 package dev.dsh.nativeapp;
 
-/** 未发送任务草稿的同源页面恢复脚本：纯 Java、无原生权限桥。 */
+/** 旧版纯文本输入框的同源恢复；富文本草稿由内核保存，避免破坏其状态。 */
 final class DraftRecovery {
 
     static final String RESTORED_MARK = "[dsh-draft] restored";
@@ -39,7 +39,10 @@ final class DraftRecovery {
              + "if('value' in e)e.value=t;else e.textContent=t;e.__dshDraftHad=1;"
              + "try{e.dispatchEvent(new Event('input',{bubbles:true}));}catch(x){}"
              + "console.log('[dsh-draft] restored');}}}"
-             + "function scan(){try{var q=document.querySelectorAll('textarea,[contenteditable]:not([contenteditable=false])');"
+             // The core owns rich composer text, commands, workspace scope and
+             // attachment references. Writing textContent into its editor can
+             // desynchronize that state or restore another session's old text.
+             + "function scan(){try{var q=document.querySelectorAll('textarea[data-composer-input]');"
              + "for(var i=0;i<q.length;i++)attach(q[i]);}catch(e){}}"
              + "function sweep(){scan();try{for(var i=0;i<editors.length;i++){var e=editors[i];"
              + "if(e.__dshDraftHad&&!val(e)){e.__dshDraftHad=0;localStorage.removeItem(KEY);}}}catch(x){}}"

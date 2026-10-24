@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.33.13**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.34.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -22,8 +22,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 |---|---|
 | App | 包名 `dev.dsh.native`，minSdk 24 / targetSdk 28 / ARM64 |
 | 执行 | `<root>` 为 `getFilesDir()/dsh`；Node、DSH 与工具不依赖用户的 Termux/proot |
-| 内核 | 固定来源和锁文件位于 `runtime/`；当前使用 DSH 0.2.0-rc.2，上游候选版 |
-| 运行包 | payload-v10：DSH 修订 5，工具片沿用 v9 修订 4；全量压缩约 118.5 MiB |
+| 内核 | 固定来源和锁文件位于 `runtime/`；当前使用 DSH 0.2.1-rc.3，上游候选版 |
+| 运行包 | payload-v13：DSH 0.2.1-rc.3，Android 二进制和工具片继承 v12；精确大小见发布清单 |
 | 空间 | DSH 片实际展开分配约 491 MiB；还要计算工具、内置负载、下载和快照，不能沿用旧 316MB / 550MiB 总预算 |
 | 配置 | `.dsh` 含凭据、profile、历史与附件；全局/项目模型覆盖单独保存 |
 | 工作区 | 默认 `/sdcard/DSHNative/workspace`，命名项目在其 `projects/` 下 |

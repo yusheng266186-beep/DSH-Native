@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.33.13**；源码运行包：`payload-v12`；固定 DSH：`0.2.0-rc.2`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.33.13**；源码：**0.34.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -11,6 +11,8 @@
 DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发工具封装为一个 Android 应用。你可以在本地项目中聊天、运行 agent、编辑文件和管理任务，无须另外安装 Termux 或 proot，也无须配置远程执行服务器。
 
 模型推理仍通过所选服务商的 API 完成。项目文件与工具执行位于设备端；发送给模型的消息、附件和工具结果按 DSH 与服务商的调用方式传输。本项目是独立的 Android 适配项目。
+
+本轮 0.34.0 将内核升级到 DSH 0.2.1-rc.3，并回查旧的手机布局、原生弹窗和草稿适配。详细变更与验证边界见 [版本说明](release-notes/v0.34.0.md)。
 
 <!-- project-navigation:start -->
 ## 项目概览

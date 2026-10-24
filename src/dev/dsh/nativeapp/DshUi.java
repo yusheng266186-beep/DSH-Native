@@ -79,6 +79,31 @@ public final class DshUi {
             setOrientation(LinearLayout.VERTICAL);
         }
 
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            // WRAP_CONTENT dialogs previously let a long ScrollView consume the
+            // entire height before measuring the footer. In landscape or with
+            // larger text this could leave Save/Cancel outside the card. Reserve
+            // the real footer height first; keep short dialogs content-sized.
+            if (getChildCount() == 2 && getChildAt(0) instanceof ScrollView
+                    && View.MeasureSpec.getMode(heightSpec) != View.MeasureSpec.UNSPECIFIED) {
+                View body = getChildAt(0), footer = getChildAt(1);
+                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) body.getLayoutParams();
+                if (params.height == ViewGroup.LayoutParams.WRAP_CONTENT
+                        && footer.getVisibility() != View.GONE) {
+                    measureChildWithMargins(footer, widthSpec, 0, heightSpec, 0);
+                    LinearLayout.LayoutParams actions = (LinearLayout.LayoutParams) footer.getLayoutParams();
+                    int reserved = footer.getMeasuredHeight() + actions.topMargin + actions.bottomMargin;
+                    measureChildWithMargins(body, widthSpec, 0, heightSpec, reserved);
+                    int original = params.height;
+                    params.height = body.getMeasuredHeight();
+                    try { super.onMeasure(widthSpec, heightSpec); }
+                    finally { params.height = original; }
+                    return;
+                }
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+
         @Override protected void onAttachedToWindow() {
             super.onAttachedToWindow();
             if (revealed) return;

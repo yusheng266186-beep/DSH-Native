@@ -32,7 +32,12 @@ final class AppSettingsUi {
                 "if (appeared && open) setRequestedOnboarding(void 0);");
         String inject = "\"shortcuts\"\n\t\t];";
         String expanded = "\"shortcuts\", \"uiWorkspace\", \"sessions\", \"workspaces\"\n\t\t];";
-        if (!out.contains(expanded)) out = once(out, inject, expanded);
+        if (out == null) return null;
+        if (!out.contains(expanded) && !out.contains("\"shortcuts\", \"uiWorkspace\", \"sessions\", \"workspaces\",")) {
+            if (out.contains(inject)) out = once(out, inject, expanded);
+            else out = once(out, "\"shortcuts\",\n\t\t\t\"modules\"",
+                    "\"shortcuts\", \"uiWorkspace\", \"sessions\", \"workspaces\",\n\t\t\t\"modules\"");
+        }
         out = once(out, "function apply(ctx) {", helper.trim() + "\nfunction apply(ctx) {\n            androidInstallAppSettings(ctx);");
         return out;
     }

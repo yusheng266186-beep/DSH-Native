@@ -18,7 +18,7 @@ on:
       base_tag:
         description: '基底 payload 标签（提供已验证的 Android 二进制与上一份清单）'
         required: true
-        default: 'payload-v10'
+        default: 'payload-v12'
       out_name:
         description: '输出目录名（仅用于产物组织）'
         required: false
@@ -61,10 +61,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 安装 Node 22
+      - name: 安装 Node 24
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: 安装 zstd
         run: |

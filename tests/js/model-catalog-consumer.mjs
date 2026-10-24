@@ -20,8 +20,8 @@ const adapters = [];
 // resolution below run in the payload's own adapter, never a simulated catalog.
 const ctx = {
   fiber: { entry: { options: {} } },
-  inject() {}, on() {}, get(name) {
-    return reasoningSnapshot && name === 'credentials' ? {
+  inject() {}, on() {}, effect() {}, get(name) {
+    return name === 'credentials' ? {
       resolve: async () => ({ value: 'offline-test-key' }), readRecord: async () => undefined,
     } : undefined;
   },

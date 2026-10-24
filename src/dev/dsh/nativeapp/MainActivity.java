@@ -56,15 +56,15 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v12/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v13/";
     /**
-     * payload-v12 的 manifest.json 固定摘要。
+     * payload-v13 的 manifest.json 固定摘要。
      *
      * <p>摘要内置在 APK，而不是从同一个镜像下载，代理即使同时替换清单和归档
      * 也无法通过验证。更换 payload tag 或清单内容时必须同步更新这个值。
      */
     private static final String PAYLOAD_MANIFEST_SHA256 =
-            "d0806178368ed5f4ed864c8924bb6a56a5fb526d413f8e355884751ade7fee78";
+            "f155c4b021c38dfce31e055af68418296b170b456c6aad2c991c325c16769893";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -6682,6 +6682,7 @@ public class MainActivity extends Activity {
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
         patchAppSettings(root, dshDir);
+        patchFrontendLayout(dshDir);
         patchFrontendViewport(dshDir);
         patchAttachmentDurability(dshDir);
         patchModelEffortUi(dshDir);
@@ -6704,6 +6705,18 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("  [警告] Android 补丁应用失败: " + t);
         }
+    }
+
+    private void patchFrontendLayout(File dshDir) throws IOException {
+        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js");
+        String source = readText(module);
+        String patched = MobileLayout.patchLayoutModule(source);
+        if (patched == null) {
+            recordPatch("窄屏面板导航", false, "上游布局结构变化，未修改文件");
+            throw new IOException("移动布局兼容补丁无法应用，请检查运行包");
+        }
+        if (!source.equals(patched)) writeText(module, patched);
+        recordPatch("窄屏面板导航", true, "打开面板时收起侧栏，保留正文宽度");
     }
 
     private void patchModelEffortUi(File dshDir) {
@@ -7551,7 +7564,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.33.13\n");
+            w.write("APK 版本: 0.34.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
