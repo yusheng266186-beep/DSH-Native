@@ -89,6 +89,7 @@ try {
     await act(async () => root.render(React.createElement(Component, {
       locked: false, available: true, directory: directory.store,
       load: () => directory.load(), select: selection => directory.select(selection), t,
+      renderSlot: (_name, _args, options) => options?.fallback,
     })));
     for (const group of catalog.groups) for (const model of group.models) {
       await act(async () => projected.set({ next: { provider: group.id, model: model.id } }));

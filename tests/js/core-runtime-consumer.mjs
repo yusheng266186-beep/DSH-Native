@@ -48,10 +48,11 @@ try {
   await nextLease.release();
 
   const { Context } = requireRuntime('@deepseek-ai/cordis');
-  const { default: Persistence } = await import(pathToFileURL(sourcePath));
+  const persistenceModule = await import(pathToFileURL(sourcePath));
   const context = new Context();
   const sessions = path.join(scratch, 'sessions');
-  const persistence = new Persistence(context, { root: sessions });
+  await context.plugin(persistenceModule, {root: sessions}).await();
+  const persistence = context.sessionPersistence;
   const header = { version: 4, id: 'native-core-history', createdAt: 1, cwd: scratch, isSeeded: false };
   const write = await persistence.create(header);
   await write.flush();

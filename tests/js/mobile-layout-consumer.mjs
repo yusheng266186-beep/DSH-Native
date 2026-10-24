@@ -29,7 +29,7 @@ try {
   await fs.writeFile(path.join(project, 'second.js'), 'const synthetic = true;\n');
   child = spawn(process.execPath, ['--expose-internals', path.join(runtime, 'lib/bin.js'),
     '--profile', 'web', '--no-open', '--port', '0'], {
-    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: '', DEEPSEEK_API_KEY: ''},
+    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: 'synthetic-layout-only', DEEPSEEK_API_KEY: 'synthetic-layout-only'},
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const collect = chunk => {output = (output + chunk).slice(-32000);};
@@ -130,6 +130,8 @@ try {
       check(await page.evaluate(() => document.documentElement.clientWidth) === Math.max(480, scenario.w), 'viewport floor changed');
       check(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), 'must exercise the coarse pointer CSS path');
       await square(send, 34, 'empty composer send');
+      const expandedSidebar = page.getByRole('button', {name: /^(Close sidebar|关闭侧边栏)$/});
+      if (await expandedSidebar.isVisible()) await expandedSidebar.click();
       await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), 36, 'sidebar toggle');
       await noPageOverflow();
       await page.locator('[data-composer-input]').fill('PRIVATE-DRAFT-CONTENT');
@@ -248,6 +250,22 @@ try {
       await square(settingsClose, 28, 'models settings close');
       await settings.locator('nav').getByRole('button', {name: /^(Built-in plugins|内置插件)$/}).click();
       await square(settingsClose, 28, 'plugins settings close');
+      // Visit every existing settings category, including optional plugin pages.
+      const categories = await settings.locator('nav button').all();
+      for (const category of categories) {
+        await category.click();
+        await page.waitForTimeout(80);
+        check(await settings.evaluate(e => {
+          const content = e.lastElementChild;
+          return content.scrollWidth <= content.clientWidth + 1;
+        }), 'settings category has horizontal overflow: ' + await category.innerText());
+        const closeBox = await size(settingsClose);
+        const viewportHeight = await page.evaluate(() => document.documentElement.clientHeight);
+        check(closeBox.y >= -.5 && closeBox.y + closeBox.height <= viewportHeight + .5,
+          'settings close is outside the available height');
+        await noPageOverflow();
+      }
+
       await settingsClose.click();
       await settings.waitFor({state: 'hidden'});
       check(await settings.count() === 0, 'settings close interaction failed');
@@ -255,6 +273,12 @@ try {
       check(logs.every(s => s.length < 900 && !/PRIVATE-|Synthetic file preview/.test(s)), 'layout diagnostics leaked content or exceeded the native limit');
       measurements.push({...scenario, send: [sendBox.width, sendBox.height], model: [modelBox.width, modelBox.height], settings: [settingsBox.width, settingsBox.height]});
       console.log(`Actual mobile WebUI: ${scenario.w}x${scenario.h} ${scenario.lang} ${scenario.theme} passed.`);
+    } catch (error) {
+      if (evidence && currentPage && !currentPage.isClosed()) {
+        await currentPage.screenshot({path: path.join(evidence, 'failure.png')}).catch(() => {});
+        await fs.writeFile(path.join(evidence, 'failure-dom.txt'), await currentPage.locator('body').innerText()).catch(() => {});
+      }
+      throw error;
     } finally {await context.close();}
   }
   if (evidence) await fs.writeFile(path.join(evidence, 'measurements.json'), JSON.stringify(measurements, null, 2));
