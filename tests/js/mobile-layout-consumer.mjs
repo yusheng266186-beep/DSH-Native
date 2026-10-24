@@ -298,6 +298,8 @@ try {
         await page.getByRole('button', {name: panel.label, exact: true}).tap();
         const surface = page.locator(panel.selector);
         await surface.waitFor({state: 'visible'});
+        if (panel.selector.includes('plugin')) await page.locator('[data-plugin-panel][aria-busy=false]').waitFor({state: 'visible'});
+        await page.waitForTimeout(350);
         if (scenario.w < 1024) {
           await page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}).waitFor({state: 'visible'});
           const available = await page.evaluate(() => document.documentElement.clientWidth);
