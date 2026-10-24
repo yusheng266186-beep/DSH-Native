@@ -174,7 +174,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("0.34.2"))],
+              (A, "versionName", s("0.35.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -194,6 +194,10 @@ def manifest_tree():
                    # 前台服务：让 agent 在后台/锁屏时继续运行，不被系统冻结
                  E("uses-permission",
                    [(A, "name", s("android.permission.FOREGROUND_SERVICE"))]),
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.WAKE_LOCK"))]),
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.RECORD_AUDIO"))]),
                    # Android 13+ 显示常驻通知需要它
                  E("uses-permission",
                    [(A, "name", s("android.permission.POST_NOTIFICATIONS"))]),

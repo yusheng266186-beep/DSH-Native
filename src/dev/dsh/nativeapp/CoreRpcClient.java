@@ -20,7 +20,7 @@ final class CoreRpcClient {
     private static final Set<String> METHODS = new HashSet<String>(Arrays.asList(
             "account/getState", "account/startSignIn", "account/cancelSignIn",
             "account/hasRunningAccountTasks", "account/signOut", "account/getProfile",
-            "account/getBalance", "session/modelCatalog", "settings/describe",
+            "account/getBalance", "session/modelCatalog", "session/list", "settings/describe",
             "credentials/set", "credentials/unset"));
     private final String origin;
     private final String token;

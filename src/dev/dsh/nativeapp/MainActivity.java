@@ -138,6 +138,16 @@ public class MainActivity extends Activity {
                 @Override public void run() { finish(); }
             });
         }
+
+        @Override public boolean isForeground() { return inForeground; }
+
+        @Override public void onTaskState(int state, long since) {
+            nativeSignalState = state;
+            nativeSignalAt = System.currentTimeMillis();
+            if (state == SessionStatus.RUNNING && since > 0L)
+                taskNotifier.restoreRunning("", since, System.currentTimeMillis());
+            onStatusSignal(state, SRC_SESS);
+        }
     };
 
     @Override
@@ -322,6 +332,12 @@ public class MainActivity extends Activity {
                         }
                         return true;
                     }
+                    if (m.startsWith(VoiceUi.MARKER)) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())
+                                && WebUrl.isCoreUrl(cm.sourceId(), savedDshPort()) && inForeground)
+                            voiceController().command(VoiceUi.parse(m));
+                        return true;
+                    }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
                     if (m.indexOf("[dsh-native] open-settings") >= 0) {
                         log("WebUI / 手势入口：打开工具与设置");
@@ -493,6 +509,7 @@ public class MainActivity extends Activity {
              */
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (nativeVoice != null) nativeVoice.cancel();
                 try {
                     // 会话列表的首次请求通常发生在 onPageFinished 之前。
                     // 在这里先接管 fetch，才能可靠获得任务开始时间与结束状态。
@@ -502,6 +519,7 @@ public class MainActivity extends Activity {
                         installSessionProbe(view);
                         installConnectionWatcher(view);
                         installDraftRecovery(view);
+                        view.evaluateJavascript(VoiceUi.bridgeScript(), null);
                     }
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
                 } catch (Throwable ignored) { }
@@ -550,6 +568,7 @@ public class MainActivity extends Activity {
                 // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
                 // 重复注入没有副作用。
                 installFetchDiagnostics();
+                view.evaluateJavascript(VoiceUi.bridgeScript(), null);
                 installSessionProbe(view);
                 installConnectionWatcher(view);
                 installDraftRecovery(view);
@@ -1081,6 +1100,8 @@ public class MainActivity extends Activity {
 
 
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
+        int toolsRepaired = ToolEnvironment.repair(root);
+        log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
         applyAndroidPatches(root, dshDir);
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
@@ -1101,8 +1122,8 @@ public class MainActivity extends Activity {
         if (envKey.equals(lastPreflightKey())) {
             log("运行环境自检已通过过（环境未变），跳过以加快启动");
         } else {
-            runPreflight(node, root, toolsDir);
-            rememberPreflightKey(envKey);
+            if (runPreflight(node, root, toolsDir)) rememberPreflightKey(envKey);
+            else log("运行环境仍有未通过项，下次启动会重新检查");
         }
 
         // 3. 准备 DSH 配置（若不存在）
@@ -1160,7 +1181,7 @@ public class MainActivity extends Activity {
 
         String libPath = new File(root, "lib").getAbsolutePath()
                 + ":" + new File(toolsDir, "lib").getAbsolutePath();
-        String binPath = new File(toolsDir, "bin").getAbsolutePath() + ":/system/bin:/system/xbin";
+        String binPath = ToolEnvironment.path(root);
         // 注意：这里**故意不设 NODE_PATH**。
         // DSH 从 <dshDir>/lib/bin.js 启动，Node 会沿目录向上自然找到
         // <dshDir>/node_modules，无需 NODE_PATH。
@@ -1175,7 +1196,9 @@ public class MainActivity extends Activity {
         pb.environment().put("PATH", binPath);
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
-        pb.environment().put("TMPDIR", root.getAbsolutePath());
+        pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
+        pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
+        pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
         // 用 dumb 而非 xterm-256color：避免 dsh 输出 ANSI 颜色转义。
         // 之前正是这些转义混进了 URL（\u001b[36m...\u001b[0m），
         // 导致 WebView 加载了非法地址 → 下半屏一直空白。
@@ -2839,6 +2862,8 @@ public class MainActivity extends Activity {
                             .add("Network", SessionStatus.networkLabel(
                                     network[1], network[2], network[3], network[0], true))
                             .add("Notifications enabled", notifications)
+                            .add("Native task source", HarnessService.taskDiagnostic())
+                            .add("Voice input", nativeVoice == null ? "not used" : nativeVoice.diagnostic())
                             .add("Maintenance operation", maintenanceGate.active() == null
                                     ? "none" : maintenanceGate.active())
                             .section("Recent errors")
@@ -2963,6 +2988,7 @@ public class MainActivity extends Activity {
 
     /** 发一条任务完成通知。 */
     private void notifyTaskDone(String text) {
+        if (HarnessService.hasNativeTaskState()) return;
         try {
             android.app.NotificationManager nm =
                     (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -3130,6 +3156,8 @@ public class MainActivity extends Activity {
     private volatile long sessSignalAt;
     private volatile int domSignalState = SessionStatus.UNKNOWN;
     private volatile long domSignalAt;
+    private volatile int nativeSignalState = SessionStatus.UNKNOWN;
+    private volatile long nativeSignalAt;
 
     /** 诊断日志的限流字段。 */
     private long lastStatusLogAt;
@@ -3184,6 +3212,10 @@ public class MainActivity extends Activity {
      * @return 推导出的状态；无新鲜证据时返回 -1
      */
     private int deriveStatus(long now) {
+        if (nativeSignalAt > 0 && now - nativeSignalAt <= CoreTaskState.FRESH_MS) {
+            int page = now - domSignalAt <= SIGNAL_TTL_MS ? domSignalState : SessionStatus.UNKNOWN;
+            return CoreTaskState.effective(nativeSignalState, nativeSignalAt, page, now);
+        }
         boolean domFresh = domSignalAt > 0 && now - domSignalAt <= SIGNAL_TTL_MS;
         boolean sessFresh = sessSignalAt > 0 && now - sessSignalAt <= SIGNAL_TTL_MS;
         boolean sessRecent = sessSignalAt > 0 && now - sessSignalAt <= RUNSTATE_STALE_MS;
@@ -4884,6 +4916,7 @@ public class MainActivity extends Activity {
                 + "  （zipfile + xml.etree）即可直接读取，不一定要装库\n"
                 + "• 中文文本乱码时，先用 chardet 探测编码\n"
                 + "• 图片直接在对话里发即可\n\n"
+                + "Android 环境说明：" + new File(appRoot != null ? appRoot : getFilesDir(), "runtime-environment.md").getAbsolutePath() + "\n\n"
                 + "路径：" + dir.getAbsolutePath() + "\n";
         try {
             if (readme.exists()) {
@@ -6503,6 +6536,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
                                     android.content.Intent data) {
+        if (requestCode == NativeVoiceController.REQUEST_SYSTEM_VOICE) {
+            if (nativeVoice != null) nativeVoice.activityResult(resultCode, data);
+            return;
+        }
         if (requestCode != REQ_FILE_CHOOSER) {
             super.onActivityResult(requestCode, resultCode, data);
             return;
@@ -6679,6 +6716,8 @@ public class MainActivity extends Activity {
      * <p>这样图片附件在手机上也能正常工作，且无需编译任何原生模块。
      */
     private void applyAndroidPatches(File root, File dshDir) throws IOException {
+        patchFileCreation(root, dshDir);
+        patchVoiceUi(root, dshDir);
         patchCoreUpgrade(dshDir);
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
@@ -6728,6 +6767,46 @@ public class MainActivity extends Activity {
         if (!nextAccount.equals(originalAccount)) writeText(account, nextAccount);
         if (!nextInspector.equals(originalInspector)) writeText(inspector, nextInspector);
         recordPatch("内核升级兼容", true, "账号实时目录、调试子线程与增量依赖目录");
+    }
+
+    private void patchVoiceUi(File root, File dshDir) throws IOException {
+        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
+        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-experimental-client-ui-voice-input/lib/client.js");
+        if (!module.isFile() && CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
+        String source = readText(module);
+        String patched = VoiceUi.patch(source, readText(new File(root, "android-voice-ui.js")));
+        if (patched == null) {
+            recordPatch("Android 语音输入", false, "语音插件结构变化，未修改模块");
+            throw new IOException("语音输入兼容补丁无法应用，请检查运行包");
+        }
+        if (!source.equals(patched)) writeText(module, patched);
+        recordPatch("Android 语音输入", true, "系统识别、草稿插入与权限处理");
+    }
+
+    private void patchFileCreation(File root, File dshDir) throws IOException {
+        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
+        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-fs-local/lib/index.js");
+        if (!module.isFile() && CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
+        String source = readText(module);
+        String next = FsWritePatch.patch(source, readText(new File(root, "session-publish.js")));
+        if (next == null) throw new IOException("新建文件兼容补丁无法应用，请检查运行包");
+        if (!source.equals(next)) writeText(module, next);
+        recordPatch("新建文件兼容", true, "硬链接不可用时使用排他复制，保留同名文件");
+    }
+
+    private NativeVoiceController nativeVoice;
+    private NativeVoiceController voiceController() {
+        if (nativeVoice == null) nativeVoice = new NativeVoiceController(this, new NativeVoiceController.Host() {
+            @Override public boolean canListen() {
+                return inForeground && !isFinishing() && !isDestroyed() && WebUrl.isCoreUrl(viewUrl(), savedDshPort());
+            }
+            @Override public void event(String json) {
+                if (webView != null && WebUrl.isCoreUrl(viewUrl(), savedDshPort()))
+                    webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:"
+                            + json + "}));", null);
+            }
+        });
+        return nativeVoice;
     }
 
     private void patchFrontendLayout(File dshDir) throws IOException {
@@ -6876,7 +6955,7 @@ public class MainActivity extends Activity {
         setSplashStatus("正在检查运行环境…");
         log("运行环境自检 …");
         File script = new File(root, "preflight.js");
-        if (!script.exists()) { log("  [警告] 缺少 preflight.js，跳过"); return true; }
+        if (!script.exists()) { log("  [警告] 缺少 preflight.js，跳过"); return false; }
 
         ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
                 script.getAbsolutePath(), root.getAbsolutePath());
@@ -6884,8 +6963,7 @@ public class MainActivity extends Activity {
         pb.directory(root);
         pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath()
                 + ":" + new File(toolsDir, "lib").getAbsolutePath());
-        pb.environment().put("PATH", new File(toolsDir, "bin").getAbsolutePath()
-                + ":/system/bin:/system/xbin");
+        pb.environment().put("PATH", ToolEnvironment.path(root));
         pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
         File caB = new File(root, "ca-certificates.crt");
         if (caB.exists()) {
@@ -6894,7 +6972,14 @@ public class MainActivity extends Activity {
             pb.environment().put("GIT_SSL_CAINFO", caB.getAbsolutePath());
         }
         pb.environment().put("NODE_PATH", new File(root, "dsh/node_modules").getAbsolutePath());
-        pb.environment().put("TMPDIR", root.getAbsolutePath());
+        pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
+        pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
+        pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
+        pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
+        pb.environment().put("PYTHONNOUSERSITE", "1");
+        pb.environment().put("npm_config_prefix", toolsDir.getAbsolutePath());
+        pb.environment().put("npm_config_cache", new File(root, ".npm-cache").getAbsolutePath());
+        pb.environment().put("npm_config_update_notifier", "false");
         pb.environment().put("HOME", root.getAbsolutePath());
 
         try {
@@ -6926,7 +7011,7 @@ public class MainActivity extends Activity {
             return false;
         } catch (Exception e) {
             log("  [警告] 自检执行失败: " + e);
-            return true;
+            return false;
         }
     }
 
@@ -7587,7 +7672,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.34.2\n");
+            w.write("APK 版本: 0.35.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7677,6 +7762,11 @@ public class MainActivity extends Activity {
                                            int[] grantResults) {
         boolean granted = grantResults != null && grantResults.length > 0
                 && grantResults[0] == 0;   // PackageManager.PERMISSION_GRANTED
+        if (requestCode == NativeVoiceController.REQUEST_MICROPHONE) {
+            if (nativeVoice != null) nativeVoice.permissionResult(granted);
+            log("语音麦克风权限: " + (granted ? "已授予" : "未授予"));
+            return;
+        }
         if (granted) removeLegacySharedLogs();
         log("存储权限结果: " + (granted ? "已授予，共享工作区与诊断导出可用"
                 : "被拒绝 —— 共享工作区与诊断导出不可用，不影响私有运行日志"));
@@ -7775,10 +7865,12 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
+        if (nativeVoice != null) nativeVoice.resume();
     }
 
     @Override
     protected void onPause() {
+        if (nativeVoice != null) nativeVoice.pause();
         inForeground = false;
         super.onPause();
     }
@@ -8213,6 +8305,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (nativeVoice != null) nativeVoice.dispose();
         stopSplashAnimation();
         android.app.Dialog exiting = exitDialog;
         exitDialog = null;

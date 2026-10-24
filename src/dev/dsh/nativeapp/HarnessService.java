@@ -16,6 +16,12 @@ import java.io.InputStreamReader;
 import java.lang.ref.WeakReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 前台服务：让 agent 在后台也保持运行。
@@ -70,6 +76,8 @@ public class HarnessService extends Service {
     public interface Listener {
         void onOutputLine(String line);
         void onStopRequested();
+        void onTaskState(int state, long since);
+        boolean isForeground();
     }
 
     private static WeakReference<Listener> listenerRef =
@@ -160,12 +168,16 @@ public class HarnessService extends Service {
     public void onCreate() {
         super.onCreate();
         createChannel();
+        monitor.scheduleWithFixedDelay(new Runnable() {
+            @Override public void run() { pollCoreTasks(); }
+        }, 1, 3, TimeUnit.SECONDS);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
+            closeMonitor();
             Log.i(TAG, "通知栏请求停止");
             stopManagedProcess();
             Listener listener = currentListener();
@@ -179,6 +191,7 @@ public class HarnessService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        ensureForegroundNotification();
         if (ACTION_SETTINGS.equals(action)) {
             Log.i(TAG, "通知栏请求打开设置");
             return START_STICKY;
@@ -190,6 +203,14 @@ public class HarnessService extends Service {
             return START_STICKY;
         }
 
+        // 被系统回收后自动重建，agent 的存活性更高
+        return START_STICKY;
+    }
+
+    private boolean foregroundStarted;
+
+    private void ensureForegroundNotification() {
+        if (foregroundStarted) return;
         // 常驻通知
         try {
             // 文案里点一下"展开"，因为部分 ROM 会折叠动作按钮（用户已实测遇到）。
@@ -200,12 +221,12 @@ public class HarnessService extends Service {
             // 而用户看到的正是「对话早就结束了，通知栏还显示运行中」。
             startForeground(NOTIFICATION_ID,
                     buildNotification("正在同步任务状态 · 展开可设置", null, false));
+            foregroundStarted = true;
+            lastNotificationSig = "";
 
         } catch (Throwable t) {
             Log.w(TAG, "startForeground 失败", t);
         }
-        // 被系统回收后自动重建，agent 的存活性更高
-        return START_STICKY;
     }
 
     /** 上一次的状态，用于判断是否需要提醒（只在**进入**等待批准时打扰）。 */
@@ -214,15 +235,149 @@ public class HarnessService extends Service {
     /** 上一次通知的内容签名（抑制无意义的重复发布）。 */
     private String lastNotificationSig = "";
 
+    private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private TaskNotifier nativeNotifier = new TaskNotifier();
+    private int observedCorePort;
+    private String observedCoreToken = "";
+    private volatile CoreRpcClient taskClient;
+    private volatile boolean monitorClosed;
+    private static volatile long nativeTaskAt;
+    private int nativeTaskState = SessionStatus.UNKNOWN;
+    private static volatile int diagnosticTaskState = SessionStatus.UNKNOWN;
+    private boolean lastNetworkOk = true;
+    private String lastNetworkLabel = "";
+    private int lastConnection = ConnectionRecovery.UNKNOWN;
+    private PowerManager.WakeLock taskWakeLock;
+    private long approvalAt;
+
+    static boolean hasNativeTaskState() {
+        long age = System.currentTimeMillis() - nativeTaskAt;
+        return nativeTaskAt > 0 && age >= 0 && age <= CoreTaskState.FRESH_MS;
+    }
+
+    static String taskDiagnostic() {
+        return (hasNativeTaskState() ? "fresh: " : "stale: ") + SessionStatus.label(diagnosticTaskState);
+    }
+
+    private void pollCoreTasks() {
+        if (monitorClosed) return;
+        final android.content.SharedPreferences prefs = getSharedPreferences("dsh-native", MODE_PRIVATE);
+        final int port = prefs.getInt("dshPort", 0);
+        final String token = prefs.getString("dshToken", "");
+        int state = SessionStatus.UNKNOWN;
+        try {
+            if (port <= 0 || token.length() == 0) throw new IOException("core not ready");
+            CoreRpcClient client = taskClient;
+            if (client == null || !client.matches(port, token)) {
+                if (client != null) client.close();
+                client = new CoreRpcClient(port, token);
+                taskClient = client;
+            }
+            state = CoreTaskState.read(client);
+            // Ignore results from an old instance after restart or teardown.
+            if (monitorClosed || !client.matches(prefs.getInt("dshPort", 0), prefs.getString("dshToken", ""))) return;
+        } catch (Exception unavailable) {
+            // No response bodies or authentication data in logs. Unknown remains
+            // unknown; it must not finish a task or trigger an automatic restart.
+        }
+        final int observed = state;
+        main.post(new Runnable() {
+            @Override public void run() {
+                if (!monitorClosed && port == prefs.getInt("dshPort", 0)
+                        && token.equals(prefs.getString("dshToken", ""))) try {
+                    if (port != observedCorePort || !token.equals(observedCoreToken)) {
+                        nativeNotifier = new TaskNotifier();
+                        observedCorePort = port; observedCoreToken = token; approvalAt = 0L;
+                    }
+                    applyCoreTasks(observed);
+                }
+                catch (RuntimeException failure) { Log.w(TAG, "任务状态更新失败: " + failure.getClass().getSimpleName()); }
+            }
+        });
+    }
+
+    private void applyCoreTasks(int state) {
+        nativeTaskState = state;
+        diagnosticTaskState = state;
+        nativeTaskAt = System.currentTimeMillis();
+        Listener listener = currentListener();
+        boolean foreground = listener != null && listener.isForeground();
+        String completed = null;
+        if (state == SessionStatus.RUNNING) {
+            nativeNotifier.onEvent("start", "", nativeTaskAt, foreground);
+            try {
+                if (taskWakeLock == null) {
+                    PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+                    if (power != null) {
+                        taskWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DSHNative:task");
+                        taskWakeLock.setReferenceCounted(false);
+                    }
+                }
+                if (taskWakeLock != null) taskWakeLock.acquire(60000L);
+            } catch (RuntimeException failure) { Log.w(TAG, "任务保活不可用: " + failure.getClass().getSimpleName()); }
+        } else if (state == SessionStatus.IDLE) {
+            completed = nativeNotifier.onEvent("done", "", nativeTaskAt, foreground);
+            releaseTaskWakeLock();
+        }
+        if (listener != null) listener.onTaskState(state, nativeNotifier.startedAt());
+        Intent status = new Intent().putExtra(EXTRA_STATUS_STATE, state)
+                .putExtra(EXTRA_STATUS_NETWORK, lastNetworkOk)
+                .putExtra(EXTRA_STATUS_NETWORK_LABEL, lastNetworkLabel)
+                .putExtra(EXTRA_CONNECTION_STATE, lastConnection)
+                .putExtra(EXTRA_STATUS_SINCE, nativeNotifier.startedAt());
+        applyStatus(status);
+        if (completed != null) {
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (manager != null) {
+                Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+                        ? new Notification.Builder(this, TASK_CHANNEL_ID) : new Notification.Builder(this);
+                Notification notification = builder.setContentTitle("任务已完成").setContentText(completed)
+                        .setSmallIcon(android.R.drawable.stat_notify_sync).setAutoCancel(true)
+                        .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build();
+                manager.notify(0x4455, notification);
+            }
+        }
+    }
+
+    private void releaseTaskWakeLock() {
+        try { if (taskWakeLock != null && taskWakeLock.isHeld()) taskWakeLock.release(); }
+        catch (RuntimeException expired) { Log.w(TAG, "任务保活释放失败: " + expired.getClass().getSimpleName()); }
+    }
+
+    private void closeMonitor() {
+        monitorClosed = true;
+        nativeTaskAt = 0L;
+        CoreRpcClient client = taskClient;
+        if (client != null) client.close();
+        monitor.shutdownNow();
+        releaseTaskWakeLock();
+    }
+
+    @Override public void onDestroy() {
+        closeMonitor();
+        super.onDestroy();
+    }
+
     /** 应用一次状态更新：常驻看板总是更新，提醒只在需要时发。 */
     private void applyStatus(Intent intent) {
         try {
             int state = intent.getIntExtra(EXTRA_STATUS_STATE, SessionStatus.UNKNOWN);
+            if (ACTION_STATUS.equals(intent.getAction()) && state == SessionStatus.AWAITING_APPROVAL)
+                approvalAt = System.currentTimeMillis();
+            if (nativeTaskState == SessionStatus.RUNNING && System.currentTimeMillis() - approvalAt < 20000L)
+                state = SessionStatus.AWAITING_APPROVAL;
+            state = CoreTaskState.effective(nativeTaskState, nativeTaskAt, state, System.currentTimeMillis());
             boolean netOk = intent.getBooleanExtra(EXTRA_STATUS_NETWORK, true);
             String netLabel = intent.getStringExtra(EXTRA_STATUS_NETWORK_LABEL);
             long since = intent.getLongExtra(EXTRA_STATUS_SINCE, 0L);
             int connectionState = intent.getIntExtra(
                     EXTRA_CONNECTION_STATE, ConnectionRecovery.UNKNOWN);
+            lastNetworkOk = netOk;
+            lastNetworkLabel = netLabel == null ? "" : netLabel;
+            lastConnection = connectionState;
+            if (hasNativeTaskState()) since = nativeNotifier.startedAt();
 
             String title = SessionStatus.title(state,
                     System.currentTimeMillis() - since, connectionState);

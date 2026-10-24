@@ -60,6 +60,8 @@ try {
   }
   await rpc('workspace/create', {request: {path: project}});
   await rpc('settings/update', {ns: 'ui-settings-general', patch: {welcomeNoticeVersion: '2026-09-28.1'}});
+  const voiceEnabled = await rpc('pluginManager/setBundleEnabled', {name:'@deepseek-ai/dsh-experimental-voice-input-bundle',enabled:true});
+  check(voiceEnabled.application==='applied','voice bundle must activate');
   browser = await chromium.launch({headless: true});
   if (evidence) await fs.mkdir(evidence, {recursive: true});
   const scenarios = [
@@ -85,12 +87,17 @@ try {
       isMobile: true, hasTouch: true, deviceScaleFactor: scenario.dpr || 2, reducedMotion: 'reduce', colorScheme: scenario.theme,
       locale: scenario.lang === 'zh' ? 'zh-CN' : 'en-US'});
     try {
+      await context.addInitScript(() => {window.__dshNativeVoice=1;});
       await context.grantPermissions(['local-network-access'], {origin});
       await context.request.get(launch);
-      const page = await context.newPage(), logs = [], errors = [], nativeActions = [];
+      const page = await context.newPage(), logs = [], errors = [], nativeActions = [], voiceActions = [];
       currentPage = page;
       page.setDefaultTimeout(10000);
       page.on('console', m => {
+        if (m.text().startsWith('[dsh-voice] ')) {
+          const command=JSON.parse(m.text().slice('[dsh-voice] '.length));voiceActions.push({...command,url:m.location().url});
+          if(command.action==='check')page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'capabilities',available:true,permission:true}})),command.id).catch(()=>{});
+        }
         if (m.text().startsWith('[dsh-native] layout-probe ')) logs.push(m.text());
         if (m.text().startsWith('[dsh-native] open-settings')) nativeActions.push(m.text());
       });
@@ -132,6 +139,29 @@ try {
       check(await page.evaluate(() => document.documentElement.clientWidth) === Math.max(480, scenario.w), 'viewport floor changed');
       check(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), 'must exercise the coarse pointer CSS path');
       await square(send, 34, 'empty composer send');
+      const microphone=page.getByRole('button',{name:/^(Start Android voice input|开始语音输入)$/});
+      await microphone.waitFor();check(await microphone.isVisible(),'native voice entry mounted in real plugin slot');
+      await microphone.click();await page.locator('[data-native-voice]').waitFor();
+      for(let n=0;n<100&&!voiceActions.some(item=>item.action==='start');n++)await sleep(10);
+      const voiceId=voiceActions.filter(item=>item.action==='start').at(-1)?.id;check(!!voiceId,'real voice slot emits scoped start');
+      check(new URL(voiceActions.filter(item=>item.action==='start').at(-1).url).origin===origin,'voice command source must pass the native origin guard');
+      await noPageOverflow();
+      for(const action of await page.locator('[data-native-voice] button').all()){
+        const r=await size(action),v=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
+        check(r.x>=-.5&&r.x+r.width<=v.w+.5&&r.y>=-.5&&r.y+r.height<=v.h+.5,'active voice control clipped');
+      }
+      if(evidence)await page.screenshot({path:path.join(evidence,`${scenario.w}-${scenario.lang}-${scenario.theme}-voice-active.png`)});
+      if(scenario.w===320){
+        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'result',text:'SYNTHETIC-VOICE-DRAFT'}})),voiceId);
+        await page.waitForFunction(()=>document.querySelector('[data-composer-input]')?.textContent.includes('SYNTHETIC-VOICE-DRAFT'));
+        check(await microphone.isVisible(),'recognition returns to compact voice control');
+        await page.locator('[data-composer-input]').fill('');
+      }else{
+        await page.evaluate(id=>window.dispatchEvent(new CustomEvent('dsh-native-voice-result',{detail:{id,state:'error',error:9}})),voiceId);
+        await page.locator('[data-native-voice] [role=alert]').waitFor();await noPageOverflow();
+        await page.locator('[data-native-voice]').getByRole('button',{name:/^(Cancel|取消)$/}).click();
+      }
+
       const expandedSidebar = page.getByRole('button', {name: /^(Collapse sidebar|收起侧边栏)$/});
       if (await expandedSidebar.isVisible()) await expandedSidebar.click();
       await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), scenario.w >= 1000 ? 28 : 36, 'sidebar toggle');
