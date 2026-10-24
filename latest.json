@@ -1,11 +1,11 @@
 {
-  "version": "0.34.1",
-  "tag": "v0.34.1-bootstrap",
+  "version": "0.34.2",
+  "tag": "v0.34.2-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v13",
-  "notes": "0.34.1：修复内核运行包清单大小限制",
+  "notes": "0.34.2",
   "apk_bytes": 35364571,
   "payload_bytes": 150566054,
-  "sha256": "6fadc8b8cff47b9ba3907420da3527da42ef401b913f6f3710a8f8986c6aae88",
+  "sha256": "ede176f63f55fefdcf8f9d6b7375bb36a9797372bc0f79b768599d9d19c42428",
   "channel": "stable"
 }
