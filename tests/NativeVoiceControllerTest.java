@@ -17,10 +17,11 @@ public class NativeVoiceControllerTest {
     private static int checks;
     private static void check(boolean value, String message) { if (!value) throw new AssertionError(message); checks++; }
     private static class Host implements NativeVoiceController.Host {
-        boolean foreground = true;
+        boolean foreground = true, focused = true;
         final List<Map<?, ?>> events = new ArrayList<Map<?, ?>>();
         final List<String> logs = new ArrayList<String>();
         public boolean canListen() { return foreground; }
+        public boolean canStartRecording() { return foreground && focused; }
         public void event(String json) { events.add((Map<?, ?>) JsonValue.parse(json)); }
         public void diagnostic(String detail) { logs.add(detail); }
         Map<?, ?> last() { return events.get(events.size()-1); }
@@ -31,7 +32,8 @@ public class NativeVoiceControllerTest {
         final Host host = new Host();
         final NativeVoiceController voice = new NativeVoiceController(activity, host);
         Run() { Handler.reset(); SpeechRecognizer.reset(); Settings.Secure.selected = "synthetic/RecognitionService"; }
-        void command(String action) { voice.command(new VoiceUi.Command("test-1",action,"zh-CN")); }
+        void rawCommand(String action) { voice.command(new VoiceUi.Command("test-1",action,"zh-CN")); }
+        void command(String action) { rawCommand(action); if (action.startsWith("start")) Handler.advance(300); }
         SpeechRecognizer engine() { return SpeechRecognizer.created.get(SpeechRecognizer.created.size()-1); }
         void windowResult(int code, String text) {
             Intent data = new Intent("synthetic-result").putExtra(RecognizerIntent.EXTRA_RESULTS,new ArrayList<String>(Arrays.asList(text)));
@@ -66,15 +68,15 @@ public class NativeVoiceControllerTest {
         run.command("check");check(Boolean.FALSE.equals(run.host.last().get("available")),"no entry is not available");
         run.command("start");check(run.host.state("error")&&run.activity.windows==0,"no service never launches activity");
 
-        run = new Run();run.command("start");SpeechRecognizer first=run.engine();first.listener.onError(5);
+        run = new Run();run.command("start");SpeechRecognizer first=run.engine();first.listener.onReadyForSpeech(new Bundle());first.listener.onError(5);
         check(run.host.state("error"),"inline failure stays in panel");check(first.destroyed,"failed inline recognizer destroyed");
         Handler.advance(100000);check(run.activity.windows==0&&SpeechRecognizer.created.size()==1,"client failure has no popup or retry loop");
         before=run.host.events.size();first.listener.onResults(new Bundle());check(run.host.events.size()==before,"stale callback ignored");
         run.command("start-window");run.windowResult(Activity.RESULT_OK,"safe");check(run.host.state("result"),"manual window still works after inline failure");
 
         run = new Run();SpeechRecognizer.onDevice=true;run.command("start");first=run.engine();check(first.device,"auto prefers on-device");
-        first.listener.onError(5);Handler.advance(250);check(SpeechRecognizer.created.size()==2&&!run.engine().device,"on-device failure tries chosen inline service once");
-        run.engine().listener.onError(5);Handler.advance(250);check(run.host.state("error")&&run.activity.windows==0,"inline fallback never escalates to popup");
+        first.listener.onError(5);Handler.advance(500);check(SpeechRecognizer.created.size()==2&&!run.engine().device,"on-device failure tries chosen inline service once");
+        run.engine().listener.onReadyForSpeech(new Bundle());run.engine().listener.onError(5);Handler.advance(500);check(run.host.state("error")&&run.activity.windows==0,"inline fallback never escalates to popup");
         run = new Run();SpeechRecognizer.failStart=true;run.command("start");check(run.host.state("error")&&run.activity.windows==0,"start exception stays inline");
         check(run.voice.diagnostic().contains("IllegalStateException"),"exception class retained");
         run = new Run();SpeechRecognizer.failCreate=true;run.command("start");check(run.host.state("error")&&run.activity.windows==0,"creation exception stays inline");
@@ -96,8 +98,8 @@ public class NativeVoiceControllerTest {
         run = new Run();run.activity.permission=-1;run.command("start");run.voice.pause();
         check(run.host.state("permission")&&SpeechRecognizer.created.isEmpty(),"no recording before permission");
         run.voice.permissionResult(false);check(run.host.state("error")&&run.activity.windows==0,"permission denial does not open window");
-        run = new Run();run.activity.permission=-1;run.command("start");run.host.foreground=false;run.voice.permissionResult(true);
-        check(SpeechRecognizer.created.isEmpty(),"grant before resume cannot record");run.host.foreground=true;run.voice.resume();
+        run = new Run();run.activity.permission=-1;run.command("start");run.host.foreground=false;run.activity.permission=0;run.voice.permissionResult(true);
+        check(SpeechRecognizer.created.isEmpty(),"grant before resume cannot record");run.host.foreground=true;run.voice.resume();Handler.advance(300);
         check(SpeechRecognizer.created.size()==1,"starts after resume");run.voice.dispose();
 
         run = new Run();run.command("start-window");run.windowResult(RecognizerIntent.RESULT_CLIENT_ERROR,"");
@@ -121,6 +123,57 @@ public class NativeVoiceControllerTest {
         check(Boolean.TRUE.equals(run.host.last().get("inlineAvailable")),"inline capability is separate from window");
         check(((List<?>)run.host.last().get("engines")).size()==1,"settings list only public recognition services");
         run.voice.dispose();
+        run = new Run();run.activity.permission=-1;run.command("start");
+        run.host.focused=false;run.activity.permission=0;run.voice.permissionResult(true);
+        Handler.advance(500);check(SpeechRecognizer.created.isEmpty()&&run.host.state("foreground"),"grant while resumed without window focus cannot start recording");
+        run.voice.resume();Handler.advance(300);check(SpeechRecognizer.created.isEmpty(),"onResume alone does not prove microphone foreground");
+        run.host.focused=true;run.voice.resume();Handler.advance(200);check(SpeechRecognizer.created.isEmpty(),"focus must remain stable before creating recognizer");
+        Handler.advance(100);check(SpeechRecognizer.created.size()==1&&run.activity.permissionRequests==1,"permission return starts once without microphone warmup or repeated prompt");run.voice.dispose();
+
+        run = new Run();run.host.focused=false;run.rawCommand("start");Handler.advance(1000);
+        check(SpeechRecognizer.created.isEmpty()&&run.activity.permissionRequests==0,"already granted permission still waits for foreground focus");
+        run.host.focused=true;Handler.advance(200);run.host.focused=false;run.voice.resume();
+        run.host.focused=true;run.voice.resume();Handler.advance(200);check(SpeechRecognizer.created.isEmpty(),"brief focus loss resets readiness even between polls");
+        Handler.advance(100);check(SpeechRecognizer.created.size()==1,"focus flapping eventually starts only once");run.voice.dispose();
+        run = new Run();run.host.focused=false;run.rawCommand("start");Handler.advance(4100);
+        check(run.host.state("error")&&((Number)run.host.last().get("error")).intValue()==1002,"focus timeout is distinct from permission denial");
+        run.host.focused=true;run.voice.resume();Handler.advance(500);check(SpeechRecognizer.created.isEmpty(),"expired request never starts on a later return");
+        run = new Run();run.host.focused=false;run.rawCommand("start");run.command("cancel");run.host.focused=true;Handler.advance(5000);
+        check(SpeechRecognizer.created.isEmpty()&&run.host.state("cancelled"),"cancel removes pending foreground start");
+        run = new Run();run.host.focused=false;run.rawCommand("start");run.voice.dispose();run.host.focused=true;Handler.advance(5000);
+        check(SpeechRecognizer.created.isEmpty(),"dispose removes pending foreground start");
+        run = new Run();run.host.focused=false;run.rawCommand("start");run.host.foreground=false;run.voice.pause();run.host.foreground=true;run.host.focused=true;run.voice.resume();Handler.advance(5000);
+        check(SpeechRecognizer.created.isEmpty()&&run.host.state("cancelled"),"leaving App cancels ordinary foreground wait");
+        run = new Run();run.activity.permission=-1;run.command("start");run.activity.permission=0;run.host.focused=false;run.voice.permissionResult(true);
+        run.host.foreground=false;run.voice.pause();Handler.advance(4100);
+        run.host.foreground=true;run.host.focused=true;run.voice.resume();Handler.advance(300);
+        check(SpeechRecognizer.created.isEmpty()&&run.host.state("error"),"permission return cannot leave an unbounded background recording request");
+        run = new Run();run.activity.permission=-1;run.command("start");run.activity.permission=0;run.voice.permissionResult(true);run.activity.permission=-1;Handler.advance(300);
+        check(SpeechRecognizer.created.isEmpty()&&run.activity.permissionRequests==1&&((Number)run.host.last().get("error")).intValue()==9,"permission revoked before start is rechecked without repeated prompt");
+        run = new Run();run.command("start");first=run.engine();first.listener.onError(9);
+        check(first.destroyed&&run.host.state("foreground"),"pre-ready service permission error with actual grant gets bounded retry");
+        Handler.advance(750);check(SpeechRecognizer.created.size()==2,"retry recreates recognizer once after stable foreground");
+        before=run.host.events.size();first.listener.onReadyForSpeech(new Bundle());check(run.host.events.size()==before,"old retry generation cannot report ready");
+        run.engine().listener.onError(9);Handler.advance(10000);
+        check(SpeechRecognizer.created.size()==2&&run.host.state("error")&&run.activity.windows==0,"second permission error is terminal without popup or retry loop");
+        check(run.voice.diagnostic().contains("permission=true")&&run.voice.diagnostic().contains("startupRetried=true"),"diagnostic distinguishes OS grant, readiness and bounded retry");
+        run = new Run();run.command("start");run.engine().listener.onError(5);Handler.advance(750);
+        check(SpeechRecognizer.created.size()==2,"transient pre-ready client error also retries once");run.engine().listener.onReadyForSpeech(new Bundle());run.engine().listener.onError(5);Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==2&&run.host.state("error"),"post-ready failure never restarts recording");
+        run = new Run();SpeechRecognizer.onDevice=true;run.command("start");run.engine().listener.onReadyForSpeech(new Bundle());run.engine().listener.onError(5);Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("error"),"post-ready on-device failure cannot restart in a different engine");
+        run = new Run();SpeechRecognizer.onDevice=true;run.command("start");run.activity.permission=-1;run.engine().listener.onError(5);Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==1&&run.activity.permissionRequests==0,"revoked microphone permission prevents on-device fallback");
+        run = new Run();run.command("start");run.activity.permission=-1;run.engine().listener.onError(9);Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("error"),"actual permission denial never retries microphone");
+        run = new Run();run.command("start");run.engine().listener.onError(9);run.host.foreground=false;run.voice.pause();Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("cancelled"),"pause cancels delayed startup retry");
+        run = new Run();run.command("start");run.engine().listener.onError(9);run.command("cancel");Handler.advance(2000);
+        check(SpeechRecognizer.created.size()==1&&run.host.state("cancelled"),"user cancel prevents delayed startup retry");
+        run = new Run();run.host.focused=false;run.rawCommand("start-window");Handler.advance(200);
+        check(run.activity.windows==0,"explicit system window also waits for foreground readiness");
+        run.host.focused=true;Handler.advance(300);check(run.activity.windows==1,"explicit system window launches once when focus returns");run.voice.dispose();
+
         System.out.println("Native voice controller: "+checks+" routing/lifecycle checks passed (Android boundary fakes; no device/audio/ASR).");
     }
 }

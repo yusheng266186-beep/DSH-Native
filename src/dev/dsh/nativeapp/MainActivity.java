@@ -333,9 +333,11 @@ public class MainActivity extends Activity {
                         return true;
                     }
                     if (m.startsWith(VoiceUi.MARKER)) {
+                        VoiceUi.Command command = VoiceUi.parse(m);
                         if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())
-                                && WebUrl.isCoreUrl(cm.sourceId(), savedDshPort()) && inForeground)
-                            voiceController().command(VoiceUi.parse(m));
+                                && WebUrl.isCoreUrl(cm.sourceId(), savedDshPort()) && command != null
+                                && (inForeground || "cancel".equals(command.action)))
+                            voiceController().command(command);
                         return true;
                     }
                     // 手势入口：长按顶部区域打开设置（见注入脚本里的说明）
@@ -6800,6 +6802,9 @@ public class MainActivity extends Activity {
             @Override public boolean canListen() {
                 return inForeground && !isFinishing() && !isDestroyed() && WebUrl.isCoreUrl(viewUrl(), savedDshPort());
             }
+            @Override public boolean canStartRecording() {
+                return canListen() && hasWindowFocus() && webView != null && webView.isShown();
+            }
             @Override public void diagnostic(String detail) { log("语音识别: " + detail); }
             @Override public void event(String json) {
                 if (webView != null && WebUrl.isCoreUrl(viewUrl(), savedDshPort()))
@@ -7673,7 +7678,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.36.0\n");
+            w.write("APK 版本: 0.36.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7871,9 +7876,15 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (nativeVoice != null) nativeVoice.pause();
         inForeground = false;
+        if (nativeVoice != null) nativeVoice.pause();
         super.onPause();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (nativeVoice != null) nativeVoice.resume();
     }
 
     @Override

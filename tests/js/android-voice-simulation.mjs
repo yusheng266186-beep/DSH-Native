@@ -25,6 +25,7 @@ try{
  check(!!button('开始语音输入'),'late native bridge enables adapter');
  let id=await start();check(commands.at(-1).action==='start'&&active,'voice click starts exactly one scoped request');
  check(!button('结束并识别'),'starting phase cannot stop an unready recognizer');
+ await emit({id,state:'foreground'});check(document.body.textContent.includes('等待应用窗口')&&active&&!button('结束并识别'),'foreground wait keeps request active without recording controls');
  await emit({id,state:'fallback',error:5});check(document.body.textContent.includes('切换语音识别'),'client error fallback keeps request alive');
  await emit({id,state:'system-window'});check(document.body.textContent.includes('系统语音窗口')&&!button('结束并识别'),'system window keeps request without in-app stop');
  await emit({id,state:'listening'});check(document.body.textContent.includes('正在聆听'),'listening state shown');
@@ -39,7 +40,9 @@ try{
  check(document.querySelector('[data-native-transcript]').textContent==='保留的结果','conflicting transcript retained');
  await click('插入到当前光标');check(insertions===2&&draft.endsWith('保留的结果'),'explicit insert uses current cursor');
  id=await start();await click('取消');await emit({id,state:'result',text:'late'});check(insertions===2&&!active,'cancel rejects late result');
+ id=await start();await emit({id,state:'error',error:1002});check(document.body.textContent.includes('应用窗口尚未就绪')&&!!button('重试'),'foreground timeout offers retry without misreporting permission');await click('取消');
  id=await start();await emit({id,state:'error',error:9});check(document.body.textContent.includes('麦克风未授权'),'permission denial actionable');await click('取消');
+ id=await start();await emit({id,state:'error',error:9,permission:true});check(document.body.textContent.includes('App 已获麦克风授权')&&!document.body.textContent.includes('麦克风未授权'),'engine rejection does not misreport an existing App grant');await click('取消');
  id=await start();await emit({id,state:'error',error:5,windowAvailable:true});check(document.body.textContent.includes('启动或连接失败')&&!!button('系统语音设置'),'client error offers engine settings');
  check(!!button('使用系统语音'),'failed inline request offers explicit window action');await click('使用系统语音');
  check(commands.at(-1).action==='start-window','system activity requires user action');await click('取消');
