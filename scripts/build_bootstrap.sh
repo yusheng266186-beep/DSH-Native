@@ -78,7 +78,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js android-voice-ui.js runtime-environment.md runtime-checks.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
+for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js android-voice-ui.js android-bridge.cjs android-tools.cjs runtime-environment.md runtime-checks.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -179,7 +179,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelCatalogRefresh.java
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/LayoutProbe.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsCommands.java"
-PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/NativeBridgePolicy.java bootstrap/src/dev/dsh/nativeapp/NativeBridgeServer.java bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

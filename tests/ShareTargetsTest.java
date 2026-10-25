@@ -140,6 +140,8 @@ public class ShareTargetsTest {
                 !ShareTargets.isContained(root, new File(outside, "x")), "escaped");
 
         File credential = new File(root, ".credentials.yaml"); write(credential, "secret");
+        File nativeCredential = new File(root, ".native-bridge.json"); write(nativeCredential, "synthetic-token");
+        check("native bridge credential cannot be shared", !ShareTargets.isShareable(nativeCredential, allowed), "native descriptor exposed");
         check("credentials cannot be shared",
                 !ShareTargets.isShareable(credential, allowed), "secret exposed");
         File key = new File(root, "release.keystore"); write(key, "secret");

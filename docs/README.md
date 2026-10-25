@@ -1,7 +1,7 @@
 # 文档中心
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 先看 [项目状态与验证边界](STATUS.md)，再选择用户指南或技术文档。各文件顶部自动显示稳定发布、源码、运行包和固定内核；当前说明与历史记录使用不同标记。
@@ -80,3 +80,5 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 脚本同步全部项目 Markdown 的状态块、STATUS 发布事实表和模型固定快照表，并校验本地文件链接。正式发布还同步两份 README 的版本、下载地址、体积与 SHA-256。外部 URL 和历史研究结论不做自动刷新；需要更新研究时应重新核查并注明日期。
 
 `<!-- dsh-doc-status:start -->` 等标记之间属于生成区。修改功能正文仍需人工核对源码、更新中英文和验证边界；自动同步不会替代技术审阅。
+
+手机原生能力接入与使用：[Agent 原生功能](ANDROID_BRIDGE.md)。

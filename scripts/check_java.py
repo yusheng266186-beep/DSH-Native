@@ -26,7 +26,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PURE = ["CoreTaskState", "VoiceUi", "VoiceStartGate", "FsWritePatch", "ToolEnvironment", "CoreUpgrade", "FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier",
+PURE = ["NativeBridgePolicy", "NativeBridgeServer", "CoreTaskState", "VoiceUi", "VoiceStartGate", "FsWritePatch", "ToolEnvironment", "CoreUpgrade", "FileListing", "TextCodec", "Version", "CommandCodeUsage", "TaskNotifier",
         "TaskTimeline", "ConnectionRecovery", "DraftRecovery",
         "FileOps", "ConfigBackup", "ShareTargets", "PluginSpecs", "PayloadUpdate",
         "SessionStatus", "SessionProbe", "SessionRecovery", "ProcessSupervisor", "TransferState",

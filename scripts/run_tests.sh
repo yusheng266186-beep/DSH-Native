@@ -73,6 +73,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/CoreTaskState.java
      $JAVA_DIR/VoiceUi.java
      $JAVA_DIR/VoiceStartGate.java
+     $JAVA_DIR/NativeBridgePolicy.java
+     $JAVA_DIR/NativeBridgeServer.java
      $JAVA_DIR/FsWritePatch.java
      $JAVA_DIR/ToolEnvironment.java
      $JAVA_DIR/SessionPersistencePatch.java
@@ -141,6 +143,7 @@ TESTS="tests/FileListingTest.java
        tests/CoreTaskStateTest.java
        tests/VoiceUiTest.java
        tests/VoiceStartGateTest.java
+       tests/NativeBridgeTest.java
        tests/FsWritePatchTest.java
        tests/ToolEnvironmentTest.java
        tests/SessionPersistencePatchTest.java
@@ -194,7 +197,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
@@ -514,6 +517,7 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
+if ! python3 tests/check_native_bridge.py; then rc=1; fi
 
 # 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
 #

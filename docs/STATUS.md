@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,7 +16,7 @@
 | 稳定运行包 | `payload-v13` · 压缩总量 143.6 MiB |
 | APK SHA-256 | `3d42002f9d9264f07b0d8c4e8bc3a96c73fd401c3bf83f7010f77425040deab8` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `0.36.2` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `0.37.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v13` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
@@ -41,6 +41,14 @@
 | 发布与文档 | 同签名 CI 发布；本轮补全中英文 README、全部文档状态、模型表和链接校验 | [构建](BUILD.md)、[脚本](../scripts/README.md) |
 
 阶段一至五 G 的文档是各次实现与验收记录。其“候选”“暂不合并”“待发版”等描述属于当时的发布边界，不是当前主分支待办。不要把历史测试数字当作本版测试总量。
+
+## 0.37.0 的 agent 手机原生能力
+
+- 用户明确要求落实指南中的原生桥接。新增实际注册的 android 工具与 dsh-android 命令，支持剪贴板、通知、文字/文件分享、打开 HTTP(S)/文件/App、保活状态和单次授权截图；不再仅停留于环境说明或 App 界面操作。
+- HarnessService 托管随机端口回环 HTTP 与私有令牌，拒绝浏览器来源/未知方法/越界字段/不正确 Host；封闭文件导出范围并复用只读 content Provider。窗口动作校验前台，通知与状态可后台调用，分享选择器与实际送达分开报告。
+- 截图使用独立短期 mediaProjection 前台服务，每次系统授权、一次令牌/VirtualDisplay/PNG，尺寸有界、取消/断开/超时释放；不把普通网页或后台轮询变成隐式屏幕捕获。
+- APK 更新下发客户端/适配器，启动覆盖层加载实际插件，不改用户 profile、MCP、审批或 AGENTS.md；旧内核保留 CLI 并跳过不兼容工具插件。使用与限制见[原生能力说明](ANDROID_BRIDGE.md)。
+- 本地协议/策略/套接字 65 项、Android 原生动作边界 38 项、实际 ToolRuntime/Java HTTP/CLI/Web profile 消费 14 项通过；完整 JVM/脚本与 Android API 28 编译通过。完整 APK/布局/签名以本轮 CI/发布为准。未做真机剪贴板、外部 App 或截图验证，由用户安装调试。
 
 ## 0.36.2 的更新版环境指南复核
 

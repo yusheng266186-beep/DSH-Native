@@ -31,6 +31,7 @@ final class ToolEnvironment {
         fixed += wrapper(new File(owned, "node"), new File(root, "node"), null);
         fixed += wrapper(new File(owned, "npm"), new File(root, "node"), new File(tools, "lib/node_modules/npm/bin/npm-cli.js"));
         fixed += wrapper(new File(owned, "npx"), new File(root, "node"), new File(tools, "lib/node_modules/npm/bin/npx-cli.js"));
+        fixed += wrapper(new File(owned, "dsh-android"), new File(root, "node"), new File(root, "android-bridge.cjs"));
         File[] entries = bin.listFiles();
         if (entries == null) throw new IOException("Cannot inspect tool scripts");
         List<File> visited = new ArrayList<File>();
