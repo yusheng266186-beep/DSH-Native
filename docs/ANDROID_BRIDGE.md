@@ -1,7 +1,7 @@
 # Agent 调用手机原生功能
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.37.0 将手机原生能力接入 DSH：agent 可直接使用注册的 `android` 工具，也可在命令中使用 `dsh-android`。覆盖安装后，从更新与维护重启内核，让实际 DSH 进程加载新适配器；不需要另外配置 MCP 或安装 Termux。
@@ -25,6 +25,10 @@
 剪贴板、分享、打开及截图授权入口要求 DSH 窗口在前台并有焦点；不满足时返回 `FOREGROUND_REQUIRED`。通知和保活查询可在托管服务运行时后台调用。窗口前台判断不是系统对所有 ROM 的成功保证，真实服务拒绝仍返回错误。
 
 截图是单次系统 MediaProjection，不是后台连续监控；每次重新授权，不重用旧令牌。最长等待授权 90 秒，收到授权后等待图像上限 8 秒，长边最多 2048 像素且保持比例。取消、断开调用、停止服务与超时会释放请求、投影、ImageReader 和 VirtualDisplay；系统保护窗口可能无法捕获。生成图片位于私有运行目录 `native-captures/`，不加入普通诊断，是否提供给模型仍由该任务的工具调用决定。
+
+0.37.1 起每次授权使用独立请求编号，晚到的旧批准或拒绝均不影响新请求；本进程内不重用这些编号。正常截图在投影资源与服务排队工作清理后才返回。取消后旧服务尚未结束时，新调用返回 BUSY，可在清理结束后重新发起；不会提前弹出下一次授权。已取消且未交付的图片删除，先前成功交付的图片保留。完成请求的计时器移除，重复服务 Intent 不停止当前截图。
+
+帧数据允许缺少最后一行的尾部填充，但不能缺少真实像素；步长不合法、图像截断或初始化/旋转时内存不足会明确失败并释放。缓冲规则依据 [Image.Plane.getBuffer](https://developer.android.com/reference/android/media/Image.Plane#getBuffer())。
 
 平台依据：[Android 剪贴板](https://developer.android.com/develop/ui/views/touch-and-input/copy-paste)、[MediaProjection](https://developer.android.com/media/grow/media-projection)、[通知权限](https://developer.android.com/develop/ui/views/notifications/notification-permission)。
 
@@ -64,9 +68,10 @@ dsh-android screenshot
 | `FILE_NOT_ALLOWED` | 使用当前工作区中的常规产物文件，核对绝对路径及 32 MiB 上限 |
 | `APP_UNAVAILABLE` | 核对安装包名及是否存在启动入口 |
 | `CANCELLED` / `CAPTURE_TIMEOUT` | 如需截图，重新发起并在系统提示中授权 |
+| `BUSY` | 等当前截图或取消后的服务清理结束，再重新发起；每次仍需系统授权 |
 
 诊断报告的 Native capability bridge 只记录桥是否运行，不含端点令牌或操作正文。保持既有 package、targetSdk、签名和用户配置。
 
 ## 验证边界
 
-生产 Java HTTP/鉴权/文件策略与尺寸限制在 JVM 检查；Android clipboard/notification/Intent/授权协调器使用确定性 API 替身。实际 payload-v13 的 ToolRuntime、适配器、命令、Java HTTP server 与 Web profile 加载链有消费回归；并完成完整 Android Java/APK 构建。它们不能替代真实手机的剪贴板、分享目标或截图帧验收，按用户要求由用户安装验证。
+生产 Java HTTP/鉴权/文件策略与尺寸/帧缓冲限制在 JVM 检查；Android clipboard/notification/Intent/授权协调器及真实 NativeCaptureService 使用确定性 API 替身，图像编码同样是替身。实际 payload-v13 的 ToolRuntime、适配器、命令、Java HTTP server 与 Web profile 加载链有消费回归；并完成完整 Android Java/APK 构建。它们不能替代真实手机的剪贴板、分享目标或截图帧验收，按用户要求由用户安装验证。

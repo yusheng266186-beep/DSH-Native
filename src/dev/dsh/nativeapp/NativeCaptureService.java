@@ -15,6 +15,7 @@ import android.util.DisplayMetrics;
 import android.view.WindowManager;
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Short-lived foreground projection: one PNG, then release every capture resource. */
@@ -23,12 +24,15 @@ public final class NativeCaptureService extends Service {
     private final AtomicBoolean finished = new AtomicBoolean();
     private HandlerThread thread;
     private Handler worker;
-    private String requestId;
+    private volatile String requestId;
     private MediaProjection projection;
     private ImageReader reader;
     private VirtualDisplay display;
     private int density, width, height;
     private long frameAfter;
+    private Map<String, Object> result;
+    private File resultFile;
+    private String failureCode = "CANCELLED", failureMessage = "Capture service stopped";
 
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public void onCreate() {
@@ -42,7 +46,8 @@ public final class NativeCaptureService extends Service {
         });
     }
     @Override public int onStartCommand(final Intent intent, int flags, int startId) {
-        if (requestId != null || intent == null) { stopSelf(); return START_NOT_STICKY; }
+        if (requestId != null) return START_NOT_STICKY;
+        if (intent == null) { stopSelf(); return START_NOT_STICKY; }
         requestId = intent.getStringExtra("requestId");
         if (NativeScreenCapture.current(requestId) == null) { stopSelf(); return START_NOT_STICKY; }
         try {
@@ -80,6 +85,7 @@ public final class NativeCaptureService extends Service {
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, worker);
             worker.postDelayed(new Runnable() { @Override public void run() { finish("CAPTURE_TIMEOUT", "No screen frame received"); } }, 8000L);
         } catch (Exception unavailable) { finish("CAPTURE_UNAVAILABLE", "Android could not capture the selected screen"); }
+        catch (OutOfMemoryError limit) { finish("CAPTURE_TOO_LARGE", "Insufficient memory to prepare screen capture"); }
     }
     private ImageReader imageReader() {
         final ImageReader value = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
@@ -97,23 +103,19 @@ public final class NativeCaptureService extends Service {
             if (width == size[0] && height == size[1]) return;
             width = size[0]; height = size[1];
             ImageReader old = reader; reader = imageReader();
-            display.resize(width, height, density); display.setSurface(reader.getSurface()); old.close();
+            try { display.resize(width, height, density); display.setSurface(reader.getSurface()); }
+            finally { old.close(); }
         } catch (RuntimeException invalid) { finish("CAPTURE_UNAVAILABLE", "Screen size changed during capture"); }
+        catch (OutOfMemoryError limit) { finish("CAPTURE_TOO_LARGE", "Insufficient memory to resize screen capture"); }
     }
     private void frame(ImageReader available) {
-        Bitmap padded = null, cropped = null; File output = null; boolean saved = false;
+        Bitmap padded = null, cropped = null; File output = null; boolean retained = false;
         try (Image image = available.acquireLatestImage()) {
             if (image == null || SystemClock.uptimeMillis() < frameAfter || finished.get()) return;
             Image.Plane plane = image.getPlanes()[0];
-            int stride = plane.getPixelStride(), paddedWidth = plane.getRowStride() / Math.max(1, stride);
-            if (stride != 4 || paddedWidth < width || (long) paddedWidth * height > 6000000L)
-                throw new IOException("Unsupported frame layout");
-            ByteBuffer buffer = plane.getBuffer();
-            int bytes = paddedWidth * height * 4;
-            if (buffer.remaining() < bytes) {
-                ByteBuffer completeRows = ByteBuffer.allocate(bytes);
-                completeRows.put(buffer); completeRows.position(0); buffer = completeRows;
-            }
+            ByteBuffer buffer = NativeBridgePolicy.captureBuffer(plane.getBuffer(), width, height,
+                    plane.getRowStride(), plane.getPixelStride());
+            int paddedWidth = plane.getRowStride() / 4;
             padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888); padded.copyPixelsFromBuffer(buffer);
             cropped = Bitmap.createBitmap(padded, 0, 0, width, height);
             NativeScreenCapture.Request request = NativeScreenCapture.current(requestId);
@@ -126,21 +128,23 @@ public final class NativeCaptureService extends Service {
                 if (!cropped.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw new IOException("PNG save failed");
                 stream.getFD().sync();
             }
+            Map<String, Object> value = NativeBridgePolicy.object("path", output.getAbsolutePath(), "mimeType", "image/png",
+                    "width", width, "height", height, "bytes", output.length());
             if (!finished.compareAndSet(false, true)) return;
-            saved = NativeScreenCapture.complete(requestId, NativeBridgePolicy.object("path", output.getAbsolutePath(),
-                    "mimeType", "image/png", "width", width, "height", height, "bytes", output.length()));
+            result = value;
+            resultFile = output; retained = true;
             release();
         } catch (Exception failure) { finish("CAPTURE_UNAVAILABLE", "Could not save the captured frame"); }
         catch (OutOfMemoryError limit) { finish("CAPTURE_TOO_LARGE", "Insufficient memory to capture the selected screen"); }
         finally {
             if (cropped != null && cropped != padded) cropped.recycle();
             if (padded != null) padded.recycle();
-            if (!saved && output != null && output.exists() && !output.delete()) output.deleteOnExit();
+            if (!retained && output != null && output.exists() && !output.delete()) output.deleteOnExit();
         }
     }
     private void finish(String code, String message) {
         if (!finished.compareAndSet(false, true)) return;
-        NativeScreenCapture.fail(requestId, code, message); release();
+        failureCode = code; failureMessage = message; release();
     }
     private void release() {
         try { if (display != null) display.release(); }
@@ -151,12 +155,18 @@ public final class NativeCaptureService extends Service {
         finally { reader = null; }
         try { if (projection != null) { MediaProjection previous = projection; projection = null; previous.stop(); } }
         catch (RuntimeException stopped) { android.util.Log.w("DSHNative", "截图投影释放: " + stopped.getClass().getSimpleName()); }
-        stopForeground(true); stopSelf();
+        try { stopForeground(true); }
+        catch (RuntimeException stopped) { android.util.Log.w("DSHNative", "截图通知释放: " + stopped.getClass().getSimpleName()); }
+        finally { stopSelf(); }
     }
     @Override public void onDestroy() {
         if (current == this) current = null;
         worker.post(new Runnable() { @Override public void run() {
-            finish("CANCELLED", "Capture service stopped"); thread.quitSafely();
+            finish("CANCELLED", "Capture service stopped");
+            worker.removeCallbacksAndMessages(null);
+            boolean delivered = NativeScreenCapture.serviceFinished(requestId, result, failureCode, failureMessage);
+            if (!delivered && resultFile != null && resultFile.exists() && !resultFile.delete()) resultFile.deleteOnExit();
+            result = null; resultFile = null; thread.quitSafely();
         } });
         super.onDestroy();
     }
