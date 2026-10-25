@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.36.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.36.2**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -50,6 +50,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
 
 0.36.2 修复 `#!` 后空白的 shebang，并核对解释器实际目标仍在 tools 内。`runtime-checks.js` 通过真实 LocalFileSystem API 自检，在唯一临时目录中验证新建/读回/拒绝同名/按版本更新，只清理自己创建的目录。preflight 分别检查私有 tmp 与所选工作区；缓存键包含工作区，失败不缓存；旧 rc.2 明确跳过不支持的新版探针。可选 Python import 是 INFO，不能为了“全通过”自动装包或启用插件。新 helper 必须进入 APK assets 并随版本提取，实际运行包消费回归执行生产 helper 和 preflight 接线。
+
+0.37.0 原生桥由 HarnessService 创建/停止 NativeBridgeServer，Activity 只以弱引用绑定前台能力。纯协议/文件/尺寸规则在 NativeBridgePolicy；NativeBridge 在主线程复核窗口与权限，再执行 Android 调用；文件暂存不阻塞 UI。NativeScreenCapture 单请求授权协调，NativeCaptureService 独立 mediaProjection 类型，只取一帧，回调与资源必须幂等释放。HTTP 不给网页 CORS，不接受浏览器 Origin 或 Sec-Fetch，令牌文件不能进普通日志或分享。客户端/插件的 .cjs 也必须随 APK 更新；在 --profile 前加载 App 自有 insert patch，实际 ToolRuntime 与 Web profile 消费回归必须通过。见[原生能力说明](ANDROID_BRIDGE.md)。
 
 ### 模型目录与强度
 

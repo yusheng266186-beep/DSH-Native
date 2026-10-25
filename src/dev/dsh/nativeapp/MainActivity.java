@@ -1175,6 +1175,13 @@ public class MainActivity extends Activity {
         // --patch 是「启动器级」选项，必须排在 --profile 之前。
         // 实测放在 --profile 之后会报 unknown option 并导致 DSH 完全无法启动。
         enableOptionalPlugins(dshDir, root, dshCmd);
+        File nativePlugin = new File(root, "android-tools.cjs");
+        if (nativePlugin.isFile() && !CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) {
+            File nativePatch = new File(root, "cordis.android.yml");
+            writeText(nativePatch, PluginSpecs.buildPatchYaml(java.util.Collections.singletonList(nativePlugin.getAbsolutePath())));
+            dshCmd.add("--patch"); dshCmd.add(nativePatch.getAbsolutePath());
+            recordPatch("Android 原生能力", true, "agent 工具、私有本机桥与命令入口");
+        }
         dshCmd.add("--profile"); dshCmd.add("web");
         dshCmd.add("--no-open");
         dshCmd.add("--port"); dshCmd.add(String.valueOf(chosenPort));
@@ -2866,6 +2873,7 @@ public class MainActivity extends Activity {
                                     network[1], network[2], network[3], network[0], true))
                             .add("Notifications enabled", notifications)
                             .add("Native task source", HarnessService.taskDiagnostic())
+                            .add("Native capability bridge", HarnessService.nativeBridgeDiagnostic())
                             .add("Voice input", nativeVoice == null ? "not used" : nativeVoice.diagnostic())
                             .add("Maintenance operation", maintenanceGate.active() == null
                                     ? "none" : maintenanceGate.active())
@@ -4920,6 +4928,7 @@ public class MainActivity extends Activity {
                 + "• 中文文本乱码时，先用 chardet 探测编码\n"
                 + "• 图片直接在对话里发即可\n\n"
                 + "Android 环境说明：" + new File(appRoot != null ? appRoot : getFilesDir(), "runtime-environment.md").getAbsolutePath() + "\n\n"
+                + "手机原生功能：agent 的 android 工具或 dsh-android --help；剪贴板、分享、打开与单次授权截图。\n\n"
                 + "路径：" + dir.getAbsolutePath() + "\n";
         try {
             if (readme.exists()) {
@@ -6539,6 +6548,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode,
                                     android.content.Intent data) {
+        if (requestCode == NativeScreenCapture.REQUEST_CAPTURE) {
+            NativeScreenCapture.activityResult(this, resultCode, data); return;
+        }
         if (requestCode == NativeVoiceController.REQUEST_SYSTEM_VOICE) {
             if (nativeVoice != null) nativeVoice.activityResult(resultCode, data);
             return;
@@ -7409,7 +7421,7 @@ public class MainActivity extends Activity {
 
     /** 小文件（脚本、证书）直接重写，不做摘要比对 —— 比对本身也要读一遍。 */
     private static boolean isSmallAsset(String rel) {
-        return rel.endsWith(".js") || rel.endsWith(".py") || rel.endsWith(".crt")
+        return rel.endsWith(".js") || rel.endsWith(".cjs") || rel.endsWith(".py") || rel.endsWith(".crt")
                 || rel.endsWith(".json") || rel.endsWith(".txt") || rel.endsWith(".sh");
     }
 
@@ -7680,7 +7692,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.36.2\n");
+            w.write("APK 版本: 0.37.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7873,6 +7885,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
+        NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
     }
 
@@ -7887,6 +7900,13 @@ public class MainActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (nativeVoice != null) nativeVoice.resume();
+    }
+
+    boolean nativeBridgeForeground() {
+        return inForeground && hasWindowFocus() && !isFinishing() && !isDestroyed();
+    }
+    File nativeBridgeWorkspace() {
+        return workspace != null ? workspace : new File(getFilesDir(), "dsh/workspace");
     }
 
     @Override
@@ -8319,6 +8339,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        NativeBridge.detach(this);
         if (nativeVoice != null) nativeVoice.dispose();
         stopSplashAnimation();
         android.app.Dialog exiting = exitDialog;

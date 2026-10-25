@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.36.2**; source: **0.36.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.36.2**; source: **0.37.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -27,6 +27,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.36.1 waits for stable foreground window focus after microphone permission returns and checks permission again before recording. Transient pre-recording service errors retry at most once. The in-page voice panel remains; install over the existing App and restart the core. No microphone warmup is needed.
 
 0.36.2 handles whitespace after shebang markers in managed Python scripts and checks actual file-tool creation, reading, collision protection and versioned updates in the private runtime and selected workspace. Startup diagnostics also report optional Python imports. Install over the existing App and restart the core.
+
+0.37.0 adds an actual Android tool and dsh-android CLI for clipboard text, notifications, share sheets, opening links/files/apps, keepalive status and a one-shot screenshot with fresh system consent. Restart the core after installing. See the [native capability guide](docs/ANDROID_BRIDGE.md) (Chinese).
 
 <!-- project-navigation:start -->
 ## Project overview

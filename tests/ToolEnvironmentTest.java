@@ -56,6 +56,10 @@ public class ToolEnvironmentTest {
             check(ToolEnvironment.shebang("print('not a script')",root.toFile()).equals("print('not a script')"));
             Files.createSymbolicLink(root.resolve("tools/bin/python-custom"),root.resolve("outside"));
             check(ToolEnvironment.shebang("#! /usr/bin/python-custom",root.toFile()).equals("#! /usr/bin/python-custom"));
+            write(root.resolve("android-bridge.cjs"),"// synthetic native client\n");
+            check(ToolEnvironment.repair(root.toFile())==1);
+            check(new String(Files.readAllBytes(root.resolve(".native-bin/dsh-android")),StandardCharsets.UTF_8).contains("android-bridge.cjs' \"$@\""));
+            check(ToolEnvironment.repair(root.toFile())==0);
             System.out.println("TOTAL: "+checks+" pass / 0 fail");
         } finally { try(java.util.stream.Stream<Path> paths=Files.walk(root)){paths.sorted(Comparator.reverseOrder()).forEach(path->{try{Files.delete(path);}catch(Exception error){throw new RuntimeException(error);}});} }
     }

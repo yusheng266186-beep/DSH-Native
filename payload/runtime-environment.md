@@ -11,7 +11,10 @@
 - 新建文件使用保留同名文件保护的 Android 兼容路径；原始 `ln` 失败不能证明文件工具不可用。可运行 `node "$HOME/runtime-checks.js" "$HOME/dsh" "$PWD"` 复查当前目录的新建、读取、同名保护和按版本更新；只写自己创建的临时目录。不要预删目标或先 touch 来绕过保护。
 - 启动日志列出可选 Python 库的实际 import 结果；pip 包数量不等于可用能力。docx/pptx 需要 lxml 等兼容依赖，不保证纯 Python 安装；缺可选包不是启动错误。
 - Node 支持可擦除类型的 TypeScript 脚本；完整类型检查和项目构建仍按项目依赖与锁文件处理。
-- `am`、`cmd clipboard` 等系统命令不具备 shell/root 身份；不能据此声称已经操作其他 App 或获取系统剪贴板。
+- 手机原生操作使用已注册的 `android` 工具，或 `dsh-android METHOD [JSON]`；先调用 capabilities。支持 clipboard.get/set、notification.post、share.text/file、url.open、file.open、app.open、keepalive.status、screenshot。`am`/`cmd` 不因此获得 shell/root 身份。
+- 剪贴板/分享/打开需要 DSH 窗口在前台。分享只打开系统选择器，不代表已经发送。文件仅当前工作区或 native-captures 的常规产物，最多32 MiB；凭据、私钥、配置目录等不导出。
+- screenshot 每次弹出 Android 系统授权，成功返回单张私有 PNG 路径后停止，不重复使用令牌、不连续监控。只有拿到实际图片才能描述屏幕内容。不要轮询剪贴板或把其正文加入普通日志。
+- dsh-android 参数可用 `-` 从 stdin 读 JSON；私有桥令牌由客户端读取，不要查看、复制或输出 `.native-bridge.json`。
 - 通知栏任务状态由原生服务通过认证本机 RPC 获取。查询失败显示未知/同步中，不能当成任务已完成。
 - 语音输入默认在 DSH 页面内连接手机公开识别服务，临时文字只预览、最终结果填草稿。插件详情可检测/选择引擎；“使用系统语音”才会打开外部窗口。识别服务可能联网，语言与离线能力取决于已安装服务，仅提供外部窗口的服务不能在 DSH 内换肤。
 - 凭据、会话历史和用户配置在私有 `.dsh` 下；不应把它们加入代码仓库、普通日志或公开诊断正文。

@@ -147,7 +147,7 @@ final class ShareTargets {
 
     private static boolean isSensitiveName(String name) {
         String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
-        return n.equals(".credentials.yaml") || n.equals(".env")
+        return n.equals(".native-bridge.json") || n.equals(".credentials.yaml") || n.equals(".env")
                 || n.equals(".npmrc") || n.equals("id_rsa") || n.equals("id_ed25519")
                 || n.endsWith(".keystore") || n.endsWith(".jks") || n.endsWith(".p12")
                 || n.endsWith(".pem") || n.endsWith(".key");

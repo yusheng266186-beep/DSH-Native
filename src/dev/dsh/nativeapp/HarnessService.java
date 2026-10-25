@@ -168,6 +168,8 @@ public class HarnessService extends Service {
     public void onCreate() {
         super.onCreate();
         createChannel();
+        try { nativeBridge = new NativeBridge(this); nativeBridgeReady = true; }
+        catch (IOException unavailable) { Log.w(TAG, "原生能力桥启动失败: " + unavailable.getClass().getSimpleName()); }
         monitor.scheduleWithFixedDelay(new Runnable() {
             @Override public void run() { pollCoreTasks(); }
         }, 1, 3, TimeUnit.SECONDS);
@@ -208,6 +210,19 @@ public class HarnessService extends Service {
     }
 
     private boolean foregroundStarted;
+    private NativeBridge nativeBridge;
+
+    Object nativeKeepaliveStatus() {
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        return NativeBridgePolicy.object("foregroundService", foregroundStarted, "processAlive", isManagedProcessAlive(),
+                "taskState", SessionStatus.label(diagnosticTaskState), "taskStateFresh", hasNativeTaskState(),
+                "wakeLockHeld", taskWakeLock != null && taskWakeLock.isHeld(),
+                "batteryOptimizationIgnored", Build.VERSION.SDK_INT < 23
+                    || (power != null && power.isIgnoringBatteryOptimizations(getPackageName())));
+    }
+
+    private static volatile boolean nativeBridgeReady;
+    static String nativeBridgeDiagnostic() { return nativeBridgeReady ? "loopback ready; authenticated; per-request capture consent" : "not running"; }
 
     private void ensureForegroundNotification() {
         if (foregroundStarted) return;
@@ -347,6 +362,8 @@ public class HarnessService extends Service {
     }
 
     private void closeMonitor() {
+        nativeBridgeReady = false;
+        if (nativeBridge != null) { nativeBridge.close(); nativeBridge = null; }
         monitorClosed = true;
         nativeTaskAt = 0L;
         CoreRpcClient client = taskClient;

@@ -109,6 +109,7 @@ ATTR_IDS = {
     "label": 0x01010001,
     "icon": 0x01010002,
     "name": 0x01010003,
+    "foregroundServiceType": 16844185,
     "hasCode": 0x0101000c,
     "exported": 0x01010010,
     "configChanges": 0x0101001f,
@@ -174,7 +175,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("0.36.2"))],
+              (A, "versionName", s("0.37.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -194,6 +195,8 @@ def manifest_tree():
                    # 前台服务：让 agent 在后台/锁屏时继续运行，不被系统冻结
                  E("uses-permission",
                    [(A, "name", s("android.permission.FOREGROUND_SERVICE"))]),
+                 E("uses-permission",
+                   [(A, "name", s("android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"))]),
                  E("uses-permission",
                    [(A, "name", s("android.permission.WAKE_LOCK"))]),
                  E("uses-permission",
@@ -258,6 +261,10 @@ def manifest_tree():
                      [(A, "name", s("dev.dsh.nativeapp.HarnessService")),
                       (A, "exported", boolean(False))],
                      []),
+                   E("service",
+                     [(A, "name", s("dev.dsh.nativeapp.NativeCaptureService")),
+                      (A, "foregroundServiceType", hx(32)),
+                      (A, "exported", boolean(False))], []),
                    # 更新包以 content:// 交给系统安装器（API 24+ 禁止 file:// 跨应用传递）
                    E("provider",
                      [(A, "name", s("dev.dsh.nativeapp.UpdateProvider")),
