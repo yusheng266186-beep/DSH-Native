@@ -46,13 +46,21 @@ public class NativeBridgeAndroidTest {
    service.clipboard.value=ClipData.newPlainText("oversized",new String(new char[16001]).replace('\0','x'));denied(bridge,"clipboard.get","TEXT_TOO_LONG");
    NativeScreenCapture.Request request=NativeScreenCapture.request(ui,service.getFilesDir());check(ui.lastIntent.action.equals("system-capture-consent")&&!request.result.isDone(),"screen capture first requests Android consent");
    try{NativeScreenCapture.request(ui,service.getFilesDir());throw new AssertionError();}catch(NativeBridgeServer.Failure busy){check(busy.code.equals("BUSY"),"one capture request at a time");}
-   NativeScreenCapture.activityResult(new Activity(),Activity.RESULT_OK,new Intent("unrelated"));check(!request.authorized,"unrelated Activity cannot authorize capture");
-   NativeScreenCapture.activityResult(ui,Activity.RESULT_CANCELED,null);check(request.result.isCompletedExceptionally(),"denial completes pending capture");
-   request=NativeScreenCapture.request(ui,service.getFilesDir());NativeScreenCapture.activityResult(ui,Activity.RESULT_OK,new Intent("synthetic-grant"));
+   NativeScreenCapture.activityResult(new Activity(),request.requestCode,Activity.RESULT_OK,new Intent("unrelated"));check(!request.authorized,"unrelated Activity cannot authorize capture");
+   NativeScreenCapture.activityResult(ui,request.requestCode,Activity.RESULT_CANCELED,null);check(request.result.isCompletedExceptionally(),"denial completes pending capture");
+   request=NativeScreenCapture.request(ui,service.getFilesDir());int cancelledCode=request.requestCode;
+   NativeScreenCapture.fail(request.id,"CANCELLED","caller cancelled before system result");
+   check(request.result.isCompletedExceptionally()&&request.deadline==null,"caller cancellation releases pending authorization and deadline");
+   request=NativeScreenCapture.request(ui,service.getFilesDir());NativeScreenCapture.activityResult(ui,cancelledCode,Activity.RESULT_OK,new Intent("late-grant-from-cancelled-request"));
+   check(!request.authorized,"cancelled request permission must not authorize a new screenshot");
+   NativeScreenCapture.activityResult(ui,cancelledCode,Activity.RESULT_CANCELED,null);
+   check(!request.result.isDone(),"late cancellation cannot cancel a new screenshot");
+   NativeScreenCapture.activityResult(ui,request.requestCode,Activity.RESULT_OK,new Intent("synthetic-grant"));
    check(request.authorized&&ui.lastService.action.equals("NativeCaptureService"),"authorized result launches capture foreground service");
-   Intent first=ui.lastService;NativeScreenCapture.activityResult(ui,Activity.RESULT_OK,new Intent("reused-grant"));check(ui.lastService==first,"permission token cannot start twice");
-   NativeScreenCapture.complete(request.id,NativeBridgePolicy.object("path","synthetic.png"));check(request.result.get().get("path").equals("synthetic.png"),"capture result returned once");
-   NativeScreenCapture.activityResult(ui,Activity.RESULT_OK,new Intent("late"));check(ui.lastService==first,"late permission callback ignored");
+   Intent first=ui.lastService;NativeScreenCapture.activityResult(ui,request.requestCode,Activity.RESULT_OK,new Intent("reused-grant"));check(ui.lastService==first,"permission token cannot start twice");
+   NativeScreenCapture.serviceFinished(request.id,NativeBridgePolicy.object("path","synthetic.png"),null,null);check(request.result.get().get("path").equals("synthetic.png"),"capture result returned once");
+   check(request.deadline==null,"successful capture releases authorization timeout");
+   NativeScreenCapture.activityResult(ui,request.requestCode,Activity.RESULT_OK,new Intent("late"));check(ui.lastService==first,"late permission callback ignored");
    request=NativeScreenCapture.request(ui,service.getFilesDir());NativeBridge.detach(ui);check(request.result.isCompletedExceptionally(),"Activity destruction cancels pending authorization");
    NativeBridge.attach(ui);request=NativeScreenCapture.request(ui,service.getFilesDir());bridge.close();bridge=null;check(request.result.isCompletedExceptionally(),"bridge stop cancels pending capture");
    System.out.println("Native Android actions: "+checks+" foreground, clipboard, notification, sharing, intents, authorization and lifecycle checks passed (Android API fakes; no device).");

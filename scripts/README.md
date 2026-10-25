@@ -1,7 +1,7 @@
 # 构建、发布与维护脚本
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录服务于仓库开发、Linux CI 和正式发布。用户运行 App 不需要这里的开发工具。完整流程见 [BUILD](../docs/BUILD.md)，当前版本事实见 [STATUS](../docs/STATUS.md)。
@@ -98,3 +98,5 @@ python3 scripts/sync_project_metadata.py --check
 0.36.2 的 `runtime-checks.js` 随 APK 下发，在私有 tmp / 当前工作区检查实际 LocalFileSystem API；`runtime-environment-consumer.mjs` 在校验后的真实运行包上验证链接拒绝、保护、失败和清理，并执行生产 preflight（工具命令/网络边界替身）。它不安装包、不读用户会话，也不等于手机测试。
 
 0.37.0 的 NativeBridgeTest 执行生产协议/文件策略/HTTP server；check_native_bridge.py 执行生产 NativeBridge/NativeScreenCapture 与 Android API 替身。真实运行包检查额外执行 android-bridge-consumer.mjs：实际 ToolRuntime、APK 插件/客户端、Java server、CLI 和 Web profile 插件加载。不访问用户手机、剪贴板、通知或真实截图。
+
+0.37.1 的 check_native_bridge.py 也编译执行真实 NativeCaptureService，通过 NativeCaptureServiceTest 检查销毁后交付、取消与服务启动竞争、重复 Intent、旋转、系统停止、内存失败和计时器/图像资源释放。Android API/编码器是替身；NativeBridgePolicy 的 ByteBuffer 校验直接执行 JVM 实现。没有真机捕获或真实 PNG 证据。

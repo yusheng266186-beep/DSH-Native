@@ -3,6 +3,7 @@ package dev.dsh.nativeapp;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,6 +82,21 @@ final class NativeBridgePolicy {
             throw new IllegalArgumentException("Invalid capture dimensions");
         double scale = Math.min(1.0, 2048.0 / Math.max(width, height));
         return new int[] {Math.max(1, (int) (width * scale)), Math.max(1, (int) (height * scale))};
+    }
+
+    static ByteBuffer captureBuffer(ByteBuffer input, int width, int height, int rowStride, int pixelStride) {
+        long bytes = (long) rowStride * height;
+        long required = (long) (height - 1) * rowStride + (long) width * 4;
+        if (input == null || width < 1 || height < 1 || pixelStride != 4 || rowStride < (long) width * 4
+                || rowStride % 4 != 0 || bytes > 24000000L || input.remaining() < required)
+            throw new IllegalArgumentException("Unsupported or incomplete screen frame");
+        ByteBuffer source = input.duplicate();
+        if (source.remaining() >= bytes) {
+            source.limit(source.position() + (int) bytes); return source.slice();
+        }
+        // Android may omit only the final row's trailing padding, never its visible pixels.
+        ByteBuffer padded = ByteBuffer.allocate((int) bytes);
+        padded.put(source); padded.position(0); return padded;
     }
 
     static String json(Object value) {

@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.0**；源码：**0.37.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -29,6 +29,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.36.2 根据更新后的环境指南补齐带空格的 Python 解释器修复，并用真实文件工具检查私有目录和工作区的新建、读取、同名保护与更新；自检增加可选 Python 库的实际导入结果。覆盖安装后重启内核，详见[环境指南复核](docs/ENVIRONMENT_UPGRADE.md)。
 
 0.37.0 将手机原生功能真正接入 agent：剪贴板读写、通知、文字/文件分享、打开链接/文件/App、保活状态与每次系统授权的单张截图。安装后重启内核即可使用 android 工具或 dsh-android 命令，见[原生能力说明](docs/ANDROID_BRIDGE.md)。
+
+0.37.1 完善截图的连续调用与取消处理：旧授权回调不再串入新请求，资源释放后才返回图片，清除完成后的计时器；补齐旋转、低内存和截断帧处理。覆盖安装后重启内核，其他原生工具继续保留。
 
 <!-- project-navigation:start -->
 ## 项目概览
