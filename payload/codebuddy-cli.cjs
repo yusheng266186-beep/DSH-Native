@@ -9,6 +9,59 @@ const {execFile}=require('node:child_process');
 const {promisify}=require('node:util');
 const run=promisify(execFile);
 let prepared;
+let warm;
+function clearWarm(){
+ const entry=warm;warm=undefined;if(!entry)return;
+ clearTimeout(entry.timer);entry.session.close();void entry.server?.close().catch(()=>{});
+}
+function hostServer(sdk,declarations){
+ if(!declarations.length)return;
+ const {Server}=sdk.requireSdk('@modelcontextprotocol/sdk/server/index.js'),{ListToolsRequestSchema,CallToolRequestSchema}=sdk.requireSdk('@modelcontextprotocol/sdk/types.js');
+ const server=new Server({name:'DSH host tools',version:'1.0.0'},{capabilities:{tools:{}}});
+ server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:declarations}));
+ // Only DSH executes host tools. Even a late CLI invocation has no side effect.
+ server.setRequestHandler(CallToolRequestSchema,async()=>({isError:true,content:[{type:'text',text:'Host tools must be executed by DSH.'}]}));
+ return server;
+}
+function waitFor(promise,signal){
+ return new Promise((resolve,reject)=>{
+  const finish=(settle,value)=>{signal.removeEventListener('abort',abort);settle(value);},abort=()=>finish(reject,new Error('ABORTED'));
+  signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
+  Promise.resolve(promise).then(value=>finish(resolve,value),error=>finish(reject,error));
+ });
+}
+async function* sessionQuery(sdk,args){
+ const {abortController,...settings}=args.options;
+ const signature=crypto.createHash('sha256').update(JSON.stringify({...settings,mcpServers:undefined,hostTools:args.hostTools})).digest('hex');
+ let entry=warm,session,server,toolsRequested=false;
+ if(entry?.signature===signature){warm=undefined;clearTimeout(entry.timer);session=entry.session;server=entry.server;}
+ else{clearWarm();entry=undefined;}
+ const cancelled=()=>session?.close();abortController.signal.addEventListener('abort',cancelled,{once:true});
+ try{
+  if(abortController.signal.aborted)throw new Error('ABORTED');
+  if(entry){try{await waitFor(entry.ready,abortController.signal);}catch(error){session.close();await server?.close();session=undefined;server=undefined;if(abortController.signal.aborted)throw error;}}
+  if(!session){server=settings.mcpServers.dsh?.instance;session=sdk.unstable_v2_createSession(settings);}
+  if(abortController.signal.aborted)throw new Error('ABORTED');
+  for await(const message of args.prompt)await session.send(message);
+  for await(const message of session.stream()){
+   if(message.type==='assistant')toolsRequested=(message.message?.content||[]).some(block=>block.type==='tool_use'&&args.hostTools.some(tool=>'mcp__dsh__'+tool.name===block.name));
+   yield message;
+  }
+ }finally{
+  abortController.signal.removeEventListener('abort',cancelled);session?.close();await server?.close().catch(()=>{});
+  if(toolsRequested&&!abortController.signal.aborted){
+   let nextServer;
+   try{
+    clearWarm();nextServer=hostServer(sdk,args.hostTools);const next=sdk.unstable_v2_createSession({...settings,mcpServers:nextServer?{dsh:{type:'sdk',name:'dsh',instance:nextServer}}:{}});
+    const candidate={signature,session:next,server:nextServer};warm=candidate;
+    // Boot only: no user prompt or model call. Each claimed session is fresh,
+    // so conversations, credentials and tool results cannot be carried across.
+    candidate.ready=next.connect().then(()=>next.getAvailableModes()).then(()=>{}).catch(error=>{if(warm===candidate)clearWarm();throw error;});candidate.ready.catch(()=>{});
+    candidate.timer=setTimeout(()=>{if(warm===candidate)clearWarm();},10000);candidate.timer.unref?.();
+   }catch{clearWarm();await nextServer?.close().catch(()=>{});} // Preparation must never replace a completed tool request with an error.
+  }
+ }
+}
 async function prepare(root=__dirname){
  if(prepared)return prepared;
  prepared=(async()=>{
@@ -32,7 +85,7 @@ async function prepare(root=__dirname){
    }finally{await fsp.rm(temp,{recursive:true,force:true});}
   }
   const requireSdk=createRequire(path.join(target,'package.json'));
-  return {requireSdk,...requireSdk('@tencent-ai/agent-sdk')};
+  const sdk={requireSdk,...requireSdk('@tencent-ai/agent-sdk')};return {...sdk,query:args=>sessionQuery(sdk,args)};
  })();
  try{return await prepared;}catch(error){prepared=undefined;throw error;}
 }
@@ -53,7 +106,7 @@ function requestPrompt(context){
 function failure(error,aborted){
  const text=String(error?.message||error);
  const code=aborted?'ABORTED':/401|unauthorized|authentication/i.test(text)?'INVALID_CREDENTIAL':/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)?'CONTEXT_WINDOW_EXCEEDED':/quota|credit/i.test(text)?'QUOTA':'CODEBUDDY_CLI_ERROR';
- return {kind:aborted?'aborted':'error',failure:{code,message:aborted?'CodeBuddy CLI request cancelled.':/11128|unapproved channel/i.test(text)?'CodeBuddy rejected this request channel (11128). The official CLI also refused it.':/401|unauthorized|authentication/i.test(text)?'CodeBuddy CLI authentication failed. Check the API key and its region.':/429|quota|credit/i.test(text)?'CodeBuddy CLI is rate limited or has no remaining quota.':/CODEBUDDY_BUNDLE_SPACE/.test(text)?'CodeBuddy CLI needs about 300 MiB of free app storage for its first setup.':/CODEBUDDY_BUNDLE/.test(text)?'The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.':'CodeBuddy CLI failed. No host tool was executed by the CLI.'}};
+ return {kind:aborted?'aborted':'error',failure:{code,message:aborted?'CodeBuddy CLI request cancelled.':/11128|unapproved channel/i.test(text)?'CodeBuddy rejected this request channel (11128). The official CLI also refused it.':/401|unauthorized|authentication/i.test(text)?'CodeBuddy CLI authentication failed. Check the API key and its region.':/429|quota|credit/i.test(text)?'CodeBuddy CLI is rate limited or has no remaining quota.':/CODEBUDDY_BUNDLE_SPACE/.test(text)?'CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.':/CODEBUDDY_BUNDLE/.test(text)?'The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.':'CodeBuddy CLI failed. No host tool was executed by the CLI.'}};
 }
 function usage(value={}){
  return {inputTokens:Number(value.input_tokens)||0,outputTokens:Number(value.output_tokens)||0,cacheReadTokens:Number(value.cache_read_input_tokens)||0,cacheWriteTokens:Number(value.cache_creation_input_tokens)||0};
@@ -66,26 +119,20 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
  try{
   if(controller.signal.aborted)throw new Error('ABORTED');
   if(typeof apiKey!=='string'||!apiKey.trim())throw new Error('Authentication missing');
-  const sdk=await prepare(root),{Server}=sdk.requireSdk('@modelcontextprotocol/sdk/server/index.js'),{ListToolsRequestSchema,CallToolRequestSchema}=sdk.requireSdk('@modelcontextprotocol/sdk/types.js');
+  const sdk=await prepare(root);
   const tools=context.tools||[],names=new Map();
   const declarations=tools.map((tool,index)=>{const name='tool_'+index+'_'+tool.name.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,32);names.set('mcp__dsh__'+name,tool.name);return {name,description:tool.name+': '+tool.description,inputSchema:tool.parameters};});
-  if(declarations.length){
-   server=new Server({name:'DSH host tools',version:'1.0.0'},{capabilities:{tools:{}}});
-   server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:declarations}));
-   // Never execute a DSH tool inside the CLI. The complete tool request is
-   // returned to the DSH loop before the SDK's execution phase can begin.
-   server.setRequestHandler(CallToolRequestSchema,async()=>({isError:true,content:[{type:'text',text:'Host tools must be executed by DSH.'}]}));
-  }
+  server=hostServer(sdk,declarations);
   const home=path.join(fs.realpathSync(root),'.codebuddy-home');await fsp.mkdir(home,{recursive:true,mode:0o700});
   if(controller.signal.aborted)throw new Error('ABORTED');
   const prompt=requestPrompt(context);
   async function* input(){yield {type:'user',session_id:'',parent_tool_use_id:null,message:{role:'user',content:prompt}};}
-  query=sdk.query({prompt:input(),options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
+  query=sdk.query({prompt:input(),hostTools:declarations,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
    // CodeBuddy CLI owns the agent persona. DSH's assembled model persona is
    // not used as a replacement CLI system prompt. Auxiliary tasks retain their instructions.
    systemPrompt:options.purpose&&context.systemPrompt?{append:context.systemPrompt}:undefined,
    tools:[],mcpServers:server?{dsh:{type:'sdk',name:'dsh',instance:server}}:{},maxTurns:1,persistSession:false,settingSources:[],strictMcpConfig:true,includePartialMessages:true,abortController:controller,
-   executable:process.execPath,cwd:process.cwd(),environment:'internal',env:{HOME:home,CODEBUDDY_API_KEY:apiKey,CODEBUDDY_AUTH_TOKEN:undefined,CODEBUDDY_BASE_URL:undefined,CODEBUDDY_CUSTOM_HEADERS:undefined,CODEBUDDY_INTERNET_ENVIRONMENT:'internal'},stderr:()=>{}}});
+   executable:process.execPath,cwd:process.cwd(),environment:'internal',env:{HOME:home,NODE_COMPILE_CACHE:path.join(home,'compile-cache'),CODEBUDDY_API_KEY:apiKey,CODEBUDDY_AUTH_TOKEN:undefined,CODEBUDDY_BASE_URL:undefined,CODEBUDDY_CUSTOM_HEADERS:undefined,CODEBUDDY_INTERNET_ENVIRONMENT:'internal'},stderr:()=>{}}});
   for await(const message of query){
    reset();
    if(message.type==='stream_event'){
@@ -129,9 +176,9 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   }
   throw new Error('CLI stream ended without a result');
  }catch(error){if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding.'}}:failure(error,controller.signal.aborted)};}}
- finally{clearTimeout(timer);controller.abort();options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});await server?.close().catch(()=>{});}
+ finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});}
 }
-module.exports={prepare,requestPrompt,failure,stream};
+module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm};
 if(require.main===module){
  if(process.argv[2]==='--prepare')prepare().then(()=>console.log('CodeBuddy CLI verified and prepared.')).catch(()=>{console.error('CodeBuddy CLI preparation failed.');process.exitCode=1;});
  else if(process.argv[2]==='--check'){

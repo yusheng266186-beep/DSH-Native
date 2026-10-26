@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.39.0**；源码：**0.39.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.39.0**；源码：**0.39.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -32,6 +32,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 源码、已发布 stable / test 与摘要的精确值只在 [STATUS](STATUS.md) 生成表维护。
 
 0.39.0 内置 CodeBuddy SDK/CLI，构建入口通过 `prepare_codebuddy_sdk.py` 按 `runtime/codebuddy/package-lock.json` 安装并打包，产物只进 APK、不提交 Git。`CoreUpgrade.codeBuddy` 幂等移除旧认证头并将 App 自有 CodeBuddy 路由交给 `codebuddy-cli.cjs`。主进程设置 `DSH_NATIVE_APP_ROOT`，未设置时保留标准 HTTP，离线模型 SDK 消费测试仍可使用原有 seam。
+
+0.39.1 通过固定 headless 文件白名单裁剪 SDK 归档，保留文件不改写；`codebuddy-cli-consumer.mjs` 检查体积预算和已移除组件。工具请求后仅预热一个全新官方 Session，先 connect 并读取模式元数据，尚未 send；按含凭据与工具声明的摘要匹配，10 秒失效，一次领取。预热失败不得替换已完成的工具请求，取消不得新建预热。已发送对话的进程仍关闭，避免跨会话污染。编译缓存只在受保护的 CLI home。
 
 `codebuddy-cli.cjs` 校验归档摘要与版本，惰性准备私有 SDK；使用官方 CLI 标准代理人格，DSH 提供历史、图片与 MCP 工具 Schema，完整工具请求交回 DSH。不要再把 DSH 组合系统人格替换进 CLI——真实服务会拒绝；这是一种明确的 CLI 代理接入模式，不是直接模型 API 的无损替换。取消与期限必须结束 SDK 子进程。连接检查通过私有 stdin 传 Key，目录刷新不调用模型；两者状态不可混淆。原 App 根目录固定为 files/dsh。真实服务证据见 STATUS，按用户要求没有手机测试。
 
