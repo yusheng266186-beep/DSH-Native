@@ -1,7 +1,7 @@
 # CodeBuddy CLI 接入
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 DSH 使用本机官方 CodeBuddy CLI 的 API 配置。当前接入核对为 CLI 2.174.0、`https://www.codebuddy.cn/v2`、`deepseek-v4.1-flash`；默认强度保持用户要求的 max。地区入口与账号权限可能不同，不能把 `.ai` 和 `.cn` 当作可互换地址。
