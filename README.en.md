@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.40.0**; source: **0.40.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.40.0**; source: **0.40.1**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -44,6 +44,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 | Category | Android AI workbench |
 | Platform | Android / ARM64 / native runtime |
 | Role | Independent Android adaptation of DeepSeek Harness |
+
+Startup uses three themed moving dots. The current cycle ends only after both the core connection and the rendered shell are ready. Prepared background cores are reused early; App and payload updates keep their actual preparation status visible.
 
 For installation, use the download and setup sections below. Source, release and validation facts are maintained in [STATUS](docs/STATUS.md).
 [Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) uses a separate Termux / Debian environment.

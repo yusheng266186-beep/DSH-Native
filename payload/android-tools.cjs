@@ -3,6 +3,13 @@ const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const bridge=require('./android-bridge.cjs');
 module.exports={name:'android-native',inject:['tools','systemPrompt'],async apply(ctx){
+    // Flush startup code after initialization, so Android process termination
+    // does not discard the compile cache before the next cold launch.
+    const {flushCompileCache}=require('node:module');
+    if(typeof flushCompileCache==='function')ctx.effect(()=>{
+        const timer=setTimeout(()=>flushCompileCache(),3000);timer.unref();
+        return ()=>clearTimeout(timer);
+    });
     const {defineTool}=await import(pathToFileURL(path.join(__dirname,'dsh/node_modules/@deepseek-ai/dsh-tools/lib/index.js')));
     ctx.tools.register(defineTool({name:'android',description:'Use DSH Android native capabilities: clipboard text, notifications, share sheets, open links/files/apps, keepalive status and a user-authorized screenshot. Clipboard/UI actions require DSH foreground. Sharing opens a chooser; it does not send automatically. Screenshot requires a new Android approval each time. Use only for the user’s requested task.',
         parameters:{method:{type:'string',required:true,enum:bridge.METHODS},text:{type:'string'},title:{type:'string'},path:{type:'string'},url:{type:'string'},package:{type:'string'}},

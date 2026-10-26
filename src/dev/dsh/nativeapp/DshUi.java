@@ -37,6 +37,9 @@ import android.widget.TextView;
  * 因此切换深浅色只需要重建界面，不必重启进程。
  */
 public final class DshUi {
+    static StartupView startup(android.app.Activity activity, Runnable completed) {
+        return new StartupView(activity, completed);
+    }
 
     /**
      * DshUi 创建的文本控件会在每次 setText 时经过双语层。

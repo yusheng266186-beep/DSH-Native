@@ -41,7 +41,9 @@ if [ ! -d "$PAYLOAD_DIR" ]; then
 fi
 [ -d "$PAYLOAD_DIR" ] || { echo "找不到 payload 目录" >&2; exit 1; }
 
-SRC="$JAVA_DIR/FileListing.java
+SRC="$JAVA_DIR/StartupState.java
+     $JAVA_DIR/StartupReuse.java
+     $JAVA_DIR/FileListing.java
      $JAVA_DIR/TextCodec.java
      $JAVA_DIR/Version.java
      $JAVA_DIR/TaskNotifier.java
@@ -114,7 +116,8 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/CrashReporter.java
      $JAVA_DIR/WorkerRegistry.java
      $JAVA_DIR/ProviderRoute.java"
-TESTS="tests/FileListingTest.java
+TESTS="tests/StartupStateTest.java
+       tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
        tests/TaskNotifierTest.java
@@ -199,7 +202,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
@@ -461,7 +464,7 @@ if grep -q 'super.onBackPressed();' "$MAIN_ACTIVITY"; then
     rc=1
 elif ! grep -q 'maintenanceGate.tryStart' "$MAIN_ACTIVITY" \
         || ! grep -q 'UiPolicy.mergedIme' "$MAIN_ACTIVITY" \
-        || ! grep -q 'stopSplashAnimation();' "$MAIN_ACTIVITY"; then
+        || ! grep -q 'splashView.dismiss();' "$MAIN_ACTIVITY"; then
     echo "  [FAIL] 阶段四 B 交互/生命周期接线不完整" >&2
     rc=1
 else
@@ -518,6 +521,7 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 # 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
+if ! python3 tests/check_startup.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
 if ! python3 tests/check_native_bridge.py; then rc=1; fi
 if ! python3 tests/check_web_settings.py; then rc=1; fi

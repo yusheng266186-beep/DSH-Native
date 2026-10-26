@@ -17,6 +17,10 @@ for(const local of [true,false]){
   check(connection.state.getSnapshot()==='connected'&&calls===1,'loopback connects even when Android reports no internet');
   browser.dispatchEvent(new Event('offline'));browser.dispatchEvent(new Event('dsh-native-resume'));await sleep(180);
   check(connection.state.getSnapshot()==='connected'&&calls===1,'healthy local generation survives offline/resume inputs');
+  doc.visibilityState='hidden';browser.__dshLocalConnectionState='synthetic-stale';browser.dispatchEvent(new Event('dsh-native-resume'));
+  check(browser.__dshLocalConnectionState==='synthetic-stale','native resume before document visibility does not report a foreground state');
+  doc.visibilityState='visible';doc.dispatchEvent(new Event('visibilitychange'));
+  check(browser.__dshLocalConnectionState==='connected'&&calls===1,'visible document republishes actual state without rebuilding a healthy generation');
  }else{
   check(connection.state.getSnapshot()==='disconnected'&&calls===0,'remote connections retain offline suspension');
   browser.dispatchEvent(new Event('online'));await sleep(30);

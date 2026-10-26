@@ -30,8 +30,8 @@ if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
     "$ROOT"/src/dev/dsh/nativeapp/{CodeBuddyCatalog,ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi,FileActionsUi}.java \
-    "$ROOT"/src/dev/dsh/nativeapp/{CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
-    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,ConnectionRecoveryTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
+    "$ROOT"/src/dev/dsh/nativeapp/{StartupState,StartupReuse,CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
+    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,ConnectionRecoveryTest,StartupStateTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ConnectionRecoveryTest --apply "$PROBE/runtime" "$ROOT/payload/connection-ui.js"
 PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
@@ -100,6 +100,8 @@ npm ci --prefix "$ROOT/tests/js" --no-audit --no-fund
 node "$ROOT/tests/js/android-voice-simulation.mjs"
 node "$ROOT/tests/js/composer-effort-consumer.mjs" "$PROBE/runtime" "$PROBE/client.js" "$PROBE/catalog.json"
 node --expose-internals "$ROOT/tests/js/core-runtime-consumer.mjs" "$PROBE/runtime"
+java -cp "$PROBE/classes" dev.dsh.nativeapp.StartupStateTest --dump-script > "$PROBE/startup.js"
+node --expose-internals "$ROOT/tests/js/startup-consumer.mjs" "$PROBE/runtime" "$PROBE/startup.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest --dump-html \
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html" 480 > "$PROBE/mobile.html"
 node --expose-internals "$ROOT/tests/js/deepseek-account-consumer.mjs" "$PROBE/runtime" "$PROBE/classes" "$PROBE/mobile.html"
