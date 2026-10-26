@@ -53,8 +53,8 @@ STUBS = {
         public java.util.List<float[]> circles=new java.util.ArrayList<>();public void drawCircle(float x,float y,float r,Paint p){circles.add(new float[]{x,y,r});}
     }''',
     'dev/dsh/nativeapp/DshUi.java': '''package dev.dsh.nativeapp;public class DshUi {
-        static boolean motion=true;static int BG(){return 0;}static int ACCENT(){return 0x4d6bfe;}static int TEXT_2(){return 0;}
-        static int dp(android.app.Activity a,int v){return v;}static boolean animationsEnabled(android.app.Activity a){return motion;}
+        static boolean motion=true;static int reads;static int BG(){return 0;}static int ACCENT(){return 0x4d6bfe;}static int TEXT_2(){return 0;}
+        static int dp(android.app.Activity a,int v){return v;}static boolean animationsEnabled(android.app.Activity a){reads++;return motion;}
         static android.widget.TextView hint(android.app.Activity a,String text){return new android.widget.TextView(a);}
     }''',
     'dev/dsh/nativeapp/UiText.java': 'package dev.dsh.nativeapp;public class UiText {static String t(String a,String b){return b;}}',
@@ -73,7 +73,7 @@ STUBS = {
                 v.ready(true);v.status("Extracting updated slice");View.at(2440);check(done==1,"status text does not reset cycle");
                 v=create();v.pause();check(View.frames.isEmpty(),"background has no frame loop");v.ready(true);View.at(5000);
                 check(done==0,"do not hand off in background");v.resume();check(done==1,"ready foreground returns immediately");
-                v=create();DshUi.motion=false;View.at(1300);check(View.frames.isEmpty(),"reduced motion is static");v.ready(true);
+                v=create();DshUi.motion=false;v.resume();View.at(1300);check(View.frames.isEmpty(),"reduced motion is static");v.ready(true);
                 check(done==1&&v.getVisibility()==View.GONE,"reduced motion does not wait on a stopped animator");
                 v=create();v.dismiss();View.at(1720);check(done==0&&!v.clickable&&View.frames.isEmpty(),"error dismisses without reporting success");
                 v.begin("Retrying");v.ready(true);View.at(2440);check(done==1,"retry starts a new independent cycle");
@@ -84,6 +84,8 @@ STUBS = {
                 Canvas canvas=new Canvas();draw.invoke(dots,canvas);check(canvas.circles.size()==3,"only three small dots are drawn");
                 for(float[] c:canvas.circles)check(c[0]-c[2]>=0&&c[0]+c[2]<=72&&c[1]-c[2]>=0&&c[1]+c[2]<=28,"motion stays within its bounds");
                 v.dismiss();check(View.frames.isEmpty(),"final cleanup");
+                v=create();int before=DshUi.reads;for(int frame=0;frame<60;frame++)View.at(1000+frame*16);
+                check(DshUi.reads==before,"animation frames never query the system settings provider");v.dismiss();
                 System.out.println("Startup view: "+checks+" lifecycle, motion, error and drawing checks passed.");
             }
         }''',

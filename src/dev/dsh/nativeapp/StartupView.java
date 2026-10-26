@@ -17,13 +17,12 @@ final class StartupView extends FrameLayout {
     private final Dots dots;
     private final Activity activity;
     private final Runnable completed;
-    private boolean ready, paused, done;
+    private boolean ready, paused, done, motion;
     private long started, previous;
     private final Runnable frame = new Runnable() {
         @Override public void run() {
             if (paused || done || !isAttachedToWindow()) return;
             long now = SystemClock.uptimeMillis();
-            boolean motion = DshUi.animationsEnabled(activity);
             if (ready && (!motion || StartupState.cycleEnded(started, previous, now))) {
                 finish(); return;
             }
@@ -38,6 +37,7 @@ final class StartupView extends FrameLayout {
     StartupView(Activity activity, Runnable completed) {
         super(activity);
         this.activity = activity; this.completed = completed;
+        motion = DshUi.animationsEnabled(activity);
         setBackgroundColor(DshUi.BG());
         // Prevent touches reaching a partially initialized page below the overlay.
         setClickable(true);
@@ -65,6 +65,7 @@ final class StartupView extends FrameLayout {
 
     void begin(String text) {
         removeCallbacks(frame); ready = false; done = false;
+        motion = DshUi.animationsEnabled(activity);
         setVisibility(View.VISIBLE); setClickable(true); status(text);
         started = previous = SystemClock.uptimeMillis();
         if (!paused && isAttachedToWindow()) postOnAnimation(frame);
@@ -72,12 +73,14 @@ final class StartupView extends FrameLayout {
 
     void ready(boolean value) {
         ready = value;
-        if (ready && !paused && !done && !DshUi.animationsEnabled(activity)) finish();
+        if (ready) motion = DshUi.animationsEnabled(activity);
+        if (ready && !paused && !done && !motion) finish();
     }
 
     void pause() { paused = true; removeCallbacks(frame); }
     void resume() {
         paused = false;
+        motion = DshUi.animationsEnabled(activity);
         removeCallbacks(frame);
         if (done || getVisibility() != View.VISIBLE) return;
         // Do not make someone returning from the background wait for another loop.
