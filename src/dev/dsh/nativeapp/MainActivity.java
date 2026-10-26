@@ -1693,15 +1693,14 @@ public class MainActivity extends Activity {
                     if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
                     long sec = (System.currentTimeMillis() - lostAt) / 1000;
 
-                    boolean taskActive = lastSessionStatus == SessionStatus.RUNNING
-                            || lastSessionStatus == SessionStatus.AWAITING_APPROVAL
+                    boolean taskActive = lastSessionStatus != SessionStatus.IDLE
                             || taskTimeline.active() != null;
                     // 任务正在跑时**绝不刷新**。
                     // 刷新会丢掉滚动位置、输入框内容和展开的面板，而 agent
                     // 在 node 进程里照常干活 —— 用户看到的就是「窗口自己重启/闪烁，
                     // 但任务其实正常进行」。DSH 自身的重连足以应付这种情况。
                     if (taskActive) {
-                        log("[连接] 断开 " + sec + " 秒，但任务正在运行 —— 不刷新页面"
+                        log("[连接] 断开 " + sec + " 秒，任务运行或状态尚未确认 —— 不刷新页面"
                                 + "（避免打断界面；DSH 会自行重连）");
                         reloadScheduled = false;
                         return;
@@ -3083,27 +3082,15 @@ public class MainActivity extends Activity {
     private void installWebToolsEntry() {
         try {
             webView.evaluateJavascript(WebToolsEntry.script(), null);
-            log("已注入 WebUI 工具入口");
+            log("已合并到 DSH 原设置入口");
         } catch (Throwable t) {
             log("WebUI 工具入口注入失败: " + t);
         }
     }
 
-    /** 第一次确认入口成功时说明迁移位置；后续启动不再打扰。 */
+    /** The upstream settings launcher is the only visible settings entry. */
     private void onWebToolsEntryReady() {
-        log("WebUI 工具入口已挂载到 DSH 侧边栏");
-        try {
-            android.content.SharedPreferences prefs =
-                    getSharedPreferences(PREFS, MODE_PRIVATE);
-            if (!prefs.getBoolean("toolsEntryMigrationShown", false)) {
-                prefs.edit().putBoolean("toolsEntryMigrationShown", true).apply();
-                toast(UiText.t(
-                        "工具入口已移至 DSH 侧边栏底部",
-                        "App tools moved to the bottom of the DSH sidebar"));
-            }
-        } catch (Throwable t) {
-            log("记录工具入口迁移提示失败: " + t);
-        }
+        log("DSH 原设置入口已就绪，设备功能使用同一设置页面");
     }
 
     /** 锚点长期缺失时给出可操作的退路，但绝不恢复遮挡网页的悬浮按钮。 */
@@ -5044,7 +5031,9 @@ public class MainActivity extends Activity {
                     ? UiText.t("没有可处理此文件的应用，请安装相应应用后重试", "No app can handle this file. Install a compatible app and retry.")
                     : failure instanceof SecurityException
                     ? UiText.t("系统拒绝了这次操作，请检查应用权限", "Android refused this action. Check App permissions.")
-                    : UiText.t("操作暂不可用，请确认文件仍存在、位置可访问后重试", "Action unavailable. Check that the file still exists and is accessible, then retry.");
+                    : "file".equals(command.get("op"))
+                    ? UiText.t("操作暂不可用，请确认文件仍存在、位置可访问后重试", "Action unavailable. Check that the file still exists and is accessible, then retry.")
+                    : UiText.t("设置状态已变化或操作暂不可用，请保持应用在前台并重试", "Settings changed or this action is unavailable. Keep the app in the foreground and retry.");
             try { reply.put("ok",false).put("error",error); }
             catch (org.json.JSONException invalid) { log("设置响应失败: " + invalid.getClass().getSimpleName()); return; }
         }
@@ -6812,6 +6801,7 @@ public class MainActivity extends Activity {
         patchFileCreation(root, dshDir);
         patchVoiceUi(root, dshDir);
         patchCoreUpgrade(dshDir);
+        patchConnectionUi(root, dshDir);
         patchSessionPersistence(root, dshDir);
         patchAccountUi(dshDir);
         patchAppSettings(root, dshDir);
@@ -6864,6 +6854,18 @@ public class MainActivity extends Activity {
         if (!nextAccount.equals(originalAccount)) writeText(account, nextAccount);
         if (!nextInspector.equals(originalInspector)) writeText(inspector, nextInspector);
         recordPatch("内核升级兼容", true, "账号实时目录、调试子线程与增量依赖目录");
+    }
+
+    private void patchConnectionUi(File root, File dshDir) throws IOException {
+        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
+        String helper = readText(new File(root, "connection-ui.js"));
+        for (String name : new String[]{"client.browser.js", "client.node.js"}) {
+            File module = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-connection/lib/" + name);
+            String source = readText(module), next = ConnectionRecovery.patchClient(source, helper);
+            if (next == null) throw new IOException("本机连接恢复补丁无法应用，请检查运行包");
+            if (!source.equals(next)) writeText(module, next);
+        }
+        recordPatch("本机连接恢复", true, "本机通道不随外网提示暂停，前台恢复使用原连接服务");
     }
 
     private void patchVoiceUi(File root, File dshDir) throws IOException {
@@ -7782,7 +7784,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.39.1\n");
+            w.write("APK 版本: 0.40.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7977,6 +7979,9 @@ public class MainActivity extends Activity {
         inForeground = true;
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
+        try {
+            if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('dsh-native-resume'));", null);
+        } catch (Throwable error) { log("前台连接复核失败: " + error.getClass().getSimpleName()); }
     }
 
     @Override

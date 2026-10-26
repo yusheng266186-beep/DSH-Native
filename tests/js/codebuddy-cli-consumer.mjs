@@ -37,9 +37,9 @@ try{
  out=await consume();check(out.at(-1).reason.failure.code==='LLM_STREAM_IDLE_TIMEOUT','an unresponsive CLI has a bounded idle deadline');
  // Exercise the production prewarm lifecycle with a protocol client, including
  // credential/config changes. No session is reused after a user message.
- const sessions=[],frames=[{type:'assistant',message:{content:[{type:'tool_use',name:'mcp__dsh__tool_0_write',id:'warm-tool',input:{}}]}},{type:'result',subtype:'success',is_error:false}];
+ let noToolsTurn=false;const sessions=[],frames=[{type:'assistant',message:{content:[{type:'tool_use',name:'mcp__dsh__tool_0_write',id:'warm-tool',input:{}}]}},{type:'result',subtype:'success',is_error:false}];
  const protocol={requireSdk:sdk.requireSdk,unstable_v2_createSession:settings=>{
-  const session={settings,sent:[],closed:false,connected:false,connect:async()=>{session.connected=true;},getAvailableModes:async()=>[],send:async message=>{session.sent.push(message);},stream:async function*(){yield sessions.indexOf(session)===0?frames[0]:frames[1];},close:()=>{session.closed=true;}};
+  const session={settings,sent:[],closed:false,connected:false,connect:async()=>{session.connected=true;},getAvailableModes:async()=>[],send:async message=>{session.sent.push(message);},stream:async function*(){yield sessions.indexOf(session)===0&&!noToolsTurn?frames[0]:frames[1];},close:()=>{session.closed=true;}};
   sessions.push(session);return session;
  }};
  function request(credential='synthetic-one',model='deepseek-v4.1-flash',signal=new AbortController()){
@@ -47,15 +47,21 @@ try{
  }
  let preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();
  check(sessions.length===2&&sessions[0].closed&&sessions[1].connected&&sessions[1].sent.length===0,'a tool turn boots one fresh standby without sending a model prompt');
- await Array.fromAsync(cli.sessionQuery(protocol,request()));check(sessions.length===2&&sessions[1].sent.length===1&&sessions[1].closed,'next matching request claims the standby exactly once and closes it');
- sessions.length=0;preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();const previous=sessions[1];
- await Array.fromAsync(cli.sessionQuery(protocol,request('synthetic-other')));check(previous.closed&&previous.sent.length===0&&sessions.length===3,'credential change discards the standby without sending data to it');
- sessions.length=0;preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();const differentModel=sessions[1];
+ await Array.fromAsync(cli.sessionQuery(protocol,request()));check(sessions.length===3&&sessions[1].sent.length===1&&sessions[1].closed&&sessions[2].sent.length===0,'next matching request claims the standby exactly once and prepares only a fresh next session');
+ cli.clearWarm();sessions.length=0;preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();const previous=sessions[1];
+ await Array.fromAsync(cli.sessionQuery(protocol,request('synthetic-other')));check(previous.closed&&previous.sent.length===0&&sessions[2].sent.length===1,'credential change discards the standby without sending data to it');
+ cli.clearWarm();sessions.length=0;preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();const differentModel=sessions[1];
  await Array.fromAsync(cli.sessionQuery(protocol,request('synthetic-one','other-model')));check(differentModel.closed&&differentModel.sent.length===0,'model changes cannot claim another configuration standby');
- sessions.length=0;const cancellation=new AbortController();preparedQuery=cli.sessionQuery(protocol,request('synthetic-one','deepseek-v4.1-flash',cancellation));await preparedQuery.next();cancellation.abort();await preparedQuery.return();check(sessions.length===1&&sessions[0].closed,'cancellation creates no standby');
- sessions.length=0;const waitingProtocol={...protocol,unstable_v2_createSession:settings=>{const session=protocol.unstable_v2_createSession(settings);if(sessions.length===2)session.getAvailableModes=()=>new Promise(()=>{});return session;}};
+ cli.clearWarm();sessions.length=0;const cancellation=new AbortController();preparedQuery=cli.sessionQuery(protocol,request('synthetic-one','deepseek-v4.1-flash',cancellation));await preparedQuery.next();cancellation.abort();await preparedQuery.return();check(sessions.length===1&&sessions[0].closed,'cancellation creates no standby');
+ cli.clearWarm();sessions.length=0;const waitingProtocol={...protocol,unstable_v2_createSession:settings=>{const session=protocol.unstable_v2_createSession(settings);if(sessions.length===2)session.getAvailableModes=()=>new Promise(()=>{});return session;}};
  preparedQuery=cli.sessionQuery(waitingProtocol,request());await preparedQuery.next();await preparedQuery.return();const waiting=sessions[1],cancelWaiting=new AbortController(),waitingQuery=cli.sessionQuery(waitingProtocol,request('synthetic-one','deepseek-v4.1-flash',cancelWaiting));const pendingWarm=waitingQuery.next();setTimeout(()=>cancelWaiting.abort(),20);await assert.rejects(pendingWarm,/ABORTED/);check(waiting.closed&&waiting.sent.length===0,'cancellation interrupts an unresponsive standby initialization before any prompt');
  cli.clearWarm();
+ cli.clearWarm();sessions.length=0;noToolsTurn=true;
+ await Array.fromAsync(cli.sessionQuery(protocol,request()));check(sessions.length===2&&sessions[1].connected&&!sessions[1].sent.length,'a completed normal reply also prepares the next quick follow-up without a model prompt');
+ cli.clearWarm();sessions.length=0;const auxiliary=request();auxiliary.standby=false;
+ await Array.fromAsync(cli.sessionQuery(protocol,auxiliary));check(sessions.length===1&&sessions[0].closed,'connection checks and auxiliary calls leave no idle child');
+ const projectedHistory=cli.requestPrompt({messages:[{role:'assistant',content:[{type:'reasoning',text:'PRIVATE-OLD-REASONING'},{type:'text',text:'Keep visible answer'},{type:'tool-call',arguments:{reasoning:'KEEP-ARGUMENT'}}]},{role:'user',content:[{type:'text',text:'Keep user reasoning request'}]}]})[0].text;
+ check(!projectedHistory.includes('PRIVATE-OLD-REASONING')&&projectedHistory.includes('Keep visible answer')&&projectedHistory.includes('KEEP-ARGUMENT')&&projectedHistory.includes('Keep user reasoning request'),'only prior assistant reasoning is omitted from the CLI projection; user text and tool arguments remain intact');
  const manifest=JSON.parse(await fs.readFile(path.join(root,'codebuddy-sdk-manifest.json'),'utf8'));
  const runtime=path.join(root,'.codebuddy-sdk-'+manifest.sdk+'-'+manifest.sha256.slice(0,16)),sandbox=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-sdk-boundary-'));
  try{

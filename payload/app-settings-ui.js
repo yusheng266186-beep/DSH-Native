@@ -33,7 +33,7 @@ function androidInstallAppSettings(ctx) {
         archiveHint: ['归档会保留完整记录，可恢复后继续对话。', 'Archiving keeps the full record. Restore it to continue.'],
         trashHint: ['会话会从侧栏和搜索中隐藏，记录保留在回收站，可随时恢复。不会释放存储空间。', 'The session is hidden from the sidebar and search. Its record stays in Trash and can be restored. Storage is retained.'],
         title: ['会话标题', 'Session title'], previous: ['上一页', 'Previous'], next: ['下一页', 'Next'],
-        new: ['新建对话', 'New conversation'], unavailable: ['原生工具暂不可用，请从 App 顶部设置重试。', 'Native tools are unavailable. Retry from the app settings button.'],
+        new: ['新建对话', 'New conversation'], unavailable: ['设备设置暂不可用，请重新打开设置后重试。', 'Device settings are unavailable. Reopen Settings and retry.'],
         service: ['服务状态', 'Service status'], general: ['DSH 主题与语言', 'DSH theme & language'],
         scale: ['调整文字缩放', 'Adjust text scale'], modelCenter: ['服务商、默认模型与更新 App 模型列表', 'Providers, default model & refresh app models'],
         account: ['DeepSeek 账号、余额与用量', 'DeepSeek account, balances & usage'],
@@ -208,8 +208,8 @@ function androidInstallAppSettings(ctx) {
 .dsh-device-settings .device-row{display:flex;align-items:center;flex-wrap:wrap;min-width:0;gap:8px}
 .dsh-device-settings .device-row>*{min-width:0;max-width:100%}
 .dsh-device-settings .device-row>.device-group{flex:1 1 220px}
-.dsh-device-settings .device-text{font-size:14px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
-.dsh-device-settings .device-heading{font-size:14px;line-height:20px;font-weight:500;margin:0;overflow-wrap:anywhere}
+.dsh-device-settings .device-text{font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.dsh-device-settings .device-heading{font-size:14px;line-height:22px;font-weight:500;margin:0;overflow-wrap:anywhere}
 .dsh-device-settings .device-muted{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
 .dsh-device-settings .device-page-title{font-size:14px;font-weight:500;margin:0 0 16px}
 .dsh-device-settings .device-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);align-items:start;gap:24px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
@@ -229,8 +229,11 @@ function androidInstallAppSettings(ctx) {
 .dsh-device-sessions .app-card{border-width:0 0 .5px;border-radius:0;padding:16px 0}
 .dsh-device-settings progress,.dsh-device-settings img{max-width:100%}
 .dsh-device-settings img{object-fit:contain}
+.dsh-device-about{padding:16px 0;border-top:.5px solid var(--dsw-alias-border-l2)}
+.dsh-device-models>.device-model-disclosure{display:flex;align-items:center;justify-content:space-between;text-align:start;width:100%;padding:12px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
 .dsh-device-settings .device-error{color:var(--dsw-alias-label-error);overflow-wrap:anywhere}
 @container(max-width:560px){.dsh-device-settings .device-setting{grid-template-columns:minmax(0,1fr);gap:12px}.dsh-device-settings .device-row{align-items:stretch}.dsh-device-settings .device-row>.device-group{flex-basis:100%}}
+@media(max-width:600px){.dsh-device-settings .device-setting{grid-template-columns:minmax(0,1fr);gap:12px}.dsh-device-settings .device-row{align-items:stretch}.dsh-device-settings .device-row>.device-group{flex-basis:100%}}
 @media(pointer:coarse){.dsh-device-settings button{min-height:40px}}
 `;
     function NativeChoices({nodes,busy,en,act}) {
@@ -256,19 +259,26 @@ function androidInstallAppSettings(ctx) {
         const field=node.multiline?h('textarea',props):h(P.Input,{...props,type:node.password?'password':'text',readOnly:node.readonly,onClick:node.readonly&&node.clickable?activate:undefined,autoComplete:'off'});
         return loadError?hs('div',{className:'device-group',children:[field,h('p',{role:'alert',className:'device-error',children:en?'Text could not be read completely. Retry before editing.':'正文未能完整读取，重新读取后才能编辑。'}),h(P.Button,{variant:'outline',onClick:()=>setRetry(value=>value+1),children:en?'Read again':'重新读取'})]}):field;
     }
+    function dialogTitle(node) {
+        if(!node)return null;
+        if(node.semantic==='title')return node;
+        for(const child of node.children||[]){const title=dialogTitle(child);if(title)return title;}
+        return null;
+    }
     function NativePage({page,locale,fileRequest}) {
         const en=/^en/.test(locale.active),[snapshot,setSnapshot]=react.useState(null),[error,setError]=react.useState(''),[busy,setBusy]=react.useState(true);
-        const alive=react.useRef(true),locked=react.useRef(false),edits=react.useRef(new Map());
+        const hiddenTitles=new Set((snapshot?.pages||[]).slice(1).map(dialog=>dialogTitle(dialog.body)?.id).filter(Boolean));
+        const alive=react.useRef(true),locked=react.useRef(false),edits=react.useRef(new Map()),refreshing=react.useRef(null);
         const display=value=>{if(alive.current){setSnapshot(value);setError('');}};
         const flush=async()=>{for(const [control,value] of edits.current){const ticket='edit-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);for(let offset=0;offset<Math.max(1,value.length);offset+=8192)await nativeRequest('input',{control,ticket,offset,value:value.slice(offset,offset+8192),done:offset+8192>=value.length});edits.current.delete(control);}};
-        const act=async(op,fields={})=>{if(locked.current)return;locked.current=true;setBusy(true);setError('');try{await flush();display(await nativeRequest(op,fields));}catch(failure){if(alive.current)setError(failure.message);}finally{locked.current=false;if(alive.current)setBusy(false);}};
+        const act=async(op,fields={})=>{if(locked.current)return;locked.current=true;setBusy(true);setError('');try{await refreshing.current;if(!alive.current)return;await flush();display(await nativeRequest(op,fields));}catch(failure){if(alive.current)setError(failure.message);}finally{locked.current=false;if(alive.current)setBusy(false);}};
         react.useEffect(()=>{alive.current=true;locked.current=true;edits.current.clear();nativeRequest(fileRequest?'file':'open',fileRequest?{action:fileRequest.action,path:fileRequest.path,locale:en?'en':'zh'}:{page,locale:en?'en':'zh'}).then(display).catch(failure=>{if(alive.current)setError(failure.message);}).finally(()=>{locked.current=false;if(alive.current)setBusy(false);});
-            const timer=setInterval(()=>{if(locked.current||document.visibilityState==='hidden'||edits.current.size)return;locked.current=true;nativeRequest('state').then(display).catch(failure=>{if(alive.current)setError(failure.message);}).finally(()=>{locked.current=false;});},1000);
+            const timer=setInterval(()=>{if(locked.current||refreshing.current||document.visibilityState==='hidden'||edits.current.size)return;const request=nativeRequest('state').then(value=>{if(!locked.current)display(value);}).catch(failure=>{if(alive.current&&!locked.current)setError(failure.message);}).finally(()=>{if(refreshing.current===request)refreshing.current=null;});refreshing.current=request;},1500);
             return()=>{alive.current=false;clearInterval(timer);edits.current.clear();nativeRequest('close').catch(()=>{});};
         },[page,en,fileRequest?.id]);
         react.useEffect(()=>{const back=event=>{if((snapshot?.pages?.length||0)>1){event.preventDefault();if(!busy)act('back');}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);});
         const render=node=>{
-            if(!node||(node.type==='group'&&!node.children?.length))return null;
+            if(!node||hiddenTitles.has(node.id)||(node.type==='group'&&!node.children?.length))return null;
             const key=node.id;
             if(node.type==='input')return h(NativeInput,{key,node,edits,locked:busy,en,activate:()=>act('act',{control:node.id})});
             if(node.type==='button'||node.clickable){const children=node.text||node.children?.map(render),button=h(P.Button,{key,variant:node.selected||node.primary?'primary':'outline',disabled:busy||!node.enabled,onClick:()=>act('act',{control:node.id}),'aria-pressed':node.selected||undefined,children});return node.long?hs('div',{key,className:'device-row',children:[button,h(P.Button,{variant:'ghost',disabled:busy||!node.enabled,onClick:()=>act('long',{control:node.id}),children:en?'More':'更多'})]}):button;}
@@ -309,19 +319,20 @@ function androidInstallAppSettings(ctx) {
             })});
         };
         const dialogs=snapshot?.pages||[],main=dialogs[0],footer=main?.footer?{...main.footer,children:main.footer.children?.filter(node=>!['返回','Back','关闭','Close'].includes(node.text))}:null;
-        return hs('div',{className:'dsh-device-settings','data-device-page':page,children:[h('style',{children:nativeCss}),busy&&!snapshot&&h('p',{role:'status',children:en?'Loading…':'正在读取…'}),main&&render(main.body),footer?.children?.length>0&&h('div',{className:'device-actions',children:render(footer)}),snapshot?.notice&&h('p',{role:'status',className:'device-muted',children:snapshot.notice}),error&&hs('div',{role:'alert',className:'device-error',children:[h('p',{children:error}),h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Retry':'重试'})]}),!busy&&!error&&!main&&h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Open settings':'打开设置'}),dialogs.slice(1).map(dialog=>h(P.Modal,{key:dialog.id,open:true,onClose:()=>{if(!busy&&dialog.cancelable)act('back');},closeLabel:en?'Back':'返回',title:en?'Settings':'设置',footer:dialog.footer&&h('div',{className:'dsh-device-settings device-actions',children:render(dialog.footer)}),children:h('div',{className:'dsh-device-settings',children:render(dialog.body)})}))]});
+        return hs('div',{className:'dsh-device-settings','data-device-page':page,children:[h('style',{children:nativeCss}),busy&&!snapshot&&h('p',{role:'status',children:en?'Loading…':'正在读取…'}),main&&render(main.body),footer?.children?.length>0&&h('div',{className:'device-actions',children:render(footer)}),snapshot?.notice&&h('p',{role:'status',className:'device-muted',children:snapshot.notice}),error&&hs('div',{role:'alert',className:'device-error',children:[h('p',{children:error}),h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Retry':'重试'})]}),!busy&&!error&&!main&&h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Open settings':'打开设置'}),dialogs.slice(1).map(dialog=>h(P.Modal,{key:dialog.id,open:true,onClose:()=>{if(!busy&&dialog.cancelable)act('back');},closeLabel:en?'Back':'返回',title:dialogTitle(dialog.body)?.text||(en?'Settings':'设置'),footer:dialog.footer&&h('div',{className:'dsh-device-settings device-actions',children:render(dialog.footer)}),children:h('div',{className:'dsh-device-settings',children:render(dialog.body)})}))]});
     }
     function DeviceSection({page,close}) {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot());
         const [fileRequest,setFileRequest]=react.useState(()=>page==='files'?window.__dshNativeFileRequest:null);
         react.useEffect(()=>{const update=()=>{if(page==='files')setFileRequest(window.__dshNativeFileRequest);};window.addEventListener('dsh-device-file',update);return()=>window.removeEventListener('dsh-device-file',update);},[page]);
-        return h(NativePage,{page,locale,fileRequest:page==='files'?fileRequest:null});
+        return h(NativePage,{key:page+'|'+locale.active+'|'+(fileRequest?.id||''),page,locale,fileRequest:page==='files'?fileRequest:null});
     }
     function DeviceHome() {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
         const [info,setInfo]=react.useState(window.__dshNativeAppState||{});
         react.useEffect(()=>{const update=()=>setInfo(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
-        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('p',{className:'device-text',children:'DSH Native '+(info.version||'')}),h('p',{className:'device-muted',children:info.task||''}),h('p',{className:'device-text',children:en?'Display, models, files and maintenance follow the current workspace settings.':'显示、模型、文件和维护使用当前工作区的设置。'})]});
+        if(!info.integratedSettings)return null;
+        return hs('div',{className:'dsh-device-settings dsh-device-about',children:[h('style',{children:nativeCss}),h('p',{className:'device-text',children:(en?'Android app version: ':'Android 客户端版本：')+(info.version||'')}),h('p',{className:'device-muted',children:info.task||''}),null]});
     }
     const codeBuddyDefaultModels=[{"id":"default-model","name":"Auto","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"fast-model","name":"Fast","contextWindow":200000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"balanced-model","name":"Balanced","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"primary-model","name":"Primary","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"deep-model","name":"Deep","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"deepseek-v4.1-flash","name":"Deepseek-V4.1-Flash","contextWindow":300000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"gpt-6-astra","name":"GPT-6-Astra","contextWindow":400000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"hy4-preview","name":"Hy4 preview","contextWindow":200000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"hy3","name":"Hy3","contextWindow":192000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"kimi-k2.8-preview","name":"Kimi-K2.8-Preview","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"gpt-5.6-sol","name":"GPT-5.6-Sol","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-terra","name":"GPT-5.6-Terra","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-luna","name":"GPT-5.6-Luna","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.5","name":"GPT-5.5","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gemini-3.5-flash","name":"Gemini-3.5-Flash","contextWindow":1000000,"maxTokens":65536,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"glm-5.3-flash","name":"GLM-5.3-Flash","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.3","name":"GLM-5.3","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.2","name":"GLM-5.2","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"high":"high","xhigh":"xhigh","max":"max"}},{"id":"kimi-k3","name":"Kimi-K3","contextWindow":1000000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"kimi-k2.6","name":"Kimi-K2.6","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}}];
     function CodeBuddyImport() {
@@ -386,20 +397,21 @@ function androidInstallAppSettings(ctx) {
             const add=(id,label,order,component)=>sectionDisposers.push(ctx.slots.register({name:'settings.section',id,order,label},component));
             if(!mode){add('android-app',()=>/^en/.test(ctx.locale.getSnapshot().active)?words.nav[1]:words.nav[0],90,AppSection);return;}
             const en=()=>/^en/.test(ctx.locale.getSnapshot().active);
-            add('android-app',()=>en()?'Device':'设备',90,DeviceHome);
+
             add('android-sessions',()=>en()?'Conversations':'会话管理',25,props=>hs('section',{className:'dsh-app-settings dsh-device-sessions',children:[h('style',{children:css+nativeCss}),h(SessionManager,{t:key=>words[key]?.[en()?1:0]||key,en:en(),close:props.close})]}));
             for(const [page,zh,label,order] of [['tasks','任务','Tasks',26],['files','文件','Files',70],['data','工作区与数据','Workspace & data',75],['updates','更新与维护','Updates & maintenance',80],['diagnostics','诊断与日志','Diagnostics & logs',85]])add('android-'+page,()=>en()?label:zh,order,props=>h(DeviceSection,{...props,page}));
         };
         register();window.addEventListener('dsh-native-app-state',register);
         return()=>{window.removeEventListener('dsh-native-app-state',register);for(const dispose of sectionDisposers)dispose();sectionDisposers=[];settingsMode=undefined;};
     });
+    ctx.slots.inject('settings.general.item',()=>ctx.slots.register({name:'settings.general.item',id:'android-about',order:100},()=>h(DeviceHome,{})));
     for(const [slot,page,id] of [['settings.general.item','display','android-display'],['settings.models.footer','models','android-project-models']])ctx.slots.inject(slot,()=>ctx.slots.register({name:slot,id,order:90},props=>{
         const [state,setState]=react.useState(window.__dshNativeAppState||{}),[expanded,setExpanded]=react.useState(page==='display');
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
         react.useEffect(()=>{const update=()=>setState(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
         react.useEffect(()=>{const reset=()=>setExpanded(false);window.addEventListener('dsh-codebuddy-importing',reset);window.addEventListener('dsh-codebuddy-imported',reset);return()=>{window.removeEventListener('dsh-codebuddy-importing',reset);window.removeEventListener('dsh-codebuddy-imported',reset);};},[]);
         if(!state.integratedSettings)return null;
-        return hs('div',{'data-device-slot':page,className:page==='models'?'dsh-device-models':'dsh-device-display',children:[page==='models'&&h(CodeBuddyImport,{}),page==='models'&&!expanded?h(P.Button,{variant:'outline',onClick:()=>setExpanded(true),children:en?'Project models & catalog sync':'项目模型与目录同步'}):h(DeviceSection,{...props,page})]});
+        return hs('div',{'data-device-slot':page,className:page==='models'?'dsh-device-models':'dsh-device-display',children:[page==='models'&&h(CodeBuddyImport,{}),page==='models'&&!expanded?hs(P.Button,{variant:'ghost',className:'device-model-disclosure','aria-expanded':expanded,onClick:()=>setExpanded(true),children:[h('span',{children:en?'Project models & catalog sync':'项目模型与目录同步'}),h(P.IconChevronDownOutlineRegular,{size:14})]}):h(DeviceSection,{...props,page})]});
     }));
 
 }

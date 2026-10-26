@@ -274,20 +274,15 @@ try {
       check(await page.locator('[data-textpreview-state="text"]').count() === 0, 'file tab close handler did not close the preview');
       await page.locator('[data-sidebar-right-toggle]').click();
 
-      // Exercise the Java-generated App entry in the actual shipped sidebar.
+      // The core launcher is the sole entry, including after reinjection.
       await page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}).click();
-      const appTools = page.locator('[data-dsh-native-tools="button"]');
-      await appTools.waitFor({state: 'visible'});
-      check(await appTools.count() === 1, 'App tools entry was duplicated');
-      check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
-      const toolsBox = await size(appTools);
-      check(toolsBox.height >= 43.5, 'App tools touch target is too small');
-      await appTools.tap();
-      check(nativeActions.length === 1, 'actual App tools click did not reach the native marker');
-      check(await page.locator('[data-shortcut-modal="settings"][role=dialog]').count() === 0, 'App entry triggered the Web settings');
       await page.evaluate(tools);
-      check(await appTools.count() === 1, 'reinjecting tools changed count to ' + await appTools.count());
-      check((await size(page.getByRole('button', {name: /^(Account menu|账号菜单)$/}))).width > 64, 'App tools squeezed the upstream account menu');
+      check(await page.locator('[data-dsh-native-tools]').count() === 0, 'removed App entry returned');
+      check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
+      check(nativeActions.length === 0, 'settings cleanup emitted a native action');
+      const accountMenu=page.getByRole('button',{name:/^(Account menu|账号菜单)$/});
+      for(let n=0;n<100&&(await size(accountMenu)).width<=64;n++)await page.waitForTimeout(25);
+      check((await size(accountMenu)).width > 64, 'original account menu was squeezed');
       await noPageOverflow();
 
       // Preserve the working settings adaptation and verify its actual switch geometry.

@@ -37,12 +37,25 @@ try{
   context=await browser.newContext({viewport:{width:scenario.w,height:scenario.h},isMobile:true,hasTouch:true,locale:scenario.lang,reducedMotion:'reduce'});
   await context.grantPermissions(['local-network-access'],{origin});
   await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
-  page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[];let failNextRead=true;page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
-  page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='file')fileCommands.push(parsed);let response;if(parsed.op==='read'&&failNextRead){failNextRead=false;response=Promise.resolve({id:parsed.id,ok:false,error:'synthetic read boundary failure'});}else{response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');}response.then(async reply=>{const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
+  page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[],nativeActions=[],prompts=[];page.on('request',request=>{if(new URL(request.url()).pathname==='/api/session/prompt')prompts.push(request);});let failNextRead=true,holdPoll,releasePoll;page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
+  page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='act')nativeActions.push(parsed);if(parsed.op==='file')fileCommands.push(parsed);let response;if(parsed.op==='read'&&failNextRead){failNextRead=false;response=Promise.resolve({id:parsed.id,ok:false,error:'synthetic read boundary failure'});}else{response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');}response.then(async reply=>{if(parsed.op==='state'&&holdPoll){const ready=holdPoll;holdPoll=null;await new Promise(resolve=>{releasePoll=resolve;ready();});}const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
   await page.route(origin+'/',async route=>{const response=await route.fetch();const html=(await response.text()).replace(/content="width=device-width, initial-scale=1"/,'content="width='+Math.max(480,scenario.w)+'"');await route.fulfill({response,body:html.replace('</head>',injection+'</head>')});});
+  await page.addInitScript(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.__fixtureSockets=[];const Native=window.WebSocket;window.WebSocket=class extends Native{constructor(...args){super(...args);window.__fixtureSockets.push(this);}};window.__DSH_CONNECTION_RECOVERY__={backoffBaseMs:5000,backoffMaxMs:5000};});
   page.on('console',m=>{if(process.env.DSH_SETTINGS_LAYOUT_PROBE&&m.text().startsWith('[dsh-native] layout-probe '))console.log(m.text());});
   await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
   if(process.env.DSH_SETTINGS_LAYOUT_PROBE)await page.evaluate(await fs.readFile(process.env.DSH_SETTINGS_LAYOUT_PROBE,'utf8'));
+  await page.waitForFunction(()=>window.__dshLocalConnectionState==='connected');
+  const beforeSockets=await page.evaluate(()=>{window.__connectionSentinel=Math.random();return {count:window.__fixtureSockets.length,sentinel:window.__connectionSentinel};});
+  await page.evaluate(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.dispatchEvent(new Event('offline'));for(let i=0;i<5;i++)window.dispatchEvent(new Event('dsh-native-resume'));});
+  await sleep(350);check(await page.evaluate(()=>window.__dshLocalConnectionState==='connected'&&window.__fixtureSockets.length)===beforeSockets.count,'internet offline hint and healthy foreground events keep the local carrier');
+  const draft=page.locator('[data-composer-input]');if(await draft.count())await draft.fill('PRIVATE-RESUME-DRAFT');
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'});document.dispatchEvent(new Event('visibilitychange'));for(const socket of window.__fixtureSockets)if(socket.readyState===1)socket.close(4001,'synthetic background loss');});
+  await page.waitForFunction(()=>window.__dshLocalConnectionState!=='connected');
+  const reconnectAt=Date.now();await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'visible'});document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('dsh-native-resume'));});
+  await page.waitForFunction(()=>window.__dshLocalConnectionState==='connected');check(Date.now()-reconnectAt<2500,'resume bypasses a five-second backoff using the original core connection');
+  check(await page.evaluate(()=>window.__connectionSentinel)===beforeSockets.sentinel,'connection repair does not reload the page');check(prompts.length===0,'lifecycle recovery never resubmits a chat prompt');
+  if(await draft.count()){check((await draft.innerText()).trim()==='PRIVATE-RESUME-DRAFT','connection repair preserves the actual composer draft');await draft.fill('');}
+  await page.evaluate(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>true});window.dispatchEvent(new Event('online'));});
   // Match Android's late onPageFinished state publication, after plugin/slot registration.
   await page.evaluate(session=>{window.__dshNativeAppState={integratedSettings:true,settingsSession:session,version:'fixture'};window.dispatchEvent(new Event('dsh-native-app-state'));},handshake.session);
   const open=async target=>{check(await page.evaluate(page=>!window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page}})),target),'settings navigation accepted');};
@@ -57,6 +70,17 @@ try{
    check(bounds.scroll<=bounds.width+1&&bounds.rect.right<=bounds.vw+1,'device settings fit '+target);
    for(const item of await section.locator('button,input').evaluateAll(els=>els.map(el=>({width:el.clientWidth,scroll:el.scrollWidth}))))check(item.scroll<=item.width+2,'control fits '+target);
   }
+  await open('updates');const settingsPage=page.locator('[data-device-page="updates"]');
+  await settingsPage.getByRole('button',{name:'Open details',exact:true}).click();
+  await page.getByRole('heading',{name:'Operation details',exact:true}).waitFor();
+  check(await page.getByText('Operation details',{exact:true}).count()===1,'nested native dialog uses its own title without a repeated body heading');
+  check(await page.evaluate(()=>!window.dispatchEvent(new Event('dsh-settings-back',{cancelable:true}))),'native detail dialog consumes hardware back');
+  await page.getByText('Operation details',{exact:true}).waitFor({state:'detached'});
+  const polled=new Promise(resolve=>holdPoll=resolve);await Promise.race([polled,sleep(6000).then(()=>{throw Error('state poll missing');})]);
+  const previousActions=nativeActions.length;await settingsPage.getByRole('button',{name:/^Save(d \d+)?$/}).click();releasePoll();
+  for(let n=0;n<100&&nativeActions.length===previousActions;n++)await sleep(20);
+  check(nativeActions.length>previousActions,'a click during a background state refresh is queued and delivered');
+  await page.waitForFunction(()=>!document.querySelector('[data-device-page="updates"] button')?.disabled);
   await open('sessions');await page.locator('.dsh-device-sessions').waitFor();check(await page.locator('.dsh-device-sessions').getByRole('button',{name:scenario.lang==='en'?'New conversation':'新建对话',exact:true}).isVisible(),'session manager integrated');
   await open('models');await page.getByRole('heading',{name:scenario.lang==='en'?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接',exact:true}).waitFor();
   if(process.env.DSH_SETTINGS_EVIDENCE_DIR)await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'settings-models-'+scenario.w+'.png')});

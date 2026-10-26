@@ -31,7 +31,8 @@ else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
     "$ROOT"/src/dev/dsh/nativeapp/{CodeBuddyCatalog,ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi,FileActionsUi}.java \
     "$ROOT"/src/dev/dsh/nativeapp/{CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
-    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
+    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,ConnectionRecoveryTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ConnectionRecoveryTest --apply "$PROBE/runtime" "$ROOT/payload/connection-ui.js"
 PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
     --dump-module "$PERSISTENCE" "$ROOT/payload/session-publish.js" > "$PROBE/persistence.js"
@@ -66,6 +67,7 @@ LAYOUT="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest \
     --dump-layout "$LAYOUT" > "$PROBE/layout-client.js"
 mv "$PROBE/layout-client.js" "$LAYOUT"
+node "$ROOT/tests/js/connection-consumer.mjs" "$PROBE/runtime"
 node "$ROOT/tests/js/upgrade-runtime-consumer.mjs" "$PROBE/runtime" "$PROBE/manifest.json" "$PROBE/classes"
 for kind in voice filesystem; do
     MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-experimental-client-ui-voice-input/lib/client.js"

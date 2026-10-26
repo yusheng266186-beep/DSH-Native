@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.39.1**；源码：**0.39.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.39.1**；源码：**0.40.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -35,7 +35,7 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.37.2 完善原生动作的项目与生命周期检查：准备分享文件期间切换项目或窗口会停止旧请求；系统拒绝、没有可用 App、通知渠道缺失和界面超时给出明确错误。取消或服务停止会移除排队动作，截图授权启动时取消也不遗留请求。覆盖安装后重启内核。
 
 <!-- project-navigation:start -->
-0.39.1 精简内置 CodeBuddy 运行包，归档从约 45 MiB 降到约 7.5 MiB；通过官方 Session 提前准备工具后的下一步调用，并启用私有编译缓存。文件工具和权限仍由 DSH 处理，手机设置继续使用原界面结构。安装后重启内核，现有 CodeBuddy Key 继续使用。CLI 使用自身的代理行为，详见[接入与验证](docs/CODEBUDDY.md)。
+0.40.0 针对后台/息屏返回优化本机连接恢复，保留聊天页面和草稿；移除头像上方独立的 App 工具按钮，统一使用原设置入口。设备设置修复刷新期间点击丢失，并继续减少 CodeBuddy 本地准备与重复上下文开销。安装覆盖后重启内核，真机体验由用户验证。
 
 ## 项目概览
 

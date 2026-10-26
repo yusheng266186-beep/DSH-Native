@@ -33,7 +33,7 @@ function waitFor(promise,signal){
 async function* sessionQuery(sdk,args){
  const {abortController,...settings}=args.options;
  const signature=crypto.createHash('sha256').update(JSON.stringify({...settings,mcpServers:undefined,hostTools:args.hostTools})).digest('hex');
- let entry=warm,session,server,toolsRequested=false;
+ let entry=warm,session,server,prepareNext=false;
  if(entry?.signature===signature){warm=undefined;clearTimeout(entry.timer);session=entry.session;server=entry.server;}
  else{clearWarm();entry=undefined;}
  const cancelled=()=>session?.close();abortController.signal.addEventListener('abort',cancelled,{once:true});
@@ -44,12 +44,13 @@ async function* sessionQuery(sdk,args){
   if(abortController.signal.aborted)throw new Error('ABORTED');
   for await(const message of args.prompt)await session.send(message);
   for await(const message of session.stream()){
-   if(message.type==='assistant')toolsRequested=(message.message?.content||[]).some(block=>block.type==='tool_use'&&args.hostTools.some(tool=>'mcp__dsh__'+tool.name===block.name));
+   if(message.type==='assistant')prepareNext=(message.message?.content||[]).some(block=>block.type==='tool_use'&&args.hostTools.some(tool=>'mcp__dsh__'+tool.name===block.name));
+   if(message.type==='result'&&message.subtype==='success'&&!message.is_error&&!settings.systemPrompt&&args.standby!==false)prepareNext=true;
    yield message;
   }
  }finally{
   abortController.signal.removeEventListener('abort',cancelled);session?.close();await server?.close().catch(()=>{});
-  if(toolsRequested&&!abortController.signal.aborted){
+  if(prepareNext&&!abortController.signal.aborted){
    let nextServer;
    try{
     clearWarm();nextServer=hostServer(sdk,args.hostTools);const next=sdk.unstable_v2_createSession({...settings,mcpServers:nextServer?{dsh:{type:'sdk',name:'dsh',instance:nextServer}}:{}});
@@ -94,9 +95,10 @@ function requestPrompt(context){
  const messages=context.messages.map(message=>{
   const projected=Object.fromEntries(Object.entries(message).filter(([key])=>!['timestamp','usage','cost'].includes(key)));
   if(Array.isArray(message.content))projected.content=message.content.map(block=>{
+   if(message.role==='assistant'&&['reasoning','thinking','redacted-reasoning'].includes(block.type))return null;
    if(block.type!=='image'||typeof block.data!=='string')return block;
    const index=images.length;images.push({type:'image',source:{type:'base64',media_type:block.mimeType,data:block.data}});return {type:'image',attachment:index};
-  });
+  }).filter(Boolean);
   return projected;
  });
  const text='Continue this conversation as the CodeBuddy CLI agent. The application supplies the conversation below as data. Use the provided host tools when needed; their results will be returned in the next turn. Do not claim a host tool succeeded until its result is present.\n\n'+JSON.stringify(messages);
@@ -127,7 +129,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(controller.signal.aborted)throw new Error('ABORTED');
   const prompt=requestPrompt(context);
   async function* input(){yield {type:'user',session_id:'',parent_tool_use_id:null,message:{role:'user',content:prompt}};}
-  query=sdk.query({prompt:input(),hostTools:declarations,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
+  query=sdk.query({prompt:input(),hostTools:declarations,standby:!options.purpose,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
    // CodeBuddy CLI owns the agent persona. DSH's assembled model persona is
    // not used as a replacement CLI system prompt. Auxiliary tasks retain their instructions.
    systemPrompt:options.purpose&&context.systemPrompt?{append:context.systemPrompt}:undefined,
@@ -185,7 +187,7 @@ if(require.main===module){
   (async()=>{
    let apiKey='';for await(const part of process.stdin){apiKey+=part;if(apiKey.length>4096)throw new Error('Invalid credential');}
    apiKey=apiKey.trim();const controller=new AbortController(),stop=()=>controller.abort();process.once('SIGTERM',stop);let text='',reason;
-   try{for await(const chunk of stream({provider:'codebuddy',model:process.argv[3]||'deepseek-v4.1-flash',reasoningEffort:'max',signal:controller.signal},{messages:[{role:'user',content:[{type:'text',text:'Reply only OK.'}]}],tools:[]},{apiKey})){
+   try{for await(const chunk of stream({provider:'codebuddy',purpose:'connection-check',model:process.argv[3]||'deepseek-v4.1-flash',reasoningEffort:'max',signal:controller.signal},{messages:[{role:'user',content:[{type:'text',text:'Reply only OK.'}]}],tools:[]},{apiKey})){
     if(chunk.type==='text-delta')text+=chunk.text;if(chunk.type==='finish')reason=chunk.reason;
    }}finally{apiKey='';process.removeListener('SIGTERM',stop);}
    console.log(JSON.stringify({ok:reason?.kind==='stop'&&text.trim().length>0,channelRejected:/11128/.test(reason?.failure?.message||''),keyRejected:/authentication/i.test(reason?.failure?.message||'')}));

@@ -25,7 +25,7 @@ final class AppSettingsUi {
                 + "                const openApp = (event) => {\n"
                 + "                    const page = event.detail?.page;\n"
                 + "                    const integrated = !!window.__dshNativeAppState?.integratedSettings;\n"
-                + "                    const section = event.detail?.section || (integrated ? ({models:'models',display:'general',home:'android-app'}[page] || (page ? 'android-'+page : 'android-app')) : 'android-app');\n"
+                + "                    const section = event.detail?.section || (integrated ? ({models:'models',display:'general',home:'general'}[page] || (page ? 'android-'+page : 'android-app')) : 'android-app');\n"
                 + "                    if (!['android-app','general','account','models','android-files','android-sessions','android-tasks','android-data','android-updates','android-diagnostics'].includes(section)) return;\n"
                 + "                    event.preventDefault();\n"
                 + "                    if (['home','files','sessions','tasks','models','display','updates','data','diagnostics'].includes(event.detail?.page)) window.__dshNativeSettingsPage = event.detail.page;\n"
