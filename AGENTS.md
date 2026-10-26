@@ -1,7 +1,7 @@
 # 给接手开发者与 Agent 的工作约定
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.39.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
@@ -95,6 +95,8 @@ bash scripts/check_model_consumer.sh
 - 未声明档位的模型保留不传参数的默认路径；不偷偷降级 max。
 - 必须验证 Host `buildModelCatalog`、LLM `resolveCallConfig`、离线 SDK 请求体和注册到聊天框的组件/RPC。原生列表正确不能证明聊天框可用。
 - 默认值迁移不改写历史会话；用户可显式修改聊天框后续请求的模型与强度。
+
+CodeBuddy 的 App 路由使用内置官方 SDK/CLI 代理。构建必须按固定 lockfile 生成 SDK 归档并通过 `codebuddy-cli-consumer.mjs`，归档不进 Git。保持 SDK 原样、使用公共 MCP 工具接口；CLI 内置工具禁用，工具执行交回 DSH。目录资料与 CLI 对话检查必须分开报告。不得伪造客户端标识或改写文本规避服务拒绝，模式与验证边界见 [CodeBuddy](docs/CODEBUDDY.md)。
 
 ## 6. 验证结果如何表述
 

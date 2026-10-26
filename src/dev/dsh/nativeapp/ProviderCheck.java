@@ -8,13 +8,15 @@ import java.util.Map;
 /** Read-only discovery: only catalog rows supply model IDs. */
 final class ProviderCheck {
     static final int READY = 1, KEY_REJECTED = 2, RATE_LIMITED = 3,
-            SERVICE_ERROR = 4, ENDPOINT_CHANGED = 5, INVALID_RESPONSE = 6;
+            SERVICE_ERROR = 4, ENDPOINT_CHANGED = 5, INVALID_RESPONSE = 6,
+            CHANNEL_REJECTED = 7, CLI_METADATA = 8;
     private ProviderCheck() { }
     static final class Result {
         final int state, httpCode;
         final List<String> models;
         final Map<String, ModelConfig.Model> metadata;
         final boolean cliSnapshot;
+        final boolean cliChatVerified;
         Result(int state, int code, List<String> models) {
             this(state, code, models, new LinkedHashMap<String, ModelConfig.Model>());
         }
@@ -22,10 +24,15 @@ final class ProviderCheck {
             this(state,code,models,metadata,false);
         }
         Result(int state, int code, List<String> models, Map<String, ModelConfig.Model> metadata, boolean cliSnapshot) {
+            this(state,code,models,metadata,cliSnapshot,false);
+        }
+        Result(int state, int code, List<String> models, Map<String, ModelConfig.Model> metadata, boolean cliSnapshot, boolean verified) {
             this.state = state; this.httpCode = code; this.models = models; this.metadata = metadata;
             this.cliSnapshot = cliSnapshot;
+            this.cliChatVerified = verified;
         }
         boolean accepted() { return state == READY || state == RATE_LIMITED; }
+        boolean hasCatalog() { return state == READY || state == CLI_METADATA; }
     }
     static String endpoint(String provider) {
         return ModelConfig.DEEPSEEK.equals(provider) ? "https://api.deepseek.com/models"

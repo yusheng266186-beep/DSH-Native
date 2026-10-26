@@ -36,6 +36,45 @@ final class NativeCoreApi {
     String origin() { return client.origin(); }
     boolean matches(int port, String token) { return !closed && client.matches(port, token); }
 
+    /** Run the bundled official CLI; credentials travel only through its private stdin. */
+    ProviderCheck.Result checkCodeBuddy(String key, String model) throws Exception {
+        checkOpen();
+        File root = new File(activity.getFilesDir(), "dsh").getCanonicalFile();
+        ProcessBuilder builder = new ProcessBuilder(new File(root,"node").getAbsolutePath(),
+                "--expose-internals",new File(root,"codebuddy-cli.cjs").getAbsolutePath(),"--check",model);
+        builder.directory(root); builder.redirectErrorStream(true);
+        builder.environment().put("HOME",root.getAbsolutePath());
+        builder.environment().put("PATH",ToolEnvironment.path(root));
+        builder.environment().put("LD_LIBRARY_PATH",new File(root,"lib").getAbsolutePath()+":"+new File(root,"tools/lib").getAbsolutePath());
+        builder.environment().put("OPENSSL_CONF",new File(root,"openssl.cnf").getAbsolutePath());
+        builder.environment().put("TMPDIR",new File(root,"tmp").getAbsolutePath());
+        final Process process = builder.start();
+        final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        final AtomicBoolean invalid = new AtomicBoolean();
+        Thread reader = new Thread(new Runnable() { @Override public void run() {
+            try (java.io.InputStream input = process.getInputStream()) {
+                byte[] buffer = new byte[1024]; int length;
+                while ((length=input.read(buffer))!=-1) {
+                    if (bytes.size()+length>8192) { invalid.set(true); process.destroy(); return; }
+                    bytes.write(buffer,0,length);
+                }
+            } catch(IOException failure) { invalid.set(true); }
+        }},"dsh-codebuddy-check");
+        reader.setDaemon(true); reader.start();
+        try {
+            try (java.io.OutputStream input = process.getOutputStream()) { input.write(key.getBytes("UTF-8")); }
+            long deadline=System.nanoTime()+180000000000L;
+            while (ProcessSupervisor.alive(process)) {
+                checkOpen();
+                if (System.nanoTime()>deadline) throw new IOException("CodeBuddy CLI timed out");
+                Thread.sleep(50);
+            }
+            reader.join(1000); checkOpen();
+            if (reader.isAlive() || invalid.get()) throw new IOException("Invalid CodeBuddy CLI reply");
+            return CodeBuddyCatalog.checkReply(new String(bytes.toByteArray(),"UTF-8").trim());
+        } finally { process.destroy(); }
+    }
+
     Object call(String method, JSONObject args) throws Exception {
         CoreRpcClient.Reply reply = client.call(method, args.toString());
         JSONObject envelope = new JSONObject(reply.body);

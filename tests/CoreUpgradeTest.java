@@ -31,8 +31,13 @@ public class CoreUpgradeTest {
             return;
         }
         check(CoreUpgrade.codeBuddy("unknown upstream") == null);
-        String buddy = CoreUpgrade.codeBuddy("headers: requestHeaders(profile.headers)");
-        check(buddy.contains("X-API-Key") && buddy.contains("apiKey") && buddy.contains("profile.baseURL === \"https://www.codebuddy.cn/v2\""));
+        String anchor = "const iterator = toStreamChunks(snapshot.models.streamSimple(model, context, {";
+        String original = "headers: requestHeaders(profile.headers)\n" + anchor;
+        String buddy = CoreUpgrade.codeBuddy(original);
+        check(buddy.contains("requestHeaders(profile.headers)") && !buddy.contains("X-Product") && !buddy.contains("X-IDE-Name"));
+        check(buddy.contains("yield* cli.stream") && buddy.contains("DSH_NATIVE_APP_ROOT"));
+        String legacy = "headers: requestHeaders(options.provider === \"codebuddy\" && profile.baseURL === \"https://www.codebuddy.cn/v2\" ? { ...profile.headers, \"X-API-Key\": apiKey, \"X-Product\": \"codebuddy\", \"X-IDE-Name\": \"DSH Native\" } : profile.headers) /* dsh-native-codebuddy-auth-v1 */\n" + anchor;
+        check(CoreUpgrade.codeBuddy(legacy).equals(buddy));
         check(CoreUpgrade.codeBuddy(buddy).equals(buddy));
         check(CoreUpgrade.codeBuddy("headers: requestHeaders(profile.headers)\nheaders: requestHeaders(profile.headers)") == null);
         check(CoreUpgrade.account("unknown upstream") == null);

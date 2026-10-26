@@ -206,7 +206,7 @@ final class ModelCatalogSync {
         out.append("llm-pi-ai:\n")
                 .append("  providers:\n")
                 .append("    codebuddy:\n")
-                .append("      displayName: CodeBuddy\n")
+                .append("      displayName: CodeBuddy CLI\n")
                 .append("      api: openai-completions\n")
                 .append("      baseURL: https://www.codebuddy.cn/v2\n")
                 .append("      apiKeyEnv: CODEBUDDY_API_KEY\n")

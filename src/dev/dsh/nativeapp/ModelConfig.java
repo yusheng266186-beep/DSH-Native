@@ -96,7 +96,7 @@ final class ModelConfig {
     static String providerName(String provider, boolean english) {
         if (DEEPSEEK_ACCOUNT.equals(provider)) return english ? "DeepSeek account" : "DeepSeek 账号";
         if (DEEPSEEK.equals(provider)) return english ? "DeepSeek direct" : "DeepSeek 官方";
-        return "CodeBuddy";
+        return "CodeBuddy CLI";
     }
 
     static Selection readSelection(String yaml) {

@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.39.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -35,6 +35,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.37.2 完善原生动作的项目与生命周期检查：准备分享文件期间切换项目或窗口会停止旧请求；系统拒绝、没有可用 App、通知渠道缺失和界面超时给出明确错误。取消或服务停止会移除排队动作，截图授权启动时取消也不遗留请求。覆盖安装后重启内核。
 
 <!-- project-navigation:start -->
+0.39.0 内置官方 CodeBuddy CLI，修复直接 API 被 11128 拦截而无法对话的问题；文件工具和权限保留在 DSH。手机设置导航、分组与选项菜单重做，导入连接使用原设置弹层。安装后重启内核，现有 CodeBuddy Key 继续使用。CLI 使用自身的代理行为，详见[接入与验证](docs/CODEBUDDY.md)。
+
 ## 项目概览
 
 | 项目 | 说明 |
@@ -112,13 +114,13 @@ APK 携带 Node 与启动引导，DSH 和工具链通过经过摘要校验的运
 
 | 路由 | 目录端点 | 读取行为 |
 |---|---|---|
-| CodeBuddy | CLI 2.174.0 metadata | 验证服务端接口后读取固定 CLI 元数据，实际权限以调用结果为准 |
+| CodeBuddy CLI | 官方 SDK 0.3.291 / CLI 2.176.0 | 手机内置 CLI 代理；目录快照不等于账号模型授权 |
 | DeepSeek 官方直连 | `GET https://api.deepseek.com/models` | 使用官方 API Key，获取可见模型 |
 | DeepSeek 账号 | 内核 `account/*` 与 `session/modelCatalog` | 浏览器授权后使用内核管理的账号模型路由 |
 
 DSH 自带的账号页面显示账户信息、充值余额和赠金余额，并保留查询用量、充值及退出入口。登录会打开系统浏览器的 DeepSeek 授权页。完成授权后返回 App，选择 **DeepSeek 账号**，读取模型列表并保存。可重新打开授权页、取消未完成授权或退出账号；API Key 与账号授权分别保存。退出账号会停止使用该账号的运行任务，保留 API Key、会话和项目。技术路径与验证边界见 [账号登录说明](docs/DEEPSEEK_ACCOUNT.md)。
 
-DeepSeek 连接检测只读取目录；CodeBuddy 使用空消息参数探测和固定 CLI 目录，不发送生成提示词，不把元数据宣称为账号授权清单。CodeBuddy CLI 的私人连接可在模型页通过加密文件导入，密钥写入内核凭据，见[接入说明](docs/CODEBUDDY.md)。
+DeepSeek 连接检测只读取目录；CodeBuddy 对话使用内置官方 CLI。“检测连接”发送短请求，可能消耗少量额度；目录刷新只读取固定 CLI 元数据，不冒充对话验证或账号授权清单。CodeBuddy CLI 的私人连接可在模型页通过加密文件导入，密钥写入内核凭据，见[接入说明](docs/CODEBUDDY.md)。
 
 服务商新增模型即使尚未进入本地能力表，也允许选择和保存。视觉能力优先采用上游结构化声明，再结合已有配置；未知能力不会被误标为支持图片。临时离线时可以保留已保存配置，首次配置或选择新模型需要成功读取目录。
 

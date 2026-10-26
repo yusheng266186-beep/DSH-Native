@@ -77,7 +77,7 @@ final class ModelCenterPanel {
                         ProviderCheck.Result result = fetchCatalog(api, selected, savedKey);
                         host.log("上游模型目录响应: " + selected + " HTTP " + result.httpCode
                                 + "，模型 " + result.models.size() + " 个");
-                        if (result.state == ProviderCheck.READY) activity.runOnUiThread(new Runnable() {
+                        if (result.hasCatalog()) activity.runOnUiThread(new Runnable() {
                             @Override public void run() {
                                 if (owner.isShowing()) status.setText(UiText.t("模型列表已读取，正在保存…",
                                         "Model catalog fetched; saving…"));
@@ -125,6 +125,7 @@ final class ModelCenterPanel {
                                     "Your inputs changed. Refresh again before saving.")));
                     status.setTextColor(DshUi.SUCCESS());
                 }
+                if (owner.isShowing() && result.upstream.cliSnapshot) renderCheck(status,result.upstream,result.entries,"");
                 host.refreshModelCatalog();
             }
         });
@@ -199,10 +200,10 @@ final class ModelCenterPanel {
                     ? UiText.t("连接模型服务", "Connect a model provider")
                     : UiText.t("模型中心", "Model center")));
             body.addView(DshUi.hint(act, onboarding
-                    ? UiText.t("选择服务商，登录账号或填写 API Key，并确认默认模型。检测只读取模型列表，不会产生模型调用费用。",
-                            "Choose a provider, sign in or add an API key, and confirm a default model. The check only reads the model list and does not make a billed model call.")
-                    : UiText.t("统一管理服务商、模型和思考强度。模型变更用于新会话，已有会话保留自己的模型。",
-                            "Manage providers, models, and reasoning effort. Changes apply to new sessions; existing sessions keep their recorded model.")),
+                    ? UiText.t("选择服务商，登录账号或填写 API Key，并确认默认模型。CodeBuddy 检查会通过内置官方 CLI 发送短请求，可能消耗少量额度；模型目录刷新不调用模型。",
+                            "Choose a provider, sign in or add an API key, and confirm a default model. A CodeBuddy check sends a short request through the bundled official CLI and may use a small amount of quota; catalog refresh does not call a model.")
+                    : UiText.t("管理服务商、模型和思考强度。CodeBuddy 使用内置官方 CLI 的代理行为，文件工具和权限由 DSH 处理。检查会发送短请求。模型变更用于新会话。",
+                            "Manage providers, models, and reasoning effort. CodeBuddy uses the bundled official CLI agent; DSH handles file tools and permissions. Check sends a short request. Changes apply to new sessions.")),
                     DshUi.fullWidth(act, 7));
 
             final Button global = DshUi.toggleButton(act,
@@ -224,7 +225,7 @@ final class ModelCenterPanel {
 
             body.addView(DshUi.sectionLabel(act,
                     UiText.t("服务商", "Provider")), DshUi.fullWidth(act, 20));
-            final Button cc = DshUi.toggleButton(act, "CodeBuddy",
+            final Button cc = DshUi.toggleButton(act, "CodeBuddy CLI",
                     ModelConfig.CODEBUDDY.equals(draft.provider));
             final Button ds = DshUi.toggleButton(act,
                     UiText.t("DeepSeek API Key", "DeepSeek API key"),
@@ -695,7 +696,7 @@ final class ModelCenterPanel {
                                     + error.getClass().getSimpleName());
                             return;
                         }
-                        if (result.state != ProviderCheck.READY) {
+                        if (!result.hasCatalog()) {
                             state.entries = new ArrayList<LiveModelCatalog.Entry>();
                             if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && result.state == ProviderCheck.KEY_REJECTED) {
                                 status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
@@ -709,11 +710,12 @@ final class ModelCenterPanel {
                         state.entries = LiveModelCatalog.reconcile(result,
                                 ModelConfig.modelsForProvider(settings, provider), provider);
                         draft.putCatalog(provider, state.entries);
-                        status.setText(UiText.t(
+                        if (result.cliSnapshot) renderCheck(status,result,state.entries,"");
+                        else status.setText(UiText.t(
                                 "上游返回 " + state.entries.size() + " 个模型，均可直接选择使用。",
                                 "The upstream returned " + state.entries.size()
                                         + " models; all are available for selection."));
-                        status.setTextColor(state.entries.isEmpty() ? DshUi.WARN() : DshUi.SUCCESS());
+                        status.setTextColor(result.cliSnapshot || state.entries.isEmpty() ? DshUi.WARN() : DshUi.SUCCESS());
                         fill.run();
                         host.log("上游模型目录读取完成: " + provider + "，返回 "
                                 + state.entries.size() + " 个，全部允许选择");
@@ -747,7 +749,7 @@ final class ModelCenterPanel {
                 UiText.t("正在检测…", "Checking…"), true);
         status.setText(UiText.t("正在连接服务商…", "Connecting to provider…"));
         status.setTextColor(DshUi.TEXT_2());
-        requestCatalog(act, host.coreApi(), provider, key, new CatalogCallback() {
+        requestCatalog(act, host.coreApi(), provider, key, selectedModel, new CatalogCallback() {
             @Override public void complete(ProviderCheck.Result checked, Throwable error) {
                 if (act.isFinishing() || act.isDestroyed() || !owner.isShowing()) return;
                 if (draft.checkRevision != revision) return;
@@ -763,14 +765,14 @@ final class ModelCenterPanel {
                 }
                 List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(
                         checked, ModelConfig.modelsForProvider(settings, provider), provider);
-                if (checked.state == ProviderCheck.READY) {
+                if (checked.hasCatalog()) {
                     draft.putCatalog(provider, entries);
                     if (onCapabilities != null) onCapabilities.run();
                 }
                 if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.state == ProviderCheck.KEY_REJECTED) {
                     status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
                     status.setTextColor(DshUi.WARN());
-                } else if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.state == ProviderCheck.READY) {
+                } else if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.hasCatalog()) {
                     status.setText(ProviderCheck.contains(checked, selectedModel)
                             ? UiText.t("账号授权已保存，当前模型已列入账号目录。实际使用取决于账号权限和额度。",
                                     "Authorization is saved and the model is in the account catalog. Usage depends on account permissions and balance.")
@@ -786,13 +788,17 @@ final class ModelCenterPanel {
 
     private static void renderCheck(TextView status, ProviderCheck.Result result,
                                     List<LiveModelCatalog.Entry> entries, String model) {
-        if (result.cliSnapshot) {
-            status.setText(UiText.t("CodeBuddy 接口校验通过。模型目录来自 CLI "+CodeBuddyCatalog.VERSION
-                    +" 元数据；实际模型权限以调用为准。", "CodeBuddy endpoint verified. Model metadata is from CLI "+CodeBuddyCatalog.VERSION
-                    +"; actual model access is determined by the service."));
-            status.setTextColor(ProviderCheck.contains(result,model)?DshUi.SUCCESS():DshUi.WARN()); return;
+        if (result.cliChatVerified) {
+            status.setText(UiText.t("官方 CodeBuddy CLI 对话检查通过。已验证当前模型；其他模型权限仍以账号为准。", "The official CodeBuddy CLI chat check passed for this model. Access to other models depends on your account."));
+            status.setTextColor(DshUi.SUCCESS()); return;
         }
-        if (result.state == ProviderCheck.READY) {
+        if (result.cliSnapshot) {
+            status.setText(UiText.t("CodeBuddy 模型资料来自 CLI "+CodeBuddyCatalog.VERSION
+                    +"。这不是对话或渠道校验；能列出模型不代表能对话。", "CodeBuddy model metadata is from CLI "+CodeBuddyCatalog.VERSION
+                    +". This does not verify chat access or channel approval."));
+            status.setTextColor(DshUi.WARN()); return;
+        }
+        if (result.hasCatalog()) {
             boolean present = ProviderCheck.contains(result, model);
             if (present) {
                 status.setText(UiText.t(
@@ -806,6 +812,10 @@ final class ModelCenterPanel {
                         "Connected, but the selected model is not in the provider's current catalog. Choose another model."));
                 status.setTextColor(DshUi.WARN());
             }
+        } else if (result.state == ProviderCheck.CHANNEL_REJECTED) {
+            status.setText(UiText.t("CodeBuddy 拒绝当前调用渠道（11128）。密钥和模型目录不能证明对话权限，请通过 CodeBuddy 官方 CLI / SDK，或联系服务商开通当前应用。重试或重新导入目录不会解除限制。",
+                    "CodeBuddy rejected this channel (11128). A key or model list does not establish chat permission. Use the official CLI / SDK, or ask the provider to authorize this app. Retrying or reimporting metadata cannot remove the restriction."));
+            status.setTextColor(DshUi.WARN());
         } else if (result.state == ProviderCheck.KEY_REJECTED) {
             status.setText(UiText.t("服务商拒绝访问（HTTP " + result.httpCode
                             + "），请检查密钥及账户 API 权限。",
@@ -940,9 +950,13 @@ final class ModelCenterPanel {
     /** 通过服务商目录或内核账号 RPC 读取模型；回调始终回到主线程。 */
     private static void requestCatalog(final Activity act, final NativeCoreApi api, final String provider,
                                        final String key, final CatalogCallback callback) {
+        requestCatalog(act,api,provider,key,null,callback);
+    }
+    private static void requestCatalog(final Activity act, final NativeCoreApi api, final String provider,
+                                       final String key, final String checkedModel, final CatalogCallback callback) {
         if (api == null) { callback.complete(null, new java.io.IOException("core unavailable")); return; }
         api.execute(new NativeCoreApi.Work() {
-            @Override public Object run() throws Exception { return fetchCatalog(api, provider, key); }
+            @Override public Object run() throws Exception { return ModelConfig.CODEBUDDY.equals(provider) && checkedModel != null ? api.checkCodeBuddy(key,checkedModel) : fetchCatalog(api, provider, key); }
         }, new NativeCoreApi.Callback() {
             @Override public void complete(Object value, Throwable failure) {
                 callback.complete((ProviderCheck.Result) value, failure);
@@ -951,6 +965,7 @@ final class ModelCenterPanel {
     }
 
     private static ProviderCheck.Result fetchCatalog(NativeCoreApi api, String provider, String key) throws Exception {
+        if (ModelConfig.CODEBUDDY.equals(provider)) return CodeBuddyCatalog.metadata();
         if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)) {
             JSONObject state = (JSONObject) api.call("account/getState", new JSONObject());
             if (!"credential-stored".equals(state.optString("status"))) return ProviderCheck.classify(401, "");
@@ -966,24 +981,14 @@ final class ModelCenterPanel {
         try {
             connection.setConnectTimeout(12000); connection.setReadTimeout(15000);
             connection.setInstanceFollowRedirects(false);
-            boolean buddy = ModelConfig.CODEBUDDY.equals(provider);
-            connection.setRequestMethod(buddy ? "POST" : "GET");
+            connection.setRequestMethod("GET");
             connection.setRequestProperty("Authorization", "Bearer " + key);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("User-Agent", "DSHNative-ModelCatalog");
-            if (buddy) {
-                connection.setRequestProperty("X-API-Key", key);
-                connection.setRequestProperty("X-Product", "codebuddy");
-                connection.setRequestProperty("X-IDE-Name", "DSH Native");
-                connection.setDoOutput(true); connection.setRequestProperty("Content-Type","application/json");
-                byte[] probe = "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[],\"stream\":true,\"max_tokens\":1}".getBytes("UTF-8");
-                connection.setFixedLengthStreamingMode(probe.length);
-                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(probe); }
-            }
             int code = connection.getResponseCode();
             try (InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
                 String body = readLimited(stream, 1024 * 1024);
-                return buddy ? CodeBuddyCatalog.probe(code,body) : ProviderCheck.classify(code,body);
+                return ProviderCheck.classify(code,body);
             }
         } finally { connection.disconnect(); }
     }

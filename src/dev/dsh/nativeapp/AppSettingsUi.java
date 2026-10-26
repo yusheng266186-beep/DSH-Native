@@ -13,6 +13,13 @@ final class AppSettingsUi {
         String out = strip(source, TAG, END);
         if (out == null) return null;
         out = out.replace("\n            androidInstallAppSettings(ctx);", "");
+        if (!out.contains("children: androidSettingsNavigation(rows, active, onSelect)")) {
+            String start = "children: rows.map((row) =>";
+            int begin = out.indexOf(start), end = begin < 0 ? -1 : out.indexOf("}, row.id))",begin);
+            if (begin < 0 || end < 0 || out.indexOf(start,begin+start.length()) >= 0) return null;
+            out = out.substring(0,begin) + "children: androidSettingsNavigation(rows, active, onSelect)"
+                    + out.substring(end+"}, row.id))".length());
+        }
         String anchor = "const { open, activeId } = useStore((state) => state);";
         String listener = "\n            (0, react.useEffect)(() => {\n"
                 + "                const openApp = (event) => {\n"

@@ -15,10 +15,15 @@ public class ProviderCheckTest {
                 .equals("https://api.deepseek.com/models"), "wrong");
 
         ProviderCheck.Result buddy = CodeBuddyCatalog.probe(400,"{\"code\":11133}");
-        check("CodeBuddy parameter probe uses explicit CLI snapshot", buddy.state==ProviderCheck.READY && buddy.cliSnapshot && buddy.models.size()==21,"invalid snapshot");
+        check("CodeBuddy parameter probe uses explicit CLI snapshot", buddy.state==ProviderCheck.CLI_METADATA && !buddy.accepted() && buddy.hasCatalog() && buddy.cliSnapshot && buddy.models.size()==21,"invalid snapshot");
+        check("CodeBuddy channel rejection remains distinct", CodeBuddyCatalog.probe(400,"{\"code\":11128}").state==ProviderCheck.CHANNEL_REJECTED && !CodeBuddyCatalog.probe(400,"{\"code\":11128}").hasCatalog(),"restriction lost");
         check("CodeBuddy rejected key does not expose models", CodeBuddyCatalog.probe(401,"{}").models.isEmpty() && CodeBuddyCatalog.probe(401,"{}").state==ProviderCheck.KEY_REJECTED,"accepted");
         check("CodeBuddy unknown response does not claim ready", !CodeBuddyCatalog.probe(400,"{}").accepted(),"accepted");
         check("CodeBuddy rate limit remains distinct", CodeBuddyCatalog.probe(429,"{}").state==ProviderCheck.RATE_LIMITED,"lost status");
+        check("CLI metadata does not establish chat access", !CodeBuddyCatalog.metadata().accepted() && !CodeBuddyCatalog.metadata().cliChatVerified,"false approval");
+        check("official CLI success establishes current model chat check", CodeBuddyCatalog.checkReply("{\"ok\":true}").cliChatVerified,"not verified");
+        check("CLI channel refusal wins over an ambiguous ok flag", CodeBuddyCatalog.checkReply("{\"ok\":true,\"channelRejected\":true}").state==ProviderCheck.CHANNEL_REJECTED,"restriction lost");
+        check("CLI rejected key does not expose models", CodeBuddyCatalog.checkReply("{\"keyRejected\":true}").models.isEmpty(),"leaked catalog");
         String json = "{\"data\":[{\"id\":\"alpha/model\"},{\"id\":\"beta\"},"
                 + "{\"id\":\"alpha/model\"}]}";
         List<String> ids = ProviderCheck.modelIds(json);

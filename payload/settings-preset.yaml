@@ -6,7 +6,7 @@ agent-default-model:
 llm-pi-ai:
   providers:
     codebuddy:
-      displayName: CodeBuddy
+      displayName: CodeBuddy CLI
       api: openai-completions
       baseURL: https://www.codebuddy.cn/v2
       apiKeyEnv: CODEBUDDY_API_KEY

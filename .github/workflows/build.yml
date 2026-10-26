@@ -24,6 +24,7 @@ on:
       - 'tools/*.md'
       - 'runtime/core-source.json'
       - 'runtime/core-package*.json'
+      - 'runtime/codebuddy/**'
       - '.github/workflows/build.yml'
   push:
     branches: [ main ]
@@ -40,6 +41,7 @@ on:
       - 'tools/*.md'
       - 'runtime/core-source.json'
       - 'runtime/core-package*.json'
+      - 'runtime/codebuddy/**'
       - '.github/workflows/build.yml'
 
 permissions:

@@ -23,6 +23,7 @@ if build == pathlib.Path('/') or build == pathlib.Path.home() or root == build o
 PY
 ANDROID_HOME="$SDK" BT="$BT" DSH_PREVIOUS_APK="$REFERENCE" \
     bash "$ROOT/scripts/ci_stage.sh" "$BUILD"
+node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/bootstrap/payload"
 DSH_BUILD_DIR="$BUILD" DSH_AAPT2_LIB="$BT/lib64" \
     bash "$ROOT/scripts/build_bootstrap.sh"
 APK="$BUILD/bootstrap/DSHNative-bootstrap.apk"

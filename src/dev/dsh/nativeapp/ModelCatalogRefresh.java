@@ -39,7 +39,7 @@ final class ModelCatalogRefresh {
             throw new IOException("credentials changed");
         ProviderCheck.Result upstream = backend.fetch(provider, key);
         backend.checkOpen();
-        if (upstream.state != ProviderCheck.READY) return new Result(provider, upstream, null);
+        if (!upstream.hasCatalog()) return new Result(provider, upstream, null);
         String settings = backend.settings();
         List<LiveModelCatalog.Entry> entries = LiveModelCatalog.reconcile(upstream,
                 ModelConfig.modelsForProvider(settings, provider), provider);

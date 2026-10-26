@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.39.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -12,7 +12,7 @@
 | 逻辑和脚本回归 | `run_tests.sh` | JDK、Python 3、Node.js |
 | 元数据与文档检查 | `sync_project_metadata.py --check` | 仓库完整文件，Python 3 |
 | 本地 macOS / Linux 构建 | `local_build.sh <隔离目录> <已发布APK>` | JDK 17、官方 SDK 28/34、build-tools 34.0.0；无 GitHub 依赖 |
-| 完整 Linux / CI 构建 | `ci_build.sh <隔离目录>` | JDK 17、Android SDK、网络；GitHub CLI 推荐并用于消费者回归 |
+| 完整 Linux / CI 构建 | `ci_build.sh <隔离目录>` | JDK 17、Node.js 24/npm、Android SDK、网络；GitHub CLI 推荐并用于消费者回归 |
 | 底层打包 | `build_bootstrap.sh` | 已由 ci_stage 或历史设备路径准备的工作区 |
 | 实际 payload 消费验证 | `check_model_consumer.sh` | JDK、Node/npm、gh、zstd/tar、网络 |
 | 正式 App 发布 | `.github/workflows/release.yml` | GitHub Actions 与现有签名 |
@@ -48,10 +48,11 @@ bash scripts/ci_build.sh /tmp/dsh-build
 
 1. 准备 Android 平台、aapt2、d8、apksigner。
 2. 复制仓库源码、测试、脚本、图标资源和既有 keystore。
-3. 从上一已发布 bootstrap APK 提取 Node 与十个必需动态库，不从 payload Release 取 APK。
-4. 执行逻辑测试、架构/UI/无 emoji 闸门及资源检查。
-5. Java 编译、DEX 转换、资源处理、二进制清单生成、APK 组装与签名。
-6. 校验 minSdk、targetSdk、包名、产物和签名。
+3. 按 `runtime/codebuddy/package-lock.json` 安装未修改的官方 SDK/CLI，打包带版本/摘要的归档，并运行离线传输及 Android 平台启动检查。Node.js 24/npm 必需；不会提交 SDK 归档到 Git。
+4. 从上一已发布 bootstrap APK 提取 Node 与十个必需动态库，不从 payload Release 取 APK。
+5. 执行逻辑测试、架构/UI/无 emoji 闸门及资源检查。
+6. Java 编译、DEX 转换、资源处理、二进制清单生成、APK 组装与签名。
+7. 校验 minSdk、targetSdk、包名、产物和签名。
 
 **输出：** `/tmp/dsh-build/bootstrap/DSHNative-bootstrap.apk`。
 
