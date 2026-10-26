@@ -78,7 +78,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js android-voice-ui.js android-bridge.cjs android-tools.cjs provider-cleanup.cjs codebuddy-cli.cjs codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json runtime-environment.md runtime-checks.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
+for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js connection-ui.js android-voice-ui.js android-bridge.cjs android-tools.cjs provider-cleanup.cjs codebuddy-cli.cjs codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json runtime-environment.md runtime-checks.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done

@@ -43,5 +43,10 @@ const expected = ['[dsh-conn] connecting', '[dsh-conn] open', '[dsh-conn] close'
 for (const mark of expected) {
   if (!logs.includes(mark)) throw new Error('missing ' + mark + ': ' + logs.join(' / '));
 }
+context.__dshLocalConnectionState='connecting';
+const pendingSocket=new context.WebSocket('ws://127.0.0.1/private');pendingSocket.emit('open');
+if(logs.at(-1)==='[dsh-conn] open')throw new Error('raw socket open bypassed the core readiness handshake');
+context.__dshLocalConnectionState='connected';pendingSocket.emit('open');
+if(logs.at(-1)!=='[dsh-conn] open')throw new Error('ready generation was hidden');
 if (logs.join('\n').includes('secret-token')) throw new Error('WebSocket URL leaked');
 console.log('ConnectionRecoveryJS: lifecycle / idempotence / no URL leakage');

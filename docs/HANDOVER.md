@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.39.1**；源码：**0.39.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.39.1**；源码：**0.40.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -42,6 +42,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 ### 启动与存活探测
 
 `MainActivity` 初始化环境、配置、补丁与 WebView；`SessionPersistencePatch` 在每次启动修复首次保存和格式迁移的两个硬链接发布点，兼容旧 payload-v12。链接 EACCES 等兼容错误才降级为排他复制并 fsync，同名历史拒绝覆盖，真实写权限和磁盘错误仍传播。旧进程若加载的是较早 APK 的模块，明确要求从更新与维护重启，不误报已采用补丁。`LocalServerProbe` 在同一 localhost origin 完成 token → 303 → Cookie 探测，限跳转、响应大小与超时，不向其他 origin 发送凭据。已可用实例尽量复用，进程失败按 `ProcessSupervisor` 有界退避。
+
+0.40.0 的 `connection-ui.js` 经 `ConnectionRecovery.patchClient` 幂等注入固定 Connection 客户端（browser/node），`MainActivity` 与真实运行包消费脚本应用同一补丁，rc.2 回退跳过。loopback 不监听外网 online/offline 暂停；非 loopback 保持原策略。原 Connection 状态上报、150ms 前台事件合并及 2 秒恢复限流只作用于未连接状态；健康连接不动。`onResume` 发固定页面事件，不暴露原生权限。不要改回自动重发用户消息或每次回前台整页刷新。独立 App 入口已去除，WebToolsEntry 只清理旧节点与确认原设置槽位。
 
 页面每次加载都重新安装辅助脚本。0.35.0 起 `HarnessService` 通过 `CoreTaskState` 每约 3 秒独立读取认证 `session/list`，15 秒内有效；查询失败立即未知，不发送完成。跨端口/令牌切换丢弃旧响应与任务计时，不依赖 WebView 先发出 fetch。`SessionProbe` 仍完整解析网页 RPC，DOM 只补充等待批准及连接信息。常驻通知只首次 startForeground，后续状态更新不得用占位文案覆盖后再被签名去重。
 

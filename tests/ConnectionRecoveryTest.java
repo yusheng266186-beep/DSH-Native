@@ -6,7 +6,17 @@ public class ConnectionRecoveryTest {
     static void check(String name, boolean ok, String detail) {
         if (ok) pass++; else { fail++; System.out.println("  FAIL " + name + " -> " + detail); }
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        if(args.length==3&&"--apply".equals(args[0])){
+            String helper=java.nio.file.Files.readString(java.nio.file.Paths.get(args[2]));
+            for(String name:new String[]{"client.browser.js","client.node.js"}){
+                java.nio.file.Path file=java.nio.file.Paths.get(args[1],"node_modules/@deepseek-ai/dsh-client-connection/lib",name);
+                String source=java.nio.file.Files.readString(file),next=ConnectionRecovery.patchClient(source,helper);
+                if(next==null||!next.equals(ConnectionRecovery.patchClient(next,helper)))throw new AssertionError("Connection patch changed or is not idempotent");
+                java.nio.file.Files.writeString(file,next);
+            }
+            return;
+        }
         if (args.length > 0 && "--dump-script".equals(args[0])) {
             System.out.print(ConnectionRecovery.script());
             return;
