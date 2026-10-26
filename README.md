@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.1**；源码：**0.40.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.40.1**；源码：**0.40.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -49,7 +49,7 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 [版本与下载](https://github.com/yusheng266186-beep/DSH-Native/releases) · [使用与开发](#下载与运行要求) · [项目总导航](https://github.com/yusheng266186-beep/yusheng266186-beep)
 
-启动页使用主题三点动画；内核连接和界面首帧均就绪后，在当前动画周期末进入。已准备好的后台内核优先复用，版本或运行包更新期间继续显示真实准备进度。
+启动页使用主题小鲸鱼游动动画；内核连接和界面首帧均就绪后，在当前动画周期末进入。已准备好的后台内核优先复用，版本或运行包更新期间继续显示真实准备进度。
 
 项目的发布、源码和验证状态统一见 [STATUS](docs/STATUS.md)。[Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) 使用 Termux / Debian，是另一种移动工作台方案。
 

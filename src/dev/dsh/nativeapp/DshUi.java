@@ -239,6 +239,7 @@ public final class DshUi {
     public static int BTN()         { return dark ? 0xFF2C2C2E : 0xFFFFFFFF; }  // --dsw-alias-bg-layer-2
     public static int BTN_PRESS()   { return dark ? 0xFF353638 : 0xFFF5F5F5; }  // --dsw-alias-bg-layer-3
     public static int ACCENT()      { return dark ? 0xFFF9FAFB : 0xFF0F1115; }  // DSH 主按钮
+    public static int BRAND()       { return dark ? 0xFF7D94FF : 0xFF4D6BFE; }  // DeepSeek whale / brand decoration
     public static int ACCENT_DARK() { return dark ? 0xFFE5E7EB : 0xFF27292D; }  // DSH 主按钮按下
     public static int SUCCESS()     { return UiPolicy.success(dark); }           // 成功文字
     public static int WARN()        { return UiPolicy.warning(dark); }           // 警示文字

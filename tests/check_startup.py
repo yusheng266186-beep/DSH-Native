@@ -15,8 +15,8 @@ if not SOURCE.is_dir():
 
 STUBS = {
     'android/content/Context.java': 'package android.content;public class Context {}',
-    'android/app/Activity.java': 'package android.app;public class Activity extends android.content.Context {}',
-    'android/content/res/Resources.java': 'package android.content.res;public class Resources {public android.util.DisplayMetrics getDisplayMetrics(){return new android.util.DisplayMetrics();}}',
+    'android/app/Activity.java': 'package android.app;public class Activity extends android.content.Context {public android.content.res.Resources getResources(){return new android.content.res.Resources();}public String getPackageName(){return "dev.dsh.native";}public android.graphics.drawable.Drawable getDrawable(int id){return new android.graphics.drawable.Drawable();}}',
+    'android/content/res/Resources.java': 'package android.content.res;public class Resources {public int getIdentifier(String n,String t,String p){return 1;}public android.util.DisplayMetrics getDisplayMetrics(){return new android.util.DisplayMetrics();}}',
     'android/util/DisplayMetrics.java': 'package android.util;public class DisplayMetrics {public float density=1;}',
     'android/os/SystemClock.java': 'package android.os;public class SystemClock {public static long now=1000;public static long uptimeMillis(){return now;}}',
     'android/view/Gravity.java': 'package android.view;public class Gravity {public static final int CENTER=1,CENTER_HORIZONTAL=2;}',
@@ -30,7 +30,7 @@ STUBS = {
             public void invalidate(){}public void setImportantForAccessibility(int v){}public void setAccessibilityLiveRegion(int v){}
             public void setBackgroundColor(int v){}public void setPadding(int a,int b,int c,int d){}
             public android.content.res.Resources getResources(){return new android.content.res.Resources();}
-            public int getWidth(){return 72;}public int getHeight(){return 28;}protected void onDraw(android.graphics.Canvas c){}
+            public int getWidth(){return 104;}public int getHeight(){return 84;}protected void onDraw(android.graphics.Canvas c){}
             protected void onAttachedToWindow(){attached=true;}protected void onDetachedFromWindow(){attached=false;}
             public static void at(long time){android.os.SystemClock.now=time;List<Runnable> copy=new ArrayList<>(frames);frames.clear();for(Runnable work:copy)work.run();}
         }''',
@@ -48,12 +48,14 @@ STUBS = {
     'android/widget/TextView.java': '''package android.widget;public class TextView extends android.view.View {
         public TextView(android.content.Context c){super(c);}public void setText(CharSequence v){}public void setGravity(int v){}public void setTextSize(float v){}public void setTextColor(int v){}
     }''',
-    'android/graphics/Paint.java': 'package android.graphics;public class Paint {public static final int ANTI_ALIAS_FLAG=1;public Paint(int v){}public void setColor(int v){}}',
+    'android/graphics/Paint.java': 'package android.graphics;public class Paint {public static final int ANTI_ALIAS_FLAG=1;public enum Style {STROKE}public enum Cap {ROUND}public Paint(int v){}public void setColor(int v){}public void setAlpha(int v){}public void setStyle(Style v){}public void setStrokeWidth(float v){}public void setStrokeCap(Cap v){}}',
+    'android/graphics/Path.java': 'package android.graphics;public class Path {public void reset(){}public void moveTo(float a,float b){}public void cubicTo(float a,float b,float c,float d,float e,float f){}}',
+    'android/graphics/drawable/Drawable.java': 'package android.graphics.drawable;public class Drawable {int a,b,c,d;public Drawable mutate(){return this;}public void setTint(int v){}public void setBounds(int a,int b,int c,int d){this.a=a;this.b=b;this.c=c;this.d=d;}public void draw(android.graphics.Canvas v){v.marks.add(new int[]{a,b,c,d});}}',
     'android/graphics/Canvas.java': '''package android.graphics;public class Canvas {
-        public java.util.List<float[]> circles=new java.util.ArrayList<>();public void drawCircle(float x,float y,float r,Paint p){circles.add(new float[]{x,y,r});}
+        public java.util.List<int[]> marks=new java.util.ArrayList<>();public int paths;public void save(){}public void restore(){}public void translate(float x,float y){}public void scale(float x,float y){}public void rotate(float a,float x,float y){}public void drawPath(Path p,Paint b){paths++;}public java.util.List<float[]> circles=new java.util.ArrayList<>();public void drawCircle(float x,float y,float r,Paint p){circles.add(new float[]{x,y,r});}
     }''',
     'dev/dsh/nativeapp/DshUi.java': '''package dev.dsh.nativeapp;public class DshUi {
-        static boolean motion=true;static int reads;static int BG(){return 0;}static int ACCENT(){return 0x4d6bfe;}static int TEXT_2(){return 0;}
+        static boolean motion=true;static int reads;static int BG(){return 0;}static int ACCENT(){return 0x4d6bfe;}static int BRAND(){return 0x4d6bfe;}static int TEXT_2(){return 0;}
         static int dp(android.app.Activity a,int v){return v;}static boolean animationsEnabled(android.app.Activity a){reads++;return motion;}
         static android.widget.TextView hint(android.app.Activity a,String text){return new android.widget.TextView(a);}
     }''',
@@ -79,10 +81,10 @@ STUBS = {
                 v.begin("Retrying");v.ready(true);View.at(2440);check(done==1,"retry starts a new independent cycle");
                 v=create();v.onDetachedFromWindow();check(View.frames.isEmpty(),"destroyed view releases frame callbacks");
                 v.onAttachedToWindow();v.ready(true);View.at(1720);check(done==1,"reattached view can finish");
-                v=create();View.at(1350);View dots=((android.view.ViewGroup)v.children.get(0)).children.get(0);
-                java.lang.reflect.Method draw=dots.getClass().getDeclaredMethod("onDraw",Canvas.class);draw.setAccessible(true);
-                Canvas canvas=new Canvas();draw.invoke(dots,canvas);check(canvas.circles.size()==3,"only three small dots are drawn");
-                for(float[] c:canvas.circles)check(c[0]-c[2]>=0&&c[0]+c[2]<=72&&c[1]-c[2]>=0&&c[1]+c[2]<=28,"motion stays within its bounds");
+                v=create();View.at(1350);View graphic=((android.view.ViewGroup)v.children.get(0)).children.get(0);
+                java.lang.reflect.Method draw=graphic.getClass().getDeclaredMethod("onDraw",Canvas.class);draw.setAccessible(true);
+                Canvas canvas=new Canvas();draw.invoke(graphic,canvas);check(canvas.marks.size()==1&&canvas.paths==1,"brand whale and a wake replace the dot loader");
+                for(float[] c:canvas.circles)check(c[0]-c[2]>=0&&c[0]+c[2]<=104&&c[1]-c[2]>=0&&c[1]+c[2]<=84,"motion stays within its bounds");
                 v.dismiss();check(View.frames.isEmpty(),"final cleanup");
                 v=create();int before=DshUi.reads;for(int frame=0;frame<60;frame++)View.at(1000+frame*16);
                 check(DshUi.reads==before,"animation frames never query the system settings provider");v.dismiss();

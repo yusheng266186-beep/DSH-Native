@@ -110,8 +110,21 @@ function failure(error,aborted){
  const code=aborted?'ABORTED':/401|unauthorized|authentication/i.test(text)?'INVALID_CREDENTIAL':/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)?'CONTEXT_WINDOW_EXCEEDED':/quota|credit/i.test(text)?'QUOTA':'CODEBUDDY_CLI_ERROR';
  return {kind:aborted?'aborted':'error',failure:{code,message:aborted?'CodeBuddy CLI request cancelled.':/11128|unapproved channel/i.test(text)?'CodeBuddy rejected this request channel (11128). The official CLI also refused it.':/401|unauthorized|authentication/i.test(text)?'CodeBuddy CLI authentication failed. Check the API key and its region.':/429|quota|credit/i.test(text)?'CodeBuddy CLI is rate limited or has no remaining quota.':/CODEBUDDY_BUNDLE_SPACE/.test(text)?'CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.':/CODEBUDDY_BUNDLE/.test(text)?'The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.':'CodeBuddy CLI failed. No host tool was executed by the CLI.'}};
 }
-function usage(value={}){
- return {inputTokens:Number(value.input_tokens)||0,outputTokens:Number(value.output_tokens)||0,cacheReadTokens:Number(value.cache_read_input_tokens)||0,cacheWriteTokens:Number(value.cache_creation_input_tokens)||0};
+function usage(value={},modelUsage){
+ const tokens=value=>Number.isSafeInteger(value)&&value>=0?value:0;
+ // CLI 2.176 stream-json exposes inclusive provider input in message/result
+ // usage. DSH requires disjoint uncached/read/write buckets, like pi-ai.
+ let cacheRead=tokens(value.cache_read_input_tokens),cacheWrite=tokens(value.cache_creation_input_tokens);
+ let input=Math.max(0,tokens(value.input_tokens)-cacheRead-cacheWrite),output=tokens(value.output_tokens);
+ const models=modelUsage&&Object.values(modelUsage);
+ // The SDK's per-model result already normalizes input to uncached tokens.
+ if(models?.length&&models.every(model=>['inputTokens','outputTokens','cacheReadInputTokens','cacheCreationInputTokens'].every(key=>Number.isSafeInteger(model?.[key])&&model[key]>=0))){
+  input=0;output=0;cacheRead=0;cacheWrite=0;
+  for(const model of models){input+=model.inputTokens;output+=model.outputTokens;cacheRead+=tokens(model.cacheReadInputTokens);cacheWrite+=tokens(model.cacheCreationInputTokens);}
+ }
+ return {inputTokens:input,outputTokens:output,totalTokens:input+output+cacheRead+cacheWrite,
+  ...(value.cache_read_input_tokens!=null||cacheRead>0?{cacheReadTokens:cacheRead}:{}),
+  ...(value.cache_creation_input_tokens!=null||cacheWrite>0?{cacheWriteTokens:cacheWrite}:{})};
 }
 async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=180000}={}){
  const controller=new AbortController(),cancel=()=>controller.abort();
@@ -173,7 +186,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
    }
    if(message.type==='result'){
     if(message.is_error||message.subtype!=='success')throw new Error(message.result||'CLI request failed');
-    yield {type:'usage',usage:usage(message.usage||stats)};yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
+    yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
    }
   }
   throw new Error('CLI stream ended without a result');
