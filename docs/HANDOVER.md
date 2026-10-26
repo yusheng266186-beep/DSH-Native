@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.1**；源码：**0.37.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.1**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -82,6 +82,8 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 0.36.1 用 VoiceStartGate 同时约束请求授权与启动录音；Host.canListen 只表示前台和页面身份，canStartRecording 再要求窗口焦点与 WebView 可见。权限回调不直接 begin：重新等待连续 250ms 就绪，4 秒上限；onResume 不能替代 onWindowFocusChanged，onPause 先清前台标志。真正 begin 再检查实际权限。服务错误 5/9 只在 ready 前且授权仍有效时最多重试一次；取消、后台及销毁清理独立 startCheck，旧 generation 不得回调。只允许相同本机 origin 的 cancel 穿过后台标志，避免页面超时无法撤销正在等待授权的请求；其他命令仍要求前台。不调用 AudioRecord 预热，不做后台麦克风服务，不自动打开系统语音框。
 
 0.37.1 的授权路由以 Activity 和独立 requestCode 双重匹配，编号在本进程内不回收。NativeScreenCapture 还保留已启动服务的 requestId 屏障，取消后不能先接受新授权；只有 NativeCaptureService.onDestroy 释放资源/队列并调用 serviceFinished 才清屏障和交付图片。不要恢复为写完文件立即 complete，或因重复 onStartCommand 停掉当前实例。帧缓冲验证走 NativeBridgePolicy.captureBuffer，真实服务已接入 Android 边界回归；编码器仍是替身。
+
+0.37.2 的 NativeBridge.onMain 管理 pendingActions，超时/中断/服务关闭时取消并从 Handler 队列移除；post 拒绝要立即失败。FileContext 绑定最初 Activity 与工作区，副本准备结束后主线程复核，错误只清本次副本。系统异常映射固定错误码/消息，不能把 exception.getMessage 传入工具。截图授权开始与调用取消之间通过 abandoned/started 双向检查清理，不能只依赖成功取得的 FutureTask 结果。客户端不自动重试有副作用的命令。
 
 ## 4. 开发入口
 

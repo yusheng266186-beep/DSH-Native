@@ -18,23 +18,28 @@ async function invoke(command, options = {}) {
     const body=Buffer.from(JSON.stringify(command));
     if (body.length>131072) throw new Error('INVALID_REQUEST: request too large');
     return new Promise((resolve,reject)=>{
+        let timedOut=false;
+        const failure=fallback=>new Error(options.signal?.aborted?'CANCELLED: native request cancelled':timedOut?'BRIDGE_TIMEOUT: native response deadline exceeded; check DSH before retrying':fallback);
         const request=http.request({host:'127.0.0.1',port:config.port,path:'/native',method:'POST',
             headers:{'Authorization':'Bearer '+config.token,'Content-Type':'application/json','Content-Length':body.length},
             signal:options.signal},response=>{
             let size=0;const buffers=[];
             response.on('data',bytes=>{size+=bytes.length;if(size>262144){request.destroy(new Error('limit'));return;}buffers.push(bytes);});
-            response.on('error',()=>reject(new Error('BRIDGE_DISCONNECTED: native response interrupted')));
+            response.on('error',()=>reject(failure('BRIDGE_DISCONNECTED: native response interrupted')));
             response.on('end',()=>{
                 try {
                     const value=JSON.parse(Buffer.concat(buffers).toString('utf8'));
-                    if (response.statusCode!==200 || typeof value.ok!=='boolean') throw new Error('invalid response');
+                    if (!value || typeof value.ok!=='boolean') throw new Error('invalid response');
+                    if (value.ok) {
+                        if (response.statusCode!==200 || !value.result || typeof value.result!=='object' || Array.isArray(value.result)) throw new Error('invalid result');
+                    } else if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(value.error) || typeof value.message!=='string' || value.message.length>512) throw new Error('invalid error');
                     resolve(value);
                 }catch(error){reject(new Error('BRIDGE_PROTOCOL: invalid native response'));}
             });
         });
-        const timeout=setTimeout(()=>request.destroy(new Error('deadline')),command.method==='screenshot'?95000:12000);
+        const timeout=setTimeout(()=>{timedOut=true;request.destroy(new Error('deadline'));},command.method==='screenshot'?95000:12000);
         request.on('close',()=>clearTimeout(timeout));
-        request.on('error',()=>reject(new Error(options.signal?.aborted?'CANCELLED: native request cancelled':'BRIDGE_UNAVAILABLE: return to DSH and retry')));
+        request.on('error',()=>reject(failure('BRIDGE_UNAVAILABLE: return to DSH and retry')));
         request.end(body);
     });
 }

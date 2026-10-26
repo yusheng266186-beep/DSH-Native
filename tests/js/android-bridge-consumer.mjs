@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
@@ -31,7 +32,7 @@ try{
  const command=await cli('clipboard.get',{});check(command.code===0&&JSON.parse(command.output).result.hasText,'agent CLI works without credentials in arguments');
  const denied=await cli('notification.post',{title:'test',text:'synthetic'});
  check(denied.code===1&&JSON.parse(denied.output).error==='NOTIFICATIONS_DISABLED','native permission errors remain explicit through CLI');
- const invalid=await cli('clipboard.get',{text:'unexpected'});check(invalid.code===1,'unsupported method fields rejected by native protocol');
+ const invalid=await cli('clipboard.get',{text:'unexpected'});check(invalid.code===1&&JSON.parse(invalid.output).error==='INVALID_REQUEST','HTTP request validation keeps native error through CLI');
  const {Context}=await load('cordis'),{SystemPrompt}=await load('dsh-system-prompt'),{ToolRuntime}=await load('dsh-tools');
  const ctx=new Context(),prompt=new SystemPrompt(ctx,{}),tools=new ToolRuntime(ctx);
  await require(path.join(scratch,'android-tools.cjs')).apply(ctx);
@@ -53,7 +54,21 @@ try{
  await fs.chmod(descriptor,0o644);await assert.rejects(bridge.invoke({method:'capabilities'}),/BRIDGE_NOT_READY/);checks++;await fs.chmod(descriptor,0o600);
  const token=JSON.parse(original).token;
  check(!command.output.includes(token)&&!denied.output.includes(token)&&!invalid.error.includes(token),'native credentials never enter CLI results');
+ await fs.writeFile(descriptor,JSON.stringify({...JSON.parse(original),token:'0'.repeat(64)}));
+ const forbidden=await bridge.invoke({method:'clipboard.get'});
+ check(!forbidden.ok&&forbidden.error==='FORBIDDEN'&&!JSON.stringify(forbidden).includes(token),'stale credentials keep authentication error without exposing or retrying action');
+ await fs.writeFile(descriptor,original);
+ const malformed=await tools.execute({name:'android',arguments:{method:'clipboard.get',text:'unexpected'},callId:'native-invalid',signal:new AbortController().signal});
+ check(malformed.isError&&JSON.stringify(malformed).includes('INVALID_REQUEST'),'actual ToolRuntime retains request validation error');
  const abort=new AbortController();abort.abort();await assert.rejects(bridge.invoke({method:'screenshot'},{signal:abort.signal}),/CANCELLED/);checks++;
+ // A real peer that never replies exercises the shipped 12-second deadline, without mocking timers.
+ let slowRequests=0;const slow=http.createServer(request=>{slowRequests++;request.resume();});
+ await new Promise(resolve=>slow.listen(0,'127.0.0.1',resolve));
+ try{
+  await fs.writeFile(descriptor,JSON.stringify({...JSON.parse(original),port:slow.address().port}));
+  await assert.rejects(bridge.invoke({method:'clipboard.set',text:'synthetic'}),/BRIDGE_TIMEOUT/);checks++;
+  check(slowRequests===1,'timed-out native mutation is never automatically retried');
+ }finally{slow.closeAllConnections();await new Promise(resolve=>slow.close(resolve));await fs.writeFile(descriptor,original);}
  console.log('Android bridge consumer: '+checks+' checks; actual tool registry, native HTTP, CLI, permissions, cancellation, credentials and Web profile loader passed (synthetic Android actions).');
 }finally{
  for(const process of [core,child])if(process&&process.exitCode===null){const exited=new Promise(resolve=>process.once('exit',resolve));process.kill('SIGTERM');await Promise.race([exited,sleep(4000).then(()=>process.kill('SIGKILL'))]);}
