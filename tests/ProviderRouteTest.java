@@ -17,6 +17,8 @@ public class ProviderRouteTest {
         check("share path accepted",
                 ProviderRoute.classify(authority, "/f/%2Fsdcard%2Fnote.txt")
                         == ProviderRoute.SHARED_FILE, "rejected");
+        check("explicit edit path accepted", ProviderRoute.classify(authority,"/e/%2Fworkspace%2Fnote.txt")==ProviderRoute.EDIT_FILE,"rejected");
+        check("empty edit path rejected", ProviderRoute.classify(authority,"/e/")==ProviderRoute.INVALID,"accepted");
         check("wrong authority rejected",
                 ProviderRoute.classify("other.app", "/update.apk") == ProviderRoute.INVALID,
                 "accepted");

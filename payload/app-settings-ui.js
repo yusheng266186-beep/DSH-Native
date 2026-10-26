@@ -94,8 +94,8 @@ function androidInstallAppSettings(ctx) {
                 page === 'display' && nativeState.zoom && h('small',{children:nativeState.zoom + '%'})]}),
             notice && h('p',{role:'alert',className:'app-error',children:notice})]});
     }
-    async function rpc(method, request, signal) {
-        const args = request === undefined ? {} : {request};
+    async function rpc(method, request, signal, raw=false) {
+        const args = raw ? request : request === undefined ? {} : {request};
         const id='app-settings-'+Date.now()+'-'+Math.random().toString(36).slice(2);
         const controller=new AbortController(), cancel=()=>controller.abort();
         if(signal?.aborted)controller.abort(); else signal?.addEventListener('abort',cancel,{once:true});
@@ -144,6 +144,7 @@ function androidInstallAppSettings(ctx) {
             } catch(err){if(alive.current)setError(explain(err));}
             finally {locked.current=false;if(alive.current){setBusy(false);await refresh(true);}}
         };
+        react.useEffect(()=>{const back=event=>{if(confirmation){event.preventDefault();if(!busy)setConfirmation(null);}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);},[confirmation,busy]);
         const filtered=rows.filter(row=> mode==='trash'?row.trashed: !row.trashed && (mode==='all'|| (mode==='archived'?row.archived:!row.archived)))
             .filter(row=>(row.title||t('untitled')).toLocaleLowerCase().includes(query.toLocaleLowerCase().trim()))
             .sort((a,b)=>(mode==='trash'?b.deletedAt-a.deletedAt: b.updatedAt-a.updatedAt));
@@ -166,6 +167,153 @@ function androidInstallAppSettings(ctx) {
                 children:hs('div',{className:'dsh-app-settings',children:[confirmation?.kind==='rename'?h(P.Input,{'aria-label':t('title'),value:title,maxLength:200,onChange:event=>setTitle(event.target.value),autoFocus:true}):h('p',{children:t(confirmation?.kind==='archive'?'archiveHint':'trashHint')}),
                     confirmation && h('p',{children:confirmation.row.title||t('untitled')}),error&&h('p',{role:'alert',className:'app-error',children:error})]})})]});
     }
-    ctx.slots.inject('settings.section',()=>ctx.slots.register({name:'settings.section',id:'android-app',order:90,label:()=>/^en/.test(ctx.locale.getSnapshot().active)?words.nav[1]:words.nav[0]},AppSection));
+    // The transport is UI-only: current-document control IDs, no paths, scripts or arbitrary methods.
+    const nativePending = new Map();
+    let nativeQueue = Promise.resolve();
+    window.addEventListener('dsh-settings-chunk', event => {
+        const packet=event.detail, entry=nativePending.get(packet?.id);
+        if(!entry||!Number.isInteger(packet.index)||!Number.isInteger(packet.total)||packet.total<1||packet.total>256||packet.index<0||packet.index>=packet.total||typeof packet.part!=='string'||packet.part.length>32000)return;
+        if(entry.total!==undefined&&entry.total!==packet.total)return;
+        entry.total=packet.total;entry.parts[packet.index]=packet.part;
+        if(entry.parts.filter(value=>typeof value==='string').length!==packet.total)return;
+        clearTimeout(entry.timer);nativePending.delete(packet.id);
+        try{const reply=JSON.parse(entry.parts.join(''));if(!reply.ok)throw new Error(reply.error||'Settings operation failed');entry.resolve(reply.value);}catch(error){entry.reject(error);}
+    });
+    function nativeRequest(op, fields={}) {
+        const run=()=>new Promise((resolve,reject)=>{
+            const session=window.__dshNativeAppState?.settingsSession;
+            if(!/^[a-f0-9]{32}$/.test(session||'')){reject(new Error('Settings bridge unavailable'));return;}
+            const id='ws-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+            const timer=setTimeout(()=>{nativePending.delete(id);reject(new Error('Settings timed out. Check whether the action completed before retrying.'));},15000);
+            nativePending.set(id,{resolve,reject,timer,parts:[]});
+            console.log('[dsh-settings-ui] '+JSON.stringify({id,session,op,...fields}));
+        });
+        const next=nativeQueue.then(run,run);nativeQueue=next.catch(()=>{});return next;
+    }
+    const nativeCss=`.dsh-device-settings{display:flex;flex-direction:column;min-width:0;width:100%;gap:12px;color:var(--dsw-alias-label-primary);font:inherit}.dsh-device-settings *{box-sizing:border-box}.dsh-device-settings .device-group{display:flex;flex-direction:column;min-width:0;gap:8px}.dsh-device-settings .device-row{display:flex;align-items:center;flex-wrap:wrap;min-width:0;gap:8px}.dsh-device-settings .device-row>.device-group{flex:1;min-width:120px}.dsh-device-settings .device-text{font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.dsh-device-settings .device-heading{font-size:14px;font-weight:500;margin:12px 0 0}.dsh-device-settings .device-muted{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dsh-device-settings input,.dsh-device-settings textarea{max-width:100%;width:100%;min-width:0;font:inherit}.dsh-device-settings textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);color:inherit;background:var(--dsw-alias-bg-layer-2);min-height:160px;resize:vertical;padding:10px}.dsh-device-settings button{white-space:normal;overflow-wrap:anywhere;max-width:100%;height:auto;min-height:32px}.dsh-device-settings .device-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}.dsh-device-models{display:flex;flex-direction:column;align-items:stretch;gap:16px}.dsh-device-sessions .app-card{border-width:0 0 .5px;border-radius:0;padding:16px 0}.dsh-device-settings progress,.dsh-device-settings img{max-width:100%}.dsh-device-settings img{object-fit:contain}.dsh-device-settings .device-error{color:var(--dsw-alias-label-error)}@media(max-width:600px){.dsh-device-settings .device-row{align-items:stretch}.dsh-device-settings button{min-height:40px}.dsh-device-settings .device-row>.device-group{min-width:100%}}`;
+    function NativeInput({node,edits,locked,en,activate}) {
+        const [value,setValue]=react.useState(node.value||''),[loading,setLoading]=react.useState(false),ref=react.useRef(null);
+        react.useEffect(()=>{
+            if(edits.current.has(node.id)||document.activeElement===ref.current)return;
+            if(node.password)return;
+            if(node.length<=32768){setValue(node.value||'');return;}
+            let alive=true;setLoading(true);
+            (async()=>{let text=node.value||'';while(text.length<node.length){const part=await nativeRequest('read',{control:node.id,offset:text.length});if(part.length!==node.length||!part.value)throw new Error('Text changed. Reopen the editor.');text+=part.value;}if(alive)setValue(text);})().catch(()=>{}).finally(()=>{if(alive)setLoading(false);});
+            return()=>{alive=false;};
+        },[node.id,node.value,node.length]);
+        const props={ref,value,readOnly:node.readonly,disabled:locked||!node.enabled||loading,'aria-label':node.hint||(en?'Setting value':'设置值'),placeholder:node.password&&node.configured?(en?'Configured; leave unchanged to keep':'已配置；未修改则保留'):node.hint||'',onChange:event=>{setValue(event.target.value);edits.current.set(node.id,event.target.value);}};
+        return node.multiline?h('textarea',props):h(P.Input,{...props,type:node.password?'password':'text',readOnly:node.readonly,onClick:node.readonly&&node.clickable?activate:undefined,autoComplete:'off'});
+    }
+    function NativePage({page,locale,fileRequest}) {
+        const en=/^en/.test(locale.active),[snapshot,setSnapshot]=react.useState(null),[error,setError]=react.useState(''),[busy,setBusy]=react.useState(true);
+        const alive=react.useRef(true),locked=react.useRef(false),edits=react.useRef(new Map());
+        const display=value=>{if(alive.current){setSnapshot(value);setError('');}};
+        const flush=async()=>{for(const [control,value] of edits.current){const ticket='edit-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);for(let offset=0;offset<Math.max(1,value.length);offset+=8192)await nativeRequest('input',{control,ticket,offset,value:value.slice(offset,offset+8192),done:offset+8192>=value.length});edits.current.delete(control);}};
+        const act=async(op,fields={})=>{if(locked.current)return;locked.current=true;setBusy(true);setError('');try{await flush();display(await nativeRequest(op,fields));}catch(failure){if(alive.current)setError(failure.message);}finally{locked.current=false;if(alive.current)setBusy(false);}};
+        react.useEffect(()=>{alive.current=true;locked.current=true;edits.current.clear();nativeRequest(fileRequest?'file':'open',fileRequest?{action:fileRequest.action,path:fileRequest.path,locale:en?'en':'zh'}:{page,locale:en?'en':'zh'}).then(display).catch(failure=>{if(alive.current)setError(failure.message);}).finally(()=>{locked.current=false;if(alive.current)setBusy(false);});
+            const timer=setInterval(()=>{if(locked.current||document.visibilityState==='hidden'||edits.current.size)return;locked.current=true;nativeRequest('state').then(display).catch(failure=>{if(alive.current)setError(failure.message);}).finally(()=>{locked.current=false;});},1000);
+            return()=>{alive.current=false;clearInterval(timer);edits.current.clear();nativeRequest('close').catch(()=>{});};
+        },[page,en,fileRequest?.id]);
+        react.useEffect(()=>{const back=event=>{if((snapshot?.pages?.length||0)>1){event.preventDefault();if(!busy)act('back');}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);});
+        const render=node=>{
+            if(!node||(node.type==='group'&&!node.children?.length))return null;
+            const key=node.id;
+            if(node.type==='input')return h(NativeInput,{key,node,edits,locked:busy,en,activate:()=>act('act',{control:node.id})});
+            if(node.type==='button'||node.clickable){const children=node.text||node.children?.map(render);return hs('div',{key,className:'device-row',children:[h(P.Button,{variant:node.selected||node.primary?'primary':'outline',disabled:busy||!node.enabled,onClick:()=>act('act',{control:node.id}),'aria-pressed':node.selected||undefined,children}),node.long&&h(P.Button,{variant:'ghost',disabled:busy||!node.enabled,onClick:()=>act('long',{control:node.id}),children:en?'More':'更多'})]});}
+            if(node.type==='text')return h(node.large?'h3':node.bold?'h4':'p',{key,className:node.large||node.bold?'device-heading':'device-text',children:node.text});
+            if(node.type==='progress')return h('progress',{key,max:node.max||100,value:node.indeterminate?undefined:node.value,'aria-label':en?'Progress':'进度'});
+            if(node.type==='image')return node.src?h('img',{key,src:node.src,alt:en?'File preview':'文件预览'}):h('p',{key,className:'device-muted',children:en?'Preview unavailable':'无法显示预览'});
+            return h('div',{key,className:node.row?'device-row':'device-group',children:node.children?.map(render)});
+        };
+        const dialogs=snapshot?.pages||[],main=dialogs[0];
+        return hs('div',{className:'dsh-device-settings','data-device-page':page,children:[h('style',{children:nativeCss}),busy&&!snapshot&&h('p',{role:'status',children:en?'Loading…':'正在读取…'}),main&&render(main.body),main?.footer&&h('div',{className:'device-actions',children:render(main.footer)}),snapshot?.notice&&h('p',{role:'status',className:'device-muted',children:snapshot.notice}),error&&hs('div',{role:'alert',className:'device-error',children:[h('p',{children:error}),h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Retry':'重试'})]}),!busy&&!error&&!main&&h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Open settings':'打开设置'}),dialogs.slice(1).map(dialog=>h(P.Modal,{key:dialog.id,open:true,onClose:()=>{if(!busy&&dialog.cancelable)act('back');},closeLabel:en?'Back':'返回',title:en?'Settings':'设置',footer:dialog.footer&&h('div',{className:'dsh-device-settings device-actions',children:render(dialog.footer)}),children:h('div',{className:'dsh-device-settings',children:render(dialog.body)})}))]});
+    }
+    function DeviceSection({page,close}) {
+        const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot());
+        const [fileRequest,setFileRequest]=react.useState(()=>page==='files'?window.__dshNativeFileRequest:null);
+        react.useEffect(()=>{const update=()=>{if(page==='files')setFileRequest(window.__dshNativeFileRequest);};window.addEventListener('dsh-device-file',update);return()=>window.removeEventListener('dsh-device-file',update);},[page]);
+        return h(NativePage,{page,locale,fileRequest:page==='files'?fileRequest:null});
+    }
+    function DeviceHome() {
+        const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
+        const info=window.__dshNativeAppState||{};
+        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('p',{className:'device-text',children:'DSH Native '+(info.version||'')}),h('p',{className:'device-muted',children:info.task||''}),h('p',{className:'device-text',children:en?'Device settings share the DSH settings navigation. Display is in General; provider and project controls are in Models.':'设备设置已整合到 DSH 设置导航中。显示缩放位于通用，服务商与项目配置位于模型。'})]});
+    }
+    const codeBuddyDefaultModels=[{"id":"default-model","name":"Auto","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"fast-model","name":"Fast","contextWindow":200000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"balanced-model","name":"Balanced","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"primary-model","name":"Primary","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"deep-model","name":"Deep","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"deepseek-v4.1-flash","name":"Deepseek-V4.1-Flash","contextWindow":300000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"gpt-6-astra","name":"GPT-6-Astra","contextWindow":400000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"hy4-preview","name":"Hy4 preview","contextWindow":200000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"hy3","name":"Hy3","contextWindow":192000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"kimi-k2.8-preview","name":"Kimi-K2.8-Preview","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"gpt-5.6-sol","name":"GPT-5.6-Sol","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-terra","name":"GPT-5.6-Terra","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-luna","name":"GPT-5.6-Luna","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.5","name":"GPT-5.5","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gemini-3.5-flash","name":"Gemini-3.5-Flash","contextWindow":1000000,"maxTokens":65536,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"glm-5.3-flash","name":"GLM-5.3-Flash","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.3","name":"GLM-5.3","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.2","name":"GLM-5.2","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"high":"high","xhigh":"xhigh","max":"max"}},{"id":"kimi-k3","name":"Kimi-K3","contextWindow":1000000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"kimi-k2.6","name":"Kimi-K2.6","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}}];
+    function CodeBuddyImport() {
+        const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
+        const fileInput=react.useRef(null);
+        const [file,setFile]=react.useState(null),[password,setPassword]=react.useState(''),[busy,setBusy]=react.useState(false),[message,setMessage]=react.useState('');
+        const importFile=async()=>{
+            if(!file||busy)return;setBusy(true);setMessage('');let plain;
+            try{
+                if(file.size>65536)throw new Error(en?'Connection file is too large':'连接文件过大');
+                const bundle=JSON.parse(await file.text());
+                if(bundle.format!=='DSH-CODEBUDDY-1'||bundle.iterations!==200000||!window.crypto?.subtle)throw new Error(en?'Unsupported connection file or WebView cryptography unavailable':'连接文件不支持，或 WebView 无法使用加密接口');
+                const decode=value=>Uint8Array.from(atob(value),char=>char.charCodeAt(0));
+                const material=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+                const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:decode(bundle.salt),iterations:bundle.iterations,hash:'SHA-256'},material,{name:'AES-GCM',length:256},false,['decrypt']);
+                try{plain=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:decode(bundle.iv),additionalData:new TextEncoder().encode(bundle.format)},key,decode(bundle.data)));}
+                catch(error){throw new Error(en?'Incorrect passphrase or damaged connection file':'口令不正确或连接文件已损坏');}
+                const value=JSON.parse(new TextDecoder().decode(plain));
+                if(value.provider!=='codebuddy'||value.baseURL!=='https://www.codebuddy.cn/v2'||value.model!=='deepseek-v4.1-flash'||typeof value.apiKey!=='string'||value.apiKey.length<16||value.apiKey.length>4096||/[\x00-\x1f\x7f]/.test(value.apiKey))throw new Error(en?'Invalid CodeBuddy connection':'CodeBuddy 连接内容不合法');
+                window.dispatchEvent(new Event('dsh-codebuddy-importing'));
+                const description=await rpc('settings/describe',{},undefined,true);
+                const namespace=description.namespaces?.find(item=>item.ns==='llm-pi-ai');
+                const previous=namespace?.value?.providers?.codebuddy||{};
+                const profile={...previous,displayName:'CodeBuddy',api:'openai-completions',baseURL:value.baseURL,apiKeyEnv:'CODEBUDDY_API_KEY',compat:{...previous.compat,supportsReasoningEffort:true},models:Array.isArray(previous.models)&&previous.models.length?previous.models:codeBuddyDefaultModels};
+                delete profile.headers;
+                await rpc('settings/mutate',{ns:'llm-pi-ai',ops:[{op:'set',path:['providers','codebuddy'],value:profile}]},undefined,true);
+                await rpc('credentials/set',{ref:'CODEBUDDY_API_KEY',value:value.apiKey},undefined,true);
+                await rpc('settings/update',{ns:'agent-default-model',patch:{provider:'codebuddy',model:value.model,reasoningEffort:'max'}},undefined,true);
+                await nativeRequest('codebuddy-default');
+                setPassword('');setFile(null);if(fileInput.current)fileInput.current.value='';setMessage(en?'CodeBuddy imported. New conversations use the global default; existing project overrides remain.':'CodeBuddy 已导入。新会话使用全局默认，已有项目覆盖保留。');
+                window.dispatchEvent(new Event('dsh-codebuddy-imported'));
+            }catch(error){setMessage(error.message||String(error));}
+            finally{if(plain)plain.fill(0);setBusy(false);}
+        };
+        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('h3',{className:'device-heading',children:en?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接'}),h('p',{className:'device-muted',children:en?'Import your private encrypted connection file. Keys stay in DSH credentials. Models follow CLI metadata; service access can differ.':'导入私人加密连接文件，密钥保存到 DSH 凭据。模型目录来自 CLI 元数据，实际权限以服务端为准。'}),hs('div',{className:'device-row',children:[h('input',{ref:fileInput,type:'file',accept:'*/*',style:{display:'none'},disabled:busy,'aria-label':en?'CodeBuddy connection file':'CodeBuddy 连接文件',onChange:event=>setFile(event.target.files?.[0]||null)}),h(P.Button,{variant:'outline',disabled:busy,onClick:()=>fileInput.current?.click(),children:en?'Choose connection file':'选择连接文件'}),h('span',{className:'device-muted',children:file?.name||(en?'No file selected':'未选择文件')})]}),h(P.Input,{type:'password',autoComplete:'off',value:password,disabled:busy,'aria-label':en?'Connection passphrase':'连接口令',placeholder:en?'Connection passphrase':'连接口令',onChange:event=>setPassword(event.target.value)}),h(P.Button,{variant:'outline',disabled:busy||!file||!password,onClick:importFile,children:busy?(en?'Importing…':'正在导入…'):(en?'Import and use CodeBuddy':'导入并使用 CodeBuddy')}),message&&h('p',{role:'status',className:'device-text',children:message})]});
+    }
+
+    function FileWebActions({absolutePath,directory=false}) {
+        const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
+        const [busy,setBusy]=react.useState(false),[error,setError]=react.useState(''),[state,setState]=react.useState(window.__dshNativeAppState||{});
+        react.useEffect(()=>{const update=()=>setState(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
+        if(!state.integratedSettings||typeof absolutePath!=='string'||!absolutePath)return null;
+        const act=async action=>{if(busy)return;setBusy(true);setError('');try{
+            if(action==='edit'||action==='browse'){
+                window.__dshNativeFileRequest={id:'file-'+Date.now(),action,path:absolutePath};
+                window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page:'files'}}));
+                window.dispatchEvent(new Event('dsh-device-file'));
+            }else await nativeRequest('file',{action,path:absolutePath,locale:en?'en':'zh'});
+        }catch(failure){setError(failure.message);}finally{setBusy(false);}};
+        return hs('span',{className:'dsh-file-actions',children:[h('style',{children:'[data-native-file-toolbar]:has(.dsh-file-actions){height:auto;min-height:38px;flex-wrap:wrap;padding-top:6px;padding-bottom:6px}[data-native-file-toolbar]>[data-slot="sidebar.right.tab.document.actions"]{flex:0 0 100%;display:flex;justify-content:flex-end}[data-native-file-toolbar] .dsh-file-actions{justify-content:flex-end;width:100%}.dsh-file-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;max-width:100%}.dsh-file-actions button{height:auto;min-height:32px;max-width:100%;white-space:normal;overflow-wrap:anywhere}.dsh-file-actions [role=alert]{font-size:12px;overflow-wrap:anywhere;color:var(--dsw-alias-label-error)}'}),...(directory?[['browse','管理文件','Manage files']]:[['edit','编辑','Edit'],['open','其他应用打开','Open in app'],['share','分享','Share']]).map(([action,zh,label])=>h(P.Button,{key:action,size:'sm',variant:'outline',disabled:busy,onClick:()=>act(action),children:en?label:zh})),error&&h('span',{role:'alert',children:error})]});
+    }
+    for(const slot of ['sidebar.right.tab.document.actions','deliverables.file.actions','deliverables.review.file.actions','sidebar.right.tab.files.actions'])ctx.slots.inject(slot,()=>ctx.slots.register({name:slot,id:'android-file-actions',order:20},props=>h(FileWebActions,{...props,directory:slot==='sidebar.right.tab.files.actions'})));
+
+    let settingsMode,sectionDisposers=[];
+    ctx.slots.inject('settings.section',()=>{
+        const register=()=>{
+            const mode=!!window.__dshNativeAppState?.integratedSettings;if(settingsMode===mode)return;settingsMode=mode;
+            for(const dispose of sectionDisposers)dispose();sectionDisposers=[];
+            const add=(id,label,order,component)=>sectionDisposers.push(ctx.slots.register({name:'settings.section',id,order,label},component));
+            if(!mode){add('android-app',()=>/^en/.test(ctx.locale.getSnapshot().active)?words.nav[1]:words.nav[0],90,AppSection);return;}
+            const en=()=>/^en/.test(ctx.locale.getSnapshot().active);
+            add('android-app',()=>en()?'Device':'设备',90,DeviceHome);
+            add('android-sessions',()=>en()?'Conversations':'会话管理',25,props=>hs('section',{className:'dsh-app-settings dsh-device-sessions',children:[h('style',{children:css+nativeCss}),h(SessionManager,{t:key=>words[key]?.[en()?1:0]||key,en:en(),close:props.close})]}));
+            for(const [page,zh,label,order] of [['tasks','任务','Tasks',26],['files','文件','Files',70],['data','工作区与数据','Workspace & data',75],['updates','更新与维护','Updates & maintenance',80],['diagnostics','诊断与日志','Diagnostics & logs',85]])add('android-'+page,()=>en()?label:zh,order,props=>h(DeviceSection,{...props,page}));
+        };
+        register();window.addEventListener('dsh-native-app-state',register);
+        return()=>{window.removeEventListener('dsh-native-app-state',register);for(const dispose of sectionDisposers)dispose();sectionDisposers=[];settingsMode=undefined;};
+    });
+    for(const [slot,page,id] of [['settings.general.item','display','android-display'],['settings.models.footer','models','android-project-models']])ctx.slots.inject(slot,()=>ctx.slots.register({name:slot,id,order:90},props=>{
+        const [state,setState]=react.useState(window.__dshNativeAppState||{}),[expanded,setExpanded]=react.useState(page==='display');
+        const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
+        react.useEffect(()=>{const update=()=>setState(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
+        react.useEffect(()=>{const reset=()=>setExpanded(false);window.addEventListener('dsh-codebuddy-importing',reset);window.addEventListener('dsh-codebuddy-imported',reset);return()=>{window.removeEventListener('dsh-codebuddy-importing',reset);window.removeEventListener('dsh-codebuddy-imported',reset);};},[]);
+        if(!state.integratedSettings)return null;
+        return hs('div',{className:DeveloperToolsRow_module_css_default.row+(page==='models'?' dsh-device-models':''),children:[page==='models'&&h(CodeBuddyImport,{}),page==='models'&&!expanded?h(P.Button,{variant:'outline',onClick:()=>setExpanded(true),children:en?'Project models & catalog sync':'项目模型与目录同步'}):h(DeviceSection,{...props,page})]});
+    }));
+
 }
 /* DSH-ANDROID-APP-SETTINGS-END */

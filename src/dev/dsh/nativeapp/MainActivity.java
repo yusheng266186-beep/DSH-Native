@@ -324,6 +324,11 @@ public class MainActivity extends Activity {
                         onWebToolsEntryMissing();
                         return true;
                     }
+                    if (m.startsWith(WebSettingsProtocol.MARKER)) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort()) && WebUrl.isCoreUrl(cm.sourceId(), savedDshPort()))
+                            handleWebSettingsRequest(m);
+                        return true;
+                    }
                     if (m.startsWith(AppSettingsCommands.MARKER)) {
                         AppSettingsCommands command = AppSettingsCommands.parse(m);
                         if (command != null && WebUrl.isCoreUrl(viewUrl(), savedDshPort())
@@ -511,6 +516,8 @@ public class MainActivity extends Activity {
              */
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (webSettings != null) { webSettings.close(); webSettings = null; }
+                webSettingsRequests.clear();
                 if (nativeVoice != null) nativeVoice.cancel();
                 try {
                     // 会话列表的首次请求通常发生在 onPageFinished 之前。
@@ -1130,6 +1137,7 @@ public class MainActivity extends Activity {
         }
 
         // 3. 准备 DSH 配置（若不存在）
+        run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
         prepareConfig(root);
 
         // 4. 启动 dsh web
@@ -2186,7 +2194,7 @@ public class MainActivity extends Activity {
             if (model.length() == 0) return;
 
             // DeepSeek 官方路由使用 DSH 内置目录，不在 llm-pi-ai 的自定义模型块里。
-            // 把它硬拿去搜 commandcode 清单会制造“模型不存在”的假警报。
+            // 把它硬拿去搜 codebuddy 清单会制造“模型不存在”的假警报。
             if (ModelConfig.DEEPSEEK.equals(provider)) {
                 log("  使用 DSH 内置 DeepSeek 官方模型目录");
                 return;
@@ -4976,8 +4984,79 @@ public class MainActivity extends Activity {
     private String viewUrl() { return webView == null ? null : webView.getUrl(); }
 
     private String nativeSettingsReturnPage;
+    private WebSettingsHost webSettings;
+    private final java.util.LinkedHashSet<String> webSettingsRequests = new java.util.LinkedHashSet<String>();
+
+    private WebSettingsHost webSettingsHost() {
+        if (webSettings == null) webSettings = new WebSettingsHost(this, new WebSettingsHost.Launcher() {
+            @Override public void rememberCodeBuddy() throws Exception {
+                if (appRoot == null) throw new IOException("Runtime unavailable");
+                File file = new File(new File(appRoot,".dsh"),ProjectModelSettings.FILE_NAME);
+                ProjectModelSettings.State state = ProjectModelSettings.parse(ProjectModelSettings.readFile(file));
+                ProjectModelSettings.setGlobal(state,new ModelConfig.Selection(ModelConfig.CODEBUDDY,"deepseek-v4.1-flash","max"));
+                ProjectModelSettings.writeFileAtomic(file,ProjectModelSettings.serialize(state));
+            }
+            @Override public void file(String action,String path) throws Exception {
+                if (appRoot == null || workspace == null) throw new IOException("工作区未就绪");
+                File target = new File(path);
+                if (!target.isAbsolute()) target = new File(workspace,path);
+                target = target.getCanonicalFile();
+                java.util.List<File> roots = FileOps.writableRoots(appRoot);
+                if (!FileOps.isWritable(target,roots)) throw new IOException("文件不在可操作位置");
+                if ("browse".equals(action)) {
+                    File directory = target.isDirectory() ? target : target.getParentFile();
+                    FileBrowser.showAt(MainActivity.this,appRoot,directory,null);
+                } else if ("edit".equals(action)) {
+                    final Runnable refreshFiles=FileBrowser.showAt(MainActivity.this,appRoot,target.getParentFile(),null);
+                    if (!target.isFile()) throw new IOException("不是常规文件");
+                    if (FilePreview.kind(target.getName()) == FilePreview.TEXT)
+                        TextEditor.open(MainActivity.this,target,refreshFiles,true);
+                    else ExternalFileActions.launch(MainActivity.this,target,"edit",roots);
+                } else ExternalFileActions.launch(MainActivity.this,target,action,roots);
+            }
+            @Override public void open(String page) {
+                if ("files".equals(page)) FileBrowser.showAt(MainActivity.this,appRoot,workspace,null);
+                else if ("tasks".equals(page)) showTaskCenter();
+                else if ("models".equals(page)) showAccountSettings();
+                else if ("display".equals(page)) showDisplaySettings();
+                else if ("updates".equals(page)) showUpdateSettings();
+                else if ("data".equals(page)) showDataSettings();
+                else if ("diagnostics".equals(page)) showDiagnosticsSettings();
+            }
+        });
+        return webSettings;
+    }
+
+    private void handleWebSettingsRequest(String message) {
+        java.util.Map<?,?> command = WebSettingsProtocol.parse(message);
+        if (command == null) return;
+        String id = WebSettingsProtocol.text(command,"id");
+        if (!webSettingsRequests.add(id)) return;
+        while (webSettingsRequests.size() > 256) webSettingsRequests.remove(webSettingsRequests.iterator().next());
+        org.json.JSONObject reply = new org.json.JSONObject();
+        try {
+            if (!inForeground || isFinishing() || isDestroyed()) throw new IllegalStateException("Foreground required");
+            if ("open".equals(command.get("op")) || "file".equals(command.get("op"))) applyUiLanguage(WebSettingsProtocol.text(command,"locale"));
+            reply.put("ok",true).put("value",webSettingsHost().request(command));
+        } catch (Exception failure) {
+            String error = failure instanceof android.content.ActivityNotFoundException
+                    ? UiText.t("没有可处理此文件的应用，请安装相应应用后重试", "No app can handle this file. Install a compatible app and retry.")
+                    : failure instanceof SecurityException
+                    ? UiText.t("系统拒绝了这次操作，请检查应用权限", "Android refused this action. Check App permissions.")
+                    : UiText.t("操作暂不可用，请确认文件仍存在、位置可访问后重试", "Action unavailable. Check that the file still exists and is accessible, then retry.");
+            try { reply.put("ok",false).put("error",error); }
+            catch (org.json.JSONException invalid) { log("设置响应失败: " + invalid.getClass().getSimpleName()); return; }
+        }
+        String serialized = reply.toString(); int parts = Math.max(1,(serialized.length()+31999)/32000);
+        for (int i=0;i<parts;i++) {
+            String part = serialized.substring(i*32000,Math.min(serialized.length(),(i+1)*32000));
+            webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail:{id:"
+                    + org.json.JSONObject.quote(id)+",index:"+i+",total:"+parts+",part:"+org.json.JSONObject.quote(part)+"}}));",null);
+        }
+    }
 
     private void showSettings() {
+        if (webSettings != null && webSettings.isEnabled()) { webSettings.reopenRoot(); return; }
         final String page = nativeSettingsReturnPage == null ? "home" : nativeSettingsReturnPage;
         nativeSettingsReturnPage = null;
         if (webView != null && dshPageLoaded && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) {
@@ -4996,6 +5075,8 @@ public class MainActivity extends Activity {
             state.put("version", appVersion());
             state.put("zoom", currentZoom());
             state.put("task", currentTaskText(System.currentTimeMillis()));
+            state.put("integratedSettings",true);
+            state.put("settingsSession",webSettingsHost().session);
             webView.evaluateJavascript("window.__dshNativeAppState=" + state.toString()
                     + ";window.dispatchEvent(new Event('dsh-native-app-state'));", null);
         } catch (Throwable error) { log("App 设置状态同步失败: " + error.getClass().getSimpleName()); }
@@ -5044,8 +5125,8 @@ public class MainActivity extends Activity {
                             "Search session history, view archives, and restore sessions"));
             final android.widget.Button account = addSettingsAction(body,
                     UiText.t("模型中心", "Model center"),
-                    UiText.t("服务商检测、默认模型、项目覆盖与 Command Code 用量",
-                            "Provider checks, default model, project overrides, and Command Code usage"));
+                    UiText.t("服务商检测、默认模型、项目覆盖",
+                            "Provider checks, default model, project overrides"));
             final android.widget.Button display = addSettingsAction(body,
                     UiText.t("显示与语言", "Display & language"),
                     UiText.t("中文 / English 与文字缩放",
@@ -5358,10 +5439,6 @@ public class MainActivity extends Activity {
             @Override public String activeProject() { return activeProjectName(); }
 
             @Override public void log(String message) { MainActivity.this.log(message); }
-
-            @Override public void openCommandCodeUsage(String key) {
-                CommandCodePanel.show(MainActivity.this, key);
-            }
 
             @Override public void refreshModelCatalog() {
                 // A plain WebView reload is not enough here: the long-lived DSH
@@ -6163,8 +6240,8 @@ public class MainActivity extends Activity {
     private void toast(final String msg) {
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                android.widget.Toast.makeText(MainActivity.this, msg,
-                        android.widget.Toast.LENGTH_SHORT).show();
+                if (!WebSettingsHost.toast(MainActivity.this, msg))
+                    android.widget.Toast.makeText(MainActivity.this, msg, android.widget.Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -6189,7 +6266,7 @@ public class MainActivity extends Activity {
     /** 写回两个 API Key（保留文件里其它内容）。 */
     private void writeRefs(File f, String cc, String ds) throws IOException {
         String txt = f.exists() ? readText(f) : "version: 1\n";
-        txt = replaceRefLine(txt, "COMMANDCODE_API_KEY", cc);
+        txt = replaceRefLine(txt, "CODEBUDDY_API_KEY", cc);
         txt = replaceRefLine(txt, "DEEPSEEK_API_KEY", ds);
         if (txt.indexOf("refs:") < 0) txt += "refs:\n";
         writeText(f, txt);
@@ -6765,6 +6842,10 @@ public class MainActivity extends Activity {
     private void patchCoreUpgrade(File dshDir) throws IOException {
         int cleaned = CoreUpgrade.pruneEmptyModules(dshDir);
         if (cleaned > 0) log("  已清理增量更新遗留的空依赖目录：" + cleaned + " 个");
+        File buddy = new File(dshDir, "node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js");
+        String originalBuddy = readText(buddy), nextBuddy = CoreUpgrade.codeBuddy(originalBuddy);
+        if (nextBuddy == null) throw new IOException("CodeBuddy 认证兼容补丁无法应用，请检查运行包");
+        if (!nextBuddy.equals(originalBuddy)) writeText(buddy, nextBuddy);
         if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) {
             // A failed/offline update or explicit rollback may still use v12.
             recordPatch("内核升级兼容", true, "保留上一运行包的账号与插件接口");
@@ -6901,6 +6982,14 @@ public class MainActivity extends Activity {
         if (!oldSessions.equals(newSessions)) writeText(sessions, newSessions);
         if (!oldCore.equals(newCore)) writeText(core, newCore);
         if (!oldClient.equals(newClient)) writeText(client, newClient);
+        File delivery = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-ui-deliverables/lib/client.js");
+        String oldDelivery = readText(delivery), newDelivery = FileActionsUi.patch(oldDelivery);
+        if (newDelivery == null) throw new IOException("文件操作兼容补丁无法应用，请检查运行包");
+        if (!newDelivery.equals(oldDelivery)) writeText(delivery,newDelivery);
+        File preview = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js");
+        String oldPreview = readText(preview), newPreview = FileActionsUi.preview(oldPreview);
+        if (newPreview == null) throw new IOException("文件工具栏兼容补丁无法应用，请检查运行包");
+        if (!newPreview.equals(oldPreview)) writeText(preview,newPreview);
         recordPatch("App 设置与会话管理", true, "DSH 设置框架、真实归档恢复与可恢复回收站");
     }
 
@@ -7692,7 +7781,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.37.2\n");
+            w.write("APK 版本: 0.38.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -8304,6 +8393,16 @@ public class MainActivity extends Activity {
      */
     @Override
     public void onBackPressed() {
+        if (webView != null && dshPageLoaded && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) {
+            webView.evaluateJavascript(AppSettingsUi.backScript(), new android.webkit.ValueCallback<String>() {
+                @Override public void onReceiveValue(String handled) {
+                    if (!"true".equals(handled) && !isFinishing() && !isDestroyed()) showExitConfirmation();
+                }
+            });
+        } else showExitConfirmation();
+    }
+
+    private void showExitConfirmation() {
         // 快速连按只保留一个确认框。不能在第二次直接调用
         // super.onBackPressed()：那会销毁 Activity，与“退到后台、保留会话”的文案矛盾。
         if (exitDialog != null && exitDialog.isShowing()) return;
@@ -8339,6 +8438,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (webSettings != null) { webSettings.close(); webSettings = null; }
         NativeBridge.detach(this);
         if (nativeVoice != null) nativeVoice.dispose();
         stopSplashAnimation();

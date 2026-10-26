@@ -11,9 +11,9 @@ const requirePayload = createRequire(path.join(root, 'consumer.cjs'));
 const yaml = requirePayload('yaml');
 const config = yaml.parse(fs.readFileSync(fixture, 'utf8'), { uniqueKeys: true });
 if (reasoningSnapshot) {
-  config['llm-pi-ai'].providers.commandcode.baseURL = 'https://offline.invalid/v1';
-  config['llm-pi-ai'].providers.commandcode.apiKeyEnv = 'OFFLINE_TEST_KEY';
-  config['llm-pi-ai'].providers.commandcode.compat = { supportsReasoningEffort: true };
+  config['llm-pi-ai'].providers.codebuddy.baseURL = 'https://www.codebuddy.cn/v2';
+  config['llm-pi-ai'].providers.codebuddy.apiKeyEnv = 'OFFLINE_TEST_KEY';
+  config['llm-pi-ai'].providers.codebuddy.compat = { supportsReasoningEffort: true };
 }
 const adapters = [];
 // The registry seam records the REAL plugin adapter. Model lists and image
@@ -43,10 +43,10 @@ for (const [pkg, ns] of [
   ctx.fiber.entry.options.id = ns;
   plugin.apply(ctx, plugin.Config(config[ns]));
 }
-const command = adapters.find(entry => entry.routes.includes('commandcode'))?.adapter;
+const command = adapters.find(entry => entry.routes.includes('codebuddy'))?.adapter;
 const direct = adapters.find(entry => entry.routes.includes('deepseek-official'))?.adapter;
 assert(command && direct, 'both provider routes must register');
-const models = await command.listModels('commandcode');
+const models = await command.listModels('codebuddy');
 if (reasoningSnapshot) {
   const snapshot = JSON.parse(fs.readFileSync(reasoningSnapshot, 'utf8'));
   assert.deepEqual(models.map(model => model.id), Object.keys(snapshot.models));
@@ -58,7 +58,7 @@ if (reasoningSnapshot) {
   const registry = new LlmRuntime(host);
   for (const { routes, adapter } of adapters) registry.registerAdapter(routes, adapter);
   const catalog = await buildModelCatalog({ llm: registry }, {
-    provider: 'commandcode', model: 'stealth/space-bunny-alpha', reasoningEffort: 'high',
+    provider: 'codebuddy', model: 'gpt-6-astra', reasoningEffort: 'high',
   });
   assert.deepEqual(catalog.failures, []);
   for (const group of catalog.groups) for (const model of group.models) {
@@ -69,7 +69,7 @@ if (reasoningSnapshot) {
   if (catalogOutput) fs.writeFileSync(catalogOutput, JSON.stringify(catalog));
   await host.fiber.dispose();
   for (const [id, expected] of Object.entries(snapshot.models)) {
-    const model = await command.resolveModel('commandcode', id);
+    const model = await command.resolveModel('codebuddy', id);
     const offered = expected.length ? [...new Set([...expected, 'max'])] : ['off', 'max'];
     assert.deepEqual(model.reasoning?.efforts.map(effort => effort.id) ?? [], offered, id);
   }
@@ -81,24 +81,28 @@ if (reasoningSnapshot) {
   const originalFetch = globalThis.fetch;
   const captured = [];
   globalThis.fetch = async (url, init) => {
-    assert(String(url).startsWith('https://offline.invalid/'), 'offline capture cannot contact a provider');
+    assert.equal(String(url),'https://www.codebuddy.cn/v2/chat/completions');
+    const headers=new Headers(init.headers);
+    assert.equal(headers.get('x-api-key'),'offline-test-key');
+    assert.equal(headers.get('authorization'),'Bearer offline-test-key');
+    assert.equal(headers.get('x-product'),'codebuddy');
     captured.push(JSON.parse(init.body));
     return new Response(JSON.stringify({ error: { message: 'offline body captured', type: 'invalid_request_error' } }),
       { status: 400, headers: { 'content-type': 'application/json' } });
   };
   try {
     for (const [model, reasoningEffort] of [
-      ['deepseek/deepseek-v4.1-flash-fast', 'max'],
-      ['Qwen/Qwen3.8-Max', 'xhigh'],
-      ['gpt-6.1-sol', 'high'],
-      ['MiniMaxAI/MiniMax-M2.5', 'off'],
+      ['deepseek-v4.1-flash', 'max'],
+      ['hy3', 'low'],
+      ['gpt-6-astra', 'high'],
+      ['default-model', 'off'],
       ...Object.keys(snapshot.models).map(id => [id, 'max']),
     ]) {
       const before = captured.length;
       let rejected;
       const events = [];
       try {
-        for await (const _ of command.stream({ provider: 'commandcode', model, reasoningEffort,
+        for await (const _ of command.stream({ provider: 'codebuddy', model, reasoningEffort,
           messages: [{ role: 'user', content: [{ type: 'text', text: 'offline wire verification' }] }], tools: [] })) { events.push(_); }
       } catch (error) { rejected = error; }
       assert(captured.length > before, `${model}: adapter must reach body capture (${rejected?.message}; ${JSON.stringify(events)})`);
@@ -107,7 +111,7 @@ if (reasoningSnapshot) {
     }
     const before = captured.length;
     await assert.rejects(async () => {
-      for await (const _ of command.stream({ provider: 'commandcode', model: 'Qwen/Qwen3.8-Max', reasoningEffort: 'high',
+      for await (const _ of command.stream({ provider: 'codebuddy', model: 'hy3', reasoningEffort: 'medium',
         messages: [], tools: [] })) { }
     }, /does not support reasoning effort/);
     assert.equal(captured.length, before, 'unsupported effort refused before request dispatch');
@@ -116,16 +120,13 @@ if (reasoningSnapshot) {
   process.exit(0);
 }
 assert.deepEqual(models.map(model => model.id), ['old', 'fresh-vision', 'unknown-new']);
-assert((await command.resolveModel('commandcode', 'fresh-vision')).inputModalities.includes('image'));
-const old = await command.resolveModel('commandcode', 'old');
+assert((await command.resolveModel('codebuddy', 'fresh-vision')).inputModalities.includes('image'));
+const old = await command.resolveModel('codebuddy', 'old');
 assert(!old.inputModalities.includes('image'), 'upstream text-only must revoke old vision');
 assert.equal(old.context.contextWindow, 1048576);
 assert.equal(old.defaultMaxTokens, 32000);
-// 上游不返回能力字段，未知模型按「默认可视」处理：既然无法逐个核实，
-// 就让图片照常发出去，由上游决定收不收。上游**明确**声明纯文字时仍以它为准
-// （见上面 old / deepseek-v4-pro 两条断言）。
-assert((await command.resolveModel('commandcode', 'unknown-new')).inputModalities.includes('image'));
-assert.deepEqual((await command.resolveModel('commandcode', 'unknown-new')).reasoning.efforts.map(e => e.id), ['off', 'max']);
+assert(!(await command.resolveModel('codebuddy', 'unknown-new')).inputModalities.includes('image'));
+assert.deepEqual((await command.resolveModel('codebuddy', 'unknown-new')).reasoning.efforts.map(e => e.id), ['off', 'max']);
 assert((await direct.listModels('deepseek-official')).some(model => model.id === 'deepseek-flash'));
 assert((await direct.resolveModel('deepseek-official', 'deepseek-flash')).inputModalities.includes('image'));
 assert(!(await direct.resolveModel('deepseek-official', 'deepseek-v4-pro')).inputModalities.includes('image'));

@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -64,6 +64,14 @@ DSH 配置涉及 legacy `settings.yaml` 导入与 `.dsh/profiles/web/cordis.patc
 `ModelReasoning` 区分官方支持声明与用户要求的全模型 max 请求扩展。所有模型添加 `max: max`，未知/非可调模型保留 `off: null` 默认路径。`ModelEffortUi` 有锚点、幂等地修改实际聊天框组件标签；不匹配时不写文件并记录诊断。
 
 全局/项目默认只影响新会话；聊天框可显式更改已有会话的后续调用配置。不回写历史，不改变已发请求，不把上游拒绝 max 隐藏为其他强度。
+
+### 统一设置、文件和 CodeBuddy
+
+0.38.0 的 WebSettingsHost 接管 DshUi.dialog，使用真实控制器和封闭的 WebSettingsProtocol。前端按 snapshot 渲染原 DSH primitives；不要把密码值或任意脚本塞进控件协议。只读字段判断 getKeyListener，不能单看 isFocusable；未附着 View.post 不会驱动文件分批列表，逻辑调度必须用主线程 Handler。关闭页面执行原 onDismiss，异步 TaskProgress 使用自身 Handler。
+
+FileActionsUi 给原文件预览头添加稳定属性、给交付 slot 补充绝对路径；AppSettingsUi 注册原 slot 的编辑/打开/分享。ExternalFileActions 只在明确编辑时授予单文件写权限，UpdateProvider 的 /f/ 只读，/e/ 只允许可写根中的既有常规文件。TextEditor 的查看路径必须显式只读；新建文件用 createNewFile 拒绝同名。
+
+CodeBuddy 没有通用 GET /models；CodeBuddyCatalog 是固定 CLI 元数据，探测不是账号授权目录。CoreUpgrade.codeBuddy 在真实 SDK dispatch 注入从 credentials 解析的 X-API-Key，不把密钥放进公开 headers。私人 AES-GCM 导入文件由 tools/export_codebuddy_connection.cjs 生成，不进入 Git/APK。provider-cleanup.cjs 在启动前清理旧服务商的 active/legacy/凭据/hex 项目设置；先规范化可信根，再拒绝 .dsh 软链，不能因根别名误阻断。预设只替换受管 CodeBuddy 路由，保留其他 providers。
 
 ### App 设置与会话
 

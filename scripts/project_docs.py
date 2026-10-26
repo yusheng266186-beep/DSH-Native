@@ -128,9 +128,9 @@ def release_facts(data: dict) -> str:
 
 
 def model_table(root: Path) -> str:
-    snapshot = json.loads((root / "tests/fixtures/command-code-reasoning-1.72.4.json")
+    snapshot = json.loads((root / "tests/fixtures/codebuddy-cli-catalog.json")
                           .read_text(encoding="utf-8"))
-    rows = ["| Command Code 模型 ID | 固定官方快照声明 | App 提供的选项 |",
+    rows = ["| CodeBuddy 模型 ID | CLI 元数据声明 | App 提供的选项 |",
             "|---|---|---|"]
     for model, levels in snapshot["models"].items():
         official = " / ".join(levels) if levels else "未公布可调档位"

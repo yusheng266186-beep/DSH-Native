@@ -258,6 +258,7 @@ public final class FileBrowser {
             loadingMask.setVisibility(on ? View.VISIBLE : View.GONE);
             loadingSpin.setVisibility(on ? View.VISIBLE : View.GONE);
             listBox.setAlpha(on ? 0.45f : 1f);
+            listBox.setEnabled(!on);
         }
 
         void refresh() { navigate(cwd); }
@@ -738,6 +739,31 @@ public final class FileBrowser {
             if (!started) dismissQuietly(progress);
         }
 
+        void showFileActions(final File file) {
+            LinearLayout box = DshUi.paddedBody(act);
+            box.addView(DshUi.title(act, file.getName()));
+            box.addView(DshUi.hint(act, FileListing.humanSize(file.length()) + " · " + file.getAbsolutePath()), DshUi.fullWidth(act, 6));
+            Button view = DshUi.button(act, "查看", false);
+            Button edit = DshUi.button(act, "编辑", true);
+            Button open = DshUi.button(act, "用其他应用打开", false);
+            Button share = DshUi.button(act, "分享", false);
+            boolean allowed = ShareTargets.isShareable(file, writeRoots);
+            open.setEnabled(allowed); share.setEnabled(allowed); edit.setEnabled(FileOps.isWritable(file, writeRoots));
+            final Dialog menu = DshUi.dialog(act, box, DshUi.footer(act, view, edit, open, share), 520);
+            view.setOnClickListener(v -> { menu.dismiss();
+                if (FilePreview.kind(file.getName()) == FilePreview.IMAGE) showImagePreview(file);
+                else if (FilePreview.kind(file.getName()) == FilePreview.TEXT) TextEditor.open(act,file,null,false);
+                else externalFile(file,"open");
+            });
+            edit.setOnClickListener(v -> { menu.dismiss();
+                if (FilePreview.kind(file.getName()) == FilePreview.TEXT) TextEditor.open(act,file,() -> refresh(),true);
+                else externalFile(file,"edit");
+            });
+            open.setOnClickListener(v -> { menu.dismiss();externalFile(file,"open"); });
+            share.setOnClickListener(v -> { menu.dismiss();shareFile(file); });
+            menu.show();
+        }
+
         void showImagePreview(final File file) {
             if (!FilePreview.canDecodeImage(file.length())) {
                 DshUi.toast(act, "图片为空或超过 64 MB，无法预览");
@@ -871,27 +897,13 @@ public final class FileBrowser {
          * {@code file://} 交给别的应用会抛 {@code FileUriExposedException}。
          * 接收方拿到的是一次性读授权，看不到真实路径。
          */
-        private void shareFile(File f) {
-            try {
-                android.net.Uri uri = android.net.Uri.parse("content://"
-                        + UpdateProvider.AUTHORITY + "/"
-                        + ShareTargets.PREFIX + ShareTargets.encode(f));
-                android.content.Intent send = new android.content.Intent(
-                        android.content.Intent.ACTION_SEND);
-                send.setType(ShareTargets.mimeOf(f.getName()));
-                send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
-                send.putExtra(android.content.Intent.EXTRA_TITLE,
-                        ShareTargets.displayName(f));
-                send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                android.content.Intent chooser =
-                        android.content.Intent.createChooser(send, "分享 " + f.getName());
-                chooser.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                act.startActivity(chooser);
-                DshUi.log("分享文件: " + f.getAbsolutePath());
-            } catch (Throwable t) {
-                DshUi.toast(act, "分享失败：" + t.getClass().getSimpleName());
-                DshUi.log("分享失败: " + t);
-            }
+        private void shareFile(File file) { externalFile(file, "share"); }
+
+        private void externalFile(File file, String action) {
+            try { ExternalFileActions.launch(act, file, action, writeRoots); }
+            catch (android.content.ActivityNotFoundException unavailable) { DshUi.toast(act, "没有可处理此文件的应用"); }
+            catch (SecurityException refused) { DshUi.toast(act, "系统拒绝了文件操作"); }
+            catch (Exception failure) { DshUi.toast(act, "文件操作失败，请确认文件仍存在且可访问"); }
         }
 
         /** 输入名称的回调。 */
@@ -1143,7 +1155,7 @@ public final class FileBrowser {
             next[0] = end;
             if (end < entries.size()) {
                 // 下一帧再补：让这一帧先完成布局把已有内容显示出来，而不是攒着一次性显示
-                listBox.post(new Runnable() {
+                ui.post(new Runnable() {
                     @Override public void run() { appendRows(entries, next, gen); }
                 });
                 return;
@@ -1169,6 +1181,7 @@ public final class FileBrowser {
          * 软链目标一长就把名称挤到几乎不可见。
          */
         View buildRow(final FileListing.Entry e) {
+            final int rowGeneration = generation;
             LinearLayout row = new LinearLayout(act);
             row.setTag(e);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -1238,6 +1251,7 @@ public final class FileBrowser {
             row.setActivated(selected.containsKey(e.file.getAbsolutePath()));
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
+                    if (closed || generation != rowGeneration || loadingMask.getVisibility() == View.VISIBLE) return;
                     if (selectionMode) {
                         toggleSelection(e);
                         return;
@@ -1245,20 +1259,13 @@ public final class FileBrowser {
                     if (e.dir) {
                         navigate(e.file);
                     } else {
-                        if (FilePreview.kind(e.name) == FilePreview.IMAGE) {
-                            showImagePreview(e.file);
-                        } else {
-                            // 保存后刷新列表：否则大小与修改时间仍是旧的，
-                            // 看起来像没保存成功
-                            TextEditor.open(act, e.file, new Runnable() {
-                                @Override public void run() { refresh(); }
-                            });
-                        }
+                        showFileActions(e.file);
                     }
                 }
             });
             row.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override public boolean onLongClick(View v) {
+                    if (closed || generation != rowGeneration || loadingMask.getVisibility() == View.VISIBLE) return true;
                     if (selectionMode) toggleSelection(e); else showItemMenu(e);
                     return true;
                 }
@@ -1372,7 +1379,9 @@ public final class FileBrowser {
     /** 打开文件浏览器。 */
     public static void show(final Activity act, final File appDir) { show(act, appDir, null); }
 
-    public static void show(final Activity act, final File appDir, final Runnable onClosed) {
+    public static void show(final Activity act, final File appDir, final Runnable onClosed) { showAt(act,appDir,null,onClosed); }
+
+    static Runnable showAt(final Activity act, final File appDir, final File initial, final Runnable onClosed) {
         final Browser b = new Browser(act);
 
         if (appDir != null) b.roots.add(new Root("应用", appDir));
@@ -1394,7 +1403,7 @@ public final class FileBrowser {
         // 写入白名单：只开放配置目录、私有工作区与 DSHNative 共享目录。
         // App 运行时、/ 与整个 /sdcard 保持只读，避免误删可执行环境或系统数据。
         b.writeRoots.addAll(FileOps.writableRoots(appDir));
-        b.cwd = appDir != null && appDir.isDirectory() ? appDir : b.roots.get(0).dir;
+        b.cwd = initial != null && initial.isDirectory() ? initial : appDir != null && appDir.isDirectory() ? appDir : b.roots.get(0).dir;
         DshUi.log("打开文件浏览: " + b.cwd.getAbsolutePath()
                 + "（可用位置 " + b.roots.size() + " 个）");
 
@@ -1523,17 +1532,18 @@ public final class FileBrowser {
                     DshUi.toast(act, "该位置只读，不能新建");
                     return;
                 }
-                b.promptName("新建文件夹", "", new Browser.NameSink() {
-                    @Override public void onName(String name) {
-                        String err = FileOps.mkdir(b.cwd, name, b.writeRoots);
-                        if (err == null) {
-                            DshUi.toast(act, "已创建 " + name);
-                            b.refresh();
-                        } else {
-                            DshUi.toast(act, err);
-                        }
-                    }
-                });
+                LinearLayout choice = DshUi.paddedBody(act);
+                choice.addView(DshUi.title(act,"新建"));
+                Button file = DshUi.button(act,"新建文件",true), folder = DshUi.button(act,"新建文件夹",false);
+                final Dialog ask = DshUi.dialog(act,choice,DshUi.footer(act,file,folder),420);
+                file.setOnClickListener(sourceView -> { ask.dismiss();b.promptName("新建文件","",name -> {
+                    File directory=b.cwd;String err=FileOps.createFile(directory,name,b.writeRoots);
+                    if(err!=null)DshUi.toast(act,err);else { b.refresh();TextEditor.open(act,new File(directory,name),() -> b.refresh(),true); }
+                }); });
+                folder.setOnClickListener(sourceView -> { ask.dismiss();b.promptName("新建文件夹","",name -> {
+                    String err=FileOps.mkdir(b.cwd,name,b.writeRoots);if(err==null){DshUi.toast(act,"已创建 "+name);b.refresh();}else DshUi.toast(act,err);
+                }); });
+                ask.show();
             }
         });
         Button refreshBtn = DshUi.button(act, "刷新", false);
@@ -1588,5 +1598,6 @@ public final class FileBrowser {
         dlg.show();
         b.navigate(b.cwd);
         b.reportLayout(dlg, listArea, rootRow, b.crumbScroll);
+        return () -> { if(!b.closed)b.refresh(); };
     }
 }

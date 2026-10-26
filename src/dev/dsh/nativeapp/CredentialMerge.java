@@ -96,6 +96,7 @@ final class CredentialMerge {
         List<String> addedLines = new ArrayList<String>();
         for (String entry : readRefs(srcText)) {
             String key = keyOf(entry);
+            if ("COMMANDCODE_API_KEY".equals(key)) continue;
             if (key.length() == 0) continue;
             if (hasKey(target, key)) continue;
             addedLines.add(entry);

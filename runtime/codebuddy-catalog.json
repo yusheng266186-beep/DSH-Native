@@ -1,0 +1,415 @@
+{
+  "source": "@tencent-ai/codebuddy-code",
+  "version": "2.174.0",
+  "endpoint": "https://www.codebuddy.cn/v2",
+  "models": {
+    "default-model": [],
+    "fast-model": [
+      "medium"
+    ],
+    "balanced-model": [
+      "medium"
+    ],
+    "primary-model": [
+      "high"
+    ],
+    "deep-model": [],
+    "deepseek-v4.1-flash": [
+      "high"
+    ],
+    "gpt-6-astra": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "hy4-preview": [
+      "high"
+    ],
+    "hy3": [
+      "low",
+      "high"
+    ],
+    "kimi-k2.8-preview": [
+      "low",
+      "high",
+      "max"
+    ],
+    "gpt-5.6-sol": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "gpt-5.6-terra": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "gpt-5.6-luna": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "gpt-5.5": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ],
+    "gpt-5.4": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ],
+    "gemini-3.5-flash": [
+      "medium"
+    ],
+    "glm-5.3-flash": [
+      "low",
+      "high",
+      "max"
+    ],
+    "glm-5.3": [
+      "low",
+      "high",
+      "max"
+    ],
+    "glm-5.2": [
+      "high",
+      "xhigh"
+    ],
+    "kimi-k3": [
+      "medium"
+    ],
+    "kimi-k2.6": [
+      "medium"
+    ]
+  },
+  "catalog": [
+    {
+      "id": "default-model",
+      "name": "Auto",
+      "contextWindow": 176000,
+      "maxTokens": 24000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "max": "max"
+      }
+    },
+    {
+      "id": "fast-model",
+      "name": "Fast",
+      "contextWindow": 200000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "medium": "medium",
+        "max": "max"
+      }
+    },
+    {
+      "id": "balanced-model",
+      "name": "Balanced",
+      "contextWindow": 256000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "medium": "medium",
+        "max": "max"
+      }
+    },
+    {
+      "id": "primary-model",
+      "name": "Primary",
+      "contextWindow": 272000,
+      "maxTokens": 72000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "deep-model",
+      "name": "Deep",
+      "contextWindow": 176000,
+      "maxTokens": 24000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "off": null,
+        "max": "max"
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "Deepseek-V4.1-Flash",
+      "contextWindow": 300000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6-Astra",
+      "contextWindow": 400000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "hy4-preview",
+      "name": "Hy4 preview",
+      "contextWindow": 200000,
+      "maxTokens": 64000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "hy3",
+      "name": "Hy3",
+      "contextWindow": 192000,
+      "maxTokens": 64000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "kimi-k2.8-preview",
+      "name": "Kimi-K2.8-Preview",
+      "contextWindow": 300000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "GPT-5.6-Sol",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "name": "GPT-5.6-Terra",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6-Luna",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-5.5",
+      "name": "GPT-5.5",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gpt-5.4",
+      "name": "GPT-5.4",
+      "contextWindow": 272000,
+      "maxTokens": 72000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "name": "Gemini-3.5-Flash",
+      "contextWindow": 1000000,
+      "maxTokens": 65536,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "medium": "medium",
+        "max": "max"
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "contextWindow": 300000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "contextWindow": 1000000,
+      "maxTokens": 48000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "low": "low",
+        "high": "high",
+        "max": "max"
+      }
+    },
+    {
+      "id": "glm-5.2",
+      "name": "GLM-5.2",
+      "contextWindow": 1000000,
+      "maxTokens": 48000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max"
+      }
+    },
+    {
+      "id": "kimi-k3",
+      "name": "Kimi-K3",
+      "contextWindow": 1000000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "medium": "medium",
+        "max": "max"
+      }
+    },
+    {
+      "id": "kimi-k2.6",
+      "name": "Kimi-K2.6",
+      "contextWindow": 256000,
+      "maxTokens": 32000,
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoningEfforts": {
+        "medium": "medium",
+        "max": "max"
+      }
+    }
+  ]
+}

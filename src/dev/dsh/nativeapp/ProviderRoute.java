@@ -9,6 +9,7 @@ final class ProviderRoute {
     static final int INVALID = 0;
     static final int UPDATE_APK = 1;
     static final int SHARED_FILE = 2;
+    static final int EDIT_FILE = 3;
 
     private ProviderRoute() { }
 
@@ -25,6 +26,8 @@ final class ProviderRoute {
                 && encodedPath.length() > ShareTargets.PREFIX.length() + 1) {
             return SHARED_FILE;
         }
+        if (encodedPath.startsWith("/" + ShareTargets.EDIT_PREFIX)
+                && encodedPath.length() > ShareTargets.EDIT_PREFIX.length() + 1) return EDIT_FILE;
         return INVALID;
     }
 }

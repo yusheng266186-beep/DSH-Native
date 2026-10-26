@@ -45,7 +45,7 @@ try{
  const plugin=path.join(scratch,'android-tools.cjs');
  await fs.writeFile(path.join(scratch,'native.yml'),"- insert:\n    - id: android-native-test\n      name: '"+plugin.replaceAll("'","''")+"'\n");
  const home=path.join(scratch,'home');await fs.mkdir(home);
- core=spawn(process.execPath,['--expose-internals',path.join(runtime,'lib/bin.js'),'--patch',path.join(scratch,'native.yml'),'--profile','web','--no-open','--port','0'],{cwd:scratch,env:{...process.env,DSH_HOME:home,COMMANDCODE_API_KEY:'synthetic-fixture-only',DEEPSEEK_API_KEY:''},stdio:['ignore','pipe','pipe']});
+ core=spawn(process.execPath,['--expose-internals',path.join(runtime,'lib/bin.js'),'--patch',path.join(scratch,'native.yml'),'--profile','web','--no-open','--port','0'],{cwd:scratch,env:{...process.env,DSH_HOME:home,CODEBUDDY_API_KEY:'synthetic-fixture-only',DEEPSEEK_API_KEY:''},stdio:['ignore','pipe','pipe']});
  let output='';core.stdout.on('data',data=>output=(output+data).slice(-32000));core.stderr.on('data',data=>output=(output+data).slice(-32000));
  for(let i=0;i<450&&!output.match(/dsh web: http:\/\/127\.0\.0\.1:\d+/);i++){assert.equal(core.exitCode,null,'native plugin blocked actual Web profile startup: '+output.replace(/token=\S+/g,'token=REDACTED'));await sleep(100);}
  check(!!output.match(/dsh web: http:\/\/127\.0\.0\.1:\d+/),'actual core loads App native insert patch');

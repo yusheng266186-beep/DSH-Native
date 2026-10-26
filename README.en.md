@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.37.2**; source: **0.37.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.37.2**; source: **0.38.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -65,7 +65,7 @@ SHA-256: `ce4986eeb4c35e547cdc1f18c920a50192b89e10d8b5ded5624a5932d75ff201`
 | CPU | ARM64; no ARM32 or x86 package is currently provided |
 | First launch | Downloads a roughly 143.6 MiB runtime; later updates download changed parts |
 | Storage | Allow room for extraction, downloads, and rollback snapshots; reserve 1.5–2 GiB and follow the App's actual space check |
-| Model access | Command Code API key, DeepSeek API key, or DeepSeek account authorization; models and quotas depend on your account |
+| Model access | CodeBuddy API key, DeepSeek API key, or DeepSeek account authorization; models and quotas depend on your account |
 | Background tasks | Allow notifications and background operation as appropriate for your device; a foreground service cannot prevent every ROM from terminating the process |
 
 The APK carries Node and bootstrap logic. DSH and the toolchain are installed from runtime parts verified by hash. Extracted storage is considerably larger than compressed downloads, and safe updates require additional snapshot space.
@@ -76,7 +76,7 @@ The APK carries Node and bootstrap logic. DSH and the toolchain are installed fr
 
 1. Install the APK and grant the requested file and notification permissions.
 2. Select a language and complete runtime download, SHA-256 verification, and extraction.
-3. Open Model Center and enter a Command Code / DeepSeek API key, or use DeepSeek account & balances to authorize in your browser.
+3. Import a private encrypted CodeBuddy CLI connection in DSH Models, enter a CodeBuddy / DeepSeek key, or authorize DeepSeek from the original Account section.
 4. Fetch the provider's live model directory, choose a default model and effort, and save.
 5. Use the default workspace or create a named project, then start a new conversation.
 
@@ -108,17 +108,17 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 
 | Route | Directory endpoint | Behavior |
 |---|---|---|
-| Command Code | `GET https://api.commandcode.ai/provider/v1/models` | Authenticated directory visible to your account |
+| CodeBuddy | CLI 2.174.0 metadata | Pinned CLI metadata after endpoint check; model access depends on service permissions |
 | Direct DeepSeek | `GET https://api.deepseek.com/models` | Directory returned for your official API key |
 | DeepSeek account | Core `account/*` and `session/modelCatalog` | Core-managed account model route after browser authorization |
 
 DSH’s original account page shows account details, topped-up and granted balances, usage, top-up and sign-out actions. Sign-in opens DeepSeek's authorization page in your browser. After authorization, return to the App, choose **DeepSeek account**, fetch the model list, and save. You can reopen authorization, cancel a pending attempt, or sign out. API keys and account authorization are stored separately. Signing out stops tasks using that account and retains API keys, sessions, and projects. See [account integration and verification boundaries](docs/DEEPSEEK_ACCOUNT.md).
 
-Connection checks read the directory without sending a test prompt. The native picker displays IDs from the current successful response. Local capability records explain effort and image support; they do not fabricate models unavailable to your account.
+DeepSeek checks read its live directory. CodeBuddy uses an empty-message parameter probe and pinned CLI metadata without a generation prompt; this metadata is not an account authorization list. Import your private CLI connection file in Models; the key is stored through DSH credentials. See [CodeBuddy import](docs/CODEBUDDY.md).
 
 New IDs remain selectable even when absent from the local capability snapshot. Structured upstream declarations take priority for image support, followed by existing configuration. Unknown capability is not labeled as image support. Saved settings can be retained during temporary offline operation; initial setup or choosing a new model requires a successful live fetch.
 
-**Refresh models** writes the complete successful catalogs directly to DSH's provider configuration. A controlled runtime reload applies them when idle, followed by a page refresh. Running or unknown task state defers application until confirmed idle. Reloading WebView alone cannot rebuild the provider topology.
+**Refresh models** writes the DeepSeek live directory or pinned CodeBuddy CLI metadata directly to DSH's provider configuration. A controlled runtime reload applies them when idle, followed by a page refresh. Running or unknown task state defers application until confirmed idle. Reloading WebView alone cannot rebuild the provider topology.
 
 Global and project defaults apply to new conversations. Existing history is retained; the chat model picker can explicitly change the model or effort for subsequent requests. Already dispatched requests are not changed retrospectively.
 
@@ -245,3 +245,5 @@ Repository code is licensed under [MIT](LICENSE). DSH, Node.js, Termux-origin bi
 - [Termux](https://github.com/termux/termux-app)
 - [Pinned core and upgrade notes](docs/CORE_UPGRADE.md)
 - [Android 10 behavior changes](https://developer.android.com/about/versions/10/behavior-changes-10)
+
+Device controls now live in the DSH settings navigation. File previews and delivery cards offer editing, Android open-in-app and system sharing. External editing grants write access only after an explicit Edit action and requires a compatible content-URI editor. See [file actions](docs/FILE_ACTIONS.md) and [CodeBuddy import](docs/CODEBUDDY.md).

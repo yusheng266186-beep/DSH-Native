@@ -1,7 +1,7 @@
 # 文档中心
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 先看 [项目状态与验证边界](STATUS.md)，再选择用户指南或技术文档。各文件顶部自动显示稳定发布、源码、运行包和固定内核；当前说明与历史记录使用不同标记。
@@ -17,6 +17,8 @@
 | [ARCHITECTURE](ARCHITECTURE.md) | 分发、执行、配置、模型目录、探针、恢复与安全边界 |
 | [BUILD](BUILD.md) | Linux / CI 构建、测试、签名、正式发布与问题定位 |
 | [DESIGN](DESIGN.md) | DshUi、主题、布局、动效、异步生命周期和返回导航规范 |
+| [CODEBUDDY](CODEBUDDY.md) | 本机 CLI 连接的加密导入、接口与目录边界 |
+| [FILE_ACTIONS](FILE_ACTIONS.md) | WebUI 文件编辑、Android 外部打开/编辑与分享 |
 | [MODEL_REASONING](MODEL_REASONING.md) | 逐模型官方快照与 App 档位、Max 请求、优先级与回归 |
 | [DEEPSEEK_ACCOUNT](DEEPSEEK_ACCOUNT.md) | 上游账号与余额界面、浏览器登录、内核 RPC、配置迁移和消费回归 |
 | [VOICE_INPUT](VOICE_INPUT.md) | Android 系统语音启用、错误定位、权限与通知任务状态排查 |

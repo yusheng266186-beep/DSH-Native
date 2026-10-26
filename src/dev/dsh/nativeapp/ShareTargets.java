@@ -27,6 +27,7 @@ final class ShareTargets {
 
     /** URI 里路径段的固定前缀，便于与其它路径区分。 */
     static final String PREFIX = "f/";
+    static final String EDIT_PREFIX = "e/";
 
     private ShareTargets() { }
 
@@ -176,6 +177,15 @@ final class ShareTargets {
         if (ext.equals("ts")) return "text/plain";
         if (ext.equals("py")) return "text/x-python";
         if (ext.equals("sh")) return "text/x-shellscript";
+        if (ext.equals("doc")) return "application/msword";
+        if (ext.equals("docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (ext.equals("xls")) return "application/vnd.ms-excel";
+        if (ext.equals("xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (ext.equals("ppt")) return "application/vnd.ms-powerpoint";
+        if (ext.equals("pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        if (ext.equals("odt")) return "application/vnd.oasis.opendocument.text";
+        if (ext.equals("ods")) return "application/vnd.oasis.opendocument.spreadsheet";
+        if (ext.equals("odp")) return "application/vnd.oasis.opendocument.presentation";
         if (ext.equals("pdf")) return "application/pdf";
         if (ext.equals("zip")) return "application/zip";
         if (ext.equals("gz") || ext.equals("tgz")) return "application/gzip";

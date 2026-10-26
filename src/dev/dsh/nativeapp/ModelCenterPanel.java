@@ -31,7 +31,6 @@ final class ModelCenterPanel {
         File dshHome();
         String activeProject();
         void log(String message);
-        void openCommandCodeUsage(String key);
         /** 让 DSH WebUI 重新读取刚写入的模型目录；任务运行时由宿主自行延后。 */
         void refreshModelCatalog();
         void closeModelCenter(boolean onboarding, boolean saved);
@@ -225,8 +224,8 @@ final class ModelCenterPanel {
 
             body.addView(DshUi.sectionLabel(act,
                     UiText.t("服务商", "Provider")), DshUi.fullWidth(act, 20));
-            final Button cc = DshUi.toggleButton(act, "Command Code",
-                    ModelConfig.COMMAND_CODE.equals(draft.provider));
+            final Button cc = DshUi.toggleButton(act, "CodeBuddy",
+                    ModelConfig.CODEBUDDY.equals(draft.provider));
             final Button ds = DshUi.toggleButton(act,
                     UiText.t("DeepSeek API Key", "DeepSeek API key"),
                     ModelConfig.DEEPSEEK.equals(draft.provider));
@@ -240,10 +239,10 @@ final class ModelCenterPanel {
                     UiText.t("DeepSeek 账号与余额", "DeepSeek account & balances"), false);
             body.addView(accountSettings, DshUi.fullWidth(act, 6));
 
-            final TextView ccLabel = DshUi.label(act, "Command Code API Key");
+            final TextView ccLabel = DshUi.label(act, "CodeBuddy API Key");
             body.addView(ccLabel, DshUi.fullWidth(act, 14));
             final EditText ccKey = DshUi.input(act, ModelConfig.readCredentialRef(
-                    credentialsText, "COMMANDCODE_API_KEY"), true);
+                    credentialsText, "CODEBUDDY_API_KEY"), true);
             body.addView(ccKey, DshUi.fullWidth(act, 6));
             final TextView dsLabel = DshUi.label(act, "DeepSeek API Key");
             body.addView(dsLabel, DshUi.fullWidth(act, 14));
@@ -294,17 +293,6 @@ final class ModelCenterPanel {
                     UiText.t("检测连接与模型", "Check connection and model"), false);
             body.addView(check, DshUi.fullWidth(act, 6));
 
-            if (!onboarding) {
-                Button usage = DshUi.button(act,
-                        UiText.t("Command Code 用量", "Command Code usage"), false);
-                usage.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View v) {
-                        host.openCommandCodeUsage(ccKey.getText().toString().trim());
-                    }
-                });
-                body.addView(usage, DshUi.fullWidth(act, 16));
-            }
-
             final Button back = DshUi.button(act, onboarding
                     ? UiText.t("稍后设置", "Set up later")
                     : UiText.t("返回工具与设置", "Back to tools & settings"), false);
@@ -327,10 +315,10 @@ final class ModelCenterPanel {
             final Runnable refresh = new Runnable() {
                 @Override public void run() {
                     invalidateCheck.run();
-                    DshUi.setToggleState(cc, ModelConfig.COMMAND_CODE.equals(draft.provider));
+                    DshUi.setToggleState(cc, ModelConfig.CODEBUDDY.equals(draft.provider));
                     DshUi.setToggleState(ds, ModelConfig.DEEPSEEK.equals(draft.provider));
                     DshUi.setToggleState(dsAccount, ModelConfig.DEEPSEEK_ACCOUNT.equals(draft.provider));
-                    ccLabel.setVisibility(ModelConfig.COMMAND_CODE.equals(draft.provider) ? View.VISIBLE : View.GONE);
+                    ccLabel.setVisibility(ModelConfig.CODEBUDDY.equals(draft.provider) ? View.VISIBLE : View.GONE);
                     ccKey.setVisibility(ccLabel.getVisibility());
                     dsLabel.setVisibility(ModelConfig.DEEPSEEK.equals(draft.provider) ? View.VISIBLE : View.GONE);
                     dsKey.setVisibility(dsLabel.getVisibility());
@@ -346,7 +334,7 @@ final class ModelCenterPanel {
                 }
             };
 
-            ccKey.addTextChangedListener(keyWatcher(draft, ModelConfig.COMMAND_CODE,
+            ccKey.addTextChangedListener(keyWatcher(draft, ModelConfig.CODEBUDDY,
                     invalidateCheck));
             dsKey.addTextChangedListener(keyWatcher(draft, ModelConfig.DEEPSEEK,
                     invalidateCheck));
@@ -354,7 +342,7 @@ final class ModelCenterPanel {
             cc.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     draft.followGlobal = false;
-                    selectProvider(draft, ModelConfig.COMMAND_CODE);
+                    selectProvider(draft, ModelConfig.CODEBUDDY);
                     refresh.run();
                     DshUi.choiceActivated(v);
                 }
@@ -499,7 +487,7 @@ final class ModelCenterPanel {
                             : UiText.t("保存", "Save");
                     DshUi.setBusy(save, saveIdle,
                             UiText.t("保存中", "Saving"), true);
-                    final String commandKey = ccKey.getText().toString().trim();
+                    final String buddyKey = ccKey.getText().toString().trim();
                     final String deepSeekKey = dsKey.getText().toString().trim();
                     final boolean globalScope = draft.globalScope;
                     final boolean followsGlobal = draft.followGlobal;
@@ -538,7 +526,7 @@ final class ModelCenterPanel {
                                 nextSettings = ModelCatalogSync.writeLiveCatalog(nextSettings,
                                         selection.provider, liveEntries);
                             }
-                            saveKey(api, credentialsText, "COMMANDCODE_API_KEY", commandKey);
+                            saveKey(api, credentialsText, "CODEBUDDY_API_KEY", buddyKey);
                             saveKey(api, credentialsText, "DEEPSEEK_API_KEY", deepSeekKey);
                             api.checkOpen();
                             ProjectModelSettings.writeFileAtomic(projectsFile,
@@ -798,6 +786,12 @@ final class ModelCenterPanel {
 
     private static void renderCheck(TextView status, ProviderCheck.Result result,
                                     List<LiveModelCatalog.Entry> entries, String model) {
+        if (result.cliSnapshot) {
+            status.setText(UiText.t("CodeBuddy 接口校验通过。模型目录来自 CLI "+CodeBuddyCatalog.VERSION
+                    +" 元数据；实际模型权限以调用为准。", "CodeBuddy endpoint verified. Model metadata is from CLI "+CodeBuddyCatalog.VERSION
+                    +"; actual model access is determined by the service."));
+            status.setTextColor(ProviderCheck.contains(result,model)?DshUi.SUCCESS():DshUi.WARN()); return;
+        }
         if (result.state == ProviderCheck.READY) {
             boolean present = ProviderCheck.contains(result, model);
             if (present) {
@@ -845,7 +839,7 @@ final class ModelCenterPanel {
 
     private static ModelConfig.Selection validOrDefault(ModelConfig.Selection selection) {
         if (selection != null && selection.valid()) return selection;
-        return new ModelConfig.Selection(ModelConfig.COMMAND_CODE, "", "medium");
+        return new ModelConfig.Selection(ModelConfig.CODEBUDDY, "", "medium");
     }
 
     private static void selectProvider(Draft draft, String provider) {
@@ -972,13 +966,24 @@ final class ModelCenterPanel {
         try {
             connection.setConnectTimeout(12000); connection.setReadTimeout(15000);
             connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
+            boolean buddy = ModelConfig.CODEBUDDY.equals(provider);
+            connection.setRequestMethod(buddy ? "POST" : "GET");
             connection.setRequestProperty("Authorization", "Bearer " + key);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("User-Agent", "DSHNative-ModelCatalog");
+            if (buddy) {
+                connection.setRequestProperty("X-API-Key", key);
+                connection.setRequestProperty("X-Product", "codebuddy");
+                connection.setRequestProperty("X-IDE-Name", "DSH Native");
+                connection.setDoOutput(true); connection.setRequestProperty("Content-Type","application/json");
+                byte[] probe = "{\"model\":\"deepseek-v4.1-flash\",\"messages\":[],\"stream\":true,\"max_tokens\":1}".getBytes("UTF-8");
+                connection.setFixedLengthStreamingMode(probe.length);
+                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(probe); }
+            }
             int code = connection.getResponseCode();
             try (InputStream stream = code >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
-                return ProviderCheck.classify(code, readLimited(stream, 1024 * 1024));
+                String body = readLimited(stream, 1024 * 1024);
+                return buddy ? CodeBuddyCatalog.probe(code,body) : ProviderCheck.classify(code,body);
             }
         } finally { connection.disconnect(); }
     }

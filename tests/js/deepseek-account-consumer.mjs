@@ -36,7 +36,7 @@ async function boot() {
   const expectedSettings = await fs.readFile(path.join(home, 'settings.yaml'), 'utf8').catch(() => '');
   child = spawn(process.execPath, ['--expose-internals', path.join(runtime, 'lib/bin.js'),
     '--patch', path.join(scratch, 'platform.yml'), '--profile', 'web', '--no-open', '--port', '0'], {
-    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: '', DEEPSEEK_API_KEY: ''},
+    cwd: project, env: {...process.env, DSH_HOME: home, CODEBUDDY_API_KEY: '', DEEPSEEK_API_KEY: ''},
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const collect = chunk => {output = (output + chunk).slice(-64000);};
@@ -139,9 +139,9 @@ try {
   const snapshot = await rpc('settings/describe', {}, true);
   const projected = yaml.load(snapshot), preset = yaml.load(await fs.readFile(new URL('../../payload/settings-preset.yaml', import.meta.url), 'utf8'));
   check(projected['agent-default-model'].model === preset['agent-default-model'].model, 'live default model lost');
-  check(projected['llm-pi-ai'].providers.commandcode.models.length === preset['llm-pi-ai'].providers.commandcode.models.length, 'live model catalog lost during projection');
-  check(projected['llm-pi-ai'].providers.commandcode.models[0].input.includes('image'), 'vision input lost during projection');
-  check(projected['llm-pi-ai'].providers.commandcode.models[0].reasoningEfforts.max === 'max', 'reasoning map lost during projection');
+  check(projected['llm-pi-ai'].providers.codebuddy.models.length === preset['llm-pi-ai'].providers.codebuddy.models.length, 'live model catalog lost during projection');
+  check(projected['llm-pi-ai'].providers.codebuddy.models[0].input.includes('image'), 'vision input lost during projection');
+  check(projected['llm-pi-ai'].providers.codebuddy.models[0].reasoningEfforts.max === 'max', 'reasoning map lost during projection');
   check(!Object.hasOwn(projected['llm-deepseek-account'], 'models'), 'obsolete account cache is still projected');
   check(projected['llm-deepseek-account'].modelOverrides['deepseek-flash'].maxTokens === 1024, 'explicit account override lost');
   check(!(await rpc('session/modelCatalog')).groups.some(g => g.id === 'deepseek-account'), 'signed-out account models are visible');
@@ -191,7 +191,7 @@ try {
   const init = attempts.at(-1);
   const bad = await fetch(init.redirect_uri + '?state=wrong&code=synthetic-code');
   check(bad.status === 400 && exchanges === 0, 'invalid state exchanged credentials');
-  await rpc('credentials/set', {ref: 'COMMANDCODE_API_KEY', value: 'synthetic-command-key'});
+  await rpc('credentials/set', {ref: 'CODEBUDDY_API_KEY', value: 'synthetic-command-key'});
   const callback = await fetch(init.redirect_uri + '?state=' + init.state + '&code=synthetic-code', {redirect: 'manual'});
   check(callback.status === 302 && new URL(callback.headers.get('location')).pathname === '/dsh/authorized', 'successful callback did not complete');
   view = await until(rpc, 'succeeded');

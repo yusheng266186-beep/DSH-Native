@@ -10,7 +10,7 @@ public class ProjectModelSettingsTest {
 
     public static void main(String[] args) throws Exception {
         ModelConfig.Selection global = new ModelConfig.Selection(
-                ModelConfig.COMMAND_CODE, "deepseek/deepseek-v4.1-flash", "max");
+                ModelConfig.CODEBUDDY, "deepseek/deepseek-v4.1-flash", "max");
         ModelConfig.Selection chinese = new ModelConfig.Selection(
                 ModelConfig.DEEPSEEK, "deepseek-v4-pro", "high");
         ProjectModelSettings.State state = new ProjectModelSettings.State();

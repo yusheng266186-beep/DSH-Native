@@ -1,7 +1,7 @@
 # 架构与运行边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 目标与约束
@@ -83,7 +83,7 @@ flowchart TD
 
 可见 ID 来自当前成功上游响应。能力优先级为上游明确声明、对应服务商固定能力记录、已有自定义配置；能力表不增删可见 ID。未知模型仍允许选择，未知视觉能力不推断成图片支持。
 
-Command Code 目录写入 `llm-pi-ai.providers.commandcode.models`；DeepSeek 直连写入 `llm-deepseek-api-key.models`。刷新目录不要求修改默认模型；空/失败响应不能清空上一份有效目录。
+CodeBuddy CLI 元数据写入 `llm-pi-ai.providers.codebuddy.models`；DeepSeek 直连写入 `llm-deepseek-api-key.models`。刷新目录不要求修改默认模型；空/失败响应不能清空上一份有效目录。
 
 已构建的 runtime topology 不会因 WebView reload 自动重建，因此成功写入后必须空闲再重载。running 或 unknown 保存 pending；目录应用与主题/生命周期变动均需有界、去抖与限流。
 

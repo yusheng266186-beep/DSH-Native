@@ -10,8 +10,8 @@ final class CoreReadiness {
     static boolean matches(String expected, String actual) {
         ModelConfig.Selection selection = ModelConfig.readSelection(expected);
         if (!selection.valid() || !selection.equals(ModelConfig.readSelection(actual))) return false;
-        for (String provider : new String[]{ModelConfig.COMMAND_CODE, ModelConfig.DEEPSEEK, ModelConfig.DEEPSEEK_ACCOUNT}) {
-            String block = ModelConfig.COMMAND_CODE.equals(provider) ? "llm-pi-ai"
+        for (String provider : new String[]{ModelConfig.CODEBUDDY, ModelConfig.DEEPSEEK, ModelConfig.DEEPSEEK_ACCOUNT}) {
+            String block = ModelConfig.CODEBUDDY.equals(provider) ? "llm-pi-ai"
                     : ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) ? "llm-deepseek-account"
                     : YamlBlocks.hasTopLevelKey(expected, "llm-deepseek-api-key") ? "llm-deepseek-api-key" : "llm-deepseek";
             if (!YamlBlocks.hasTopLevelKey(expected, block)) continue;

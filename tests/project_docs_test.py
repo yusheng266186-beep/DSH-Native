@@ -41,7 +41,7 @@ class ProjectDocsTest(unittest.TestCase):
         self.write_json("latest-test.json", dict(version="0.26.0", tag="v0.26.0-test",
                         payload="payload-v9"))
         self.write_json("runtime/core-source.json", dict(version="0.2.0-rc.2"))
-        self.write_json("tests/fixtures/command-code-reasoning-1.72.4.json", {
+        self.write_json("tests/fixtures/codebuddy-cli-catalog.json", {
             "models": {"stealth/space-bunny-alpha": ["low", "medium", "high"],
                        "automatic-model": [], "declared-max": ["high", "max"]}})
 

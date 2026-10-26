@@ -76,7 +76,6 @@ public final class UiText {
         put("运行日志", "Runtime log");
         put("文件浏览", "File browser");
         put("网络诊断", "Network diagnostics");
-        put("Command Code 用量", "Command Code usage");
 
         put("保存", "Save");
         put("保存并重启", "Save & restart");
@@ -116,6 +115,13 @@ public final class UiText {
         put("复制路径", "Copy path");
         put("重命名", "Rename");
         put("新建", "New");
+        put("新建文件", "New file");
+        put("查看", "View");
+        put("编辑", "Edit");
+        put("用其他应用打开", "Open in another app");
+        put("没有可处理此文件的应用", "No compatible app for this file");
+        put("系统拒绝了文件操作", "Android refused this file action");
+        put("文件操作失败，请确认文件仍存在且可访问", "File action failed. Check that the file exists and is accessible.");
         put("排序", "Sort");
         put("隐藏文件", "Hidden files");
         put("清空", "Clear");
@@ -148,8 +154,6 @@ public final class UiText {
                 "Enable built-in plugins or install community plugins from npm. Changes apply after restart.");
         put("把账户密钥与模型配置导出到共享存储；重装或换机后可恢复",
                 "Export encrypted account and model settings for reinstall or device migration.");
-        put("查看 Command Code 账户余额、滚动窗口与本期用量",
-                "View Command Code balance, rolling windows, and current usage.");
         put("检测更新功能依赖的各个源是否可用（直连与镜像分开报告）",
                 "Check each update source and report direct and mirror connectivity separately.");
         put("浏览应用私有目录、工作区与共享存储；文本文件可直接编辑",
@@ -171,7 +175,7 @@ public final class UiText {
         put("直接关闭会丢失这次的改动。", "Closing now will discard your changes.");
         put("这是符号链接", "This is a symbolic link");
         put("结论：", "Result:");
-        put("未配置 Command Code 密钥。\n", "Command Code key is not configured.\n");
+        put("未配置 CodeBuddy 密钥。\n", "CodeBuddy key is not configured.\n");
         put("本期用量", "Current usage");
         put("用量不可用", "Usage unavailable");
         put("订阅信息不可用", "Subscription unavailable");

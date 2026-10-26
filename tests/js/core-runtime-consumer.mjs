@@ -80,7 +80,7 @@ try {
   await fs.copyFile(preset, path.join(home, 'settings.yaml'));
   child = spawn(process.execPath, ['--expose-internals', path.join(root, 'lib/bin.js'),
     '--profile', 'web', '--no-open', '--port', '0'], {
-    cwd: scratch, env: { ...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: '', DEEPSEEK_API_KEY: '' },
+    cwd: scratch, env: { ...process.env, DSH_HOME: home, CODEBUDDY_API_KEY: '', DEEPSEEK_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';

@@ -9,11 +9,16 @@ public class ProviderCheckTest {
     }
 
     public static void main(String[] args) {
-        check("command endpoint", ProviderCheck.endpoint(ModelConfig.COMMAND_CODE)
-                .equals("https://api.commandcode.ai/provider/v1/models"), "wrong");
+        check("command endpoint", ProviderCheck.endpoint(ModelConfig.CODEBUDDY)
+                .equals("https://www.codebuddy.cn/v2/chat/completions"), "wrong");
         check("deepseek endpoint", ProviderCheck.endpoint(ModelConfig.DEEPSEEK)
                 .equals("https://api.deepseek.com/models"), "wrong");
 
+        ProviderCheck.Result buddy = CodeBuddyCatalog.probe(400,"{\"code\":11133}");
+        check("CodeBuddy parameter probe uses explicit CLI snapshot", buddy.state==ProviderCheck.READY && buddy.cliSnapshot && buddy.models.size()==21,"invalid snapshot");
+        check("CodeBuddy rejected key does not expose models", CodeBuddyCatalog.probe(401,"{}").models.isEmpty() && CodeBuddyCatalog.probe(401,"{}").state==ProviderCheck.KEY_REJECTED,"accepted");
+        check("CodeBuddy unknown response does not claim ready", !CodeBuddyCatalog.probe(400,"{}").accepted(),"accepted");
+        check("CodeBuddy rate limit remains distinct", CodeBuddyCatalog.probe(429,"{}").state==ProviderCheck.RATE_LIMITED,"lost status");
         String json = "{\"data\":[{\"id\":\"alpha/model\"},{\"id\":\"beta\"},"
                 + "{\"id\":\"alpha/model\"}]}";
         List<String> ids = ProviderCheck.modelIds(json);

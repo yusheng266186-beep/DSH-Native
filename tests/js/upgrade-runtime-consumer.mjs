@@ -30,7 +30,7 @@ async function boot() {
   const flags = process.platform === 'darwin' ? ['--import', path.join(scratch, 'android.mjs')] : [];
   child = spawn(process.execPath, ['--expose-internals', ...flags, path.join(runtime, 'lib/bin.js'),
     '--patch', path.join(scratch, 'inspector.yml'), '--profile', 'web', '--no-open', '--port', '0'],
-    {cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: '', DEEPSEEK_API_KEY: ''},
+    {cwd: project, env: {...process.env, DSH_HOME: home, CODEBUDDY_API_KEY: '', DEEPSEEK_API_KEY: ''},
       stdio: ['ignore', 'pipe', 'pipe']});
   const collect = b => {output = (output + b).slice(-64000);};
   child.stdout.on('data', collect); child.stderr.on('data', collect);

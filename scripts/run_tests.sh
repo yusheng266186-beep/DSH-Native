@@ -44,7 +44,6 @@ fi
 SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/TextCodec.java
      $JAVA_DIR/Version.java
-     $JAVA_DIR/CommandCodeUsage.java
      $JAVA_DIR/TaskNotifier.java
      $JAVA_DIR/TaskTimeline.java
      $JAVA_DIR/ConnectionRecovery.java
@@ -61,6 +60,7 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/SessionProbe.java
      $JAVA_DIR/SessionRecovery.java
      $JAVA_DIR/ModelConfig.java
+     $JAVA_DIR/CodeBuddyCatalog.java
      $JAVA_DIR/ModelReasoning.java
      $JAVA_DIR/ModelEffortUi.java
      $JAVA_DIR/ModelCatalogSync.java
@@ -79,8 +79,10 @@ SRC="$JAVA_DIR/FileListing.java
      $JAVA_DIR/ToolEnvironment.java
      $JAVA_DIR/SessionPersistencePatch.java
      $JAVA_DIR/AccountUi.java
+     $JAVA_DIR/FileActionsUi.java
      $JAVA_DIR/AppSettingsUi.java
      $JAVA_DIR/AppSettingsCommands.java
+     $JAVA_DIR/WebSettingsProtocol.java
      $JAVA_DIR/ModelSettingsSnapshot.java
      $JAVA_DIR/ProviderCheck.java
      $JAVA_DIR/LiveModelCatalog.java
@@ -115,7 +117,6 @@ SRC="$JAVA_DIR/FileListing.java
 TESTS="tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
-       tests/CommandCodeUsageTest.java
        tests/TaskNotifierTest.java
        tests/TaskTimelineTest.java
        tests/ConnectionRecoveryTest.java
@@ -148,6 +149,7 @@ TESTS="tests/FileListingTest.java
        tests/ToolEnvironmentTest.java
        tests/SessionPersistencePatchTest.java
        tests/AccountUiTest.java
+       tests/FileActionsUiTest.java
        tests/AppSettingsUiTest.java
        tests/AppSettingsCommandsTest.java
        tests/ModelSettingsSnapshotTest.java
@@ -201,7 +203,7 @@ for extra in CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest Na
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
-for t in dev.dsh.nativeapp.LocalServerProbeTest dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.CommandCodeUsageTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelReasoningTest dev.dsh.nativeapp.ModelEffortUiTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.ModelCatalogRefreshTest dev.dsh.nativeapp.CoreRpcClientTest dev.dsh.nativeapp.CoreReadinessTest dev.dsh.nativeapp.SessionPersistencePatchTest dev.dsh.nativeapp.AccountUiTest dev.dsh.nativeapp.AppSettingsUiTest dev.dsh.nativeapp.AppSettingsCommandsTest dev.dsh.nativeapp.ModelSettingsSnapshotTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest dev.dsh.nativeapp.PayloadManifestTest dev.dsh.nativeapp.CredentialMergeTest dev.dsh.nativeapp.WebUrlTest dev.dsh.nativeapp.YamlBlocksTest dev.dsh.nativeapp.RuntimeDirTest dev.dsh.nativeapp.ModelImageSupportTest dev.dsh.nativeapp.ModelCatalogPersistenceTest dev.dsh.nativeapp.LayoutProbeTest; do
+for t in dev.dsh.nativeapp.LocalServerProbeTest dev.dsh.nativeapp.FileListingTest dev.dsh.nativeapp.TextCodecTest dev.dsh.nativeapp.VersionTest dev.dsh.nativeapp.TaskNotifierTest dev.dsh.nativeapp.TaskTimelineTest dev.dsh.nativeapp.ConnectionRecoveryTest dev.dsh.nativeapp.DraftRecoveryTest dev.dsh.nativeapp.FileBatchTest dev.dsh.nativeapp.FileTrashTest dev.dsh.nativeapp.FilePreviewTest dev.dsh.nativeapp.FileOpsTest dev.dsh.nativeapp.ConfigBackupTest dev.dsh.nativeapp.ShareTargetsTest dev.dsh.nativeapp.PluginSpecsTest dev.dsh.nativeapp.PayloadUpdateTest dev.dsh.nativeapp.PayloadRollbackTest dev.dsh.nativeapp.SessionStatusTest dev.dsh.nativeapp.SessionProbeTest dev.dsh.nativeapp.SessionRecoveryTest dev.dsh.nativeapp.ModelConfigTest dev.dsh.nativeapp.ModelReasoningTest dev.dsh.nativeapp.ModelEffortUiTest dev.dsh.nativeapp.ModelCatalogSyncTest dev.dsh.nativeapp.ModelCatalogRefreshTest dev.dsh.nativeapp.CoreRpcClientTest dev.dsh.nativeapp.CoreReadinessTest dev.dsh.nativeapp.SessionPersistencePatchTest dev.dsh.nativeapp.AccountUiTest dev.dsh.nativeapp.FileActionsUiTest dev.dsh.nativeapp.AppSettingsUiTest dev.dsh.nativeapp.AppSettingsCommandsTest dev.dsh.nativeapp.ModelSettingsSnapshotTest dev.dsh.nativeapp.ProviderCheckTest dev.dsh.nativeapp.LiveModelCatalogTest dev.dsh.nativeapp.ProjectModelSettingsTest dev.dsh.nativeapp.ProcessSupervisorTest dev.dsh.nativeapp.TransferStateTest dev.dsh.nativeapp.SecretMaskerTest dev.dsh.nativeapp.DiagnosticReportTest dev.dsh.nativeapp.UiTextTest dev.dsh.nativeapp.MobileLayoutTest dev.dsh.nativeapp.DeviceLayoutTest dev.dsh.nativeapp.WorkspaceProjectsTest dev.dsh.nativeapp.ShareTaskTest dev.dsh.nativeapp.PluginPermissionsTest dev.dsh.nativeapp.ReleaseChannelTest dev.dsh.nativeapp.WebToolsEntryTest dev.dsh.nativeapp.UiPolicyTest dev.dsh.nativeapp.OperationGateTest dev.dsh.nativeapp.InteractionFeedbackTest dev.dsh.nativeapp.CrashReporterTest dev.dsh.nativeapp.WorkerRegistryTest dev.dsh.nativeapp.ProviderRouteTest dev.dsh.nativeapp.PayloadManifestTest dev.dsh.nativeapp.CredentialMergeTest dev.dsh.nativeapp.WebUrlTest dev.dsh.nativeapp.YamlBlocksTest dev.dsh.nativeapp.RuntimeDirTest dev.dsh.nativeapp.ModelImageSupportTest dev.dsh.nativeapp.ModelCatalogPersistenceTest dev.dsh.nativeapp.LayoutProbeTest; do
     case "$seen_tests" in *" $t "*) continue ;; esac
     seen_tests="$seen_tests$t "
     name="${t##*.}"
@@ -518,6 +520,8 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
 if ! python3 tests/check_native_bridge.py; then rc=1; fi
+if ! python3 tests/check_web_settings.py; then rc=1; fi
+if ! python3 tests/check_file_actions.py; then rc=1; fi
 
 # 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
 #

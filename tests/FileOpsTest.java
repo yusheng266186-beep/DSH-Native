@@ -57,6 +57,11 @@ public class FileOpsTest {
         check("85 CJK chars (255 bytes) accepted",
                 FileOps.validateName(repeat("中", 85)) == null, "should accept");
 
+        check("create ordinary file", FileOps.createFile(root,"new-created.txt",allowed)==null,"failed");
+        Files.writeString(new File(root,"new-created.txt").toPath(),"preserved");
+        check("create refuses existing without truncation", FileOps.createFile(root,"new-created.txt",allowed)!=null && Files.readString(new File(root,"new-created.txt").toPath()).equals("preserved"),"overwritten");
+        check("create rejects traversal", FileOps.createFile(root,"../escape",allowed)!=null,"accepted");
+        check("create rejects outside root", FileOps.createFile(outside,"new.txt",allowed)!=null,"accepted");
         System.out.println("=== 2. writable boundary ===");
         check("root itself writable", FileOps.isWritable(root, allowed), "should allow");
         check("inside root writable", FileOps.isWritable(new File(root, "a/b"), allowed), "should allow");
