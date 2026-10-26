@@ -37,8 +37,8 @@ try{
   context=await browser.newContext({viewport:{width:scenario.w,height:scenario.h},isMobile:true,hasTouch:true,locale:scenario.lang,reducedMotion:'reduce'});
   await context.grantPermissions(['local-network-access'],{origin});
   await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
-  page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[];page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
-  page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='file')fileCommands.push(parsed);const response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');response.then(async reply=>{const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
+  page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[];let failNextRead=true;page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
+  page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='file')fileCommands.push(parsed);let response;if(parsed.op==='read'&&failNextRead){failNextRead=false;response=Promise.resolve({id:parsed.id,ok:false,error:'synthetic read boundary failure'});}else{response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');}response.then(async reply=>{const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
   await page.route(origin+'/',async route=>{const response=await route.fetch();const html=(await response.text()).replace(/content="width=device-width, initial-scale=1"/,'content="width='+Math.max(480,scenario.w)+'"');await route.fulfill({response,body:html.replace('</head>',injection+'</head>')});});
   await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
   // Match Android's late onPageFinished state publication, after plugin/slot registration.
@@ -80,7 +80,6 @@ try{
   await page.locator('[data-sidebar-right-guide-entry="files"]').click();await page.getByText('editable-notes.txt',{exact:true}).dblclick();
   const preview=page.locator('[data-textpreview-state="text"]');await preview.waitFor();
   const fileTools=preview.locator('.dsh-file-actions');await fileTools.getByRole('button',{name:scenario.lang==='en'?'Share':'分享',exact:true}).waitFor();
-  console.log('File toolbar measurements',await fileTools.evaluate(el=>({tools:el.getBoundingClientRect().toJSON(),buttons:[...el.querySelectorAll('button')].map(b=>b.getBoundingClientRect().toJSON()),body:el.closest('[data-textpreview-state]').querySelector('[data-textpreview-body]').getBoundingClientRect().toJSON()})));
   for(const action of [scenario.lang==='en'?'Share':'分享',scenario.lang==='en'?'Open in app':'其他应用打开']){
    await fileTools.getByRole('button',{name:action,exact:true}).click();await fileTools.getByRole('button',{name:action,exact:true}).waitFor({state:'visible'});await sleep(100);
   }
@@ -88,6 +87,13 @@ try{
   check(await fileTools.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'preview actions fit mobile toolbar');
   await fileTools.getByRole('button',{name:scenario.lang==='en'?'Edit':'编辑',exact:true}).click();
   await page.locator('[data-device-page="files"]').getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();
+  const editor=page.locator('[data-device-page="files"]');await editor.getByRole('alert').filter({hasText:scenario.lang==='en'?'Text could not be read completely':'正文未能完整读取'}).waitFor();
+  check(await editor.locator('textarea').isDisabled(),'failed chunk read cannot edit truncated text');
+  await editor.getByRole('button',{name:scenario.lang==='en'?'Read again':'重新读取',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('[data-device-page="files"] textarea')?.value.length===70000);
+  // Dispatch a synthetic large paste through React's real input handler, then save through the native protocol.
+  await editor.locator('textarea').fill('Saved text');await editor.locator('textarea').evaluate(el=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'Saved text '+('text\n'.repeat(7200)));el.dispatchEvent(new Event('input',{bubbles:true}));});await editor.getByRole('button',{name:/^Save(d \d+)?$/}).click();
+  await editor.getByRole('button',{name:/^Saved \d+$/}).waitFor();check((await editor.locator('textarea').inputValue()).length>32768,'large edited text survives chunk upload/save');
   check(fileCommands.at(-1)?.action==='edit'&&fileCommands.at(-1)?.path.endsWith('/editable-notes.txt'),'preview edit enters integrated file controller');
   check(await page.evaluate(()=>!window.dispatchEvent(new Event('dsh-settings-back',{cancelable:true}))),'Android back consumed by settings');
   await page.locator('[data-shortcut-modal="settings"]').waitFor({state:'hidden'});
@@ -96,4 +102,4 @@ try{
   await context.close();context=null;
  }
  console.log('Integrated Web settings: '+checks+' real settings-slot, Java-controller, mobile layout and encrypted CodeBuddy/core-RPC checks passed.');
-}catch(error){console.log('Settings core fixture',output.replace(/token=\S+/g,'token=REDACTED').slice(-5000));console.log('Settings UI fixture',(await page?.locator('body').innerText())?.slice(0,6000));if(page&&process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'integrated-failure.png')});}throw error;}finally{await context?.close();await browser?.close();await stop();await fs.rm(root,{recursive:true,force:true});}
+}catch(error){console.log('Original settings failure',error.message.slice(0,700));console.log('Settings core fixture',output.replace(/token=\S+/g,'token=REDACTED').slice(-5000));console.log('Settings UI fixture',(await page?.locator('body').innerText().catch(()=>''))?.slice(0,6000));if(page&&process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'integrated-failure.png'),timeout:10000}).catch(()=>{});}throw error;}finally{await context?.close();await browser?.close();await stop();await fs.rm(root,{recursive:true,force:true});}
