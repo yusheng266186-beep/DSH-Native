@@ -21,11 +21,20 @@ public class CoreUpgradeTest {
         if (args.length == 2 && "--apply".equals(args[0])) {
             File runtime = new File(args[1]);
             int removed = CoreUpgrade.pruneEmptyModules(runtime);
+            File buddy = new File(runtime, "node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js");
+            String next = CoreUpgrade.codeBuddy(new String(Files.readAllBytes(buddy.toPath()), StandardCharsets.UTF_8));
+            if (next == null) throw new AssertionError("CodeBuddy runtime anchor changed");
+            Files.write(buddy.toPath(), next.getBytes(StandardCharsets.UTF_8));
             patch(new File(runtime, "node_modules/@deepseek-ai/dsh-llm-deepseek-account/lib/index.js"), true);
             patch(new File(runtime, "node_modules/@deepseek-ai/dsh-experimental-inspector/lib/index.js"), false);
             System.out.println("Applied production upgrade compatibility; empty directories removed: " + removed);
             return;
         }
+        check(CoreUpgrade.codeBuddy("unknown upstream") == null);
+        String buddy = CoreUpgrade.codeBuddy("headers: requestHeaders(profile.headers)");
+        check(buddy.contains("X-API-Key") && buddy.contains("apiKey") && buddy.contains("profile.baseURL === \"https://www.codebuddy.cn/v2\""));
+        check(CoreUpgrade.codeBuddy(buddy).equals(buddy));
+        check(CoreUpgrade.codeBuddy("headers: requestHeaders(profile.headers)\nheaders: requestHeaders(profile.headers)") == null);
         check(CoreUpgrade.account("unknown upstream") == null);
         check(CoreUpgrade.legacyRuntime("{\"version\": \"0.2.0-rc.2\"}"));
         check(!CoreUpgrade.legacyRuntime("{\"version\": \"0.2.1-rc.3\"}"));

@@ -14,11 +14,12 @@ final class FilePreview {
     static int kind(String name) {
         if (name == null) return OTHER;
         String n = name.toLowerCase(Locale.ROOT);
+        if (n.equals("makefile") || n.equals("dockerfile") || n.equals("readme") || n.equals("license")) return TEXT;
         if (ends(n, ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")) return IMAGE;
         if (ends(n, ".txt", ".md", ".json", ".jsonl", ".yaml", ".yml", ".xml",
                 ".csv", ".tsv", ".log", ".java", ".kt", ".js", ".ts", ".tsx",
                 ".jsx", ".py", ".sh", ".css", ".html", ".htm", ".ini", ".conf",
-                ".toml", ".properties", ".gradle", ".sql", ".svg")) return TEXT;
+                ".toml", ".properties", ".gradle", ".sql", ".svg", ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".swift", ".vue", ".svelte", ".gitignore", ".gitattributes", ".editorconfig", ".ipynb")) return TEXT;
         return OTHER;
     }
 

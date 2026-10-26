@@ -30,7 +30,7 @@ try {
   await fs.writeFile(path.join(project, 'second.js'), 'const synthetic = true;\n');
   child = spawn(process.execPath, ['--expose-internals', path.join(runtime, 'lib/bin.js'),
     '--profile', 'web', '--no-open', '--port', '0'], {
-    cwd: project, env: {...process.env, DSH_HOME: home, COMMANDCODE_API_KEY: 'synthetic-layout-only', DEEPSEEK_API_KEY: ''},
+    cwd: project, env: {...process.env, DSH_HOME: home, CODEBUDDY_API_KEY: 'synthetic-layout-only', DEEPSEEK_API_KEY: ''},
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const collect = chunk => {output = (output + chunk).slice(-32000);};

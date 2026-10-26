@@ -1,0 +1,40 @@
+// Active DSH configuration migration; temporary files and synthetic credentials only.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),{migrate}=require('../../payload/provider-cleanup.cjs');
+const runtime=path.resolve(process.argv[2]),yaml=createRequire(path.join(runtime,'package.json'))('yaml');
+const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'dsh-provider-cleanup-'))),home=path.join(root,'.dsh');let checks=0;
+const check=(value,label)=>{assert(value,label);checks++;},hex=value=>Buffer.from(value).toString('hex');
+try{
+ await fs.mkdir(path.join(home,'profiles/web'),{recursive:true});
+ await fs.copyFile(new URL('../../payload/settings-preset.yaml',import.meta.url),path.join(root,'settings-preset.yaml'));
+ const settings={"agent-default-model":{provider:'commandcode',model:'old/model',reasoningEffort:'high'},'llm-pi-ai':{providers:{commandcode:{baseURL:'https://api.commandcode.ai/provider/v1',apiKeyEnv:'COMMANDCODE_API_KEY'},custom:{baseURL:'https://example.test/v1',models:[{id:'custom'}]}}},'ui-theme':{preference:'dark'}};
+ await fs.writeFile(path.join(home,'settings.yaml'),yaml.stringify(settings));
+ await fs.writeFile(path.join(home,'settings.yaml.imported'),yaml.stringify(settings));
+ await fs.writeFile(path.join(home,'.credentials.yaml'),yaml.stringify({version:1,refs:{COMMANDCODE_API_KEY:'retired-synthetic-key',DEEPSEEK_API_KEY:'kept-synthetic-key'},records:{commandcode:{secret:'retired-synthetic-record'},'deepseek-account':{token:'kept-synthetic-grant'}}}));
+ await fs.writeFile(path.join(home,'profiles/web/cordis.patch.yml'),yaml.stringify(Object.entries(settings).map(([id,config])=>({id,config}))));
+ await fs.writeFile(path.join(home,'.native-project-models'),'DSHPM1\nG\t'+['commandcode','old/model','high'].map(hex).join('\t')+'\nP\t'+['Project A','deepseek-official','deepseek-flash','high'].map(hex).join('\t')+'\n');
+ const first=await migrate(root,runtime);check(first.updated===5,'all five active targets migrated');
+ const migrated=yaml.parse(await fs.readFile(path.join(home,'settings.yaml'),'utf8'));
+ check(!migrated['llm-pi-ai'].providers.commandcode&&migrated['llm-pi-ai'].providers.custom.models[0].id==='custom','removed route only; custom provider kept');
+ check(migrated['agent-default-model'].provider==='codebuddy'&&migrated['agent-default-model'].model==='deepseek-v4.1-flash'&&migrated['ui-theme'].preference==='dark','default migrated and unrelated settings kept');
+ const credentials=yaml.parse(await fs.readFile(path.join(home,'.credentials.yaml'),'utf8'));
+ check(!credentials.refs.COMMANDCODE_API_KEY&&!credentials.records.commandcode&&credentials.refs.DEEPSEEK_API_KEY==='kept-synthetic-key'&&credentials.records['deepseek-account'].token==='kept-synthetic-grant','retired credentials removed; independent credentials kept');
+ const profile=yaml.parse(await fs.readFile(path.join(home,'profiles/web/cordis.patch.yml'),'utf8'));
+ check(profile.find(item=>item.id==='llm-pi-ai').config.providers.codebuddy.models.length===21,'active profile has CodeBuddy public metadata');
+ const projects=await fs.readFile(path.join(home,'.native-project-models'),'utf8');
+ check(projects.includes(['G',...['codebuddy','deepseek-v4.1-flash','max'].map(hex)].join('\t'))&&projects.includes(['P',...['Project A','deepseek-official','deepseek-flash','high'].map(hex)].join('\t')),'hex encoded global migrated, direct project override preserved');
+ check((await migrate(root,runtime)).updated===0,'migration idempotent');
+ check((await fs.stat(path.join(home,'.credentials.yaml'))).mode%512===384,'written credentials remain private');
+ const before=await fs.readFile(path.join(home,'settings.yaml'));
+ await fs.writeFile(path.join(home,'settings.yaml.imported'),'not: [valid');
+ await assert.rejects(()=>migrate(root,runtime));checks++;
+ check((await fs.readFile(path.join(home,'settings.yaml'))).equals(before),'parse preflight prevents earlier target writes');
+ await fs.unlink(path.join(home,'settings.yaml.imported'));await fs.symlink(path.join(home,'settings.yaml'),path.join(home,'settings.yaml.imported'));
+ await assert.rejects(()=>migrate(root,runtime));checks++;
+ check((await fs.readFile(path.join(home,'settings.yaml'))).equals(before),'linked configuration rejected');
+ console.log('Provider cleanup: '+checks+' active-profile, credentials, project encoding, idempotence and file-boundary checks passed.');
+}finally{await fs.rm(root,{recursive:true,force:true});}

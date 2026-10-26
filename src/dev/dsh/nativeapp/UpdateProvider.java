@@ -56,17 +56,17 @@ public class UpdateProvider extends ContentProvider {
      * @return 文件；不是分享 URI、格式不合法或不在白名单内时返回 null
      */
     private File shareTarget(Uri uri, boolean enforceWhitelist) {
-        if (uri == null || ProviderRoute.classify(
-                uri.getAuthority(), uri.getEncodedPath()) != ProviderRoute.SHARED_FILE) {
-            return null;
-        }
+        if (uri == null) return null;
+        int route = ProviderRoute.classify(uri.getAuthority(), uri.getEncodedPath());
+        if (route != ProviderRoute.SHARED_FILE && route != ProviderRoute.EDIT_FILE) return null;
         String encoded = uri == null ? null : uri.getEncodedPath();
         if (encoded == null) return null;
-        String head = "/" + ShareTargets.PREFIX;
+        String head = "/" + (route == ProviderRoute.EDIT_FILE ? ShareTargets.EDIT_PREFIX : ShareTargets.PREFIX);
         if (!encoded.startsWith(head)) return null;
         File target = ShareTargets.decode(encoded.substring(head.length()));
         if (target == null) return null;
-        if (enforceWhitelist && !ShareTargets.isShareable(target, allowedRoots())) return null;
+        if (enforceWhitelist && !ShareTargets.isShareable(target, route == ProviderRoute.EDIT_FILE
+                ? FileOps.writableRoots(new File(getContext().getFilesDir(), "dsh")) : allowedRoots())) return null;
         return target;
     }
 
@@ -98,10 +98,16 @@ public class UpdateProvider extends ContentProvider {
         //
         // 解码成功不代表可以分享：URI 是**外部应用**传进来的，
         // 对方能自己构造路径来读任意文件 —— 白名单必须独立再校验一遍。
-        if (route == ProviderRoute.SHARED_FILE) {
+        if (route == ProviderRoute.SHARED_FILE || route == ProviderRoute.EDIT_FILE) {
             File target = shareTarget(uri, true);
-            if (target == null) throw new FileNotFoundException("not shareable: " + uri);
-            return ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY);
+            if (target == null) throw new FileNotFoundException("file unavailable");
+            if (route == ProviderRoute.SHARED_FILE) {
+                if (!"r".equals(mode)) throw new FileNotFoundException("read-only file grant");
+                return ParcelFileDescriptor.open(target, ParcelFileDescriptor.MODE_READ_ONLY);
+            }
+            if (!("r".equals(mode) || "rw".equals(mode) || "rwt".equals(mode) || "w".equals(mode)
+                    || "wt".equals(mode) || "wa".equals(mode))) throw new FileNotFoundException("unsupported edit mode");
+            return ParcelFileDescriptor.open(target, ParcelFileDescriptor.parseMode(mode));
         }
 
         // 未知路径必须明确拒绝，不能静默回退成 update.apk。

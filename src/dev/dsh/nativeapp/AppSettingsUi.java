@@ -16,16 +16,29 @@ final class AppSettingsUi {
         String anchor = "const { open, activeId } = useStore((state) => state);";
         String listener = "\n            (0, react.useEffect)(() => {\n"
                 + "                const openApp = (event) => {\n"
-                + "                    const section = event.detail?.section || 'android-app';\n"
-                + "                    if (!['android-app','general','account'].includes(section)) return;\n"
+                + "                    const page = event.detail?.page;\n"
+                + "                    const integrated = !!window.__dshNativeAppState?.integratedSettings;\n"
+                + "                    const section = event.detail?.section || (integrated ? ({models:'models',display:'general',home:'android-app'}[page] || (page ? 'android-'+page : 'android-app')) : 'android-app');\n"
+                + "                    if (!['android-app','general','account','models','android-files','android-sessions','android-tasks','android-data','android-updates','android-diagnostics'].includes(section)) return;\n"
                 + "                    event.preventDefault();\n"
-                + "                    if (['home','sessions','tasks','models','display','updates','data','diagnostics'].includes(event.detail?.page)) window.__dshNativeSettingsPage = event.detail.page;\n"
+                + "                    if (['home','files','sessions','tasks','models','display','updates','data','diagnostics'].includes(event.detail?.page)) window.__dshNativeSettingsPage = event.detail.page;\n"
                 + "                    actions.openSection(section);\n"
                 + "                };\n"
+                + "                const back = event => { if (!open) return; event.preventDefault(); if (window.dispatchEvent(new Event('dsh-device-back',{cancelable:true}))) actions.close(); };\n"
+                + "                window.addEventListener('dsh-settings-back', back);\n"
                 + "                window.addEventListener('dsh-native-app-settings', openApp);\n"
-                + "                return () => window.removeEventListener('dsh-native-app-settings', openApp);\n"
-                + "            }, [actions]);";
-        out = out.replace(listener, "");
+                + "                return () => { window.removeEventListener('dsh-settings-back', back); window.removeEventListener('dsh-native-app-settings', openApp); };\n"
+                + "            }, [actions,open]);";
+        String listenerStart = "\n            (0, react.useEffect)(() => {\n                const openApp = (event) => {";
+        int existing = out.indexOf(listenerStart);
+        if (existing >= 0) {
+            int finish = out.indexOf("}, [actions]);",existing);
+            String ending = "}, [actions]);";
+            int currentFinish = out.indexOf("}, [actions,open]);",existing);
+            if (currentFinish >= 0 && (finish < 0 || currentFinish < finish)) { ending = "}, [actions,open]);"; finish = currentFinish; }
+            if (finish < 0 || out.indexOf(listenerStart,existing+listenerStart.length()) >= 0) return null;
+            out = out.substring(0,existing)+out.substring(finish+ending.length());
+        }
         out = once(out, anchor, anchor + listener);
         if (out == null) return null;
         out = out.replace("if (appeared && open && activeId !== \"account\") close();",
@@ -71,8 +84,10 @@ final class AppSettingsUi {
         return out == null ? null : marker + out;
     }
 
+    static String backScript() { return "!window.dispatchEvent(new Event('dsh-settings-back',{cancelable:true}));"; }
+
     static String openScript(String page) {
-        if (!("sessions".equals(page) || "tasks".equals(page) || "models".equals(page)
+        if (!("files".equals(page) || "sessions".equals(page) || "tasks".equals(page) || "models".equals(page)
                 || "display".equals(page) || "updates".equals(page) || "data".equals(page)
                 || "diagnostics".equals(page))) page = "home";
         return "!window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page:'" + page + "'}}));";

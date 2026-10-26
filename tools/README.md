@@ -1,7 +1,7 @@
 # 设备调试工具说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](../docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本目录保留早期在 Android/bionic 环境进行无线 ADB 调试的脚本。它们不是 App 的用户依赖，也不是当前 Linux CI 构建入口；当前开发路径见 [BUILD](../docs/BUILD.md)。
@@ -34,3 +34,7 @@ adb logcat -v time -s DSHNative AndroidRuntime
 注明版本、Android/ROM、设备、方向/字体/主题、操作步骤、预期、实际结果和脱敏日志。优先覆盖新内核 PTY/图片、目录更新与聊天框 max、运行/未知时的延后重载、后台通知、更新失败恢复和已有数据保留。
 
 既有验收与剩余事项统一记录在 [STATUS](../docs/STATUS.md)，不要把一次安装成功写成所有功能通过。
+
+## 私人 CodeBuddy 连接导出
+
+`export_codebuddy_connection.cjs <私人输出目录> [本机配置文件]` 只读取 CLI API 配置并生成 AES-GCM 加密连接文件与独立口令文件，权限 0600/0700。不要把这两个文件加入仓库或 Release。手机导入步骤见 [CodeBuddy 接入](../docs/CODEBUDDY.md)。

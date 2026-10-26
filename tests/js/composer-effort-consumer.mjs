@@ -113,7 +113,7 @@ try {
       assert.equal(requests.length, before + 1);
       checked++;
     }
-    await act(async () => projected.set({ next: { provider: 'commandcode', model: 'stealth/space-bunny-alpha', reasoningEffort: 'high' } }));
+    await act(async () => projected.set({ next: { provider: 'codebuddy', model: 'gpt-6-astra', reasoningEffort: 'high' } }));
     rejectMax = true;
     await act(async () => trigger().click());
     await act(async () => button(t('menu.effort')).click());

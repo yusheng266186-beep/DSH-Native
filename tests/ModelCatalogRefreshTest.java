@@ -5,11 +5,11 @@ import java.net.SocketTimeoutException;
 
 public class ModelCatalogRefreshTest {
     static int pass, fail;
-    static final String BASE = "agent-default-model:\n  provider: commandcode\n"
+    static final String BASE = "agent-default-model:\n  provider: codebuddy\n"
             + "  model: old\n  reasoningEffort: max\n"
-            + "llm-pi-ai:\n  providers:\n    commandcode:\n"
-            + "      baseURL: https://api.commandcode.ai/provider/v1\n"
-            + "      apiKeyEnv: COMMANDCODE_API_KEY\n      models:\n"
+            + "llm-pi-ai:\n  providers:\n    codebuddy:\n"
+            + "      baseURL: https://www.codebuddy.cn/v2\n"
+            + "      apiKeyEnv: CODEBUDDY_API_KEY\n      models:\n"
             + "        - id: old\n          name: Old\n"
             + "llm-deepseek-api-key:\n  models:\n    - id: deepseek-chat\n";
 
@@ -47,18 +47,18 @@ public class ModelCatalogRefreshTest {
     }
 
     static boolean fails(Backend backend, String key) {
-        try { ModelCatalogRefresh.run(ModelConfig.COMMAND_CODE, key, backend); return false; }
+        try { ModelCatalogRefresh.run(ModelConfig.CODEBUDDY, key, backend); return false; }
         catch (Exception expected) { return true; }
     }
 
     public static void main(String[] args) throws Exception {
         Backend ok = new Backend();
-        ModelCatalogRefresh.Result result = ModelCatalogRefresh.run(ModelConfig.COMMAND_CODE, ok.key, ok);
+        ModelCatalogRefresh.Result result = ModelCatalogRefresh.run(ModelConfig.CODEBUDDY, ok.key, ok);
         check("successful refresh returns current rows", result.saved() && result.entries.size() == 2);
-        check("only selected provider fetched", ok.fetches == 1 && ModelConfig.COMMAND_CODE.equals(ok.fetchedProvider));
+        check("only selected provider fetched", ok.fetches == 1 && ModelConfig.CODEBUDDY.equals(ok.fetchedProvider));
         check("catalog written once", ok.writes == 1);
         check("latest settings read after successful fetch", ok.settingsReads == 1);
-        check("native catalog and persisted IDs agree", ModelConfig.modelsForProvider(ok.written, ModelConfig.COMMAND_CODE).size() == result.entries.size());
+        check("native catalog and persisted IDs agree", ModelConfig.modelsForProvider(ok.written, ModelConfig.CODEBUDDY).size() == result.entries.size());
         check("default model is preserved", ModelConfig.readSelection(BASE).equals(ModelConfig.readSelection(ok.written)));
         check("other provider is preserved", ModelCatalogSync.topLevelBlock(BASE, "llm-deepseek-api-key")
                 .equals(ModelCatalogSync.topLevelBlock(ok.written, "llm-deepseek-api-key")));
@@ -66,7 +66,7 @@ public class ModelCatalogRefreshTest {
         for (int status : new int[]{401, 403, 429, 500, 404, 200}) {
             Backend bad = new Backend();
             bad.response = ProviderCheck.classify(status, "{}");
-            ModelCatalogRefresh.Result rejected = ModelCatalogRefresh.run(ModelConfig.COMMAND_CODE, bad.key, bad);
+            ModelCatalogRefresh.Result rejected = ModelCatalogRefresh.run(ModelConfig.CODEBUDDY, bad.key, bad);
             check("HTTP " + status + " retains response classification", !rejected.saved() && rejected.upstream.httpCode == status);
             check("HTTP " + status + " does not overwrite catalog", bad.writes == 0 && bad.settingsReads == 0);
         }

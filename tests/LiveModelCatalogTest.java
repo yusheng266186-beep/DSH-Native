@@ -32,11 +32,11 @@ public class LiveModelCatalogTest {
                 String.valueOf(LiveModelCatalog.selectableCount(entries)));
 
         ModelConfig.Selection baseline = new ModelConfig.Selection(
-                ModelConfig.COMMAND_CODE, "known", "medium");
+                ModelConfig.CODEBUDDY, "known", "medium");
         ModelConfig.Selection effortOnly = new ModelConfig.Selection(
-                ModelConfig.COMMAND_CODE, "known", "high");
+                ModelConfig.CODEBUDDY, "known", "high");
         ModelConfig.Selection unknown = new ModelConfig.Selection(
-                ModelConfig.COMMAND_CODE, "new-upstream", "medium");
+                ModelConfig.CODEBUDDY, "new-upstream", "medium");
         check("fresh supported choice saves", LiveModelCatalog.canSave(
                 baseline, effortOnly, false, true, entries), "rejected");
         check("unchanged route survives offline", LiveModelCatalog.canSave(

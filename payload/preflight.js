@@ -146,7 +146,7 @@ for (const [exe, argv, why, label] of tools) {
   }), 8000));
 
   async_.push(await timed('DNS 解析', new Promise((res, rej) => {
-    require('dns').lookup('api.commandcode.ai', (err, addr) => err ? rej(err) : res(addr));
+    require('dns').lookup('www.codebuddy.cn', (err, addr) => err ? rej(err) : res(addr));
   }), 10000));
 
   const all = results.concat(async_);

@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /** 模型、凭据与 settings.yaml 的纯逻辑；不依赖 Android。 */
 final class ModelConfig {
-    static final String COMMAND_CODE = "commandcode";
+    static final String CODEBUDDY = "codebuddy";
     static final String DEEPSEEK = "deepseek-official";
     static final String DEEPSEEK_ACCOUNT = "deepseek-account";
 
@@ -73,7 +73,7 @@ final class ModelConfig {
 
     static String normalizeProvider(String raw) {
         String value = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
-        if (COMMAND_CODE.equals(value) || DEEPSEEK.equals(value) || DEEPSEEK_ACCOUNT.equals(value)) return value;
+        if (CODEBUDDY.equals(value) || DEEPSEEK.equals(value) || DEEPSEEK_ACCOUNT.equals(value)) return value;
         return "";
     }
 
@@ -96,12 +96,12 @@ final class ModelConfig {
     static String providerName(String provider, boolean english) {
         if (DEEPSEEK_ACCOUNT.equals(provider)) return english ? "DeepSeek account" : "DeepSeek 账号";
         if (DEEPSEEK.equals(provider)) return english ? "DeepSeek direct" : "DeepSeek 官方";
-        return "Command Code";
+        return "CodeBuddy";
     }
 
     static Selection readSelection(String yaml) {
         String block = topLevelBlock(yaml, "agent-default-model");
-        if (block == null) return new Selection(COMMAND_CODE, "", "medium");
+        if (block == null) return new Selection(CODEBUDDY, "", "medium");
         return new Selection(scalar(block, "provider"), scalar(block, "model"),
                 scalar(block, "reasoningEffort"));
     }
@@ -139,7 +139,7 @@ final class ModelConfig {
         for (int i = 0; i < lines.length; i++) {
             String trimmed = lines[i].trim();
             int indent = indent(lines[i]);
-            if (trimmed.equals(COMMAND_CODE + ":") && indent >= 4) {
+            if (trimmed.equals(CODEBUDDY + ":") && indent >= 4) {
                 providerStart = i + 1;
                 providerIndent = indent;
                 break;
@@ -221,11 +221,11 @@ final class ModelConfig {
 
     static String credentialKey(String provider) {
         if (DEEPSEEK_ACCOUNT.equals(provider)) return "";
-        return DEEPSEEK.equals(provider) ? "DEEPSEEK_API_KEY" : "COMMANDCODE_API_KEY";
+        return DEEPSEEK.equals(provider) ? "DEEPSEEK_API_KEY" : "CODEBUDDY_API_KEY";
     }
 
     private static boolean validCredentialKey(String key) {
-        return "COMMANDCODE_API_KEY".equals(key) || "DEEPSEEK_API_KEY".equals(key);
+        return "CODEBUDDY_API_KEY".equals(key) || "DEEPSEEK_API_KEY".equals(key);
     }
 
     private static String normalizeCredential(String raw) {

@@ -27,8 +27,8 @@ public class ConfigBackupTest {
         dsh.mkdirs();
         File backups = new File(base, "backup");
         backups.mkdirs();
-        write(new File(dsh, ".credentials.yaml"), "COMMANDCODE_API_KEY: user_secret123\n");
-        write(new File(dsh, "settings.yaml"), "agent-default-model:\n  provider: commandcode\n");
+        write(new File(dsh, ".credentials.yaml"), "CODEBUDDY_API_KEY: user_secret123\n");
+        write(new File(dsh, "settings.yaml"), "agent-default-model:\n  provider: codebuddy\n");
         write(new File(dsh, ProjectModelSettings.FILE_NAME), "DSHPM1\n");
         write(new File(dsh, "unrelated.txt"), "should not be backed up\n");
 
@@ -61,7 +61,7 @@ public class ConfigBackupTest {
                 read(new File(dsh, ".credentials.yaml")).contains("user_secret123"),
                 read(new File(dsh, ".credentials.yaml")));
         check("settings restored",
-                read(new File(dsh, "settings.yaml")).contains("commandcode"),
+                read(new File(dsh, "settings.yaml")).contains("codebuddy"),
                 read(new File(dsh, "settings.yaml")));
 
         System.out.println("=== 4. encrypted backup ===");
@@ -122,7 +122,7 @@ public class ConfigBackupTest {
         check("absolute escape NOT created",
                 !new File("/tmp/absolute-escape.txt").exists(), "zip-slip succeeded!");
         check("original config untouched after failed restore",
-                read(new File(dsh, "settings.yaml")).contains("commandcode"), "damaged");
+                read(new File(dsh, "settings.yaml")).contains("codebuddy"), "damaged");
         File bomb = new File(base, "bomb.zip");
         makeLargeZip(bomb, "settings.yaml", 2 * 1024 * 1024 + 1);
         check("oversized expanded entry rejected", ConfigBackup.validate(bomb) != null,

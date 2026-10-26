@@ -70,7 +70,9 @@ public final class TextEditor {
      *                文件浏览器用它刷新列表 —— 否则编辑保存后，
      *                列表里的大小与修改时间仍是旧的，看起来像没保存成功。
      */
-    public static void open(final Activity act, final File f, final Runnable onSaved) {
+    public static void open(final Activity act, final File f, final Runnable onSaved) { open(act,f,onSaved,true); }
+
+    public static void open(final Activity act, final File f, final Runnable onSaved, final boolean allowEdit) {
         if (f == null || !f.isFile()) {
             DshUi.toast(act, "不是常规文件");
             return;
@@ -131,7 +133,7 @@ public final class TextEditor {
                             showInfo(act, f, "二进制文件", "无法以文本方式编辑。");
                             return;
                         }
-                        showEditor(act, f, decoded.text, decoded, trunc, trunc, onSaved);
+                        showEditor(act, f, decoded.text, decoded, trunc || !allowEdit, trunc, onSaved);
                     }
                 });
             }

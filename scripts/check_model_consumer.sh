@@ -13,8 +13,14 @@ if not m:
 print(m.group(1))
 PY
 )"
-gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
-    --pattern dsh.tar.zst --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE"
+if ! gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
+    --pattern dsh.tar.zst --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE" 2>"$PROBE/download.log"; then
+    echo "Release API download failed; retrying the same official public assets over HTTPS."
+    for asset in dsh.tar.zst SHA256SUMS.txt manifest.json; do
+        curl -fL --retry 3 --connect-timeout 20 --max-time 300 \
+            -o "$PROBE/$asset" "https://github.com/yusheng266186-beep/DSH-Native/releases/download/$TAG/$asset"
+    done
+fi
 bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
 (cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
     test -s dsh.sha256; sha256sum -c dsh.sha256)
@@ -23,9 +29,9 @@ tar --zstd --no-same-owner -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
 if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
-    "$ROOT"/src/dev/dsh/nativeapp/{ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi}.java \
+    "$ROOT"/src/dev/dsh/nativeapp/{CodeBuddyCatalog,ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi,FileActionsUi}.java \
     "$ROOT"/src/dev/dsh/nativeapp/{CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
-    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,SessionStatusTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
+    "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
 PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
     --dump-module "$PERSISTENCE" "$ROOT/payload/session-publish.js" > "$PROBE/persistence.js"
@@ -50,6 +56,12 @@ for kind in core client sessions; do
         "--dump-$kind" "$MODULE" "$HELPER" > "$PROBE/app-settings.js"
     mv "$PROBE/app-settings.js" "$MODULE"
 done
+DELIVERY="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-deliverables/lib/client.js"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.FileActionsUiTest --dump "$DELIVERY" > "$PROBE/delivery.js"
+mv "$PROBE/delivery.js" "$DELIVERY"
+PREVIEW="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js"
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.FileActionsUiTest --dump-preview "$PREVIEW" > "$PROBE/preview.js"
+mv "$PROBE/preview.js" "$PREVIEW"
 LAYOUT="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest \
     --dump-layout "$LAYOUT" > "$PROBE/layout-client.js"
@@ -68,6 +80,7 @@ for kind in voice filesystem; do
         --dump-module "$MODULE" "$HELPER" > "$PROBE/native-adapter.js"
     mv "$PROBE/native-adapter.js" "$MODULE"
 done
+node "$ROOT/tests/js/provider-cleanup-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/fs-write-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/runtime-environment-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/android-bridge-consumer.mjs" "$PROBE/runtime" "$PROBE/classes"
@@ -77,7 +90,7 @@ node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runt
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelReasoningTest \
     --dump-config "$ROOT/tests/fixtures/reasoning-models-response.json" > "$PROBE/reasoning.yaml"
 node --expose-internals "$ROOT/tests/js/model-catalog-consumer.mjs" "$PROBE/runtime" "$PROBE/reasoning.yaml" \
-    "$ROOT/tests/fixtures/command-code-reasoning-1.72.4.json" "$PROBE/catalog.json"
+    "$ROOT/tests/fixtures/codebuddy-cli-catalog.json" "$PROBE/catalog.json"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ModelEffortUiTest --dump-client \
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js" > "$PROBE/client.js"
 npm ci --prefix "$ROOT/tests/js" --no-audit --no-fund
@@ -89,6 +102,7 @@ java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTe
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html" 480 > "$PROBE/mobile.html"
 node --expose-internals "$ROOT/tests/js/deepseek-account-consumer.mjs" "$PROBE/runtime" "$PROBE/classes" "$PROBE/mobile.html"
 node --expose-internals "$ROOT/tests/js/app-settings-consumer.mjs" "$PROBE/runtime" "$PROBE/mobile.html" "$PROBE/classes"
+python3 "$ROOT/tests/check_web_settings.py" --consumer "$PROBE/runtime" "$PROBE/mobile.html"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.LayoutProbeTest --dump-script > "$PROBE/layout-probe.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$PROBE/web-tools.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionStatusTest --dump-touch-script > "$PROBE/touch-menu.js"

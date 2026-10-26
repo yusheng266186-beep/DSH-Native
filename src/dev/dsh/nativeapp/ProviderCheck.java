@@ -14,17 +14,22 @@ final class ProviderCheck {
         final int state, httpCode;
         final List<String> models;
         final Map<String, ModelConfig.Model> metadata;
+        final boolean cliSnapshot;
         Result(int state, int code, List<String> models) {
             this(state, code, models, new LinkedHashMap<String, ModelConfig.Model>());
         }
         Result(int state, int code, List<String> models, Map<String, ModelConfig.Model> metadata) {
+            this(state,code,models,metadata,false);
+        }
+        Result(int state, int code, List<String> models, Map<String, ModelConfig.Model> metadata, boolean cliSnapshot) {
             this.state = state; this.httpCode = code; this.models = models; this.metadata = metadata;
+            this.cliSnapshot = cliSnapshot;
         }
         boolean accepted() { return state == READY || state == RATE_LIMITED; }
     }
     static String endpoint(String provider) {
         return ModelConfig.DEEPSEEK.equals(provider) ? "https://api.deepseek.com/models"
-                : "https://api.commandcode.ai/provider/v1/models";
+                : CodeBuddyCatalog.ENDPOINT;
     }
     static Result classify(int code, String body) {
         Map<String, ModelConfig.Model> metadata = catalog(body);

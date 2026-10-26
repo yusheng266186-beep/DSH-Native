@@ -15,8 +15,8 @@ import java.util.Map;
  */
 final class ModelCatalogSync {
     static final String LIVE_MARKER_PREFIX = "# dsh-native-live-catalog: ";
-    private static final String COMMAND_PROVIDER = "commandcode";
-    private static final String COMMAND_BLOCK = "llm-pi-ai";
+    private static final String CODEBUDDY_PROVIDER = "codebuddy";
+    private static final String CODEBUDDY_BLOCK = "llm-pi-ai";
     private static final String DEEPSEEK_BLOCK = "llm-deepseek-api-key";
     private static final String DEEPSEEK_LEGACY_BLOCK = "llm-deepseek";
 
@@ -37,9 +37,7 @@ final class ModelCatalogSync {
             return yaml == null ? "" : yaml;
         }
         List<LiveModelCatalog.Entry> enriched = new ArrayList<LiveModelCatalog.Entry>();
-        // 视觉能力不再从本地配置继承 —— 上游不提供该字段，本地预设也只覆盖了
-        // 极少数模型，把它当权威反而会让大多数模型重新变成「仅文字」。
-        // 统一按 modelSection() 的「未知即默认支持视觉」处理。
+        // Keep explicit upstream/CLI capabilities; unknown image support is not advertised.
         for (LiveModelCatalog.Entry entry : clean(upstream))
             enriched.add(ModelReasoning.enrich(provider, entry));
         String result = writeCatalog(yaml, provider, enriched);
@@ -66,14 +64,14 @@ final class ModelCatalogSync {
         List<LiveModelCatalog.Entry> entries = clean(upstream);
         if (entries.isEmpty()) throw new IllegalArgumentException("empty live catalog");
         String source = yaml == null ? "" : yaml;
-        if (ModelConfig.COMMAND_CODE.equals(normalized)) {
-            String block = topLevelBlock(source, COMMAND_BLOCK);
+        if (ModelConfig.CODEBUDDY.equals(normalized)) {
+            String block = topLevelBlock(source, CODEBUDDY_BLOCK);
             if (block == null) {
-                block = commandBlock(entries);
+                block = codeBuddyBlock(entries);
                 return appendTopLevel(source, block);
             }
-            String updated = replaceModels(block, COMMAND_PROVIDER, entries, true);
-            return replaceTopLevelBlock(source, COMMAND_BLOCK, updated);
+            String updated = replaceModels(block, CODEBUDDY_PROVIDER, entries, true);
+            return replaceTopLevelBlock(source, CODEBUDDY_BLOCK, updated);
         }
 
         String blockName = topLevelBlock(source, DEEPSEEK_BLOCK) != null
@@ -92,8 +90,8 @@ final class ModelCatalogSync {
     static boolean hasLiveCatalog(String yaml, String provider) {
         String normalized = ModelConfig.normalizeProvider(provider);
         if (normalized.length() == 0) return false;
-        String blockName = ModelConfig.COMMAND_CODE.equals(normalized)
-                ? COMMAND_BLOCK
+        String blockName = ModelConfig.CODEBUDDY.equals(normalized)
+                ? CODEBUDDY_BLOCK
                 : ModelConfig.DEEPSEEK_ACCOUNT.equals(normalized) ? "llm-deepseek-account"
                 : (topLevelBlock(yaml, DEEPSEEK_BLOCK) != null
                     ? DEEPSEEK_BLOCK : DEEPSEEK_LEGACY_BLOCK);
@@ -103,24 +101,41 @@ final class ModelCatalogSync {
 
     /**
      * Merge the static provider preset while retaining a previously written
-     * live commandcode model list. App upgrades must not silently restore an
+     * live codebuddy model list. App upgrades must not silently restore an
      * old bundled list after the user has selected a newer upstream model.
      */
     static String mergePresetProviderBlock(String presetBlock, String currentBlock) {
         if (presetBlock == null || presetBlock.length() == 0) return presetBlock;
-        if (currentBlock == null
-                || !currentBlock.contains(LIVE_MARKER_PREFIX + COMMAND_PROVIDER)) {
-            return presetBlock;
+        if (currentBlock == null) return presetBlock;
+        String managed = presetBlock;
+        if (currentBlock.contains(LIVE_MARKER_PREFIX + CODEBUDDY_PROVIDER)) {
+            List<LiveModelCatalog.Entry> entries = new ArrayList<LiveModelCatalog.Entry>();
+            for (ModelConfig.Model model : ModelConfig.modelsForProvider(currentBlock, ModelConfig.CODEBUDDY))
+                entries.add(new LiveModelCatalog.Entry(model.id, model.name, true, model.image,
+                        model.reasoning, model.imageKnown, model.details));
+            String repaired = entries.isEmpty() ? currentBlock : writeLiveCatalog(currentBlock, ModelConfig.CODEBUDDY, entries);
+            String section = modelsSection(repaired, CODEBUDDY_PROVIDER);
+            if (section != null) managed = replaceModelsSection(managed,CODEBUDDY_PROVIDER,section);
         }
-        List<LiveModelCatalog.Entry> entries = new ArrayList<LiveModelCatalog.Entry>();
-        for (ModelConfig.Model model : ModelConfig.modelsForProvider(currentBlock, ModelConfig.COMMAND_CODE))
-            entries.add(new LiveModelCatalog.Entry(model.id, model.name, true, model.image,
-                    model.reasoning, model.imageKnown, model.details));
-        String repaired = entries.isEmpty() ? currentBlock
-                : writeLiveCatalog(currentBlock, ModelConfig.COMMAND_CODE, entries);
-        String currentSection = modelsSection(repaired, COMMAND_PROVIDER);
-        if (currentSection == null) return presetBlock;
-        return replaceModelsSection(presetBlock, COMMAND_PROVIDER, currentSection);
+        String[] wanted=managed.split("\\n"), current=currentBlock.split("\\n");
+        int first=providerLine(wanted,CODEBUDDY_PROVIDER);
+        if(first<0)throw new IllegalArgumentException("managed provider missing");
+        int last=providerEnd(wanted,first,indent(wanted[first]));
+        StringBuilder addition=new StringBuilder();for(int i=first;i<last;i++)addition.append(wanted[i]).append('\n');
+        int start=providerLine(current,CODEBUDDY_PROVIDER), end=start<0?-1:providerEnd(current,start,indent(current[start]));
+        StringBuilder out=new StringBuilder();
+        if(start>=0){
+            for(int i=0;i<start;i++)out.append(current[i]).append('\n');out.append(addition);
+            for(int i=end;i<current.length;i++)out.append(current[i]).append('\n');
+        }else{
+            int parent=-1;for(int i=0;i<current.length;i++)if(indent(current[i])==2&&current[i].trim().startsWith("providers:"))parent=i;
+            if(parent<0)return currentBlock+(currentBlock.endsWith("\n")?"":"\n")+"  providers:\n"+addition;
+            String value=current[parent].trim().substring("providers:".length()).trim();
+            if(!value.isEmpty()&&!"{}".equals(value)&&!"null".equals(value))throw new IllegalArgumentException("expand inline providers before synchronizing");
+            for(int i=0;i<parent;i++)out.append(current[i]).append('\n');out.append("  providers:\n").append(addition);
+            for(int i=parent+1;i<current.length;i++)out.append(current[i]).append('\n');
+        }
+        return out.toString();
     }
 
     /** Parse model entries from a top-level plugin block's models list. */
@@ -186,18 +201,18 @@ final class ModelCatalogSync {
         return new ArrayList<LiveModelCatalog.Entry>(unique.values());
     }
 
-    private static String commandBlock(List<LiveModelCatalog.Entry> entries) {
+    private static String codeBuddyBlock(List<LiveModelCatalog.Entry> entries) {
         StringBuilder out = new StringBuilder();
         out.append("llm-pi-ai:\n")
                 .append("  providers:\n")
-                .append("    commandcode:\n")
-                .append("      displayName: Command Code\n")
+                .append("    codebuddy:\n")
+                .append("      displayName: CodeBuddy\n")
                 .append("      api: openai-completions\n")
-                .append("      baseURL: https://api.commandcode.ai/provider/v1\n")
-                .append("      apiKeyEnv: COMMANDCODE_API_KEY\n")
+                .append("      baseURL: https://www.codebuddy.cn/v2\n")
+                .append("      apiKeyEnv: CODEBUDDY_API_KEY\n")
                 .append("      compat:\n")
                 .append("        supportsReasoningEffort: true\n")
-                .append(modelSection(entries, 6, COMMAND_PROVIDER, false));
+                .append(modelSection(entries, 6, CODEBUDDY_PROVIDER, false));
         return out.toString();
     }
 
@@ -238,15 +253,8 @@ final class ModelCatalogSync {
                     out.append(spaces(modelsIndent + 4)).append(line).append('\n');
                 }
             }
-            // 上游的模型接口**不返回**能力字段（实测 commandcode 的 85 个模型
-            // 只有 id/name/context_length/supported_endpoints），所以 imageKnown
-            // 几乎恒为 false —— 而不写 input 时，DSH 会按「仅文字」处理，发图被拒。
-            //
-            // 因此这里采取「未知即默认支持视觉」：既然无法逐个核实，就让 DSH
-            // 照常把图片发出去，由上游决定收不收。模型真不支持时它会返回错误，
-            // 这比本地先把图片拦下来、让用户以为功能坏了要好。
-            // 上游若哪天开始明确声明，就以它为准（imageKnown 为真时不覆盖）。
-            boolean image = !entry.imageKnown || entry.image;
+            // CodeBuddy's pinned CLI includes explicit modalities. Unknown custom models stay text-only.
+            boolean image = entry.imageKnown && entry.image;
             out.append(spaces(modelsIndent + 4))
                     .append(deepSeek ? "inputModalities: " : "input: ")
                     .append(image ? "[ text, image ]\n" : "[ text ]\n");
@@ -266,8 +274,8 @@ final class ModelCatalogSync {
                 for (int i = 0; i < lines.length; i++) {
                     if (lines[i].trim().startsWith("providers:") && indent(lines[i]) == 2) providers = i;
                 }
-                String fresh = commandBlock(entries);
-                String addition = fresh.substring(fresh.indexOf("    commandcode:"));
+                String fresh = codeBuddyBlock(entries);
+                String addition = fresh.substring(fresh.indexOf("    codebuddy:"));
                 if (providers >= 0) {
                     String value = lines[providers].trim().substring("providers:".length()).trim();
                     if (value.length() > 0 && !"{}".equals(value) && !"null".equals(value)) {

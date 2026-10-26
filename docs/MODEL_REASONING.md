@@ -1,7 +1,7 @@
 # 模型思考强度与 Max 请求
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.2**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 当前规则
@@ -23,122 +23,47 @@
 
 识别 `effort.supported_levels`、`reasoningEfforts` 列表/映射及禁用声明，保留来源注释、视觉、上下文/输出上限和兼容参数。刷新、离线目录修复与静态预设使用相同规则。
 
-## Command Code 固定能力快照
+## CodeBuddy CLI 能力快照
 
-以下表按仓库 fixture 自动生成，来源为 `command-code@1.72.4` 的 Provider API effort map 与 known-ID set，核对记录日期 2026-09-30。它不是直连 OpenAI/Anthropic 或 OAuth 路由的能力表，也不是对未来目录的实时保证。
+模型和能力来自本机安装的官方 `@tencent-ai/codebuddy-code@2.174.0` 的 CLI 元数据，核对日期 2026-10-26。该服务没有可直接读取的通用 `/models` 路由；连接检查通过不等于账号有权调用表中每个模型。
 
-- [固定 npm 版本](https://www.npmjs.com/package/command-code/v/1.72.4)
-- [仓库快照](../tests/fixtures/command-code-reasoning-1.72.4.json)
-- 官方客户端 `dist/cli.mjs` SHA-256：`d5f8f072276f5afea8dbe198be4f64963578f0134556cf36bb59f4bcd4bb99bc`
+- [公开元数据](../runtime/codebuddy-catalog.json) / [回归快照](../tests/fixtures/codebuddy-cli-catalog.json)
+- [CodeBuddy 接入与加密导入](CODEBUDDY.md)
+- [官方环境变量](https://www.codebuddy.ai/docs/cli/env-vars)
 
-表中的 App 档位基于该固定快照；若实时 API 明确返回新的声明，按实时优先级处理，再追加 max。
+App 保留 CLI 明确声明的等级，并按用户既有要求追加字面量 max；没有公布可调等级时仍保留不传参数的默认选项。
 
 <!-- dsh-model-table:start -->
-| Command Code 模型 ID | 固定官方快照声明 | App 提供的选项 |
+| CodeBuddy 模型 ID | CLI 元数据声明 | App 提供的选项 |
 |---|---|---|
-| `claude-sonnet-5-5` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-sonnet-5` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-sonnet-4-6` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-fable-5-1` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-fable-5` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-opus-5-5` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-opus-5` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-opus-4-8` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-opus-4-7` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `claude-haiku-4-5-20251001` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
+| `default-model` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
+| `fast-model` | medium | medium / max（请求） |
+| `balanced-model` | medium | medium / max（请求） |
+| `primary-model` | high | high / max（请求） |
+| `deep-model` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
+| `deepseek-v4.1-flash` | high | high / max（请求） |
 | `gpt-6-astra` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `gpt-6.1-sol` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `gpt-6-sol` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `gpt-6-luna` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
+| `hy4-preview` | high | high / max（请求） |
+| `hy3` | low / high | low / high / max（请求） |
+| `kimi-k2.8-preview` | low / high / max | low / high / max（请求） |
 | `gpt-5.6-sol` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
 | `gpt-5.6-terra` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
 | `gpt-5.6-luna` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
 | `gpt-5.5` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
 | `gpt-5.4` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `gpt-5.3-codex` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `gpt-5.4-mini` | low / medium / high | low / medium / high / max（请求） |
-| `MiniMaxAI/MiniMax-M3-Free` | low / medium / high | low / medium / high / max（请求） |
-| `moonshotai/Kimi-K3` | low / high / max | low / high / max（请求） |
-| `thinkingmachines/inkling` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `thinkingmachines/inkling-small` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `deepseek/deepseek-v4-pro` | high / max | high / max（请求） |
-| `deepseek/deepseek-v4-flash` | high / max | high / max（请求） |
-| `deepseek/deepseek-v4-flash-vision-exp` | high / max | high / max（请求） |
-| `deepseek/deepseek-v4-flash-fast` | low / high / max | low / high / max（请求） |
-| `deepseek/deepseek-v4.1-flash` | low / high / max | low / high / max（请求） |
-| `deepseek/deepseek-v4.1-flash-fast` | low / high / max | low / high / max（请求） |
-| `moonshotai/Kimi-K2.7-Code` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `moonshotai/Kimi-K2.7-Code-Highspeed` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `moonshotai/Kimi-K2.6` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `moonshotai/Kimi-K2.5` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `zai-org/GLM-5.3` | low / high / max | low / high / max（请求） |
-| `z-ai/glm-5.3-flash` | low / high / max | low / high / max（请求） |
-| `z-ai/glm-5.3-flashx` | low / high / max | low / high / max（请求） |
-| `zai-org/GLM-5.2` | high / max | high / max（请求） |
-| `zai-org/GLM-5.2-Fast` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `zai-org/GLM-5.1` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `zai-org/GLM-5` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `MiniMaxAI/MiniMax-M3` | low / medium / high | low / medium / high / max（请求） |
-| `MiniMaxAI/MiniMax-M2.7` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `minimax/minimax-m3-free` | low / medium / high | low / medium / high / max（请求） |
-| `minimax/minimax-m2.7-free` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `MiniMaxAI/MiniMax-M2.5` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `xiaomi/mimo-v2.6-pro` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `xiaomi/mimo-v2.6-pro-ultraspeed` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `xiaomi/mimo-v2.6-flash` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `xiaomi/mimo-v2.5-pro` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `xiaomi/mimo-v2.5` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `Qwen/Qwen3.6-Max-Preview` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `Qwen/Qwen3.6-Plus` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `Qwen/Qwen3.7-Max` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `Qwen/Qwen3.7-Plus` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `Qwen/Qwen3.8-Omni-Flash` | low / medium / xhigh | low / medium / xhigh / max（请求） |
-| `Qwen/Qwen3.8-Max-0902` | low / medium / xhigh | low / medium / xhigh / max（请求） |
-| `Qwen/Qwen3.8-Max` | low / medium / xhigh | low / medium / xhigh / max（请求） |
-| `Qwen/Qwen3.8-27B` | low / medium / xhigh | low / medium / xhigh / max（请求） |
-| `Qwen/Qwen3.8-Flash` | low / medium / xhigh | low / medium / xhigh / max（请求） |
-| `Qwen/Qwen3.7-Flash` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `meituan/LongCat-2.0` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `meituan/LongCat-2.0:free` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `stepfun/Step-5-Preview` | low / medium / high | low / medium / high / max（请求） |
-| `stepfun/Step-3.7-Flash` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `stepfun/Step-3.5-Flash` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `tencent/hy4-preview` | low / medium / high | low / medium / high / max（请求） |
-| `tencent/hy3-paid` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `tencent/Hy3` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `google/gemini-3.8-flash` | low / medium / high | low / medium / high / max（请求） |
-| `google/gemini-3.7-flash` | low / medium / high | low / medium / high / max（请求） |
-| `google/gemini-3.6-flash` | low / medium / high | low / medium / high / max（请求） |
-| `google/gemini-3.5-flash` | low / medium / high | low / medium / high / max（请求） |
-| `google/gemini-3.5-flash-lite` | low / medium / high | low / medium / high / max（请求） |
-| `google/gemini-3.1-flash-lite` | low / medium / high | low / medium / high / max（请求） |
-| `sakana/fugu-ultra` | high / xhigh | high / xhigh / max（请求） |
-| `xai/grok-4.5` | low / medium / high | low / medium / high / max（请求） |
-| `xai/grok-4.6` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `xai/grok-4.7` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `meta/muse-spark-1.1` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `meta/muse-spark-1.2` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `meta/muse-spark-1.2-contributor` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `meta/muse-spark-1.3` | low / medium / high / xhigh / max | low / medium / high / xhigh / max（请求） |
-| `meta/muse-spark-1.3-contributor` | low / medium / high / xhigh | low / medium / high / xhigh / max（请求） |
-| `nvidia/nemotron-3-ultra-550b-a55b` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `poolside/laguna-s-2.1-free` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `inclusionai/ling-3.0-flash-free` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `inclusionai/ling-3.0-flash-sante:free` | 未公布可调档位 | 服务商默认（不传参数） / max（请求） |
-| `inclusionai/ling-3.1-flash:free` | low / medium / high | low / medium / high / max（请求） |
-| `stealth/space-bunny-alpha` | low / medium / high | low / medium / high / max（请求） |
-| `stealth/pixel-canary` | low / medium / xhigh | low / medium / xhigh / max（请求） |
+| `gemini-3.5-flash` | medium | medium / max（请求） |
+| `glm-5.3-flash` | low / high / max | low / high / max（请求） |
+| `glm-5.3` | low / high / max | low / high / max（请求） |
+| `glm-5.2` | high / xhigh | high / xhigh / max（请求） |
+| `kimi-k3` | medium | medium / max（请求） |
+| `kimi-k2.6` | medium | medium / max（请求） |
 <!-- dsh-model-table:end -->
-
-### 太空兔子示例
-
-`stealth/space-bunny-alpha` 的固定官方快照是 low / medium / high。App 当前保留这三档，并增加 max（请求）；上游是否实际接受 max 尚未通过付费在线请求验证。免费标识、配额和模型可见性以账户目录与服务商规则为准。
 
 ## DeepSeek 官方直连
 
 `deepseek-flash` 与 `deepseek-v4-pro` 的当前原生适配配置提供 `off / low / high / max`。官方 `/models` 的 `effort.supported_levels` 描述开启思考后的等级；off 由实际 `dsh-llm-deepseek` 适配器路径处理。
 
-来源为固定 payload 中的适配器与 [DeepSeek 模型目录文档](https://api-docs.deepseek.com/zh-cn/api/list-models/)。不要将这两项直连声明套用到 Command Code 下的同名或前缀模型。
+来源为固定 payload 中的适配器与 [DeepSeek 模型目录文档](https://api-docs.deepseek.com/zh-cn/api/list-models/)。不要将这两项直连声明套用到 CodeBuddy 下的同名模型。
 
 ## 升级、保存与会话
 
@@ -151,8 +76,8 @@
 
 ## 回归与证据边界
 
-`check_model_consumer.sh` 消费真实 payload，验证 Host `buildModelCatalog`、目录投影、LLM `resolveCallConfig` 与离线 SDK 请求体。固定快照的 92 个 Command Code ID 加两个 DeepSeek 直连项用于聊天框组件回归，两种语言共 188 组选择，确认原模型/会话与字面量 max 进入真实选择 RPC。
+`check_model_consumer.sh` 消费真实 payload，验证 Host `buildModelCatalog`、目录投影、LLM `resolveCallConfig` 与离线 SDK 请求体。固定快照的 21 个 CodeBuddy ID 加两个 DeepSeek 直连项用于聊天框组件回归，两种语言共 46 组选择，确认原模型/会话与字面量 max 进入真实选择 RPC。
 
 默认路径验证省略参数，强制 max 验证请求字面量；其他无效等级仍按配置拒绝。真实 React 组件测试不同于只检查适配器元数据或原生按钮。
 
-没有使用付费模型提示词。这些结果不证明服务商的真实思考预算、未来新增模型档位，也不代替 Android 触摸布局验收。统一验证矩阵见 [STATUS](STATUS.md)。
+自动回归只使用合成凭据和离线网络边界。CodeBuddy 的本机凭据另做过一次最小流式接入核对；它不证明所有模型或档位的实际权限。这些结果不证明服务商的真实思考预算、未来新增模型档位，也不代替 Android 触摸布局验收。统一验证矩阵见 [STATUS](STATUS.md)。

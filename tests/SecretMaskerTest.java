@@ -20,7 +20,7 @@ public class SecretMaskerTest {
                 SecretMasker.mask("hello world"));
         hidden("authorization header", "Authorization: Bearer abcdefghijk", "abcdefghijk");
         hidden("quoted password", "{\"password\":\"hunter2-value\"}", "hunter2-value");
-        hidden("yaml api key", "COMMANDCODE_API_KEY: key-value-123", "key-value-123");
+        hidden("yaml api key", "CODEBUDDY_API_KEY: key-value-123", "key-value-123");
         hidden("query token", "https://localhost/?token=session-value", "session-value");
         hidden("authorization state", "https://platform.deepseek.com/dsh/authorize?state=private-state&other=ok", "private-state");
         hidden("authorization code", "http://127.0.0.1:3080/oauth/callback?code=private-code&state=other", "private-code");

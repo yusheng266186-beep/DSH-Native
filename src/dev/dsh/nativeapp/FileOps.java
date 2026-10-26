@@ -96,6 +96,15 @@ final class FileOps {
      *
      * @return 错误说明；成功返回 null
      */
+    static String createFile(File parent, String name, List<File> allowedRoots) {
+        String bad = validateName(name);
+        if (bad != null) return bad;
+        File target = new File(parent,name);
+        if (parent == null || !parent.isDirectory() || !isWritable(target,allowedRoots)) return "该位置不允许新建文件";
+        try { return target.createNewFile() ? null : "同名文件已存在"; }
+        catch (IOException failed) { return "创建文件失败"; }
+    }
+
     static String mkdir(File parent, String name, List<File> allowedRoots) {
         String bad = validateName(name);
         if (bad != null) return bad;

@@ -29,6 +29,14 @@ final class CoreUpgrade {
         return once(source, "execArgv: []", "execArgv: [\"--expose-internals\"] /* dsh-native-inspector-internals-v1 */");
     }
 
+    /** Resolve the extra CLI header at dispatch time; never persist a key in settings. */
+    static String codeBuddy(String source) {
+        String marker = "/* dsh-native-codebuddy-auth-v1 */";
+        if (source.contains(marker)) return source;
+        return once(source, "headers: requestHeaders(profile.headers)",
+                "headers: requestHeaders(options.provider === \"codebuddy\" && profile.baseURL === \"https://www.codebuddy.cn/v2\" ? { ...profile.headers, \"X-API-Key\": apiKey, \"X-Product\": \"codebuddy\", \"X-IDE-Name\": \"DSH Native\" } : profile.headers) " + marker);
+    }
+
     private static String once(String source, String before, String after) {
         int at = source.indexOf(before);
         if (at < 0 || source.indexOf(before, at + before.length()) >= 0) return null;

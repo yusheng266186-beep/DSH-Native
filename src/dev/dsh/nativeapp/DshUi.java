@@ -420,6 +420,7 @@ public final class DshUi {
     /** 按钮：圆角矩形、统一按压深度与边界内水波纹。 */
     public static Button button(Context c, String text, boolean primary) {
         Button b = new LocalizedButton(c);
+        WebSettingsHost.primary(b,primary);
         b.setText(text);
         b.setTextSize(13.5f);
         b.setAllCaps(false);
@@ -487,6 +488,7 @@ public final class DshUi {
     public static void setButtonActive(Button b, boolean primary) {
         if (b == null) return;
         boolean changed = b.isSelected() != primary;
+        WebSettingsHost.primary(b,primary);
         b.setBackground(buttonSurface(b.getContext(), primary));
         b.setTextColor(primary ? ON_ACCENT() : TEXT());
         markToggleState(b, primary);
@@ -519,12 +521,14 @@ public final class DshUi {
         b.setTextSize(13f);
         b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
         markToggleState(b, primary);
+        WebSettingsHost.primary(b,false);
         return b;
     }
 
     /** Refresh an existing segmented-choice button without rebuilding its whole row. */
     public static void setToggleState(Button button, boolean selected) {
         if (button == null) return;
+        WebSettingsHost.primary(button,false);
         button.setBackground(buttonSurface(button.getContext(), selected));
         button.setTextColor(selected ? ON_ACCENT() : TEXT());
         button.setAlpha(button.isEnabled() ? 1f : 0.62f);
@@ -676,6 +680,7 @@ public final class DshUi {
 
     public static void toast(Context c, CharSequence msg) {
         if (c == null || msg == null) return;
+        if (WebSettingsHost.toast(c, msg)) return;
         try {
             CharSequence shown = msg instanceof String
                     ? UiText.text((String) msg) : msg;
@@ -735,6 +740,8 @@ public final class DshUi {
 
     private static android.app.Dialog buildDialog(Context c, View body, View footer,
                                                   int maxHeightDp, boolean fillHeight) {
+        android.app.Dialog web = WebSettingsHost.dialog(c, body, footer);
+        if (web != null) return web;
         MotionDialog d = new MotionDialog(c);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -944,6 +951,7 @@ public final class DshUi {
      * Toast 后长时间没有上下文。界面仍全部由 DshUi 构建。</p>
      */
     public static final class TaskProgress {
+        private final android.os.Handler callbacks = new android.os.Handler(android.os.Looper.getMainLooper());
         private final android.app.Dialog dialog;
         private final TextView message;
         private final android.widget.ProgressBar progress;
@@ -986,12 +994,12 @@ public final class DshUi {
                     }
                 }
             };
-            message.postDelayed(finishAction, InteractionFeedback.RESULT_HOLD_MS);
+            callbacks.postDelayed(finishAction, InteractionFeedback.RESULT_HOLD_MS);
         }
 
         public void dismiss() {
             finished = true;
-            if (finishAction != null) message.removeCallbacks(finishAction);
+            if (finishAction != null) callbacks.removeCallbacks(finishAction);
             finishAction = null;
             try { dialog.dismiss(); } catch (Throwable ignored) { }
         }
@@ -1118,7 +1126,7 @@ public final class DshUi {
                     ? UiText.t("成功：", "Success: ")
                     : UiText.t("失败：", "Failed: ")) + outcome);
         } catch (Throwable ignored) { }
-        b.postDelayed(new Runnable() {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override public void run() {
                 if (!isButtonGenerationCurrent(b, generation)) return;
                 b.setEnabled(true);

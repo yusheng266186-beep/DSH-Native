@@ -13,110 +13,37 @@ import java.util.regex.Pattern;
 final class ModelReasoning {
     static final String UPSTREAM = "# dsh-native-reasoning-source: upstream";
     static final String[] LEVELS = {"off", "minimal", "low", "medium", "high", "xhigh", "max"};
-    private static final Map<String, String> COMMAND = new LinkedHashMap<String, String>();
+    private static final Map<String, String> BUDDY = new LinkedHashMap<String, String>();
 
     static {
-        // Generated from the Provider API effort map and known IDs in command-code@1.72.4.
-        // BEGIN OFFICIAL SNAPSHOT
-        known("claude-sonnet-5-5", "low,medium,high,xhigh,max");
-        known("claude-sonnet-5", "low,medium,high,xhigh,max");
-        known("claude-sonnet-4-6", "low,medium,high,xhigh,max");
-        known("claude-fable-5-1", "low,medium,high,xhigh,max");
-        known("claude-fable-5", "low,medium,high,xhigh,max");
-        known("claude-opus-5-5", "low,medium,high,xhigh,max");
-        known("claude-opus-5", "low,medium,high,xhigh,max");
-        known("claude-opus-4-8", "low,medium,high,xhigh,max");
-        known("claude-opus-4-7", "low,medium,high,xhigh,max");
-        known("claude-haiku-4-5-20251001", "");
+        // Declared model metadata from CodeBuddy CLI 2.174.0; max remains an explicit request.
+        known("default-model", "");
+        known("fast-model", "medium");
+        known("balanced-model", "medium");
+        known("primary-model", "high");
+        known("deep-model", "");
+        known("deepseek-v4.1-flash", "high");
         known("gpt-6-astra", "low,medium,high,xhigh,max");
-        known("gpt-6.1-sol", "low,medium,high,xhigh,max");
-        known("gpt-6-sol", "low,medium,high,xhigh,max");
-        known("gpt-6-luna", "low,medium,high,xhigh,max");
+        known("hy4-preview", "high");
+        known("hy3", "low,high");
+        known("kimi-k2.8-preview", "low,high,max");
         known("gpt-5.6-sol", "low,medium,high,xhigh,max");
         known("gpt-5.6-terra", "low,medium,high,xhigh,max");
         known("gpt-5.6-luna", "low,medium,high,xhigh,max");
         known("gpt-5.5", "low,medium,high,xhigh");
         known("gpt-5.4", "low,medium,high,xhigh");
-        known("gpt-5.3-codex", "low,medium,high,xhigh");
-        known("gpt-5.4-mini", "low,medium,high");
-        known("MiniMaxAI/MiniMax-M3-Free", "low,medium,high");
-        known("moonshotai/Kimi-K3", "low,high,max");
-        known("thinkingmachines/inkling", "");
-        known("thinkingmachines/inkling-small", "");
-        known("deepseek/deepseek-v4-pro", "high,max");
-        known("deepseek/deepseek-v4-flash", "high,max");
-        known("deepseek/deepseek-v4-flash-vision-exp", "high,max");
-        known("deepseek/deepseek-v4-flash-fast", "low,high,max");
-        known("deepseek/deepseek-v4.1-flash", "low,high,max");
-        known("deepseek/deepseek-v4.1-flash-fast", "low,high,max");
-        known("moonshotai/Kimi-K2.7-Code", "");
-        known("moonshotai/Kimi-K2.7-Code-Highspeed", "");
-        known("moonshotai/Kimi-K2.6", "");
-        known("moonshotai/Kimi-K2.5", "");
-        known("zai-org/GLM-5.3", "low,high,max");
-        known("z-ai/glm-5.3-flash", "low,high,max");
-        known("z-ai/glm-5.3-flashx", "low,high,max");
-        known("zai-org/GLM-5.2", "high,max");
-        known("zai-org/GLM-5.2-Fast", "");
-        known("zai-org/GLM-5.1", "");
-        known("zai-org/GLM-5", "");
-        known("MiniMaxAI/MiniMax-M3", "low,medium,high");
-        known("MiniMaxAI/MiniMax-M2.7", "");
-        known("minimax/minimax-m3-free", "low,medium,high");
-        known("minimax/minimax-m2.7-free", "");
-        known("MiniMaxAI/MiniMax-M2.5", "");
-        known("xiaomi/mimo-v2.6-pro", "");
-        known("xiaomi/mimo-v2.6-pro-ultraspeed", "");
-        known("xiaomi/mimo-v2.6-flash", "");
-        known("xiaomi/mimo-v2.5-pro", "");
-        known("xiaomi/mimo-v2.5", "");
-        known("Qwen/Qwen3.6-Max-Preview", "");
-        known("Qwen/Qwen3.6-Plus", "");
-        known("Qwen/Qwen3.7-Max", "");
-        known("Qwen/Qwen3.7-Plus", "");
-        known("Qwen/Qwen3.8-Omni-Flash", "low,medium,xhigh");
-        known("Qwen/Qwen3.8-Max-0902", "low,medium,xhigh");
-        known("Qwen/Qwen3.8-Max", "low,medium,xhigh");
-        known("Qwen/Qwen3.8-27B", "low,medium,xhigh");
-        known("Qwen/Qwen3.8-Flash", "low,medium,xhigh");
-        known("Qwen/Qwen3.7-Flash", "");
-        known("meituan/LongCat-2.0", "");
-        known("meituan/LongCat-2.0:free", "");
-        known("stepfun/Step-5-Preview", "low,medium,high");
-        known("stepfun/Step-3.7-Flash", "");
-        known("stepfun/Step-3.5-Flash", "");
-        known("tencent/hy4-preview", "low,medium,high");
-        known("tencent/hy3-paid", "");
-        known("tencent/Hy3", "");
-        known("google/gemini-3.8-flash", "low,medium,high");
-        known("google/gemini-3.7-flash", "low,medium,high");
-        known("google/gemini-3.6-flash", "low,medium,high");
-        known("google/gemini-3.5-flash", "low,medium,high");
-        known("google/gemini-3.5-flash-lite", "low,medium,high");
-        known("google/gemini-3.1-flash-lite", "low,medium,high");
-        known("sakana/fugu-ultra", "high,xhigh");
-        known("xai/grok-4.5", "low,medium,high");
-        known("xai/grok-4.6", "low,medium,high,xhigh");
-        known("xai/grok-4.7", "low,medium,high,xhigh");
-        known("meta/muse-spark-1.1", "low,medium,high,xhigh");
-        known("meta/muse-spark-1.2", "low,medium,high,xhigh");
-        known("meta/muse-spark-1.2-contributor", "low,medium,high,xhigh");
-        known("meta/muse-spark-1.3", "low,medium,high,xhigh,max");
-        known("meta/muse-spark-1.3-contributor", "low,medium,high,xhigh");
-        known("nvidia/nemotron-3-ultra-550b-a55b", "");
-        known("poolside/laguna-s-2.1-free", "");
-        known("inclusionai/ling-3.0-flash-free", "");
-        known("inclusionai/ling-3.0-flash-sante:free", "");
-        known("inclusionai/ling-3.1-flash:free", "low,medium,high");
-        known("stealth/space-bunny-alpha", "low,medium,high");
-        known("stealth/pixel-canary", "low,medium,xhigh");
-        // END OFFICIAL SNAPSHOT
+        known("gemini-3.5-flash", "medium");
+        known("glm-5.3-flash", "low,high,max");
+        known("glm-5.3", "low,high,max");
+        known("glm-5.2", "high,xhigh");
+        known("kimi-k3", "medium");
+        known("kimi-k2.6", "medium");
     }
 
     private ModelReasoning() { }
 
     private static void known(String id, String levels) {
-        COMMAND.put(id.toLowerCase(Locale.ROOT), fromLevels(Arrays.asList(levels.split(","))));
+        BUDDY.put(id.toLowerCase(Locale.ROOT), fromLevels(Arrays.asList(levels.split(","))));
     }
 
     /** User-requested override: every model offers literal max, including unknown/automatic models. */
@@ -138,8 +65,8 @@ final class ModelReasoning {
         }
         String local = field(details);
         if (details != null && details.contains(UPSTREAM) && local != null) return local;
-        if (ModelConfig.COMMAND_CODE.equals(provider)) {
-            String official = COMMAND.get(id.toLowerCase(Locale.ROOT));
+        if (ModelConfig.CODEBUDDY.equals(provider)) {
+            String official = BUDDY.get(id.toLowerCase(Locale.ROOT));
             if (official != null) return official;
         }
         return local;

@@ -67,7 +67,7 @@ final class LiveModelCatalog {
 
     /** Explicit upstream metadata overrides local hints, including text-only declarations. */
     static List<Entry> reconcile(ProviderCheck.Result upstream, List<ModelConfig.Model> configured) {
-        return reconcile(upstream, configured, ModelConfig.COMMAND_CODE);
+        return reconcile(upstream, configured, ModelConfig.CODEBUDDY);
     }
 
     static List<Entry> reconcile(ProviderCheck.Result upstream, List<ModelConfig.Model> configured,

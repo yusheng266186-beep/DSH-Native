@@ -19,7 +19,7 @@ public class ModelCatalogPersistenceTest {
             "provider: deepseek\n"
             + "llm-pi-ai:\n"
             + "  providers:\n"
-            + "    commandcode:\n"
+            + "    codebuddy:\n"
             + "      models:\n"
             + "        - id: gpt-5.6-sol\n"
             + "          input: [ text, image ]\n"
@@ -48,7 +48,7 @@ public class ModelCatalogPersistenceTest {
         // 只有键、没有模型条目时覆盖用户配置同样糟
         check("empty models list is not a catalog",
                 !ModelCatalogPersistence.hasModelCatalog(
-                        "llm-pi-ai:\n  providers:\n    commandcode:\n      models: []\n"), "accepted");
+                        "llm-pi-ai:\n  providers:\n    codebuddy:\n      models: []\n"), "accepted");
         check("models key without entries is not a catalog",
                 !ModelCatalogPersistence.hasModelCatalog("llm-pi-ai:\n  models:\n"), "accepted");
 

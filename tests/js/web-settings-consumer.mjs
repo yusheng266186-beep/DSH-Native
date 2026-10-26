@@ -1,0 +1,105 @@
+// Production DSH settings slots and RPC with the actual Java presenter and Android boundary fakes.
+// All credentials, configurations and model responses here are synthetic.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import readline from 'node:readline';
+import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {chromium} from 'playwright';
+const [runtimeArg,mobileArg,classes]=process.argv.slice(2),runtime=path.resolve(runtimeArg);
+const require=createRequire(import.meta.url),{encrypt}=require('../../tools/export_codebuddy_connection.cjs');
+const root=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-web-settings-')),home=path.join(root,'home'),project=path.join(root,'project');
+let core,native,browser,context,page,origin,cookie,output='',checks=0,seq=0;
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),check=(ok,label)=>{assert(ok,label);checks++;};
+const pending=[];let readyResolve;const ready=new Promise(resolve=>readyResolve=resolve);
+async function rpc(method,args={}){const response=await fetch(origin+'/api/'+method,{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'settings-fixture-'+ ++seq,method,payload:{args}})});const result=(await response.json()).result;assert(result.ok,method+': '+JSON.stringify(result.error));return result.value;}
+async function stop(){for(const child of [native,core])if(child&&child.exitCode===null){const ended=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGTERM');await Promise.race([ended,sleep(4000).then(()=>child.kill('SIGKILL'))]);}}
+try{
+ await fs.mkdir(home);await fs.mkdir(project);await fs.writeFile(path.join(project,'editable-notes.txt'),'Synthetic file contents\n');
+ await fs.copyFile(new URL('../../payload/settings-preset.yaml',import.meta.url),path.join(home,'settings.yaml'));
+ await fs.writeFile(path.join(root,'android.mjs'),"Object.defineProperty(process,'platform',{value:'android'});\n");
+ const flags=process.platform==='darwin'?['--import',path.join(root,'android.mjs')]:[];
+ core=spawn(process.execPath,['--expose-internals',...flags,path.join(runtime,'lib/bin.js'),'--profile','web','--no-open','--port','0'],{cwd:project,env:{...process.env,DSH_HOME:home,CODEBUDDY_API_KEY:'synthetic-ui-bootstrap-key',DEEPSEEK_API_KEY:''},stdio:['ignore','pipe','pipe']});
+ const collect=b=>output=(output+b).slice(-64000);core.stdout.on('data',collect);core.stderr.on('data',collect);
+ let launch;for(let n=0;n<450;n++){launch=output.match(/dsh web: (http:\/\/127\.0\.0\.1:\d+\/\?token=\S+)/)?.[1];if(launch)break;assert.equal(core.exitCode,null);await sleep(100);}assert(launch,'core startup');
+ origin=new URL(launch).origin;cookie=(await fetch(launch,{redirect:'manual'})).headers.get('set-cookie').split(';')[0];
+ await rpc('settings/update',{ns:'ui-settings-general',patch:{welcomeNoticeVersion:'2026-09-28.1'}});
+ const workspace=(await rpc('workspace/create',{request:{path:project}})).workspace;const fileSession=await rpc('session/create',{request:{workspaceId:workspace.workspaceId}});await rpc('session/rename',{request:{sessionId:fileSession.sessionId,title:'File operations fixture'}});
+ native=spawn('java',['-cp',classes,'dev.dsh.nativeapp.WebSettingsHostTest','--serve'],{stdio:['pipe','pipe','inherit']});
+ readline.createInterface({input:native.stdout}).on('line',line=>{const value=JSON.parse(line);if(value.ready)readyResolve(value);else pending.shift()?.(value);});
+ const handshake=await ready;
+ browser=await chromium.launch({headless:true});
+ const mobile=await fs.readFile(mobileArg,'utf8'),injection=mobile.slice(mobile.indexOf('<style id="dsh-native-responsive">'),mobile.indexOf('</head>'));
+ for(const scenario of [{w:320,h:800,lang:'zh',theme:'dark'},{w:436,h:880,lang:'en',theme:'light'},{w:869,h:436,lang:'zh',theme:'light'}]){
+  await rpc('settings/update',{ns:'locale',patch:{preference:scenario.lang}});await rpc('settings/update',{ns:'ui-theme',patch:{preference:scenario.theme}});
+  context=await browser.newContext({viewport:{width:scenario.w,height:scenario.h},isMobile:true,hasTouch:true,locale:scenario.lang,reducedMotion:'reduce'});
+  await context.grantPermissions(['local-network-access'],{origin});
+  await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
+  page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[];let failNextRead=true;page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
+  page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='file')fileCommands.push(parsed);let response;if(parsed.op==='read'&&failNextRead){failNextRead=false;response=Promise.resolve({id:parsed.id,ok:false,error:'synthetic read boundary failure'});}else{response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');}response.then(async reply=>{const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
+  await page.route(origin+'/',async route=>{const response=await route.fetch();const html=(await response.text()).replace(/content="width=device-width, initial-scale=1"/,'content="width='+Math.max(480,scenario.w)+'"');await route.fulfill({response,body:html.replace('</head>',injection+'</head>')});});
+  await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
+  // Match Android's late onPageFinished state publication, after plugin/slot registration.
+  await page.evaluate(session=>{window.__dshNativeAppState={integratedSettings:true,settingsSession:session,version:'fixture'};window.dispatchEvent(new Event('dsh-native-app-state'));},handshake.session);
+  const open=async target=>{check(await page.evaluate(page=>!window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page}})),target),'settings navigation accepted');};
+  for(const target of ['tasks','data','updates','diagnostics','display']){
+   await open(target);const section=page.locator('[data-device-page="'+target+'"]');await section.getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();
+   check(!(await section.innerText()).includes('SECRET-SYNTHETIC-CREDENTIAL'),'stored secret absent from DOM');
+   const fields=section.locator('input');await fields.nth(0).fill('Edited '+target);await fields.nth(1).fill('synthetic-new-key');await section.getByRole('button',{name:/^Save(d \d+)?$/}).click();
+   await section.getByRole('button',{name:/^Saved \d+$/}).waitFor();check(await fields.nth(0).inputValue()==='Edited '+target,'edit reaches actual Java controller');
+   const bounds=await section.evaluate(el=>({scroll:el.scrollWidth,width:el.clientWidth,rect:el.getBoundingClientRect().toJSON(),vw:innerWidth}));
+   check(bounds.scroll<=bounds.width+1&&bounds.rect.right<=bounds.vw+1,'device settings fit '+target);
+   for(const item of await section.locator('button,input').evaluateAll(els=>els.map(el=>({width:el.clientWidth,scroll:el.scrollWidth}))))check(item.scroll<=item.width+2,'control fits '+target);
+  }
+  await open('sessions');await page.locator('.dsh-device-sessions').waitFor();check(await page.locator('.dsh-device-sessions').getByRole('button',{name:scenario.lang==='en'?'New conversation':'新建对话',exact:true}).isVisible(),'session manager integrated');
+  await open('models');await page.getByRole('heading',{name:scenario.lang==='en'?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接',exact:true}).waitFor();
+  await page.getByRole('button',{name:scenario.lang==='en'?'Project models & catalog sync':'项目模型与目录同步',exact:true}).click();await page.locator('[data-device-page="models"]').getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();checks++;
+  if(scenario.lang==='en'){
+   const passphrase='synthetic-import-passphrase',key='synthetic-codebuddy-key-123456789';
+   const bundle=Buffer.from(JSON.stringify(encrypt(key,passphrase)));
+   await page.getByLabel('CodeBuddy connection file',{exact:true}).setInputFiles({name:'fixture.dshconnection',mimeType:'application/json',buffer:bundle});
+   await page.getByLabel('Connection passphrase',{exact:true}).fill('wrong-passphrase');await page.getByRole('button',{name:'Import and use CodeBuddy',exact:true}).click();await page.getByText('Incorrect passphrase or damaged connection file',{exact:true}).waitFor();checks++;
+   await page.getByLabel('Connection passphrase',{exact:true}).fill(passphrase);await page.getByRole('button',{name:'Import and use CodeBuddy',exact:true}).click();
+   await page.getByText('CodeBuddy imported. New conversations use the global default; existing project overrides remain.',{exact:true}).waitFor();
+   const state=await rpc('settings/describe');const profile=state.namespaces.find(item=>item.ns==='llm-pi-ai').value.providers.codebuddy;
+   console.log('Public provider fields',JSON.stringify({baseURL:profile.baseURL,apiKeyEnv:profile.apiKeyEnv,headerNames:Object.keys(profile.headers||{})}));check(profile.baseURL==='https://www.codebuddy.cn/v2'&&profile.apiKeyEnv==='CODEBUDDY_API_KEY'&&!Object.keys(profile.headers||{}).length,'provider stored without secret headers');
+   const credentials=await fs.readFile(path.join(home,'.credentials.yaml'),'utf8');check(credentials.includes(key),'credential stored via real core RPC');
+   check(!JSON.stringify(state).includes(key)&&!(await page.locator('body').innerText()).includes(key),'credential absent from public description/DOM');
+   const catalog=await rpc('session/modelCatalog');check(catalog.default.provider==='codebuddy'&&catalog.default.model==='deepseek-v4.1-flash'&&catalog.groups.find(g=>g.id==='codebuddy').models.length===21,'import consumed by real Host catalog');
+  }
+  await open('sessions');const sessionRow=page.locator('article[data-session-id="'+fileSession.sessionId+'"]');await sessionRow.waitFor();
+  await sessionRow.getByRole('button',{name:scenario.lang==='en'?'Rename':'重命名',exact:true}).click();
+  check(await page.evaluate(()=>!window.dispatchEvent(new Event('dsh-settings-back',{cancelable:true}))),'Android back consumed by confirmation');
+  await page.getByRole('textbox',{name:scenario.lang==='en'?'Session title':'会话标题',exact:true}).waitFor({state:'detached'});
+  check(await page.locator('[data-shortcut-modal="settings"]').isVisible(),'confirmation back preserves settings');
+  await sessionRow.getByRole('button',{name:scenario.lang==='en'?'Continue':'继续对话',exact:true}).click();
+  await page.locator('[data-shortcut-modal="settings"]').waitFor({state:'hidden'});
+  const expand=page.locator('[data-sidebar-right-expand]');if(await expand.isVisible())await expand.click();
+  await page.locator('[data-sidebar-right-guide-entry="files"]').click();await page.getByText('editable-notes.txt',{exact:true}).dblclick();
+  const preview=page.locator('[data-textpreview-state="text"]');await preview.waitFor();
+  const fileTools=preview.locator('.dsh-file-actions');await fileTools.getByRole('button',{name:scenario.lang==='en'?'Share':'分享',exact:true}).waitFor();
+  for(const action of [scenario.lang==='en'?'Share':'分享',scenario.lang==='en'?'Open in app':'其他应用打开']){
+   await fileTools.getByRole('button',{name:action,exact:true}).click();await fileTools.getByRole('button',{name:action,exact:true}).waitFor({state:'visible'});await sleep(100);
+  }
+  check(fileCommands.some(item=>item.action==='share'&&item.path.endsWith('/editable-notes.txt'))&&fileCommands.some(item=>item.action==='open'),'real file preview dispatches share/open');
+  check(await fileTools.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'preview actions fit mobile toolbar');
+  await fileTools.getByRole('button',{name:scenario.lang==='en'?'Edit':'编辑',exact:true}).click();
+  await page.locator('[data-device-page="files"]').getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();
+  const editor=page.locator('[data-device-page="files"]');await editor.getByRole('alert').filter({hasText:scenario.lang==='en'?'Text could not be read completely':'正文未能完整读取'}).waitFor();
+  check(await editor.locator('textarea').isDisabled(),'failed chunk read cannot edit truncated text');
+  await editor.getByRole('button',{name:scenario.lang==='en'?'Read again':'重新读取',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('[data-device-page="files"] textarea')?.value.length===70000);
+  // Dispatch a synthetic large paste through React's real input handler, then save through the native protocol.
+  await editor.locator('textarea').fill('Saved text');await editor.locator('textarea').evaluate(el=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'Saved text '+('text\n'.repeat(7200)));el.dispatchEvent(new Event('input',{bubbles:true}));});await editor.getByRole('button',{name:/^Save(d \d+)?$/}).click();
+  await editor.getByRole('button',{name:/^Saved \d+$/}).waitFor();check((await editor.locator('textarea').inputValue()).length>32768,'large edited text survives chunk upload/save');
+  check(fileCommands.at(-1)?.action==='edit'&&fileCommands.at(-1)?.path.endsWith('/editable-notes.txt'),'preview edit enters integrated file controller');
+  check(await page.evaluate(()=>!window.dispatchEvent(new Event('dsh-settings-back',{cancelable:true}))),'Android back consumed by settings');
+  await page.locator('[data-shortcut-modal="settings"]').waitFor({state:'hidden'});
+  check(errors.length===0,'browser errors: '+errors.join(';'));
+  if(process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'integrated-'+scenario.w+'-'+scenario.lang+'.png')});}
+  await context.close();context=null;
+ }
+ console.log('Integrated Web settings: '+checks+' real settings-slot, Java-controller, mobile layout and encrypted CodeBuddy/core-RPC checks passed.');
+}catch(error){console.log('Original settings failure',error.message.slice(0,700));console.log('Settings core fixture',output.replace(/token=\S+/g,'token=REDACTED').slice(-5000));console.log('Settings UI fixture',(await page?.locator('body').innerText().catch(()=>''))?.slice(0,6000));if(page&&process.env.DSH_SETTINGS_EVIDENCE_DIR){await fs.mkdir(process.env.DSH_SETTINGS_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'integrated-failure.png'),timeout:10000}).catch(()=>{});}throw error;}finally{await context?.close();await browser?.close();await stop();await fs.rm(root,{recursive:true,force:true});}
