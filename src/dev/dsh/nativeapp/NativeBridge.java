@@ -8,6 +8,8 @@ import java.io.*;
 import java.lang.ref.WeakReference;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Native operations owned by the foreground service, callable by the local agent. */
 final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
@@ -16,6 +18,7 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
     private final File root;
     private final NativeBridgeServer server;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Set<FutureTask<?>> pendingActions = new HashSet<FutureTask<?>>();
     private volatile boolean closed;
     private long lastNotification;
 
@@ -35,44 +38,100 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
         server = new NativeBridgeServer(root, this);
     }
     private <T> T onMain(final Callable<T> action) throws Exception {
+        if (Thread.currentThread().isInterrupted())
+            throw new NativeBridgeServer.Failure("CANCELLED", "Native caller cancelled before UI dispatch");
         FutureTask<T> task = new FutureTask<T>(new Callable<T>() { @Override public T call() throws Exception {
             if (closed) throw new NativeBridgeServer.Failure("BRIDGE_STOPPED", "Native bridge stopped");
-            return action.call();
+            try { return action.call(); }
+            catch (ActivityNotFoundException unavailable) {
+                throw new NativeBridgeServer.Failure("NO_ACTIVITY_HANDLER", "No available App can handle this action; install or enable a compatible App");
+            } catch (SecurityException denied) {
+                throw new NativeBridgeServer.Failure("SYSTEM_DENIED", "Android denied this action; check DSH permissions and return to the foreground");
+            }
         } });
-        main.post(task);
-        try { return task.get(5000, TimeUnit.MILLISECONDS); }
+        synchronized (pendingActions) {
+            if (closed) throw new NativeBridgeServer.Failure("BRIDGE_STOPPED", "Native bridge stopped");
+            pendingActions.add(task);
+        }
+        try {
+            if (!main.post(task)) throw new NativeBridgeServer.Failure("BRIDGE_STOPPED", "Android UI dispatch is unavailable");
+            return task.get(5000, TimeUnit.MILLISECONDS);
+        }
+        catch (TimeoutException timeout) {
+            throw new NativeBridgeServer.Failure("UI_TIMEOUT", "DSH UI did not respond in time; return to the App before retrying");
+        } catch (InterruptedException cancelled) {
+            Thread.currentThread().interrupt();
+            throw new NativeBridgeServer.Failure("CANCELLED", "Native caller cancelled before the action completed");
+        } catch (CancellationException cancelled) {
+            throw new NativeBridgeServer.Failure(closed ? "BRIDGE_STOPPED" : "CANCELLED", "Native action was cancelled");
+        }
         catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
             if (cause instanceof Exception) throw (Exception) cause; throw new IOException("Native operation failed");
-        } finally { task.cancel(false); }
+        } finally {
+            task.cancel(false); main.removeCallbacks(task);
+            synchronized (pendingActions) { pendingActions.remove(task); }
+        }
+    }
+    private static final class FileContext {
+        final MainActivity owner;
+        final File workspace;
+        FileContext(MainActivity owner) { this.owner = owner; workspace = owner.nativeBridgeWorkspace().getAbsoluteFile(); }
+        void verify() throws NativeBridgeServer.Failure {
+            MainActivity current = foreground();
+            if (current != owner || !workspace.equals(current.nativeBridgeWorkspace().getAbsoluteFile()))
+                throw new NativeBridgeServer.Failure("CONTEXT_CHANGED", "DSH window or project changed while preparing the file; retry in the intended project");
+        }
     }
     @Override public Object execute(final Map<?, ?> command) throws Exception {
         final String method = (String) command.get("method");
         if ("screenshot".equals(method)) {
-            final NativeScreenCapture.Request request = onMain(new Callable<NativeScreenCapture.Request>() {
-                @Override public NativeScreenCapture.Request call() throws Exception { return NativeScreenCapture.request(foreground(), root); }
-            });
-            try { return request.result.get(92, TimeUnit.SECONDS); }
+            final AtomicBoolean abandoned = new AtomicBoolean();
+            final AtomicReference<NativeScreenCapture.Request> started = new AtomicReference<NativeScreenCapture.Request>();
+            try {
+                NativeScreenCapture.Request request = onMain(new Callable<NativeScreenCapture.Request>() {
+                    @Override public NativeScreenCapture.Request call() throws Exception {
+                        NativeScreenCapture.Request capture = NativeScreenCapture.request(foreground(), root);
+                        started.set(capture);
+                        if (abandoned.get()) NativeScreenCapture.fail(capture.id, "CANCELLED", "Capture caller cancelled during authorization startup");
+                        return capture;
+                    }
+                });
+                return request.result.get(92, TimeUnit.SECONDS);
+            }
             catch (ExecutionException failure) {
                 if (failure.getCause() instanceof NativeBridgeServer.Failure) throw (NativeBridgeServer.Failure) failure.getCause();
                 throw new NativeBridgeServer.Failure("CAPTURE_UNAVAILABLE", "Screen capture failed");
-            } finally { NativeScreenCapture.fail(request.id, "CANCELLED", "Capture caller disconnected or timed out"); }
+            } catch (InterruptedException cancelled) {
+                Thread.currentThread().interrupt();
+                throw new NativeBridgeServer.Failure("CANCELLED", "Capture caller cancelled while waiting for Android");
+            } catch (TimeoutException timeout) {
+                throw new NativeBridgeServer.Failure("CAPTURE_TIMEOUT", "Android capture did not complete before the deadline");
+            } finally {
+                abandoned.set(true);
+                NativeScreenCapture.Request capture = started.get();
+                if (capture != null) NativeScreenCapture.fail(capture.id, "CANCELLED", "Capture caller disconnected or timed out");
+            }
         }
         final File staged;
+        final FileContext fileContext;
         if ("share.file".equals(method) || "file.open".equals(method)) {
-            final List<File> roots = onMain(new Callable<List<File>>() {
-                @Override public List<File> call() throws Exception {
-                    List<File> paths = new ArrayList<File>(); paths.add(foreground().nativeBridgeWorkspace());
-                    paths.add(new File(root, "native-captures")); return paths;
-                }
+            fileContext = onMain(new Callable<FileContext>() {
+                @Override public FileContext call() throws Exception { return new FileContext(foreground()); }
             });
+            final List<File> roots = Arrays.asList(fileContext.workspace, new File(root, "native-captures"));
             File input;
             try { input = NativeBridgePolicy.exportFile((String) command.get("path"), roots); }
             catch (IOException refused) { throw new NativeBridgeServer.Failure("FILE_NOT_ALLOWED", "Use a regular file in the current workspace or native-captures, at most 32 MiB; private configuration is excluded"); }
-            staged = stage(input);
-        } else staged = null;
+            try { staged = stage(input); }
+            catch (InterruptedIOException cancelled) { throw new NativeBridgeServer.Failure("CANCELLED", "File preparation cancelled"); }
+            catch (IOException unavailable) { throw new NativeBridgeServer.Failure("FILE_PREPARE_FAILED", "Could not prepare a read-only file copy; check source access and App storage space"); }
+        } else { staged = null; fileContext = null; }
         try {
-            return onMain(new Callable<Object>() { @Override public Object call() throws Exception { return perform(method, command, staged); } });
+            return onMain(new Callable<Object>() { @Override public Object call() throws Exception {
+                if (fileContext != null) fileContext.verify();
+                return perform(method, command, staged);
+            } });
         } catch (Exception failure) {
             if (staged != null) {
                 if (staged.exists() && !staged.delete()) staged.deleteOnExit();
@@ -163,8 +222,13 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
         if (manager == null || !manager.areNotificationsEnabled())
             throw new NativeBridgeServer.Failure("NOTIFICATIONS_DISABLED", "Allow DSH notifications in Android App settings");
         DshUi.ensureChannel(service, "dsh_agent_messages", "Agent 消息", "Agent 主动发送的任务消息", NotificationManager.IMPORTANCE_DEFAULT);
-        if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel("dsh_agent_messages").getImportance() == 0)
-            throw new NativeBridgeServer.Failure("NOTIFICATIONS_DISABLED", "Allow the Agent messages notification channel");
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = manager.getNotificationChannel("dsh_agent_messages");
+            if (channel == null)
+                throw new NativeBridgeServer.Failure("NOTIFICATION_CHANNEL_UNAVAILABLE", "Android could not create the Agent messages channel; check DSH notification settings");
+            if (channel.getImportance() == 0)
+                throw new NativeBridgeServer.Failure("NOTIFICATIONS_DISABLED", "Allow the Agent messages notification channel");
+        }
         long now = SystemClock.uptimeMillis();
         if (lastNotification > 0 && now - lastNotification < 2000L)
             throw new NativeBridgeServer.Failure("RATE_LIMITED", "Wait two seconds before posting another notification");
@@ -175,5 +239,12 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build());
         lastNotification = now; return NativeBridgePolicy.object("posted", true, "delivered", false);
     }
-    @Override public void close() { closed = true; server.close(); NativeScreenCapture.close(); }
+    @Override public void close() {
+        synchronized (pendingActions) {
+            closed = true;
+            for (FutureTask<?> task : pendingActions) { task.cancel(false); main.removeCallbacks(task); }
+            pendingActions.clear();
+        }
+        server.close(); NativeScreenCapture.close();
+    }
 }

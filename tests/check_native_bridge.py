@@ -58,7 +58,9 @@ STUBS.update({
 'android/os/HandlerThread.java':'''package android.os;public class HandlerThread {public static int active;public HandlerThread(String name){}public void start(){active++;}public Looper getLooper(){return new Looper();}public boolean quitSafely(){active--;return true;}}''',
 'android/os/Handler.java':'''package android.os;import java.util.*;public class Handler {
 public static final List<Handler> instances=new ArrayList<>();public final List<Runnable> delayed=new ArrayList<>();
-public Handler(Looper l){instances.add(this);}public boolean post(Runnable r){r.run();return true;}
+public static Runnable beforePost;public static int postsBeforeHook;public static boolean rejectPosts,queuePosts,asyncPosts;
+public final List<Runnable> queued=new java.util.concurrent.CopyOnWriteArrayList<>();
+public Handler(Looper l){instances.add(this);}public boolean post(Runnable r){if(rejectPosts)return false;if(beforePost!=null&&--postsBeforeHook<=0){Runnable hook=beforePost;beforePost=null;hook.run();}if(queuePosts)queued.add(r);else if(asyncPosts)new Thread(r).start();else r.run();return true;}
 public boolean postDelayed(Runnable r,long delay){delayed.add(r);return true;}public void removeCallbacks(Runnable r){delayed.remove(r);}
 public void removeCallbacksAndMessages(Object token){delayed.clear();}public void fireDelayed(){List<Runnable> copy=new ArrayList<>(delayed);delayed.clear();for(Runnable r:copy)r.run();}
 public static int pending(){int n=0;for(Handler h:instances)n+=h.delayed.size();return n;}}
@@ -113,12 +115,19 @@ STUBS['android/app/Activity.java']=STUBS['android/app/Activity.java'].replace('p
 STUBS['android/app/Notification.java']=STUBS['android/app/Notification.java'].replace('public Builder setAutoCancel', 'public Builder setOngoing(boolean b){return this;}public Builder setAutoCancel')
 STUBS['android/app/NotificationManager.java']=STUBS['android/app/NotificationManager.java'].replace('IMPORTANCE_DEFAULT=3;', 'IMPORTANCE_DEFAULT=3,IMPORTANCE_LOW=1;')
 STUBS['android/R.java']=STUBS['android/R.java'].replace('stat_notify_sync=1;', 'stat_notify_sync=1,ic_menu_camera=2;')
+STUBS['android/os/Handler.java']=STUBS['android/os/Handler.java'].replace('delayed.remove(r);','delayed.remove(r);queued.remove(r);')
+STUBS['android/content/ActivityNotFoundException.java']='package android.content;public class ActivityNotFoundException extends RuntimeException {public ActivityNotFoundException(String message){super(message);}}'
+STUBS['android/app/Activity.java']=STUBS['android/app/Activity.java'].replace('public void startActivity(Intent intent){lastIntent=intent;}', 'public RuntimeException launchFailure;public void startActivity(Intent intent){if(launchFailure!=null)throw launchFailure;lastIntent=intent;}')
+STUBS['android/app/Activity.java']=STUBS['android/app/Activity.java'].replace('public void startActivityForResult(Intent intent,int request){', 'public Runnable captureHook;public void startActivityForResult(Intent intent,int request){if(captureHook!=null)captureHook.run();')
+STUBS['android/content/ClipboardManager.java']=STUBS['android/content/ClipboardManager.java'].replace('public ClipData value;', 'public ClipData value;public RuntimeException failure;').replace('this.value=value;writes++;','if(failure!=null)throw failure;this.value=value;writes++;').replace('reads++;return value;', 'if(failure!=null)throw failure;reads++;return value;')
+STUBS['android/app/NotificationManager.java']=STUBS['android/app/NotificationManager.java'].replace('public int count,lastId;', 'public int count,lastId;public RuntimeException failure;').replace('lastId=id;count++;', 'if(failure!=null)throw failure;lastId=id;count++;')
 with tempfile.TemporaryDirectory(prefix='dsh-native-actions-') as directory:
     root=pathlib.Path(directory)
     for name,text in STUBS.items():
         p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
     compiler=[shutil.which('javac')] if shutil.which('javac') else ['java','-m','jdk.compiler/com.sun.tools.javac.Main']
     sources=[SOURCE/(name+'.java') for name in ['NativeCaptureService','JsonValue','FileOps','ShareTargets','NativeBridgePolicy','NativeBridgeServer','NativeBridge','NativeScreenCapture']]
-    subprocess.run([*compiler,'-encoding','UTF-8','-d',str(root/'classes'),*map(str,[*root.rglob('*.java'),*sources,ROOT/'tests/NativeBridgeAndroidTest.java',ROOT/'tests/NativeCaptureServiceTest.java'])],check=True)
+    subprocess.run([*compiler,'-encoding','UTF-8','-d',str(root/'classes'),*map(str,[*root.rglob('*.java'),*sources,ROOT/'tests/NativeBridgeAndroidTest.java',ROOT/'tests/NativeCaptureServiceTest.java',ROOT/'tests/NativeActionReliabilityTest.java'])],check=True)
     subprocess.run(['java','-cp',str(root/'classes'),'dev.dsh.nativeapp.NativeBridgeAndroidTest'],check=True)
     subprocess.run(['java','-cp',str(root/'classes'),'dev.dsh.nativeapp.NativeCaptureServiceTest'],check=True)
+    subprocess.run(['java','-cp',str(root/'classes'),'dev.dsh.nativeapp.NativeActionReliabilityTest'],check=True)

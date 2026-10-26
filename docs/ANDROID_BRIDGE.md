@@ -1,7 +1,7 @@
 # Agent 调用手机原生功能
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.37.1**；源码：**0.37.1**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.37.1**；源码：**0.37.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.37.0 将手机原生能力接入 DSH：agent 可直接使用注册的 `android` 工具，也可在命令中使用 `dsh-android`。覆盖安装后，从更新与维护重启内核，让实际 DSH 进程加载新适配器；不需要另外配置 MCP 或安装 Termux。
@@ -50,6 +50,12 @@ dsh-android screenshot
 
 参数也可用 `-` 从标准输入读取 JSON，避免把长文本放进命令参数。每次先读取最新私有端点配置，不在参数、工具结果或日志中暴露令牌。普通错误返回 `ok:false` 与错误码，命令非零退出；通知的 `posted:true` 表示已提交系统，分享的选择器打开不证明送达。
 
+0.37.2 起，分享/打开文件在准备私有副本前记录窗口和项目，打开面板前再次核对。准备期间切换项目、窗口重建或进入后台会停止旧请求并删除本次未交付副本，回到目标项目后重新请求即可。之前成功分享的缓存与原文件保留。
+
+原生界面调度最多等待 5 秒；超时、取消或托管服务停止会移除未开始的动作。已取消调用不会再排队，截图授权启动期间取消也撤销等待请求。系统异常只映射到固定错误，不回传可能包含私有路径或正文的原始异常信息。副作用已经发生时，后续取消不能撤销；客户端不会自动重试复制、打开、通知或截图。普通 HTTP 等待上限 12 秒、截图 95 秒，期限与断连分别报告。
+
+平台接口依据：[启动 Activity 的失败](https://developer.android.com/reference/android/content/Context#startActivity(android.content.Intent))、[移除 Handler 回调](https://developer.android.com/reference/android/os/Handler#removeCallbacks(java.lang.Runnable))、[查询通知渠道](https://developer.android.com/reference/android/app/NotificationManager#getNotificationChannel(java.lang.String))。
+
 ## 接口与数据范围
 
 - 服务只监听 `127.0.0.1` 的随机端口，使用 256-bit 随机令牌。配置文件 `.native-bridge.json` 只允许应用身份读取；服务重建更换令牌，停止时删除当前实例配置。
@@ -63,9 +69,16 @@ dsh-android screenshot
 | 错误 | 处理 |
 |---|---|
 | `BRIDGE_NOT_READY` / `BRIDGE_UNAVAILABLE` | 打开 App，确认托管服务已启动；覆盖安装后重启内核 |
+| `BRIDGE_STOPPED` / `UI_TIMEOUT` / `BRIDGE_TIMEOUT` | 返回 App，确认服务与界面恢复；先检查动作是否已发生，再决定重试，避免重复 |
 | `FOREGROUND_REQUIRED` | 返回 DSH，关闭系统弹窗后重试；不要求后台剪贴板权限 |
+| `CONTEXT_CHANGED` | 文件准备时窗口或项目发生变化，在目标项目中重新发起 |
+| `SYSTEM_DENIED` | 检查系统权限、隐私开关及 DSH 前台状态；不循环重试 |
+| `NO_ACTIVITY_HANDLER` | 安装或启用能够处理该链接/文件/分享的 App |
 | `NOTIFICATIONS_DISABLED` | 在系统 App 通知设置允许通知和 Agent 消息渠道 |
+| `NOTIFICATION_CHANNEL_UNAVAILABLE` | 系统未能创建 Agent 消息渠道，检查 App 通知设置后重试 |
 | `FILE_NOT_ALLOWED` | 使用当前工作区中的常规产物文件，核对绝对路径及 32 MiB 上限 |
+| `FILE_PREPARE_FAILED` | 检查原文件访问权限和 App 可用空间；原文件不会被覆盖 |
+| `INVALID_REQUEST` / `FORBIDDEN` | 分别为参数错误/认证失败；检查参数或打开 App 恢复服务，不输出或手工分享令牌 |
 | `APP_UNAVAILABLE` | 核对安装包名及是否存在启动入口 |
 | `CANCELLED` / `CAPTURE_TIMEOUT` | 如需截图，重新发起并在系统提示中授权 |
 | `BUSY` | 等当前截图或取消后的服务清理结束，再重新发起；每次仍需系统授权 |

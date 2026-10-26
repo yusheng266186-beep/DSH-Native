@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.37.1**; source: **0.37.1**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.37.1**; source: **0.37.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -31,6 +31,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.37.0 adds an actual Android tool and dsh-android CLI for clipboard text, notifications, share sheets, opening links/files/apps, keepalive status and a one-shot screenshot with fresh system consent. Restart the core after installing. See the [native capability guide](docs/ANDROID_BRIDGE.md) (Chinese).
 
 0.37.1 isolates late capture consent callbacks, returns images after service resource cleanup, and removes completed timers. It also handles rotation, allocation failure and truncated frames. Install over the existing App and restart the core; existing native tools remain available.
+
+0.37.2 rechecks the project and window before opening a prepared file. Native actions now report system denial, missing activity handlers, unavailable notification channels and UI timeouts explicitly. Cancellation and service shutdown remove queued actions, including capture authorization startup races. Install over the existing App and restart the core.
 
 <!-- project-navigation:start -->
 ## Project overview
