@@ -28,6 +28,7 @@ for file in codebuddy-cli.cjs unpack.js codebuddy-sdk.tar.zst codebuddy-sdk-mani
     cp "$BUILD/bootstrap/payload/$file" "$BUILD/codebuddy-check/$file"
 done
 node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/codebuddy-check"
+node "$ROOT/tests/js/codebuddy-cache-consumer.mjs" "$BUILD/codebuddy-check"
 DSH_BUILD_DIR="$BUILD" DSH_AAPT2_LIB="$BT/lib64" \
     bash "$ROOT/scripts/build_bootstrap.sh"
 APK="$BUILD/bootstrap/DSHNative-bootstrap.apk"

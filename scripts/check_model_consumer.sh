@@ -100,6 +100,7 @@ npm ci --prefix "$ROOT/tests/js" --no-audit --no-fund
 node "$ROOT/tests/js/android-voice-simulation.mjs"
 node "$ROOT/tests/js/composer-effort-consumer.mjs" "$PROBE/runtime" "$PROBE/client.js" "$PROBE/catalog.json"
 node --expose-internals "$ROOT/tests/js/core-runtime-consumer.mjs" "$PROBE/runtime"
+node --expose-internals "$ROOT/tests/js/cache-meter-consumer.mjs" "$PROBE/runtime"
 java -cp "$PROBE/classes" dev.dsh.nativeapp.StartupStateTest --dump-script > "$PROBE/startup.js"
 node --expose-internals "$ROOT/tests/js/startup-consumer.mjs" "$PROBE/runtime" "$PROBE/startup.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest --dump-html \

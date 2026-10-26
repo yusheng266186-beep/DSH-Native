@@ -14,7 +14,7 @@ import android.widget.TextView;
 /** A small themed loading motion; never signals readiness on its own. */
 final class StartupView extends FrameLayout {
     private final TextView status;
-    private final Dots dots;
+    private final Whale whale;
     private final Activity activity;
     private final Runnable completed;
     private boolean ready, paused, done, motion;
@@ -27,9 +27,9 @@ final class StartupView extends FrameLayout {
                 finish(); return;
             }
             previous = now;
-            dots.phase = motion ? (now - started) % StartupState.CYCLE_MS
+            whale.phase = motion ? (now - started) % StartupState.CYCLE_MS
                     / (float) StartupState.CYCLE_MS : 0f;
-            dots.invalidate();
+            whale.invalidate();
             if (motion) postOnAnimation(this);
         }
     };
@@ -46,8 +46,8 @@ final class StartupView extends FrameLayout {
         column.setGravity(Gravity.CENTER_HORIZONTAL);
         column.setPadding(DshUi.dp(activity, 24), DshUi.dp(activity, 16),
                 DshUi.dp(activity, 24), DshUi.dp(activity, 16));
-        dots = new Dots(activity);
-        column.addView(dots, new LinearLayout.LayoutParams(DshUi.dp(activity, 72), DshUi.dp(activity, 28)));
+        whale = new Whale(activity);
+        column.addView(whale, new LinearLayout.LayoutParams(DshUi.dp(activity, 104), DshUi.dp(activity, 84)));
         status = DshUi.hint(activity, UiText.t("正在准备 DSH…", "Preparing DSH…"));
         status.setTextSize(14f);
         status.setTextColor(DshUi.TEXT_2());
@@ -104,22 +104,38 @@ final class StartupView extends FrameLayout {
         removeCallbacks(frame); super.onDetachedFromWindow();
     }
 
-    private static final class Dots extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** Brand whale swimming above a quiet wake; never flashes or changes opacity. */
+    private static final class Whale extends View {
+        private final android.graphics.drawable.Drawable mark;
+        private final Paint water = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bubbles = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path wake = new android.graphics.Path();
         float phase;
-        Dots(Activity activity) {
-            super(activity); paint.setColor(DshUi.ACCENT());
+        Whale(Activity activity) {
+            super(activity);
+            int id = activity.getResources().getIdentifier("dsh_startup_whale", "drawable", activity.getPackageName());
+            mark = activity.getDrawable(id).mutate();
+            mark.setTint(DshUi.BRAND()); mark.setBounds(8, -5, 96, 83);
+            water.setColor(DshUi.BRAND()); water.setAlpha(65);
+            water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(1.4f); water.setStrokeCap(Paint.Cap.ROUND);
+            bubbles.setColor(DshUi.BRAND()); bubbles.setAlpha(100);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float density = getResources().getDisplayMetrics().density;
-            for (int i = 0; i < 3; i++) {
-                double local = (phase - i * .13f + 1f) % 1f;
-                float lift = local < .55 ? (float) Math.sin(local / .55 * Math.PI) * 6f : 0f;
-                canvas.drawCircle(getWidth() / 2f + (i - 1) * 16f * density,
-                        getHeight() / 2f - lift * density, 3f * density, paint);
-            }
+            float unit = Math.min(getWidth() / 104f, getHeight() / 84f);
+            float swim = (float) Math.sin(phase * 2 * Math.PI);
+            canvas.save();
+            canvas.translate((getWidth() - 104f * unit) / 2f, (getHeight() - 84f * unit) / 2f);
+            canvas.scale(unit, unit);
+            wake.reset(); wake.moveTo(23, 77);
+            wake.cubicTo(35, 75 + swim, 47, 79 - swim, 59, 77);
+            wake.moveTo(66, 77); wake.cubicTo(71, 76 - swim, 77, 78 + swim, 82, 77);
+            canvas.drawPath(wake, water);
+            canvas.drawCircle(97, 21 - 1.5f * swim, 1.3f, bubbles);
+            canvas.drawCircle(100, 30 + 1.5f * swim, .9f, bubbles);
+            canvas.save(); canvas.translate(0, -2f * swim); canvas.rotate(-2.4f * swim, 52, 42);
+            mark.draw(canvas); canvas.restore(); canvas.restore();
         }
     }
 }
