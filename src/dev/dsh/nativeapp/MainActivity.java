@@ -297,6 +297,10 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    if (m.startsWith(StartupState.PAINTED)) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())) onStartupPainted(m);
+                        return true;
+                    }
                     if (SessionRecovery.isFailure(m)) {
                         onSessionRecoveryFailure(m);
                         return true;
@@ -516,6 +520,11 @@ public class MainActivity extends Activity {
              */
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                startupState.navigate();
+                if (splashView != null) splashView.ready(false);
+                if (!splashHidden && WebUrl.isCoreUrl(url, savedDshPort())) {
+                    armStartupTimeout();
+                }
                 if (webSettings != null) { webSettings.close(); webSettings = null; }
                 webSettingsRequests.clear();
                 if (nativeVoice != null) nativeVoice.cancel();
@@ -566,6 +575,7 @@ public class MainActivity extends Activity {
                 if (!WebUrl.isCoreUrl(url, savedDshPort())) {
                     return;
                 }
+                view.evaluateJavascript(StartupState.script(startupState.generation()), null);
                 // 注入必须**每次页面加载都做**，不能只做一次。
                 //
                 // 之前这里是 `if (dshPageLoaded) return;`。而 reload（断连自动刷新、
@@ -615,39 +625,8 @@ public class MainActivity extends Activity {
                     return;
                 }
                 dshPageLoaded = true;
-                log("DSH 界面已加载，收起开屏");
-                final String act = pendingAction;
-                pendingAction = "";
-                final boolean resumeOnboarding = shouldResumeModelOnboarding();
-                if (pendingOpenSettings || act.length() > 0 || resumeOnboarding) {
-                    pendingOpenSettings = false;
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(new Runnable() {
-                        @Override public void run() {
-                            if ("log".equals(act)) {
-                                showLog();
-                            } else if ("onboarding".equals(act) || resumeOnboarding) {
-                                showModelOnboarding();
-                            } else {
-                                showSettings();
-                                if ("update".equals(act)) checkAppUpdate(true, null);
-                            }
-                        }
-                    }, 600);
-                }
-                // 启动后静默检查一次更新：用户不必手动点，
-                // 日志里也总能留下一条可核对的结果。
-                new Thread(new Runnable() {
-                    @Override public void run() {
-                        try { Thread.sleep(3000); } catch (InterruptedException ignored) { }
-                        autoCheckUpdate();
-                    }
-                }).start();
-                // 稍等片刻再淡出：单页应用 onload 后还需一点时间渲染
-                new android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed(new Runnable() {
-                    @Override public void run() { hideSplash(); }
-                }, 250);
+                log("DSH 文档已加载，等待界面绘制与内核握手");
+
             }
 
             @Override
@@ -657,7 +636,9 @@ public class MainActivity extends Activity {
                 statusPageLoading = false;
                 showStatus("界面加载失败",
                         "错误 " + errorCode + "：" + WebUrl.escapeHtml(description)
-                                + "<br>地址 " + WebUrl.escapeHtml(briefUrl(failingUrl)));
+                                + "<br>地址 " + WebUrl.escapeHtml(briefUrl(failingUrl))
+                                + "<br><br><a href=\"dsh-retry://boot\">重试启动</a>");
+                hideSplash();
             }
         });
         root.addView(webView, new android.widget.FrameLayout.LayoutParams(
@@ -682,8 +663,7 @@ public class MainActivity extends Activity {
         progressLp.topMargin = statusBarHeight();   // 状态栏透明，内容延伸上去
         root.addView(topProgress, progressLp);
 
-        // 开屏页盖在最上层：启动期间用户看到的是鲸鱼动画与友好文案，
-        // 而不是滚动的日志行。加载完成后淡出。
+        // 开屏只展示轻量三点动画；真实界面和连接均就绪后在当前周期末交接。
         splashView = buildSplash();
         root.addView(splashView, new android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -940,29 +920,12 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /**
-     * 启动失败的统一出口。
-     *
-     * <p>为什么必须"统一"：失败原来有两条路径，而只有"抛异常"那条挂了 UI。
-     * 另一条（例如 Node 自检返回 false）是静默 return —— 开屏既不收起、
-     * 也不可点（{@code box.setClickable(false)}），用户看到的是**永久白屏**，
-     * 连"点一下看日志"都没有。而这个自检恰恰是整个架构成立的前提。
-     */
+    /** Every preparation failure, including early returns, exposes retry and logs immediately. */
     private void showBootFailure(final String reason) {
         log("启动未完成: " + reason);
         try {
             final boolean payloadFailure = isPayloadFailure(reason);
-            String shown = reason == null ? "未知原因" : reason;
-            if (shown.length() > 220) shown = shown.substring(0, 220) + "…";
-            setSplashStatus((payloadFailure ? "运行包准备失败：" : "启动未完成：")
-                    + shown + "\n（点按此处查看日志）");
-            if (splashView != null) {
-                splashView.setOnClickListener(new android.view.View.OnClickListener() {
-                    @Override public void onClick(android.view.View v) { hideSplash(); }
-                });
-            }
-            // 开屏下方铺一张说明页：即便开屏因为任何原因没收起，
-            // 用户点一下也能看到完整原因与出路
+            // Show the reason and recovery actions as soon as preparation fails.
             String safeReason = htmlEscape(reason == null ? "未知原因" : reason);
             String actions;
             if (payloadFailure) {
@@ -980,11 +943,8 @@ public class MainActivity extends Activity {
             }
             showStatus(payloadFailure ? "运行包准备失败" : "启动未完成",
                     "<code>" + safeReason + "</code><br><br>" + actions);
-            // 8 秒后自动收起开屏，露出说明页 —— 不该让用户去猜"要点一下"
-            new android.os.Handler(android.os.Looper.getMainLooper())
-                    .postDelayed(new Runnable() {
-                @Override public void run() { hideSplash(); }
-            }, 8000);
+            // 失败立即交给可操作的说明页，不能继续假装在加载。
+            hideSplash();
         } catch (Throwable t) {
             log("显示启动失败信息时出错: " + t);
         }
@@ -1042,9 +1002,15 @@ public class MainActivity extends Activity {
 
         startHarnessService();
 
+        // Reopening the Activity must not traverse and rewrite the runtime before
+        // checking a core which this exact version has already prepared.
+        File dshDir = new File(root, "dsh");
+        File toolsDir = new File(root, "tools");
+        File node = new File(root, "node");
+        if (reusePreparedCore(root, dshDir, toolsDir, node)) return null;
+
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
-        File node = new File(root, "node");
         chmod(node, "755");
 
         // 前置自检：先确认能否执行自带的 Node。
@@ -1060,8 +1026,6 @@ public class MainActivity extends Activity {
         log("Node 就绪: " + runCapture(node, new String[]{"--version"}));
 
         // 2. 下载并解压运行包（首次启动）
-        File dshDir = new File(root, "dsh");
-        File toolsDir = new File(root, "tools");
 
         // 增量更新：清单 + 哨兵校验，只下载缺失或变化的分片。
         // 不再用"整体版本号"判断 —— 那会导致改一个小工具也要重下整个包。
@@ -1080,7 +1044,7 @@ public class MainActivity extends Activity {
             setSplashStatus("正在使用已恢复的运行环境…");
         } else if (locallyComplete && !updatePending) {
             log("本地运行包完整，直接启动（更新检查移至后台）");
-            checkPayloadInBackground(node, root, dshDir, toolsDir);
+            payloadCheckAfterStartup = true;
             setSplashStatus("正在准备运行环境…");
         } else {
             if (updatePending) log("上次检查到运行包有更新，本次启动应用");
@@ -1109,9 +1073,11 @@ public class MainActivity extends Activity {
 
 
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
+        long preparationStarted = android.os.SystemClock.elapsedRealtime();
         int toolsRepaired = ToolEnvironment.repair(root);
         log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
         applyAndroidPatches(root, dshDir);
+        log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
         // 记录给插件管理用（安装时需要 node 与 npm 的路径）
@@ -1132,6 +1098,7 @@ public class MainActivity extends Activity {
         if (envKey.equals(lastPreflightKey())) {
             log("运行环境自检已通过过（环境未变），跳过以加快启动");
         } else {
+            setSplashStatus(UiText.t("正在检查运行环境…", "Checking the runtime…"));
             if (runPreflight(node, root, toolsDir)) rememberPreflightKey(envKey);
             else log("运行环境仍有未通过项，下次启动会重新检查");
         }
@@ -1215,6 +1182,9 @@ public class MainActivity extends Activity {
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
         pb.environment().put("DSH_NATIVE_APP_ROOT", root.getAbsolutePath());
+        // V8 validates cache contents against the actual module source and Node version.
+        // This is disposable private code cache, never a replacement for payload validation.
+        pb.environment().put("NODE_COMPILE_CACHE", new File(getCacheDir(), "dsh-core-compile").getAbsolutePath());
         pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
         pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
         pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
@@ -1273,11 +1243,6 @@ public class MainActivity extends Activity {
 
         // 5. 等待服务就绪后加载界面
         String url = waitForServer(expectedModelSettings);
-        // 兜底：45 秒后无论如何都收起开屏，避免任何情况下界面被永久挡住
-        new android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed(new Runnable() {
-            @Override public void run() { hideSplash(); }
-        }, 45000);
         if (url == null) {
             // 没抓到带 token 的地址，但端口若已响应仍尝试加载（会看到 401 页而非空白）
             if (!needsLegacyImport && probeHttp(chosenPort) > 0) {
@@ -1286,6 +1251,8 @@ public class MainActivity extends Activity {
             }
         }
         if (url != null) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString("corePreparedKey", preparedRuntimeKey(root)).apply();
             loadDshUi(url);
             return null;
         }
@@ -1309,6 +1276,95 @@ public class MainActivity extends Activity {
         return String.format(java.util.Locale.ROOT, "%.0f MiB", bytes / 1048576.0d);
     }
 
+    private boolean payloadCheckAfterStartup;
+    private boolean preparedCoreReused;
+
+    private String preparedRuntimeKey(File root) {
+        StringBuilder key = new StringBuilder(StartupReuse.key(appVersion(), payloadRevisionKey(),
+                (workspace != null ? workspace : root).getAbsolutePath()));
+        // Preserve the existing import behavior when an external credentials file changes.
+        for (String path : new String[]{"/sdcard/DSHNative/credentials.yaml", "/sdcard/DSHNative/.credentials.yaml",
+                "/sdcard/Download/DSHNative/credentials.yaml", "/storage/emulated/0/DSHNative/credentials.yaml"}) {
+            File input = new File(path);
+            key.append('\n').append(input.length()).append(':').append(input.lastModified());
+        }
+        return key.toString();
+    }
+
+    private boolean runtimeAssetsPresent(File root) throws IOException {
+        List<String> entries = new ArrayList<String>(); collect("payload", entries);
+        if (entries.isEmpty()) return false;
+        for (String entry : entries) {
+            File file = new File(root, entry.substring("payload/".length()));
+            if (!file.isFile() || file.length() <= 0L) return false;
+        }
+        for (String name : new String[]{"node", "npm", "npx", "dsh-android"}) {
+            if (!new File(root, ".native-bin/" + name).isFile()) return false;
+        }
+        return new File(root, "tmp").isDirectory();
+    }
+
+    /** A failed proof/probe always falls through to the complete preparation path. */
+    private boolean reusePreparedCore(File root, File dshDir, File toolsDir, File node) {
+        try {
+            android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            if (!new File(root, ".assets-version").isFile()) return false;
+            String assets = readText(new File(root, ".assets-version")).trim();
+            if (!StartupReuse.eligible(preparedRuntimeKey(root), prefs.getString("corePreparedKey", ""),
+                    appVersion(), assets, payloadLocallyComplete(dshDir, toolsDir),
+                    payloadUpdatePending(), payloadRollbackHold()
+                            || validatePayloadManifest(new File(root, "manifest.json")) == null)
+                    || !runtimeAssetsPresent(root) || !appVersion().equals(prefs.getString("coreAppVersion", ""))
+                    || !(payloadRevisionKey() + "/" + appVersion() + "/"
+                            + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
+            int live = liveDshPort();
+            if (live <= 0) return false;
+            nodeRef = node; toolsDirRef = toolsDir; chosenPort = live;
+            registerNetworkWatcher();
+            preparedCoreReused = true; payloadCheckAfterStartup = true;
+            recordPatch("运行环境复用", true, "已完成本版准备；后台内核认证探测通过");
+            log("[启动] 快速复用已有内核 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
+            setSplashStatus(UiText.t("正在连接已有服务…", "Connecting to DSH…"));
+            loadDshUi("http://127.0.0.1:" + live + "/?token=" + savedDshToken());
+            return true;
+        } catch (Exception unavailable) {
+            log("快速复用未满足条件，执行完整准备: " + unavailable.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void finishStartupMaintenance() {
+        if (!payloadCheckAfterStartup || appRoot == null) return;
+        payloadCheckAfterStartup = false;
+        final File root = appRoot;
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (isFinishing() || isDestroyed()) return;
+                Thread worker = new Thread(new Runnable() {
+                    @Override public void run() {
+                        boolean locked = false;
+                        try {
+                            if (preparedCoreReused) {
+                                runtimeConfigLock.lockInterruptibly(); locked = true;
+                                if (isFinishing() || isDestroyed()) return;
+                                int repaired = ToolEnvironment.repair(root);
+                                log("后台工具环境复核完成，修复 " + repaired + " 项");
+                            }
+                        } catch (Exception error) {
+                            log("后台工具环境复核未完成: " + error.getClass().getSimpleName());
+                        } finally {
+                            if (locked) runtimeConfigLock.unlock();
+                            activityWorkers.finished(Thread.currentThread());
+                        }
+                        if (!isFinishing() && !isDestroyed()) checkPayloadInBackground(
+                                new File(root, "node"), root, new File(root, "dsh"), new File(root, "tools"));
+                    }
+                }, "startup-maintenance");
+                worker.setDaemon(true); activityWorkers.start(worker);
+            }
+        }, 1500L);
+    }
+
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
     private void loadDshUi(String url) {
         log("界面就绪: " + briefUrl(url));
@@ -1328,12 +1384,6 @@ public class MainActivity extends Activity {
                 // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
                 view.setInitialScale(0);
                 view.loadUrl(target);
-                // 复用已有实例时，开屏要在加载完成后收起；
-                // 这里先排一个兜底，避免任何情况下被永久挡住
-                new android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed(new Runnable() {
-                    @Override public void run() { hideSplash(); }
-                }, 8000);
             }
         });
     }
@@ -1397,8 +1447,7 @@ public class MainActivity extends Activity {
             // 带上 token 请求首页，拿到内容就说明可用。
             try {
                 String body = httpGetQuick("http://127.0.0.1:" + port + "/?token=" + token, 2500);
-                if (body != null && body.length() > 200
-                        && body.indexOf("authentication required") < 0) {
+                if (LocalServerProbe.isDshIndex(body)) {
                     return port;
                 }
             } catch (Throwable ignored) { }
@@ -1639,6 +1688,9 @@ public class MainActivity extends Activity {
     /** 合并页面探针与旧日志嗅探的连接状态，并同步任务中心与通知栏。 */
     private void onConnectionState(int state, String source) {
         try {
+            if (state != ConnectionRecovery.CONNECTED) {
+                startupState.connected(false); updateSplashReady();
+            }
             long now = System.currentTimeMillis();
             int previous = connectionState;
             if (ConnectionRecovery.isProblem(state)) {
@@ -1675,6 +1727,8 @@ public class MainActivity extends Activity {
                             + "（" + source + "）");
                 }
             }
+            startupState.connected(connectionState == ConnectionRecovery.CONNECTED);
+            updateSplashReady();
             pushStatus(lastSessionStatus);
         } catch (Throwable t) {
             log("处理连接状态失败: " + t);
@@ -1826,8 +1880,11 @@ public class MainActivity extends Activity {
     /** 轮询本地端口，从 stdout 抓取带 token 的地址。 */
     private String waitForServer(String expectedModelSettings) {
         final int MAX_SECONDS = 240;
-        showStatus("正在启动 DSH …", "首次启动需加载插件，通常 20–60 秒。");
-        for (int i = 0; i < MAX_SECONDS; i++) {
+        long started = android.os.SystemClock.elapsedRealtime();
+        long nextNotice = started + 20000L;
+        setSplashStatus(UiText.t("正在启动 DSH…", "Starting DSH…"));
+        while (android.os.SystemClock.elapsedRealtime() - started < MAX_SECONDS * 1000L) {
+            if (isFinishing() || isDestroyed()) return "启动已取消";
             String serviceUrl = HarnessService.managedUrl();
             if (serviceUrl != null) {
                 log("  已捕获服务地址，核对模型配置导入");
@@ -1837,30 +1894,28 @@ public class MainActivity extends Activity {
                         client = CoreRpcClient.fromLaunchUrl(serviceUrl);
                         CoreReadiness.awaitModelSettings(client, expectedModelSettings, 30000);
                     }
+                    log("[启动] 内核就绪 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
                     return serviceUrl;
                 } catch (Exception unavailable) {
                     log("模型配置导入未确认: " + unavailable.getClass().getSimpleName());
-                    showStatus("模型配置尚未就绪", "内核未在限定时间内采用模型配置，请查看运行日志后重试。");
                     return null;
                 } finally { if (client != null) client.close(); }
             }
-
             if (!HarnessService.isManagedProcessAlive()) {
                 log("错误: dsh web 进程已退出，且未打印服务地址");
-                showStatus("DSH 启动失败",
-                        "dsh 进程已退出。请查看上方日志面板中标有 <code>[dsh]</code> 的输出行。");
                 return null;
             }
-
-            int code = probeHttp(chosenPort);
-            if (code > 0 && i % 5 == 0) {
-                log("  端口已响应 (HTTP " + code + ")，等待打印地址 …");
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (now >= nextNotice) {
+                long seconds = (now - started) / 1000L;
+                setSplashStatus(UiText.t("正在启动 DSH，已等待 ", "Starting DSH, waiting ") + seconds
+                        + UiText.t(" 秒…", " seconds…"));
+                nextNotice = now + 20000L;
             }
-            if (i > 0 && i % 20 == 0) {
-                showStatus("正在启动 DSH …", "已等待 " + i + " 秒。若超过 2 分钟仍无响应，"
-                        + "请查看上方日志面板。");
-            }
-            try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+            // Read the supervisor's URL directly. No blocking HTTP request and
+            // no repeated status-document navigations compete with startup.
+            try { Thread.sleep(100L); }
+            catch (InterruptedException cancelled) { Thread.currentThread().interrupt(); return "启动已取消"; }
         }
         log("警告: 等待服务超时（" + MAX_SECONDS + " 秒）");
         showStatus("启动超时", "已等待 " + MAX_SECONDS + " 秒仍未拿到服务地址，请查看上方日志。");
@@ -1921,10 +1976,10 @@ public class MainActivity extends Activity {
     private volatile File workspace;
     /** 所有命名项目的共同根目录；默认工作区就是该目录本身。 */
     private volatile File workspaceRoot;
-    private android.view.View splashView;
-    private android.widget.ImageView splashLogo;
-    private android.animation.ObjectAnimator splashAnimator;
-    private android.widget.TextView splashStatus;
+    private StartupView splashView;
+    private final StartupState startupState = new StartupState();
+    private volatile long launchStartedAt = android.os.SystemClock.elapsedRealtime();
+    private Runnable startupTimeout;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
     /** 当前页面未找到 WebUI 入口锚点时，只提示一次备用手势。 */
@@ -3277,19 +3332,33 @@ public class MainActivity extends Activity {
      * <p>App 无法替 DSH 重发那个请求（那在它的进程里），但可以做两件事：
      * 现在只记日志。曾经在这里做过「提示 + 一键重连」，见 onNetworkChanged 的说明。
      */
-    private void registerNetworkWatcher() {
+    private synchronized void registerNetworkWatcher() {
+        if (activityDisposing || networkCallback != null) return;
         try {
             final android.net.ConnectivityManager cm =
                     (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             if (cm == null || android.os.Build.VERSION.SDK_INT < 24) return;
-            cm.registerDefaultNetworkCallback(new android.net.ConnectivityManager.NetworkCallback() {
+            android.net.ConnectivityManager.NetworkCallback callback = new android.net.ConnectivityManager.NetworkCallback() {
                 @Override public void onAvailable(android.net.Network n) { onNetworkChanged(); }
                 @Override public void onLost(android.net.Network n) { onNetworkChanged(); }
-            });
+            };
+            cm.registerDefaultNetworkCallback(callback);
+            networkManager = cm; networkCallback = callback;
             log("已监听网络变化（仅记录，用于排查「对话没反应」）");
         } catch (Throwable t) {
             log("网络变化监听注册失败（不影响使用）: " + t);
         }
+    }
+
+    private android.net.ConnectivityManager networkManager;
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
+    private volatile boolean activityDisposing;
+
+    private synchronized void unregisterNetworkWatcher() {
+        if (networkManager == null || networkCallback == null) return;
+        try { networkManager.unregisterNetworkCallback(networkCallback); }
+        catch (Exception unavailable) { log("网络监听清理: " + unavailable.getClass().getSimpleName()); }
+        networkCallback = null; networkManager = null;
     }
 
     /**
@@ -6109,15 +6178,13 @@ public class MainActivity extends Activity {
                 .remove("dshPort").remove("dshToken").apply();
         dshPageLoaded = false;
         splashHidden = false;
+        launchStartedAt = android.os.SystemClock.elapsedRealtime();
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 if (splashView != null) {
-                    splashView.clearAnimation();
-                    splashView.setAlpha(1f);
-                    splashView.setVisibility(android.view.View.VISIBLE);
+                    splashView.begin(progressMessage);
                 }
-                if (splashStatus != null) splashStatus.setText(progressMessage);
-                startSplashAnimation();
+                startupState.navigate();
             }
         });
         bootInBackground("重启");
@@ -6455,158 +6522,113 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- 开屏
-    /**
-     * 构建开屏页：鲸鱼标志（呼吸动画）+ 转圈 + 一行友好文案。
-     *
-     * <p>之前启动期间用户看到的是滚动的日志行，既不好看也不友好。
-     * 现在改为纯粹的视觉反馈；详细日志仍在后台写文件。
-     * 若启动失败，点一下开屏页即可收起，露出下方的详细错误页。
-     */
-    private android.view.View buildSplash() {
-        float d = getResources().getDisplayMetrics().density;
-
-        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
-        // 开屏页铺满整屏，用页面底色而不是写死的白 —— 深色下白屏一闪很刺眼。
-        box.setBackgroundColor(DshUi.BG());
-
-        android.widget.LinearLayout col = new android.widget.LinearLayout(this);
-        col.setOrientation(android.widget.LinearLayout.VERTICAL);
-        col.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-
-        // 鲸鱼标志
-        android.widget.ImageView logo = new android.widget.ImageView(this);
-        splashLogo = logo;
-        int id = getResources().getIdentifier(
-                "ic_launcher_foreground", "mipmap", getPackageName());
-        if (id > 0) logo.setImageResource(id);
-        // 鲸鱼是纯装饰：让读屏跳过它，而不是念出一个无意义的图标名
-        logo.setImportantForAccessibility(
-                android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        int boxSize = (int) (196 * d);          // 前景里鲸鱼约占 58%，故视图取得大些
-        col.addView(logo, new android.widget.LinearLayout.LayoutParams(boxSize, boxSize));
-
-        // 转圈
-        android.widget.ProgressBar spin = new android.widget.ProgressBar(this);
-        try {
-            spin.getIndeterminateDrawable().setColorFilter(
-                    DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
-        } catch (Throwable ignored) { }
-        android.widget.LinearLayout.LayoutParams slp =
-                new android.widget.LinearLayout.LayoutParams(
-                        (int) (30 * d), (int) (30 * d));
-        slp.topMargin = (int) (26 * d);
-        col.addView(spin, slp);
-
-        // 文案
-        splashStatus = new android.widget.TextView(this);
-        splashStatus.setText("正在启动 DeepSeek Harness");
-        splashStatus.setTextColor(DshUi.TEXT_2());
-        splashStatus.setTextSize(13.5f);
-        // 启动进度对读屏用户必须能听到（"正在下载运行包 40%"这类变化），
-        // 否则整个启动过程对他们是一片沉默。
-        splashStatus.setAccessibilityLiveRegion(
-                android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        android.widget.LinearLayout.LayoutParams tlp =
-                new android.widget.LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = (int) (18 * d);
-        col.addView(splashStatus, tlp);
-
-        android.widget.FrameLayout.LayoutParams clp =
-                new android.widget.FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT);
-        clp.gravity = android.view.Gravity.CENTER;
-        box.addView(col, clp);
-
-        // 默认不接收点击：正常启动时应由 onPageFinished 自动收起。
-        // 只有启动失败时才挂上"点击查看日志"（见 boot 的 catch）。
-        box.setClickable(false);
-        startSplashAnimation();
-        return box;
-    }
-
-    /** 启动开屏呼吸动画；系统关闭动画时保持静态。 */
-    private void startSplashAnimation() {
-        stopSplashAnimation();
-        if (splashLogo == null || !DshUi.animationsEnabled(this)) return;
-        try {
-            android.animation.PropertyValuesHolder a =
-                    android.animation.PropertyValuesHolder.ofFloat("alpha", 0.45f, 1f);
-            android.animation.PropertyValuesHolder sx =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleX", 0.93f, 1f);
-            android.animation.PropertyValuesHolder sy =
-                    android.animation.PropertyValuesHolder.ofFloat("scaleY", 0.93f, 1f);
-            splashAnimator = android.animation.ObjectAnimator.ofPropertyValuesHolder(
-                    splashLogo, a, sx, sy);
-            splashAnimator.setDuration(1150);
-            splashAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            splashAnimator.setRepeatMode(android.animation.ValueAnimator.REVERSE);
-            splashAnimator.start();
-        } catch (Throwable ignored) {
-            splashAnimator = null;
-        }
-    }
-
-    /** 取消无限动画并复位，避免开屏隐藏后继续消耗 CPU/GPU。 */
-    private void stopSplashAnimation() {
-        try {
-            if (splashAnimator != null) splashAnimator.cancel();
-        } catch (Throwable ignored) { }
-        splashAnimator = null;
-        try {
-            if (splashLogo != null) {
-                splashLogo.setAlpha(1f);
-                splashLogo.setScaleX(1f);
-                splashLogo.setScaleY(1f);
-            }
-        } catch (Throwable ignored) { }
-    }
-
-    /** 更新开屏文案（友好措辞，不暴露日志）。 */
-    private void setSplashStatus(final String text) {
-        if (splashStatus == null || splashHidden) return;
-        runOnUiThread(new Runnable() {
+    private StartupView buildSplash() {
+        return DshUi.startup(this, new Runnable() {
             @Override public void run() {
-                if (splashStatus != null && !splashHidden) splashStatus.setText(text);
+                splashHidden = true;
+                cancelStartupTimeout();
+                log("[启动] 交接完成 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
+                finishStartupMaintenance();
+                dispatchStartupActions();
             }
         });
     }
 
-    /** 淡出并移除开屏。 */
-    private void hideSplash() {
-        if (splashView == null || splashHidden) return;
-        splashHidden = true;
+    private void dispatchStartupActions() {
+        final String act = pendingAction;
+        pendingAction = "";
+        final boolean resumeOnboarding = shouldResumeModelOnboarding();
+        if (pendingOpenSettings || act.length() > 0 || resumeOnboarding) {
+            pendingOpenSettings = false;
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                    .postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (isFinishing() || isDestroyed()) return;
+                    if ("log".equals(act)) {
+                        showLog();
+                    } else if ("onboarding".equals(act) || resumeOnboarding) {
+                        showModelOnboarding();
+                    } else {
+                        showSettings();
+                        if ("update".equals(act)) checkAppUpdate(true, null);
+                    }
+                }
+            }, 600);
+        }
+        // 启动后静默检查一次更新：用户不必手动点，
+        // 日志里也总能留下一条可核对的结果。
+        Thread worker = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    Thread.sleep(3000L);
+                    if (!isFinishing() && !isDestroyed()) autoCheckUpdate();
+                } catch (InterruptedException cancelled) {
+                    Thread.currentThread().interrupt();
+                } finally { activityWorkers.finished(Thread.currentThread()); }
+            }
+        }, "startup-app-update");
+        worker.setDaemon(true); activityWorkers.start(worker);
+    }
+
+    /** Wait for both rendered shell and the core's connection handshake. */
+    private void onStartupPainted(String message) {
+        final long generation;
+        try { generation = Long.parseLong(message.substring(StartupState.PAINTED.length())); }
+        catch (NumberFormatException invalid) { return; }
+        final WebView view = webView;
+        if (view == null || generation != startupState.generation()) return;
+        view.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
+            @Override public void onComplete(long requestId) {
+                if (isFinishing() || isDestroyed() || webView != view
+                        || !startupState.painted(requestId)) return;
+                updateSplashReady();
+            }
+        });
+    }
+
+    private void updateSplashReady() {
+        if (splashView != null && !splashHidden) splashView.ready(startupState.ready());
+    }
+
+    private void cancelStartupTimeout() {
+        if (startupTimeout != null && webView != null) webView.removeCallbacks(startupTimeout);
+        startupTimeout = null;
+    }
+
+    /** Background WebViews pause paint callbacks; only time a visible launch. */
+    private void armStartupTimeout() {
+        cancelStartupTimeout();
+        final WebView view = webView;
+        if (view == null || splashHidden || !inForeground) return;
+        final long generation = startupState.generation();
+        startupTimeout = new Runnable() {
+            @Override public void run() {
+                startupTimeout = null;
+                if (isFinishing() || isDestroyed() || webView != view || splashHidden || !inForeground
+                        || generation != startupState.generation() || startupState.ready()) return;
+                showBootFailure(UiText.t("界面连接或绘制未在 30 秒内完成，请重试或查看日志",
+                        "The interface did not connect and render within 30 seconds. Retry or view the logs."));
+            }
+        };
+        view.postDelayed(startupTimeout, 30000L);
+    }
+
+    /** Status changes never restart the motion or extend its current cycle. */
+    private void setSplashStatus(final String text) {
         runOnUiThread(new Runnable() {
             @Override public void run() {
-                final android.view.View sv = splashView;
-                if (sv == null) return;
-                stopSplashAnimation();
-                // 立即停止接收触摸：即使动画因故未结束，也不会再挡住界面
-                sv.setClickable(false);
-                sv.setFocusable(false);
-                if (!DshUi.animationsEnabled(MainActivity.this)) {
-                    sv.clearAnimation();
-                    sv.setVisibility(android.view.View.GONE);
-                    return;
-                }
-                try {
-                    android.view.animation.AlphaAnimation fade =
-                            new android.view.animation.AlphaAnimation(1f, 0f);
-                    fade.setDuration(400);
-                    fade.setFillAfter(true);
-                    sv.startAnimation(fade);
-                } catch (Throwable ignored) { }
-                // 兜底：无论动画是否回调，都在 500ms 后强制移除。
-                // （此前只依赖 onAnimationEnd，一旦未触发就留下一个透明但吃触摸的全屏视图）
-                new android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed(new Runnable() {
-                    @Override public void run() {
-                        try { sv.clearAnimation(); sv.setVisibility(android.view.View.GONE); }
-                        catch (Throwable ignored) { }
-                    }
-                }, 500);
+                if (splashView != null && !splashHidden) splashView.status(text);
+            }
+        });
+    }
+
+    /** Error pages bypass motion so retry and logs are immediately usable. */
+    private void hideSplash() {
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                splashHidden = true;
+                cancelStartupTimeout();
+                if (splashView != null) splashView.dismiss();
             }
         });
     }
@@ -7468,6 +7490,7 @@ public class MainActivity extends Activity {
         String haveVer = verFile.exists() ? readText(verFile).trim() : "";
         final boolean refresh = !curVer.equals(haveVer);
         if (refresh) {
+            setSplashStatus(UiText.t("正在准备新版组件…", "Preparing updated components…"));
             log("APK 内置脚本需更新（" + (haveVer.length() == 0 ? "首次" : haveVer)
                     + " → " + curVer + "），重新解压");
         }
@@ -7600,10 +7623,11 @@ public class MainActivity extends Activity {
         statusPageLoading = true;
         final String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>"
                 + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-                + "<style>body{margin:0;padding:22px;background:#0b0e14;color:#e6e6e6;"
+                + "<style>body{margin:0;padding:22px;background:" + htmlColor(DshUi.BG()) + ";color:" + htmlColor(DshUi.TEXT()) + ";"
                 + "font:15px/1.7 -apple-system,system-ui,sans-serif}"
-                + "h1{font-size:18px;margin:0 0 10px}p{color:#8b949e;font-size:13px;margin:0 0 6px}"
-                + "code{background:#161b22;padding:2px 6px;border-radius:4px;font-size:12px}</style>"
+                + "h1{font-size:18px;margin:0 0 10px}p{color:" + htmlColor(DshUi.TEXT_2()) + ";font-size:13px;margin:0 0 6px;overflow-wrap:anywhere}"
+                + "a{color:" + htmlColor(DshUi.ACCENT()) + ";display:inline-block;padding:8px 0;min-height:32px}"
+                + "code{padding:2px 6px;border-radius:4px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}</style>"
                 + "</head><body><h1>" + title + "</h1><p>" + detail + "</p></body></html>";
         runOnUiThread(new Runnable() {
             @Override public void run() {
@@ -7612,6 +7636,10 @@ public class MainActivity extends Activity {
                 view.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
             }
         });
+    }
+
+    private static String htmlColor(int color) {
+        return String.format(java.util.Locale.ROOT, "#%06x", color & 0xffffff);
     }
 
     /**
@@ -7784,7 +7812,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.40.0\n");
+            w.write("APK 版本: 0.40.1\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -7977,6 +8005,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
+        if (splashView != null) splashView.resume();
+        if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
         try {
@@ -7987,6 +8017,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         inForeground = false;
+        cancelStartupTimeout();
+        if (splashView != null) {
+            if (!splashHidden) { startupState.connected(false); splashView.ready(false); }
+            splashView.pause();
+        }
         if (nativeVoice != null) nativeVoice.pause();
         super.onPause();
     }
@@ -8444,10 +8479,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        activityDisposing = true;
+        unregisterNetworkWatcher();
         if (webSettings != null) { webSettings.close(); webSettings = null; }
         NativeBridge.detach(this);
         if (nativeVoice != null) nativeVoice.dispose();
-        stopSplashAnimation();
+        cancelStartupTimeout();
+        if (splashView != null) splashView.dismiss();
         android.app.Dialog exiting = exitDialog;
         exitDialog = null;
         if (exiting != null) {

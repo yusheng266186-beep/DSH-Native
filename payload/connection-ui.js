@@ -10,9 +10,10 @@ function androidConnection(ctx, handle) {
             const mark = {connected:'open', connecting:'connecting', disconnected:'close'}[state];
             if (mark) console.log('[dsh-conn] ' + mark);
         };
-        const check = () => {
+        const check = (event) => {
             clearTimeout(timer);
             if (document.visibilityState === 'hidden') return;
+            if (event?.type === 'dsh-native-resume') report();
             timer = setTimeout(() => {
                 if (disposed || document.visibilityState === 'hidden') return;
                 const state = handle.state.getSnapshot(), now = Date.now();

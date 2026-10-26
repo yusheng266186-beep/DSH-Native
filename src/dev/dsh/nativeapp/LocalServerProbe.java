@@ -9,6 +9,11 @@ import java.net.URL;
 final class LocalServerProbe {
     private LocalServerProbe() { }
 
+    static boolean isDshIndex(String body) {
+        return body != null && body.contains("<title>DeepSeek Harness</title>")
+                && body.contains("id=\"root\"") && body.contains("type=\"module\"");
+    }
+
     static String readAuthenticatedIndex(String address, int timeoutMs) {
         HttpURLConnection connection = null;
         InputStream input = null;

@@ -43,7 +43,10 @@ public class LocalServerProbeTest {
             check(LocalServerProbe.readAuthenticatedIndex(origin + "/foreign", 1000) == null && externalCalls.get() == 0);
             check(LocalServerProbe.readAuthenticatedIndex(origin + "/loop", 1000) == null);
             check(LocalServerProbe.readAuthenticatedIndex("http://example.invalid/", 1000) == null);
-            System.out.println("TOTAL: 5 pass / 0 fail");
+            check(LocalServerProbe.isDshIndex("<title>DeepSeek Harness</title><script type=\"module\"></script><div id=\"root\"></div>"));
+            check(!LocalServerProbe.isDshIndex("<html>Other service on an old port</html>"));
+            check(!LocalServerProbe.isDshIndex("<title>DeepSeek Harness</title>authentication required"));
+            System.out.println("TOTAL: 8 pass / 0 fail");
         } finally { server.stop(0); }
     }
     static void send(HttpExchange exchange, int code, String body) throws java.io.IOException {
