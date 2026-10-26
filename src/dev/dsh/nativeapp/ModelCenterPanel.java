@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 模型中心、服务商检测、项目覆盖和首次账号配置。 */
 final class ModelCenterPanel {
@@ -301,9 +302,15 @@ final class ModelCenterPanel {
                     ? UiText.t("保存并完成", "Save and finish") : UiText.t("保存", "Save"), true);
             final Dialog dialog = DshUi.dialog(act, DshUi.scroll(act, body),
                     DshUi.footer(act, back, save), 760);
+            dialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+                @Override public void onDismiss(android.content.DialogInterface ignored) {
+                    if (draft.pendingCheck != null) draft.pendingCheck.set(false);
+                }
+            });
 
             final Runnable invalidateCheck = new Runnable() {
                 @Override public void run() {
+                    if (draft.pendingCheck != null) draft.pendingCheck.set(false);
                     draft.checkRevision++;
                     DshUi.setBusy(check,
                             UiText.t("检测连接与模型", "Check connection and model"),
@@ -749,7 +756,9 @@ final class ModelCenterPanel {
                 UiText.t("正在检测…", "Checking…"), true);
         status.setText(UiText.t("正在连接服务商…", "Connecting to provider…"));
         status.setTextColor(DshUi.TEXT_2());
-        requestCatalog(act, host.coreApi(), provider, key, selectedModel, new CatalogCallback() {
+        if (draft.pendingCheck != null) draft.pendingCheck.set(false);
+        final AtomicBoolean activeCheck = new AtomicBoolean(true); draft.pendingCheck=activeCheck;
+        requestCatalog(act, host.coreApi(), provider, key, selectedModel, activeCheck, new CatalogCallback() {
             @Override public void complete(ProviderCheck.Result checked, Throwable error) {
                 if (act.isFinishing() || act.isDestroyed() || !owner.isShowing()) return;
                 if (draft.checkRevision != revision) return;
@@ -950,13 +959,13 @@ final class ModelCenterPanel {
     /** 通过服务商目录或内核账号 RPC 读取模型；回调始终回到主线程。 */
     private static void requestCatalog(final Activity act, final NativeCoreApi api, final String provider,
                                        final String key, final CatalogCallback callback) {
-        requestCatalog(act,api,provider,key,null,callback);
+        requestCatalog(act,api,provider,key,null,null,callback);
     }
     private static void requestCatalog(final Activity act, final NativeCoreApi api, final String provider,
-                                       final String key, final String checkedModel, final CatalogCallback callback) {
+                                       final String key, final String checkedModel, final AtomicBoolean activeCheck, final CatalogCallback callback) {
         if (api == null) { callback.complete(null, new java.io.IOException("core unavailable")); return; }
         api.execute(new NativeCoreApi.Work() {
-            @Override public Object run() throws Exception { return ModelConfig.CODEBUDDY.equals(provider) && checkedModel != null ? api.checkCodeBuddy(key,checkedModel) : fetchCatalog(api, provider, key); }
+            @Override public Object run() throws Exception { return ModelConfig.CODEBUDDY.equals(provider) && checkedModel != null ? api.checkCodeBuddy(key,checkedModel,activeCheck) : fetchCatalog(api, provider, key); }
         }, new NativeCoreApi.Callback() {
             @Override public void complete(Object value, Throwable failure) {
                 callback.complete((ProviderCheck.Result) value, failure);
@@ -1027,6 +1036,7 @@ final class ModelCenterPanel {
         String model;
         String effort;
         int checkRevision;
+        AtomicBoolean pendingCheck;
         ModelConfig.Selection baseline;
         final Map<String, String> choices = new LinkedHashMap<String, String>();
         final Map<String, List<LiveModelCatalog.Entry>> catalogs =

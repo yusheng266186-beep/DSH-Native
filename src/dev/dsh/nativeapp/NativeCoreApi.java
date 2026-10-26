@@ -37,8 +37,9 @@ final class NativeCoreApi {
     boolean matches(int port, String token) { return !closed && client.matches(port, token); }
 
     /** Run the bundled official CLI; credentials travel only through its private stdin. */
-    ProviderCheck.Result checkCodeBuddy(String key, String model) throws Exception {
+    ProviderCheck.Result checkCodeBuddy(String key, String model, AtomicBoolean active) throws Exception {
         checkOpen();
+        if (active == null || !active.get()) throw new IOException("CodeBuddy check cancelled");
         File root = new File(activity.getFilesDir(), "dsh").getCanonicalFile();
         ProcessBuilder builder = new ProcessBuilder(new File(root,"node").getAbsolutePath(),
                 "--expose-internals",new File(root,"codebuddy-cli.cjs").getAbsolutePath(),"--check",model);
@@ -66,6 +67,7 @@ final class NativeCoreApi {
             long deadline=System.nanoTime()+180000000000L;
             while (ProcessSupervisor.alive(process)) {
                 checkOpen();
+                if (!active.get()) throw new IOException("CodeBuddy check cancelled");
                 if (System.nanoTime()>deadline) throw new IOException("CodeBuddy CLI timed out");
                 Thread.sleep(50);
             }
