@@ -41,7 +41,11 @@ say "准备构建工作区"
 BT="$BT" bash "$ROOT/scripts/ci_stage.sh" "$BUILD"
 
 say "验证内置 CodeBuddy CLI 传输与运行包"
-node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/bootstrap/payload"
+mkdir -p "$BUILD/codebuddy-check"
+for file in codebuddy-cli.cjs unpack.js codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json; do
+    cp "$BUILD/bootstrap/payload/$file" "$BUILD/codebuddy-check/$file"
+done
+node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/codebuddy-check"
 
 say "构建（断言 + 三道闸门 + 编译 + 打包 + 签名）"
 DSH_BUILD_DIR="$BUILD" DSH_AAPT2_LIB="$BT/lib64" \
