@@ -13,7 +13,7 @@ function androidConnection(ctx, handle) {
         const check = (event) => {
             clearTimeout(timer);
             if (document.visibilityState === 'hidden') return;
-            if (event?.type === 'dsh-native-resume') report();
+            if (event && event.type !== 'online') report();
             timer = setTimeout(() => {
                 if (disposed || document.visibilityState === 'hidden') return;
                 const state = handle.state.getSnapshot(), now = Date.now();

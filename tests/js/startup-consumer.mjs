@@ -64,6 +64,12 @@ try {
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);check(messages.length===1,'late visible shell finishes without another document load');
  await page.evaluate(script.replace('generation=17','generation=18'));await page.evaluate(script.replace('generation=17','generation=19'));
  await sleep(100);check(!messages.includes('[dsh-startup] painted 18')&&messages.includes('[dsh-startup] painted 19'),'old animation-frame callback cannot complete the next generation');
+ await page.goto('about:blank');messages.length=0;
+ await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'}));
+ await page.evaluate(script);await page.evaluate(()=>{document.body.innerHTML='<button data-slot="settings.launcher">Settings</button>';window.dispatchEvent(new Event('dsh-native-resume'));});
+ await sleep(100);check(messages.length===0,'background does not claim a painted foreground shell');
+ await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+ for(let n=0;n<100&&!messages.length;n++)await sleep(20);check(messages.length===1,'foreground visibility resumes paint detection even when the shell mounted in the background');
  console.log('Startup consumer: '+checks+' checks passed; actual core URL readiness (desktop, not phone): uncached '+plain.ms+'ms, initial cache '+first.ms+'ms, reused cache '+warm.ms+'ms.');
 }finally {
  await browser?.close();await stop();await fs.rm(scratch,{recursive:true,force:true});

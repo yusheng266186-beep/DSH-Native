@@ -575,7 +575,7 @@ public class MainActivity extends Activity {
                 if (!WebUrl.isCoreUrl(url, savedDshPort())) {
                     return;
                 }
-                view.evaluateJavascript(StartupState.script(startupState.generation()), null);
+                if (!splashHidden) view.evaluateJavascript(StartupState.script(startupState.generation()), null);
                 // 注入必须**每次页面加载都做**，不能只做一次。
                 //
                 // 之前这里是 `if (dshPageLoaded) return;`。而 reload（断连自动刷新、
@@ -6587,7 +6587,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateSplashReady() {
-        if (splashView != null && !splashHidden) splashView.ready(startupState.ready());
+        if (splashView != null && !splashHidden) splashView.ready(inForeground && startupState.ready());
     }
 
     private void cancelStartupTimeout() {
