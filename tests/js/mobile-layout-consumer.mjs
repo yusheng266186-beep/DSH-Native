@@ -295,7 +295,8 @@ try {
       await page.getByRole('menuitem', {name: /^(Settings|设置)$/}).tap();
       const settings = page.locator('[data-shortcut-modal="settings"][role=dialog]');
       await settings.waitFor({state: 'visible'});
-      await settings.locator('nav button').filter({hasText: /^(General|General settings|常规|通用|通用设置)$/}).click();
+      const selectCategory=async name=>{const target=settings.locator('nav').getByRole('button',{name,exact:true});if(await target.isVisible())await target.click();else{await settings.getByRole('button',{name:'Settings section',exact:true}).click();await page.getByRole('menuitem',{name,exact:true}).click();}};
+      await selectCategory(/^(General|General settings|常规|通用|通用设置)$/);
       const settingsBox = await size(settings);
       const vw = await page.evaluate(() => document.documentElement.clientWidth);
       check(settingsBox.width <= vw - 16 + 1, 'settings exceed the viewport');
@@ -318,19 +319,19 @@ try {
       if (evidence) await page.screenshot({path: path.join(evidence, `${scenario.w}-${scenario.lang}-${scenario.theme}-settings.png`)});
       const settingsClose = settings.getByRole('button', {name: /^(Close|关闭)$/});
       await square(settingsClose, 28, 'settings close');
-      await settings.locator('nav').getByRole('button', {name: /^(Models|模型)$/}).click();
+      await selectCategory(/^(Models|模型)$/);
       await square(settingsClose, 28, 'models settings close');
-      await settings.locator('nav').getByRole('button', {name: /^(Built-in plugins|内置插件)$/}).click();
+      await selectCategory(/^(Built-in plugins|内置插件)$/);
       await square(settingsClose, 28, 'plugins settings close');
       // Visit every existing settings category, including optional plugin pages.
-      const categories = await settings.locator('nav button').all();
+      const categories = await settings.locator('[data-settings-category]').allTextContents();
       for (const category of categories) {
-        await category.tap();
+        await selectCategory(category.trim());
         await page.waitForTimeout(80);
         check(await settings.evaluate(e => {
           const content = e.lastElementChild;
           return content.scrollWidth <= content.clientWidth + 1;
-        }), 'settings category has horizontal overflow: ' + await category.innerText());
+        }), 'settings category has horizontal overflow: ' + category);
         const closeBox = await size(settingsClose);
         const viewportHeight = await page.evaluate(() => document.documentElement.clientHeight);
         check(closeBox.y >= -.5 && closeBox.y + closeBox.height <= viewportHeight + .5,

@@ -1,8 +1,19 @@
 /* DSH-ANDROID-APP-SETTINGS-v1 */
+function androidSettingsNavigation(rows,active,onSelect) { return androidSettingsNavigation.render(rows,active,onSelect); }
 // This component uses the upstream settings slot, primitives, locale and workspace service.
 function androidInstallAppSettings(ctx) {
     const h = react_jsx_runtime.jsx, hs = react_jsx_runtime.jsxs;
     const P = _deepseek_ai_dsh_client_ui_primitives;
+    // Use the same upstream menu, navigation cells and modal-layer behavior on phones.
+    function SettingsNavigation({rows,active,onSelect}) {
+        const [open,setOpen]=react.useState(false);
+        react.useEffect(()=>setOpen(false),[active]);
+        react.useEffect(()=>{const back=event=>{if(open){event.preventDefault();setOpen(false);}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);},[open]);
+        return hs(react.Fragment,{children:[h('style',{children:'[data-slot="settings.general.item"]>div{min-width:0;max-width:100%;flex-wrap:wrap;row-gap:12px}[data-slot="settings.general.item"]>div>:first-child{min-width:0}[data-slot="settings.general.item"]>div>:last-child{flex-shrink:0;max-width:100%}.dsh-settings-mobile-nav{display:none}@media(max-width:520px){[data-shortcut-modal="settings"] .dsh-settings-desktop-nav{display:none}[data-shortcut-modal="settings"] .dsh-settings-mobile-nav{display:block;width:100%;min-width:0}[data-shortcut-modal="settings"] .dsh-settings-nav-trigger{display:flex;align-items:center;justify-content:space-between;width:100%;gap:12px;text-align:start;min-height:40px}[data-shortcut-modal="settings"] .dsh-settings-nav-trigger>span{min-width:0;overflow-wrap:anywhere}}'}),
+            h('div',{className:'dsh-settings-mobile-nav',children:h(P.Menu,{open,onClose:()=>setOpen(false),portal:true,align:'start',items:rows.map(row=>({id:row.id,label:row.label})),selectedId:active,onSelect:id=>{setOpen(false);onSelect(id);},anchor:hs(P.Button,{className:'dsh-settings-nav-trigger',variant:'outline','aria-label':'Settings section','aria-haspopup':'menu','aria-expanded':open,onClick:()=>setOpen(value=>!value),children:[h('span',{children:rows.find(row=>row.id===active)?.label}),h(P.IconChevronDownOutlineRegular,{size:14})]})})}),
+            ...rows.map(row=>hs('button',{type:'button',className:SettingsRoot_module_css_default.navCell+' dsh-settings-desktop-nav'+(row.id===active?' '+SettingsRoot_module_css_default.active:''),'data-settings-category':row.id,'aria-current':row.id===active?'true':undefined,'data-modal-autofocus':row.id===active?'':undefined,onClick:()=>onSelect(row.id),children:[navIcon(row.id),h('span',{className:SettingsRoot_module_css_default.navLabel,children:row.label})]},row.id))]});
+    }
+    androidSettingsNavigation.render=(rows,active,onSelect)=>h(SettingsNavigation,{rows,active,onSelect});
     const pages = ['home', 'sessions', 'tasks', 'models', 'display', 'updates', 'data', 'diagnostics'];
     const words = {
         nav: ['App 设置', 'App settings'], home: ['App 设置', 'App settings'],
@@ -190,7 +201,47 @@ function androidInstallAppSettings(ctx) {
         });
         const next=nativeQueue.then(run,run);nativeQueue=next.catch(()=>{});return next;
     }
-    const nativeCss=`.dsh-device-settings{display:flex;flex-direction:column;min-width:0;width:100%;gap:12px;color:var(--dsw-alias-label-primary);font:inherit}.dsh-device-settings *{box-sizing:border-box}.dsh-device-settings .device-group{display:flex;flex-direction:column;min-width:0;gap:8px}.dsh-device-settings .device-row{display:flex;align-items:center;flex-wrap:wrap;min-width:0;gap:8px}.dsh-device-settings .device-row>.device-group{flex:1;min-width:120px}.dsh-device-settings .device-text{font-size:14px;line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.dsh-device-settings .device-heading{font-size:14px;font-weight:500;margin:12px 0 0}.dsh-device-settings .device-muted{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.dsh-device-settings input,.dsh-device-settings textarea{max-width:100%;width:100%;min-width:0;font:inherit}.dsh-device-settings textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);color:inherit;background:var(--dsw-alias-bg-layer-2);min-height:160px;resize:vertical;padding:10px}.dsh-device-settings button{white-space:normal;overflow-wrap:anywhere;max-width:100%;height:auto;min-height:32px}.dsh-device-settings .device-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}.dsh-device-models{display:flex;flex-direction:column;align-items:stretch;gap:16px}.dsh-device-sessions .app-card{border-width:0 0 .5px;border-radius:0;padding:16px 0}.dsh-device-settings progress,.dsh-device-settings img{max-width:100%}.dsh-device-settings img{object-fit:contain}.dsh-device-settings .device-error{color:var(--dsw-alias-label-error)}@media(max-width:600px){.dsh-device-settings .device-row{align-items:stretch}.dsh-device-settings button{min-height:40px}.dsh-device-settings .device-row>.device-group{min-width:100%}}`;
+    const nativeCss=`
+.dsh-device-settings{display:flex;flex-direction:column;min-width:0;width:100%;color:var(--dsw-alias-label-primary);font:inherit;container-type:inline-size}
+.dsh-device-settings *{box-sizing:border-box}
+.dsh-device-settings .device-group{display:flex;flex-direction:column;min-width:0;gap:8px}
+.dsh-device-settings .device-row{display:flex;align-items:center;flex-wrap:wrap;min-width:0;gap:8px}
+.dsh-device-settings .device-row>*{min-width:0;max-width:100%}
+.dsh-device-settings .device-row>.device-group{flex:1 1 220px}
+.dsh-device-settings .device-text{font-size:14px;line-height:20px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.dsh-device-settings .device-heading{font-size:14px;line-height:20px;font-weight:500;margin:0;overflow-wrap:anywhere}
+.dsh-device-settings .device-muted{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.dsh-device-settings .device-page-title{font-size:14px;font-weight:500;margin:0 0 16px}
+.dsh-device-settings .device-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,280px);align-items:start;gap:24px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
+.dsh-device-settings .device-setting:last-child{border-bottom:0}
+.dsh-device-settings .device-copy,.dsh-device-settings .device-controls{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dsh-device-settings .device-setting-plain{display:flex;flex-direction:column;gap:12px}
+.dsh-device-settings .device-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dsh-device-settings input,.dsh-device-settings textarea{max-width:100%;width:100%;min-width:0;font:inherit}
+.dsh-device-settings textarea{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);color:inherit;background:var(--dsw-alias-bg-layer-2);min-height:160px;resize:vertical;padding:10px}
+.dsh-device-settings button{white-space:normal;overflow-wrap:anywhere;max-width:100%;height:auto;min-height:32px;line-height:20px}
+.dsh-device-settings .device-choice-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;width:100%}
+.dsh-device-settings .device-choice-trigger>span{min-width:0;overflow-wrap:anywhere}
+.dsh-device-settings .device-choice-trigger>svg{flex:none}
+.dsh-device-settings .device-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding-top:16px;margin-top:8px;border-top:.5px solid var(--dsw-alias-border-l2)}
+.dsh-device-settings .device-actions>.device-row{justify-content:flex-end;flex:1}
+.dsh-device-import-row{flex-wrap:wrap;min-width:0}.dsh-device-import-row>.device-copy{flex:1 1 240px;min-width:0}.dsh-device-import-row>button{flex:none}.dsh-device-settings.device-import-form{gap:12px}.dsh-device-models{display:flex;flex-direction:column;align-items:stretch;min-width:0;width:100%;gap:16px}
+.dsh-device-sessions .app-card{border-width:0 0 .5px;border-radius:0;padding:16px 0}
+.dsh-device-settings progress,.dsh-device-settings img{max-width:100%}
+.dsh-device-settings img{object-fit:contain}
+.dsh-device-settings .device-error{color:var(--dsw-alias-label-error);overflow-wrap:anywhere}
+@container(max-width:560px){.dsh-device-settings .device-setting{grid-template-columns:minmax(0,1fr);gap:12px}.dsh-device-settings .device-row{align-items:stretch}.dsh-device-settings .device-row>.device-group{flex-basis:100%}}
+@media(pointer:coarse){.dsh-device-settings button{min-height:40px}}
+`;
+    function NativeChoices({nodes,busy,en,act}) {
+        const [open,setOpen]=react.useState(false),selected=nodes.find(node=>node.selected)||nodes[0];
+        const signature=nodes.map(node=>node.id).join(',');react.useEffect(()=>setOpen(false),[signature]);
+        react.useEffect(()=>{const back=event=>{if(open){event.preventDefault();setOpen(false);}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);},[open]);
+        return h(P.Menu,{open,onClose:()=>setOpen(false),portal:true,align:'end',selectedId:selected?.id,
+            items:nodes.map(node=>({id:node.id,label:node.text,disabled:!node.enabled})),
+            onSelect:id=>{const node=nodes.find(node=>node.id===id);setOpen(false);if(node?.enabled&&!busy)act('act',{control:id});},
+            anchor:hs(P.Button,{className:'device-choice-trigger',variant:'outline',disabled:busy||nodes.every(node=>!node.enabled),'aria-label':en?'Select setting':'选择设置','aria-haspopup':'menu','aria-expanded':open,onClick:()=>setOpen(value=>!value),children:[h('span',{children:selected?.text}),h(P.IconChevronDownOutlineRegular,{size:14})]})});
+    }
     function NativeInput({node,edits,locked,en,activate}) {
         const [value,setValue]=react.useState(node.value||''),[loading,setLoading]=react.useState(false),[loadError,setLoadError]=react.useState(false),[retry,setRetry]=react.useState(0),ref=react.useRef(null);
         react.useEffect(()=>{
@@ -201,7 +252,7 @@ function androidInstallAppSettings(ctx) {
             (async()=>{let text=node.value||'';while(text.length<node.length){const part=await nativeRequest('read',{control:node.id,offset:text.length});if(part.length!==node.length||!part.value)throw new Error('Text changed. Reopen the editor.');text+=part.value;}if(alive)setValue(text);})().catch(()=>{if(alive)setLoadError(true);}).finally(()=>{if(alive)setLoading(false);});
             return()=>{alive=false;};
         },[node.id,node.value,node.length,retry]);
-        const props={ref,value,readOnly:node.readonly,disabled:locked||!node.enabled||loading||loadError,'aria-label':node.hint||(en?'Setting value':'设置值'),placeholder:node.password&&node.configured?(en?'Configured; leave unchanged to keep':'已配置；未修改则保留'):node.hint||'',onChange:event=>{setValue(event.target.value);edits.current.set(node.id,event.target.value);}};
+        const props={ref,id:'dsh-setting-'+node.id,value,readOnly:node.readonly,disabled:locked||!node.enabled||loading||loadError,'aria-label':node.hint||(en?'Setting value':'设置值'),placeholder:node.password&&node.configured?(en?'Configured; leave unchanged to keep':'已配置；未修改则保留'):node.hint||'',onChange:event=>{setValue(event.target.value);edits.current.set(node.id,event.target.value);}};
         const field=node.multiline?h('textarea',props):h(P.Input,{...props,type:node.password?'password':'text',readOnly:node.readonly,onClick:node.readonly&&node.clickable?activate:undefined,autoComplete:'off'});
         return loadError?hs('div',{className:'device-group',children:[field,h('p',{role:'alert',className:'device-error',children:en?'Text could not be read completely. Retry before editing.':'正文未能完整读取，重新读取后才能编辑。'}),h(P.Button,{variant:'outline',onClick:()=>setRetry(value=>value+1),children:en?'Read again':'重新读取'})]}):field;
     }
@@ -220,14 +271,45 @@ function androidInstallAppSettings(ctx) {
             if(!node||(node.type==='group'&&!node.children?.length))return null;
             const key=node.id;
             if(node.type==='input')return h(NativeInput,{key,node,edits,locked:busy,en,activate:()=>act('act',{control:node.id})});
-            if(node.type==='button'||node.clickable){const children=node.text||node.children?.map(render);return hs('div',{key,className:'device-row',children:[h(P.Button,{variant:node.selected||node.primary?'primary':'outline',disabled:busy||!node.enabled,onClick:()=>act('act',{control:node.id}),'aria-pressed':node.selected||undefined,children}),node.long&&h(P.Button,{variant:'ghost',disabled:busy||!node.enabled,onClick:()=>act('long',{control:node.id}),children:en?'More':'更多'})]});}
-            if(node.type==='text')return h(node.large?'h3':node.bold?'h4':'p',{key,className:node.large||node.bold?'device-heading':'device-text',children:node.text});
+            if(node.type==='button'||node.clickable){const children=node.text||node.children?.map(render),button=h(P.Button,{key,variant:node.selected||node.primary?'primary':'outline',disabled:busy||!node.enabled,onClick:()=>act('act',{control:node.id}),'aria-pressed':node.selected||undefined,children});return node.long?hs('div',{key,className:'device-row',children:[button,h(P.Button,{variant:'ghost',disabled:busy||!node.enabled,onClick:()=>act('long',{control:node.id}),children:en?'More':'更多'})]}):button;}
+            if(node.type==='text')return h(node.semantic==='title'||node.large?'h3':node.semantic==='section'||node.bold?'h4':'p',{key,className:node.semantic==='title'?'device-page-title':node.semantic==='hint'||node.semantic==='status'?'device-muted':node.semantic==='label'?'device-label':node.large||node.bold||node.semantic==='section'?'device-heading':'device-text',role:node.semantic==='status'?'status':undefined,children:node.text});
             if(node.type==='progress')return h('progress',{key,max:node.max||100,value:node.indeterminate?undefined:node.value,'aria-label':en?'Progress':'进度'});
             if(node.type==='image')return node.src?h('img',{key,src:node.src,alt:en?'File preview':'文件预览'}):h('p',{key,className:'device-muted',children:en?'Preview unavailable':'无法显示预览'});
-            return h('div',{key,className:node.row?'device-row':'device-group',children:node.children?.map(render)});
+            if(node.semantic==='body')return renderBody(node);
+            if(node.children?.length>1&&node.children.every(child=>child.semantic==='choice'))return h(NativeChoices,{key,nodes:node.children,busy,en,act});
+            return h('div',{key,className:node.row?'device-row':'device-group',children:renderChildren(node.children||[])});
         };
-        const dialogs=snapshot?.pages||[],main=dialogs[0];
-        return hs('div',{className:'dsh-device-settings','data-device-page':page,children:[h('style',{children:nativeCss}),busy&&!snapshot&&h('p',{role:'status',children:en?'Loading…':'正在读取…'}),main&&render(main.body),main?.footer&&h('div',{className:'device-actions',children:render(main.footer)}),snapshot?.notice&&h('p',{role:'status',className:'device-muted',children:snapshot.notice}),error&&hs('div',{role:'alert',className:'device-error',children:[h('p',{children:error}),h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Retry':'重试'})]}),!busy&&!error&&!main&&h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Open settings':'打开设置'}),dialogs.slice(1).map(dialog=>h(P.Modal,{key:dialog.id,open:true,onClose:()=>{if(!busy&&dialog.cancelable)act('back');},closeLabel:en?'Back':'返回',title:en?'Settings':'设置',footer:dialog.footer&&h('div',{className:'dsh-device-settings device-actions',children:render(dialog.footer)}),children:h('div',{className:'dsh-device-settings',children:render(dialog.body)})}))]});
+        const renderChildren=nodes=>{
+            const items=[];
+            for(let i=0;i<nodes.length;i++){
+                const node=nodes[i];
+                if(node.semantic==='choice'){
+                    const choices=[node];while(nodes[i+1]?.semantic==='choice')choices.push(nodes[++i]);
+                    items.push(choices.length>1?h(NativeChoices,{key:node.id,nodes:choices,busy,en,act}):render(node));
+                }else if(node.semantic==='label'&&nodes[i+1]?.type==='input'){
+                    const input=nodes[++i];items.push(hs('div',{key:node.id,className:'device-group',children:[h('label',{className:'device-label',htmlFor:'dsh-setting-'+input.id,children:node.text}),render(input)]}));
+                }else items.push(render(node));
+            }
+            return items;
+        };
+        const renderBody=node=>{
+            const sections=[];let current={nodes:[]};
+            for(const child of node.children||[]){
+                if(child.semantic==='section'){if(current.nodes.length||current.title)sections.push(current);current={title:child,nodes:[]};}
+                else current.nodes.push(child);
+            }
+            if(current.nodes.length||current.title)sections.push(current);
+            return h('div',{key:node.id,className:'device-group',children:sections.map((section,index)=>{
+                section={...section,nodes:[...section.nodes]};
+                const hints=[];while(section.nodes[0]?.semantic==='hint')hints.push(section.nodes.shift());
+                if(page==='display'&&!section.title)section.nodes=section.nodes.filter(child=>!['title','hint'].includes(child.semantic));
+                if(!section.title&&!section.nodes.length&&!hints.length)return null;
+                const controls=renderChildren(section.nodes);
+                return section.title?hs('section',{key:section.title.id,className:'device-setting',children:[hs('div',{className:'device-copy',children:[render(section.title),...hints.map(render)]}),h('div',{className:'device-controls',children:controls})]}):h('div',{key:index,className:'device-setting-plain',children:[...hints.map(render),...controls]});
+            })});
+        };
+        const dialogs=snapshot?.pages||[],main=dialogs[0],footer=main?.footer?{...main.footer,children:main.footer.children?.filter(node=>!['返回','Back','关闭','Close'].includes(node.text))}:null;
+        return hs('div',{className:'dsh-device-settings','data-device-page':page,children:[h('style',{children:nativeCss}),busy&&!snapshot&&h('p',{role:'status',children:en?'Loading…':'正在读取…'}),main&&render(main.body),footer?.children?.length>0&&h('div',{className:'device-actions',children:render(footer)}),snapshot?.notice&&h('p',{role:'status',className:'device-muted',children:snapshot.notice}),error&&hs('div',{role:'alert',className:'device-error',children:[h('p',{children:error}),h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Retry':'重试'})]}),!busy&&!error&&!main&&h(P.Button,{variant:'outline',onClick:()=>act('open',{page,locale:en?'en':'zh'}),children:en?'Open settings':'打开设置'}),dialogs.slice(1).map(dialog=>h(P.Modal,{key:dialog.id,open:true,onClose:()=>{if(!busy&&dialog.cancelable)act('back');},closeLabel:en?'Back':'返回',title:en?'Settings':'设置',footer:dialog.footer&&h('div',{className:'dsh-device-settings device-actions',children:render(dialog.footer)}),children:h('div',{className:'dsh-device-settings',children:render(dialog.body)})}))]});
     }
     function DeviceSection({page,close}) {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot());
@@ -237,14 +319,16 @@ function androidInstallAppSettings(ctx) {
     }
     function DeviceHome() {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
-        const info=window.__dshNativeAppState||{};
-        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('p',{className:'device-text',children:'DSH Native '+(info.version||'')}),h('p',{className:'device-muted',children:info.task||''}),h('p',{className:'device-text',children:en?'Device settings share the DSH settings navigation. Display is in General; provider and project controls are in Models.':'设备设置已整合到 DSH 设置导航中。显示缩放位于通用，服务商与项目配置位于模型。'})]});
+        const [info,setInfo]=react.useState(window.__dshNativeAppState||{});
+        react.useEffect(()=>{const update=()=>setInfo(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
+        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('p',{className:'device-text',children:'DSH Native '+(info.version||'')}),h('p',{className:'device-muted',children:info.task||''}),h('p',{className:'device-text',children:en?'Display, models, files and maintenance follow the current workspace settings.':'显示、模型、文件和维护使用当前工作区的设置。'})]});
     }
     const codeBuddyDefaultModels=[{"id":"default-model","name":"Auto","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"fast-model","name":"Fast","contextWindow":200000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"balanced-model","name":"Balanced","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"primary-model","name":"Primary","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"deep-model","name":"Deep","contextWindow":176000,"maxTokens":24000,"input":["text","image"],"reasoningEfforts":{"off":null,"max":"max"}},{"id":"deepseek-v4.1-flash","name":"Deepseek-V4.1-Flash","contextWindow":300000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"gpt-6-astra","name":"GPT-6-Astra","contextWindow":400000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"hy4-preview","name":"Hy4 preview","contextWindow":200000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"high":"high","max":"max"}},{"id":"hy3","name":"Hy3","contextWindow":192000,"maxTokens":64000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"kimi-k2.8-preview","name":"Kimi-K2.8-Preview","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"gpt-5.6-sol","name":"GPT-5.6-Sol","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-terra","name":"GPT-5.6-Terra","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.6-luna","name":"GPT-5.6-Luna","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.5","name":"GPT-5.5","contextWindow":1000000,"maxTokens":128000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gpt-5.4","name":"GPT-5.4","contextWindow":272000,"maxTokens":72000,"input":["text","image"],"reasoningEfforts":{"low":"low","medium":"medium","high":"high","xhigh":"xhigh","max":"max"}},{"id":"gemini-3.5-flash","name":"Gemini-3.5-Flash","contextWindow":1000000,"maxTokens":65536,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"glm-5.3-flash","name":"GLM-5.3-Flash","contextWindow":300000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.3","name":"GLM-5.3","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"low":"low","high":"high","max":"max"}},{"id":"glm-5.2","name":"GLM-5.2","contextWindow":1000000,"maxTokens":48000,"input":["text","image"],"reasoningEfforts":{"high":"high","xhigh":"xhigh","max":"max"}},{"id":"kimi-k3","name":"Kimi-K3","contextWindow":1000000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}},{"id":"kimi-k2.6","name":"Kimi-K2.6","contextWindow":256000,"maxTokens":32000,"input":["text","image"],"reasoningEfforts":{"medium":"medium","max":"max"}}];
     function CodeBuddyImport() {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
         const fileInput=react.useRef(null);
-        const [file,setFile]=react.useState(null),[password,setPassword]=react.useState(''),[busy,setBusy]=react.useState(false),[message,setMessage]=react.useState('');
+        const [file,setFile]=react.useState(null),[password,setPassword]=react.useState(''),[busy,setBusy]=react.useState(false),[message,setMessage]=react.useState(''),[opened,setOpened]=react.useState(false);
+        react.useEffect(()=>{const back=event=>{if(opened){event.preventDefault();if(!busy)setOpened(false);}};window.addEventListener('dsh-device-back',back);return()=>window.removeEventListener('dsh-device-back',back);},[opened,busy]);
         const importFile=async()=>{
             if(!file||busy)return;setBusy(true);setMessage('');let plain;
             try{
@@ -262,18 +346,20 @@ function androidInstallAppSettings(ctx) {
                 const description=await rpc('settings/describe',{},undefined,true);
                 const namespace=description.namespaces?.find(item=>item.ns==='llm-pi-ai');
                 const previous=namespace?.value?.providers?.codebuddy||{};
-                const profile={...previous,displayName:'CodeBuddy',api:'openai-completions',baseURL:value.baseURL,apiKeyEnv:'CODEBUDDY_API_KEY',compat:{...previous.compat,supportsReasoningEffort:true},models:Array.isArray(previous.models)&&previous.models.length?previous.models:codeBuddyDefaultModels};
+                const profile={...previous,displayName:'CodeBuddy CLI',api:'openai-completions',baseURL:value.baseURL,apiKeyEnv:'CODEBUDDY_API_KEY',compat:{...previous.compat,supportsReasoningEffort:true},models:Array.isArray(previous.models)&&previous.models.length?previous.models:codeBuddyDefaultModels};
                 delete profile.headers;
                 await rpc('settings/mutate',{ns:'llm-pi-ai',ops:[{op:'set',path:['providers','codebuddy'],value:profile}]},undefined,true);
                 await rpc('credentials/set',{ref:'CODEBUDDY_API_KEY',value:value.apiKey},undefined,true);
                 await rpc('settings/update',{ns:'agent-default-model',patch:{provider:'codebuddy',model:value.model,reasoningEffort:'max'}},undefined,true);
                 await nativeRequest('codebuddy-default');
-                setPassword('');setFile(null);if(fileInput.current)fileInput.current.value='';setMessage(en?'CodeBuddy imported. New conversations use the global default; existing project overrides remain.':'CodeBuddy 已导入。新会话使用全局默认，已有项目覆盖保留。');
+                setOpened(false);setPassword('');setFile(null);if(fileInput.current)fileInput.current.value='';setMessage(en?'CodeBuddy imported; chat access is unverified. New conversations use the global default; existing project overrides remain.':'CodeBuddy 已导入，尚未验证对话权限。新会话使用全局默认，已有项目覆盖保留。');
                 window.dispatchEvent(new Event('dsh-codebuddy-imported'));
             }catch(error){setMessage(error.message||String(error));}
             finally{if(plain)plain.fill(0);setBusy(false);}
         };
-        return hs('div',{className:'dsh-device-settings',children:[h('style',{children:nativeCss}),h('h3',{className:'device-heading',children:en?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接'}),h('p',{className:'device-muted',children:en?'Import your private encrypted connection file. Keys stay in DSH credentials. Models follow CLI metadata; service access can differ.':'导入私人加密连接文件，密钥保存到 DSH 凭据。模型目录来自 CLI 元数据，实际权限以服务端为准。'}),hs('div',{className:'device-row',children:[h('input',{ref:fileInput,type:'file',accept:'*/*',style:{display:'none'},disabled:busy,'aria-label':en?'CodeBuddy connection file':'CodeBuddy 连接文件',onChange:event=>setFile(event.target.files?.[0]||null)}),h(P.Button,{variant:'outline',disabled:busy,onClick:()=>fileInput.current?.click(),children:en?'Choose connection file':'选择连接文件'}),h('span',{className:'device-muted',children:file?.name||(en?'No file selected':'未选择文件')})]}),h(P.Input,{type:'password',autoComplete:'off',value:password,disabled:busy,'aria-label':en?'Connection passphrase':'连接口令',placeholder:en?'Connection passphrase':'连接口令',onChange:event=>setPassword(event.target.value)}),h(P.Button,{variant:'outline',disabled:busy||!file||!password,onClick:importFile,children:busy?(en?'Importing…':'正在导入…'):(en?'Import and use CodeBuddy':'导入并使用 CodeBuddy')}),message&&h('p',{role:'status',className:'device-text',children:message})]});
+        const importButton=h(P.Button,{variant:'primary',disabled:busy||!file||!password,onClick:importFile,children:busy?(en?'Importing…':'正在导入…'):(en?'Import and use CodeBuddy':'导入并使用 CodeBuddy')});
+        return hs(react.Fragment,{children:[h('style',{children:nativeCss}),hs('div',{className:DeveloperToolsRow_module_css_default.row+' dsh-device-import-row',children:[hs('div',{className:'device-copy',children:[h('h3',{className:DeveloperToolsRow_module_css_default.title,style:{margin:0,fontWeight:400},children:en?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接'}),h('p',{className:DeveloperToolsRow_module_css_default.description,style:{marginBottom:0},children:en?'Connect through the bundled official CLI agent. DSH handles file tools and permissions.':'通过内置官方 CLI 代理连接，文件工具和权限由 DSH 处理。'})]}),h(P.Button,{variant:'outline',size:'sm',onClick:()=>setOpened(true),children:en?'Import connection':'导入连接'})]}),!opened&&message&&h('p',{role:'status',className:'device-muted',children:message}),
+            h(P.Modal,{open:opened,title:en?'CodeBuddy CLI connection':'CodeBuddy CLI 连接',closeLabel:en?'Close':'关闭',onClose:()=>{if(!busy)setOpened(false);},footer:h('div',{className:'dsh-device-settings',children:importButton}),children:hs('div',{className:'dsh-device-settings device-import-form',children:[h('p',{className:'device-muted',children:en?'Choose your encrypted connection file and enter its separate passphrase. Keys stay in DSH credentials.':'选择加密连接文件并输入独立口令，密钥保存在 DSH 凭据中。'}),hs('div',{className:'device-row',children:[h('input',{ref:fileInput,type:'file',accept:'*/*',style:{display:'none'},disabled:busy,'aria-label':en?'CodeBuddy connection file':'CodeBuddy 连接文件',onChange:event=>setFile(event.target.files?.[0]||null)}),h(P.Button,{variant:'outline',disabled:busy,onClick:()=>fileInput.current?.click(),children:en?'Choose connection file':'选择连接文件'}),h('span',{className:'device-muted',children:file?.name||(en?'No file selected':'未选择文件')})]}),h('label',{className:'device-label',htmlFor:'dsh-codebuddy-passphrase',children:en?'Connection passphrase':'连接口令'}),h(P.Input,{id:'dsh-codebuddy-passphrase',type:'password',autoComplete:'off',value:password,disabled:busy,placeholder:en?'Connection passphrase':'连接口令',onChange:event=>setPassword(event.target.value)}),message&&h('p',{role:'status',className:'device-text',children:message})]})})]});
     }
 
     function FileWebActions({absolutePath,directory=false}) {
@@ -313,7 +399,7 @@ function androidInstallAppSettings(ctx) {
         react.useEffect(()=>{const update=()=>setState(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
         react.useEffect(()=>{const reset=()=>setExpanded(false);window.addEventListener('dsh-codebuddy-importing',reset);window.addEventListener('dsh-codebuddy-imported',reset);return()=>{window.removeEventListener('dsh-codebuddy-importing',reset);window.removeEventListener('dsh-codebuddy-imported',reset);};},[]);
         if(!state.integratedSettings)return null;
-        return hs('div',{className:DeveloperToolsRow_module_css_default.row+(page==='models'?' dsh-device-models':''),children:[page==='models'&&h(CodeBuddyImport,{}),page==='models'&&!expanded?h(P.Button,{variant:'outline',onClick:()=>setExpanded(true),children:en?'Project models & catalog sync':'项目模型与目录同步'}):h(DeviceSection,{...props,page})]});
+        return hs('div',{'data-device-slot':page,className:page==='models'?'dsh-device-models':'dsh-device-display',children:[page==='models'&&h(CodeBuddyImport,{}),page==='models'&&!expanded?h(P.Button,{variant:'outline',onClick:()=>setExpanded(true),children:en?'Project models & catalog sync':'项目模型与目录同步'}):h(DeviceSection,{...props,page})]});
     }));
 
 }

@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.38.0**; source: **0.38.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.38.0**; source: **0.39.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -35,6 +35,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.37.2 rechecks the project and window before opening a prepared file. Native actions now report system denial, missing activity handlers, unavailable notification channels and UI timeouts explicitly. Cancellation and service shutdown remove queued actions, including capture authorization startup races. Install over the existing App and restart the core.
 
 <!-- project-navigation:start -->
+0.39.0 bundles the official CodeBuddy CLI agent to replace the rejected direct API route (11128), while DSH retains host tools and permissions. Mobile settings use upstream navigation menus, semantic rows and connection dialogs. Restart the core after installation; existing keys remain usable. The CLI uses its own agent behavior. See [integration and validation](docs/CODEBUDDY.md).
+
 ## Project overview
 
 | Item | Details |
@@ -108,13 +110,13 @@ Visible back buttons, the Android back button, and edge gestures follow the same
 
 | Route | Directory endpoint | Behavior |
 |---|---|---|
-| CodeBuddy | CLI 2.174.0 metadata | Pinned CLI metadata after endpoint check; model access depends on service permissions |
+| CodeBuddy CLI | Official SDK 0.3.291 / CLI 2.176.0 | Bundled phone-local CLI agent; catalog snapshots do not establish account access |
 | Direct DeepSeek | `GET https://api.deepseek.com/models` | Directory returned for your official API key |
 | DeepSeek account | Core `account/*` and `session/modelCatalog` | Core-managed account model route after browser authorization |
 
 DSH’s original account page shows account details, topped-up and granted balances, usage, top-up and sign-out actions. Sign-in opens DeepSeek's authorization page in your browser. After authorization, return to the App, choose **DeepSeek account**, fetch the model list, and save. You can reopen authorization, cancel a pending attempt, or sign out. API keys and account authorization are stored separately. Signing out stops tasks using that account and retains API keys, sessions, and projects. See [account integration and verification boundaries](docs/DEEPSEEK_ACCOUNT.md).
 
-DeepSeek checks read its live directory. CodeBuddy uses an empty-message parameter probe and pinned CLI metadata without a generation prompt; this metadata is not an account authorization list. Import your private CLI connection file in Models; the key is stored through DSH credentials. See [CodeBuddy import](docs/CODEBUDDY.md).
+DeepSeek checks read its live directory. CodeBuddy chat uses the bundled official CLI agent. Check connection sends a short request and may use a small amount of quota; catalog refresh reads pinned metadata without claiming chat or account authorization. Import your private CLI connection file in Models; the key is stored through DSH credentials. See [CodeBuddy import](docs/CODEBUDDY.md).
 
 New IDs remain selectable even when absent from the local capability snapshot. Structured upstream declarations take priority for image support, followed by existing configuration. Unknown capability is not labeled as image support. Saved settings can be retained during temporary offline operation; initial setup or choosing a new model requires a successful live fetch.
 

@@ -84,6 +84,10 @@ final class ShareTargets {
     static boolean isShareable(File f, List<File> allowedRoots) {
         if (f == null || !f.isFile()) return false;
         if (isSensitiveName(f.getName())) return false;
+        try {
+            for (File parent=f.getCanonicalFile().getParentFile(); parent!=null; parent=parent.getParentFile())
+                if (parent.getName().equals(".codebuddy-home") || parent.getName().equals(".codebuddy")) return false;
+        } catch (java.io.IOException invalid) { return false; }
         return FileOps.isWritable(f, allowedRoots);
     }
 

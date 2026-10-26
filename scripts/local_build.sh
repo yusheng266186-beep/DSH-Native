@@ -23,6 +23,11 @@ if build == pathlib.Path('/') or build == pathlib.Path.home() or root == build o
 PY
 ANDROID_HOME="$SDK" BT="$BT" DSH_PREVIOUS_APK="$REFERENCE" \
     bash "$ROOT/scripts/ci_stage.sh" "$BUILD"
+mkdir -p "$BUILD/codebuddy-check"
+for file in codebuddy-cli.cjs unpack.js codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json; do
+    cp "$BUILD/bootstrap/payload/$file" "$BUILD/codebuddy-check/$file"
+done
+node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/codebuddy-check"
 DSH_BUILD_DIR="$BUILD" DSH_AAPT2_LIB="$BT/lib64" \
     bash "$ROOT/scripts/build_bootstrap.sh"
 APK="$BUILD/bootstrap/DSHNative-bootstrap.apk"

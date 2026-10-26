@@ -1214,6 +1214,7 @@ public class MainActivity extends Activity {
         pb.environment().put("PATH", binPath);
         pb.environment().put("HOME", root.getAbsolutePath());
         pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
+        pb.environment().put("DSH_NATIVE_APP_ROOT", root.getAbsolutePath());
         pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
         pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
         pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
@@ -6844,7 +6845,7 @@ public class MainActivity extends Activity {
         if (cleaned > 0) log("  已清理增量更新遗留的空依赖目录：" + cleaned + " 个");
         File buddy = new File(dshDir, "node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js");
         String originalBuddy = readText(buddy), nextBuddy = CoreUpgrade.codeBuddy(originalBuddy);
-        if (nextBuddy == null) throw new IOException("CodeBuddy 认证兼容补丁无法应用，请检查运行包");
+        if (nextBuddy == null) throw new IOException("CodeBuddy CLI 接入补丁无法应用，请检查运行包");
         if (!nextBuddy.equals(originalBuddy)) writeText(buddy, nextBuddy);
         if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) {
             // A failed/offline update or explicit rollback may still use v12.
@@ -7781,7 +7782,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.38.0\n");
+            w.write("APK 版本: 0.39.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

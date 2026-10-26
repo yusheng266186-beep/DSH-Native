@@ -140,6 +140,9 @@ public class ShareTargetsTest {
                 !ShareTargets.isContained(root, new File(outside, "x")), "escaped");
 
         File credential = new File(root, ".credentials.yaml"); write(credential, "secret");
+        File cliHome=new File(root,".codebuddy-home/.codebuddy");cliHome.mkdirs();
+        File cliState=new File(cliHome,"settings.json");write(cliState,"synthetic-private-state");
+        check("official CLI private state cannot be exported", !ShareTargets.isShareable(cliState,allowed), "private SDK state shared");
         File nativeCredential = new File(root, ".native-bridge.json"); write(nativeCredential, "synthetic-token");
         check("native bridge credential cannot be shared", !ShareTargets.isShareable(nativeCredential, allowed), "native descriptor exposed");
         check("credentials cannot be shared",

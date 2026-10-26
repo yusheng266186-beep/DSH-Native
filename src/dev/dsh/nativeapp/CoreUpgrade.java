@@ -29,12 +29,22 @@ final class CoreUpgrade {
         return once(source, "execArgv: []", "execArgv: [\"--expose-internals\"] /* dsh-native-inspector-internals-v1 */");
     }
 
-    /** Resolve the extra CLI header at dispatch time; never persist a key in settings. */
+    /** Use the official CLI agent transport in the App; keep standard HTTP elsewhere. */
     static String codeBuddy(String source) {
-        String marker = "/* dsh-native-codebuddy-auth-v1 */";
-        if (source.contains(marker)) return source;
-        return once(source, "headers: requestHeaders(profile.headers)",
-                "headers: requestHeaders(options.provider === \"codebuddy\" && profile.baseURL === \"https://www.codebuddy.cn/v2\" ? { ...profile.headers, \"X-API-Key\": apiKey, \"X-Product\": \"codebuddy\", \"X-IDE-Name\": \"DSH Native\" } : profile.headers) " + marker);
+        String marker = "/* dsh-native-codebuddy-standard-v2 */";
+        String previous = "headers: requestHeaders(options.provider === \"codebuddy\" && profile.baseURL === \"https://www.codebuddy.cn/v2\" ? { ...profile.headers, \"X-API-Key\": apiKey, \"X-Product\": \"codebuddy\", \"X-IDE-Name\": \"DSH Native\" } : profile.headers) /* dsh-native-codebuddy-auth-v1 */";
+        String out = source;
+        if (out.contains("/* dsh-native-codebuddy-auth-v1 */"))
+            out = once(out, previous, "headers: requestHeaders(profile.headers) " + marker);
+        else if (!out.contains(marker)) out = once(out, "headers: requestHeaders(profile.headers)",
+                "headers: requestHeaders(profile.headers) " + marker);
+        if (out == null || out.contains("/* dsh-native-codebuddy-cli-v1 */")) return out;
+        String anchor = "const iterator = toStreamChunks(snapshot.models.streamSimple(model, context, {";
+        return once(out,anchor,"/* dsh-native-codebuddy-cli-v1 */\n"
+                + "if (options.provider === \"codebuddy\" && profile.baseURL === \"https://www.codebuddy.cn/v2\" && process.env.DSH_NATIVE_APP_ROOT) {\n"
+                + "const root = process.env.DSH_NATIVE_APP_ROOT;\n"
+                + "const { default: cli } = await import((await import(\"node:url\")).pathToFileURL(resolve(root, \"codebuddy-cli.cjs\")).href);\n"
+                + "yield* cli.stream(options, context, {apiKey, root, idleTimeoutMs: streamIdleTimeoutMs}); return;\n}\n" + anchor);
     }
 
     private static String once(String source, String before, String after) {

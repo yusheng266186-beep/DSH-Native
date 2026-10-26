@@ -350,6 +350,7 @@ public final class DshUi {
         tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
+        WebSettingsHost.semantic(tv,"title");
         return tv;
     }
 
@@ -361,6 +362,7 @@ public final class DshUi {
         tv.setTextColor(TEXT());
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
+        WebSettingsHost.semantic(tv,"section");
         return tv;
     }
 
@@ -370,6 +372,7 @@ public final class DshUi {
         tv.setText(text);
         tv.setTextSize(12.5f);
         tv.setTextColor(TEXT_2());
+        WebSettingsHost.semantic(tv,"label");
         return tv;
     }
 
@@ -380,6 +383,7 @@ public final class DshUi {
         tv.setTextSize(11.5f);
         tv.setTextColor(TEXT_3());
         tv.setLineSpacing(dp(c, 2), 1f);
+        WebSettingsHost.semantic(tv,"hint");
         return tv;
     }
 
@@ -391,6 +395,7 @@ public final class DshUi {
         tv.setTextColor(TEXT_2());
         tv.setLineSpacing(dp(c, 2), 1f);
         tv.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        WebSettingsHost.semantic(tv,"status");
         return tv;
     }
 
@@ -521,6 +526,7 @@ public final class DshUi {
         b.setTextSize(13f);
         b.setPadding(dp(c, 6), dp(c, 10), dp(c, 6), dp(c, 10));
         markToggleState(b, primary);
+        WebSettingsHost.semantic(b,"choice");
         WebSettingsHost.primary(b,false);
         return b;
     }
@@ -936,6 +942,7 @@ public final class DshUi {
         LinearLayout col = column(c);
         int pad = dp(c, 20);
         col.setPadding(pad, dp(c, 20), pad, dp(c, 8));
+        WebSettingsHost.semantic(col,"body");
         return col;
     }
 

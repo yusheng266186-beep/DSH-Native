@@ -83,9 +83,10 @@ if (reasoningSnapshot) {
   globalThis.fetch = async (url, init) => {
     assert.equal(String(url),'https://www.codebuddy.cn/v2/chat/completions');
     const headers=new Headers(init.headers);
-    assert.equal(headers.get('x-api-key'),'offline-test-key');
+    assert.equal(headers.get('x-api-key'),null);
     assert.equal(headers.get('authorization'),'Bearer offline-test-key');
-    assert.equal(headers.get('x-product'),'codebuddy');
+    assert.equal(headers.get('x-product'),null);
+    assert.equal(headers.get('x-ide-name'),null);
     captured.push(JSON.parse(init.body));
     return new Response(JSON.stringify({ error: { message: 'offline body captured', type: 'invalid_request_error' } }),
       { status: 400, headers: { 'content-type': 'application/json' } });

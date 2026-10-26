@@ -73,6 +73,7 @@ mkdir -p "$BUILD/bootstrap" "$BUILD/sdk" "$BUILD/tools" "$BUILD/icon" \
 say "2. 仓库源码 → 构建工作区"
 cp -r "$ROOT/src" "$BUILD/bootstrap/src"
 cp -r "$ROOT/payload" "$BUILD/bootstrap/payload"
+python3 "$ROOT/scripts/prepare_codebuddy_sdk.py" "$BUILD/bootstrap/payload"
 cp "$ROOT/scripts/release.keystore" "$BUILD/bootstrap/release.keystore"
 cp -r "$ROOT/tests" "$BUILD/tests"
 # scripts/ 也带上一份：构建期 3.46 的 emoji 红线检查要扫它

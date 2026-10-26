@@ -17,7 +17,9 @@ import java.util.*;
 final class WebSettingsHost {
     interface Launcher { void open(String page); default void rememberCodeBuddy() throws Exception { } default void file(String action,String path) throws Exception { } }
     private static final WeakHashMap<View,Boolean> primaryButtons = new WeakHashMap<View,Boolean>();
+    private static final WeakHashMap<View,String> semantics = new WeakHashMap<View,String>();
     static void primary(View view,boolean value) { primaryButtons.put(view,value); }
+    static void semantic(View view,String value) { semantics.put(view,value); }
     private static WeakReference<WebSettingsHost> active = new WeakReference<WebSettingsHost>(null);
     final Activity owner;
     final String session = UUID.randomUUID().toString().replace("-", "");
@@ -125,6 +127,8 @@ final class WebSettingsHost {
         controls.put(id,view);
         JSONObject out = new JSONObject().put("id",id).put("enabled",enabled(view)).put("selected",view.isSelected() || view.isActivated()).put("primary",Boolean.TRUE.equals(primaryButtons.get(view)))
                 .put("clickable",view.isClickable()).put("long",view.isLongClickable());
+        String semantic = semantics.get(view);
+        if (semantic != null) out.put("semantic",semantic);
         if (view instanceof EditText) {
             EditText edit = (EditText)view; boolean secret = password(edit); String value = edit.getText().toString();
             out.put("type","input").put("password",secret).put("value",secret?"":value.substring(0,Math.min(value.length(),32768)))

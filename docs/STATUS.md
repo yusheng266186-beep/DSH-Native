@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.38.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.38.0**；源码：**0.39.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,7 +16,7 @@
 | 稳定运行包 | `payload-v13` · 压缩总量 143.6 MiB |
 | APK SHA-256 | `7c0de80ab7a2d6dcaeeb946e52d2dcd830292a8ef5da8938f2c08796d84a11bc` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `0.38.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `0.39.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v13` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
@@ -41,6 +41,14 @@
 | 发布与文档 | 同签名 CI 发布；本轮补全中英文 README、全部文档状态、模型表和链接校验 | [构建](BUILD.md)、[脚本](../scripts/README.md) |
 
 阶段一至五 G 的文档是各次实现与验收记录。其“候选”“暂不合并”“待发版”等描述属于当时的发布边界，不是当前主分支待办。不要把历史测试数字当作本版测试总量。
+
+## 0.39.0 的 CodeBuddy CLI 与设置结构
+
+- APK 内置官方 SDK 0.3.291 / CLI 2.176.0。现有托管 CodeBuddy 路由交给官方 CLI 代理，Key 仍从 DSH 凭据解析。移除旧的额外产品/IDE 请求头；CLI 使用自身代理行为，不以 DSH 组合人格替换 CLI 人格。工具通过公共 SDK MCP 接口交回 DSH，CLI 内置工具、额外设置源及会话持久化关闭。
+- beichen 的简单 Bearer + stream 请求可用，但完整 DSH 直连请求及以 DSH 人格运行的 SDK 请求均遭 11128。官方标准代理模式实际完成 DSH 写文件、读回及回复存储；普通 Node 与 Android 平台选择边界均通过，未发生 11128。独立临时工作区，不包含用户项目；这不是手机实测。
+- 手机设置分类使用 DSH Menu；原生控制器通过 DshUi 语义呈现为设置行、字段、说明与菜单，避免按钮平铺和重复返回。连接导入移入原 DSH Modal；设备状态订阅实时更新。保留文件动作与大文本编辑边界。
+- 本地通过 20 项 SDK 流式、工具 Schema/返回、取消、超时、隐私、归档和 Android 平台启动回归、212 项设置消费、1219 项旧触屏布局检查、完整 JVM/脚本与 API 28/34 Java 编译；完整 APK 与新鲜运行包以本版 CI 日志为准。SDK 库由固定 lockfile 构建并随已签名 APK 分发，展开约 192 MiB，私有状态不允许分享。
+- “检测连接”调用当前模型的官方 CLI 短请求，可能产生少量用量；目录刷新仍是来源明确的固定资料，不证明账号全部模型权限。详见 [CodeBuddy](CODEBUDDY.md)。
 
 ## 0.38.0 的统一设置、文件操作与 CodeBuddy
 
