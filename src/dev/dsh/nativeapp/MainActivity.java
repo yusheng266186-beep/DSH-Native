@@ -1135,7 +1135,7 @@ public class MainActivity extends Activity {
         // 复用它：直接连上去，跳过整个启动过程。
         int live = preparedRuntimeValid ? 0 : liveDshPort();
         if (live > 0) {
-            if (!appVersion().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreAppVersion", "")))
+            if (!coreRuntimeIdentity().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreRuntimeIdentity", "")))
                 return "运行中的 DSH 尚未加载本版修复，请点击「重试启动」重启内核";
             chosenPort = live;
             log("复用已在运行的 DSH（端口 " + live + "），跳过启动，立即进入界面");
@@ -1184,7 +1184,8 @@ public class MainActivity extends Activity {
         Process started = pb.start();
         HarnessService.adoptProcess(started);
         startupTiming.mark("process", android.os.SystemClock.elapsedRealtime());
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("coreAppVersion", appVersion()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("coreRuntimeIdentity", coreRuntimeIdentity())
+                .remove("coreAppVersion").apply();
         log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
         // 5. 等待服务就绪后加载界面
@@ -1226,6 +1227,12 @@ public class MainActivity extends Activity {
     private boolean preparedCoreReused;
     private boolean preparedRuntimeValid;
 
+    private String coreRuntimeIdentity() throws IOException {
+        File root = appRoot != null ? appRoot : new File(getFilesDir(), "dsh");
+        return StartupReuse.key(components().identity, PAYLOAD_MANIFEST_SHA256,
+                (workspace != null ? workspace : root).getAbsolutePath());
+    }
+
     private String preparedRuntimeKey(File root) throws IOException {
         StringBuilder key = new StringBuilder(StartupReuse.key(components().identity, payloadRevisionKey(),
                 (workspace != null ? workspace : root).getAbsolutePath()));
@@ -1242,10 +1249,10 @@ public class MainActivity extends Activity {
         return components().ready(root) && RuntimePreparation.toolsPresent(root);
     }
 
-    /** Upgrade an owned idle core before touching its runtime; active work keeps its old UI. */
+    /** Replace an owned idle core only when component contents, payload or workspace changed. */
     private boolean reuseOrStopPreviousAppCore() throws Exception {
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (!HarnessService.isManagedProcessAlive() || appVersion().equals(prefs.getString("coreAppVersion", ""))) return false;
+        if (!HarnessService.isManagedProcessAlive() || coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))) return false;
         String url = HarnessService.managedUrl();
         if (url == null) throw new IOException("已有内核正在启动，请稍后重试");
         CoreRpcClient probe = CoreRpcClient.fromLaunchUrl(url);
@@ -1273,7 +1280,7 @@ public class MainActivity extends Activity {
                     components().identity, assets, payloadLocallyComplete(dshDir, toolsDir),
                     payloadUpdatePending(), payloadRollbackHold()
                             || validatePayloadManifest(new File(root, "manifest.json")) == null)
-                    || !runtimeAssetsPresent(root) || !appVersion().equals(prefs.getString("coreAppVersion", ""))
+                    || !runtimeAssetsPresent(root) || !coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))
                     || !(payloadRevisionKey() + "/" + components().identity + "/"
                             + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
             preparedRuntimeValid = true;

@@ -39,6 +39,7 @@ public class StartupRuntimeProbe {
  android.content.SharedPreferences getSharedPreferences(String p,int mode){return prefs;}
  void log(String s){}void loadDshUi(String url){loaded=url;}void registerNetworkWatcher(){}
  void recordPatch(String name,boolean ok,String details){}void setSplashStatus(String text){}
+ String coreRuntimeIdentity(){return "reviewed-core-contents";}
  String preparedRuntimeKey(File root){return "reviewed-key";}String payloadRevisionKey(){return "v13";}
  static class Components {String identity="asset-contents"; boolean ready(File root){return true;}}
  Components components(){return new Components();}
@@ -62,13 +63,13 @@ public class StartupRuntimeProbe {
    p=fixture();tasks="unknown";check(p.reuseOrStopPreviousAppCore()&&HarnessService.calls==0&&p.loaded!=null,"unknown task evidence never means safe to stop");
    p=fixture();tasks="false";HarnessService.stops=false;try{p.reuseOrStopPreviousAppCore();throw new AssertionError("stop timeout accepted");}catch(IOException expected){checks++;}
    check(p.prefs.values.containsKey("dshToken"),"stop timeout preserves recovery address");
-   p=fixture();p.prefs.values.put("coreAppVersion","1.0.0");int before=taskReads;check(!p.reuseOrStopPreviousAppCore()&&taskReads==before&&HarnessService.calls==0,"current core avoids upgrade RPC and shutdown");
+   p=fixture();p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");int before=taskReads;check(!p.reuseOrStopPreviousAppCore()&&taskReads==before&&HarnessService.calls==0,"same component and payload contents avoid upgrade RPC and shutdown even when app version differs");
    File root=new File(args[0]);Files.writeString(new File(root,".assets-version").toPath(),"1.0.0");
-   p=fixture();p.workspace=root;p.prefs.values.put("coreAppVersion","1.0.0");
+   p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");
    check(!p.reusePreparedCore(root,root,root,root)&&p.preparedRuntimeValid,"a dead process retains verified disk preparation for a short cold start");
-   p=fixture();p.workspace=root;p.prefs.values.put("coreAppVersion","1.0.0");p.pending=true;
+   p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.pending=true;
    check(!p.reusePreparedCore(root,root,root,root)&&!p.preparedRuntimeValid,"pending payload update requires full preparation");
-   p=fixture();p.workspace=root;p.prefs.values.put("coreAppVersion","1.0.0");p.assetsPresent=false;
+   p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.assetsPresent=false;
    check(!p.reusePreparedCore(root,root,root,root)&&!p.preparedRuntimeValid,"missing bootstrap assets require repair");
    System.out.println("Startup runtime: "+checks+" production upgrade/reuse and real authenticated task RPC checks passed; no device.");
   }finally{server.stop(0);}
