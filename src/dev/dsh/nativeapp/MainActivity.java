@@ -575,6 +575,7 @@ public class MainActivity extends Activity {
                 if (!WebUrl.isCoreUrl(url, savedDshPort())) {
                     return;
                 }
+                startupTiming.mark("page", android.os.SystemClock.elapsedRealtime());
                 if (!splashHidden) view.evaluateJavascript(StartupState.script(startupState.generation()), null);
                 // 注入必须**每次页面加载都做**，不能只做一次。
                 //
@@ -922,6 +923,7 @@ public class MainActivity extends Activity {
 
     /** Every preparation failure, including early returns, exposes retry and logs immediately. */
     private void showBootFailure(final String reason) {
+        startupTiming.mark("failed", android.os.SystemClock.elapsedRealtime());
         log("启动未完成: " + reason);
         try {
             final boolean payloadFailure = isPayloadFailure(reason);
@@ -1028,6 +1030,7 @@ public class MainActivity extends Activity {
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
         chmod(node, "755");
+        startupTiming.mark("assets", android.os.SystemClock.elapsedRealtime());
 
         // 前置自检：先确认能否执行自带的 Node。
         // 这一步是整个架构成立的前提（Android 10+ 对 targetSdk>=29 的 App
@@ -1089,11 +1092,13 @@ public class MainActivity extends Activity {
         }
 
 
+        startupTiming.mark("runtime", android.os.SystemClock.elapsedRealtime());
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
         int toolsRepaired = ToolEnvironment.repair(root);
         log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
         applyAndroidPatches(root, dshDir);
+        startupTiming.mark("compat", android.os.SystemClock.elapsedRealtime());
         log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
@@ -1120,6 +1125,7 @@ public class MainActivity extends Activity {
             else log("运行环境仍有未通过项，下次启动会重新检查");
         }
 
+        startupTiming.mark("preflight", android.os.SystemClock.elapsedRealtime());
         // 3. 准备 DSH 配置（若不存在）
         run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
         prepareConfig(root);
@@ -1255,6 +1261,7 @@ public class MainActivity extends Activity {
         String expectedModelSettings = needsLegacyImport ? ProjectModelSettings.readFile(legacySettings) : "";
         Process started = pb.start();
         HarnessService.adoptProcess(started);
+        startupTiming.mark("process", android.os.SystemClock.elapsedRealtime());
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("coreAppVersion", appVersion()).apply();
         log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
@@ -1384,6 +1391,7 @@ public class MainActivity extends Activity {
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
     private void loadDshUi(String url) {
+        startupTiming.mark("server", android.os.SystemClock.elapsedRealtime());
         log("界面就绪: " + briefUrl(url));
         rememberDsh(url);
         final String target = url;
@@ -1730,6 +1738,7 @@ public class MainActivity extends Activity {
                 }
                 scheduleReloadIfStuck();
             } else if (state == ConnectionRecovery.CONNECTED) {
+                startupTiming.mark("core", android.os.SystemClock.elapsedRealtime());
                 connectionState = state;
                 if (previous != state || connectionLostAt != 0L) {
                     log("[连接] WebSocket 已连接（" + source + "）");
@@ -1997,6 +2006,7 @@ public class MainActivity extends Activity {
     private StartupView splashView;
     private final StartupState startupState = new StartupState();
     private volatile long launchStartedAt = android.os.SystemClock.elapsedRealtime();
+    private volatile StartupState.Timing startupTiming = new StartupState.Timing(launchStartedAt);
     private Runnable startupTimeout;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
@@ -2923,6 +2933,7 @@ public class MainActivity extends Activity {
                             .add("UI language", UiText.isEnglish() ? "en" : "zh")
                             .add("Text zoom", currentZoom() + "%")
                             .add("Web page loaded", dshPageLoaded)
+                            .add("Startup milestones from launch", startupTiming.summary())
                             .section("Device")
                             .add("Manufacturer", android.os.Build.MANUFACTURER)
                             .add("Model", android.os.Build.MODEL)
@@ -5153,7 +5164,7 @@ public class MainActivity extends Activity {
     }
 
     private void publishAppSettingsState() {
-        if (webView == null || !WebUrl.isCoreUrl(viewUrl(), savedDshPort())) return;
+        if (!inForeground || activityDisposing || webView == null || !WebUrl.isCoreUrl(viewUrl(), savedDshPort())) return;
         try {
             org.json.JSONObject state = new org.json.JSONObject();
             state.put("version", appVersion());
@@ -6204,6 +6215,7 @@ public class MainActivity extends Activity {
         dshPageLoaded = false;
         splashHidden = false;
         launchStartedAt = android.os.SystemClock.elapsedRealtime();
+        startupTiming = new StartupState.Timing(launchStartedAt);
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 if (splashView != null) {
@@ -6551,8 +6563,10 @@ public class MainActivity extends Activity {
         return DshUi.startup(this, new Runnable() {
             @Override public void run() {
                 splashHidden = true;
+                startupTiming.mark("handoff", android.os.SystemClock.elapsedRealtime());
                 cancelStartupTimeout();
                 log("[启动] 交接完成 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
+                log("[dsh-perf] startup " + startupTiming.summary());
                 finishStartupMaintenance();
                 dispatchStartupActions();
             }
@@ -6606,6 +6620,7 @@ public class MainActivity extends Activity {
             @Override public void onComplete(long requestId) {
                 if (isFinishing() || isDestroyed() || webView != view
                         || !startupState.painted(requestId)) return;
+                startupTiming.mark("paint", android.os.SystemClock.elapsedRealtime());
                 updateSplashReady();
             }
         });
@@ -8034,6 +8049,7 @@ public class MainActivity extends Activity {
         if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
+        publishAppSettingsState();
         if (connectionLostAt > 0L && ConnectionRecovery.isProblem(connectionState)) scheduleReloadIfStuck();
         try {
             if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('dsh-native-resume'));", null);

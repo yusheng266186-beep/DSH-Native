@@ -10,6 +10,28 @@ const {promisify}=require('node:util');
 const run=promisify(execFile);
 let prepared;
 let warm;
+let cacheMaintenance;
+// Only disposable Node bytecode is aged out. SDK directories, credentials and
+// transcripts are never inferred to be unused from their age or folder name.
+async function pruneCompileCache(root,now=Date.now()){
+ const base=fs.realpathSync(root),home=path.join(base,'.codebuddy-home'),cache=path.join(home,'compile-cache');
+ let removedBytes=0,removedFiles=0,visited=0;
+ try{
+  for(const dir of [home,cache]){const info=await fsp.lstat(dir);if(info.isSymbolicLink()||!info.isDirectory())return {removedBytes,removedFiles};}
+  for(const entry of (await fsp.readdir(cache,{withFileTypes:true})).slice(0,32)){
+   if(!entry.isDirectory()||!/^v\d+\.\d+\.\d+-[a-zA-Z0-9_-]+$/.test(entry.name))continue;
+   const dir=path.join(cache,entry.name);if((await fsp.lstat(dir)).isSymbolicLink())continue;
+   for(const name of await fsp.readdir(dir)){
+    if(++visited>1024)return {removedBytes,removedFiles};
+    if(!/^[a-f0-9]{8,64}$/.test(name))continue;
+    const file=path.join(dir,name),info=await fsp.lstat(file);
+    if(!info.isFile()||info.isSymbolicLink()||now-info.mtimeMs<7*86400000)continue;
+    await fsp.unlink(file);removedFiles++;removedBytes+=info.size;
+   }
+  }
+ }catch{} // Best-effort disposable-cache cleanup cannot fail an otherwise completed reply.
+ return {removedBytes,removedFiles};
+}
 function clearWarm(){
  const entry=warm;warm=undefined;if(!entry)return;
  clearTimeout(entry.timer);entry.session.close();void entry.server?.close().catch(()=>{});
@@ -40,9 +62,11 @@ async function* sessionQuery(sdk,args){
  try{
   if(abortController.signal.aborted)throw new Error('ABORTED');
   if(entry){try{await waitFor(entry.ready,abortController.signal);}catch(error){session.close();await server?.close();session=undefined;server=undefined;if(abortController.signal.aborted)throw error;}}
+  args.trace?.('warm',!!session);
   if(!session){server=settings.mcpServers.dsh?.instance;session=sdk.unstable_v2_createSession(settings);}
   if(abortController.signal.aborted)throw new Error('ABORTED');
   for await(const message of args.prompt)await session.send(message);
+  args.trace?.('submitted');
   for await(const message of session.stream()){
    if(message.type==='assistant')prepareNext=(message.message?.content||[]).some(block=>block.type==='tool_use'&&args.hostTools.some(tool=>'mcp__dsh__'+tool.name===block.name));
    if(message.type==='result'&&message.subtype==='success'&&!message.is_error&&!settings.systemPrompt&&args.standby!==false)prepareNext=true;
@@ -137,6 +161,8 @@ function usage(value={},modelUsage){
   ...(value.cache_creation_input_tokens!=null||cacheWrite>0?{cacheWriteTokens:cacheWrite}:{})};
 }
 async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=180000}={}){
+ const started=performance.now(),timing={};let outcome='incomplete';
+ const trace=(stage,value)=>{if(stage==='warm')timing.warm=value;else if(['setup','submitted','first'].includes(stage)&&timing[stage]===undefined)timing[stage]=Math.round(performance.now()-started);};
  const controller=new AbortController(),cancel=()=>controller.abort();
  options.signal?.addEventListener('abort',cancel,{once:true});if(options.signal?.aborted)cancel();
  let query,server,terminal=false,stats={},nextIndex=0,partial=false;const active=new Map();let timer,timedOut=false;
@@ -145,6 +171,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(controller.signal.aborted)throw new Error('ABORTED');
   if(typeof apiKey!=='string'||!apiKey.trim())throw new Error('Authentication missing');
   const sdk=await prepare(root);
+  trace('setup');
   const tools=context.tools||[],names=new Map();
   const declarations=tools.map((tool,index)=>{const name='tool_'+index+'_'+tool.name.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,32);names.set('mcp__dsh__'+name,tool.name);return {name,description:tool.name+': '+tool.description,inputSchema:tool.parameters};});
   server=hostServer(sdk,declarations);
@@ -152,7 +179,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(controller.signal.aborted)throw new Error('ABORTED');
   const prompt=requestPrompt(context);
   async function* input(){yield {type:'user',session_id:'',parent_tool_use_id:null,message:{role:'user',content:prompt}};}
-  query=sdk.query({prompt:input(),hostTools:declarations,standby:!options.purpose,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
+  query=sdk.query({prompt:input(),trace,hostTools:declarations,standby:!options.purpose,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
    // CodeBuddy CLI owns the agent persona. DSH's assembled model persona is
    // not used as a replacement CLI system prompt. Auxiliary tasks retain their instructions.
    systemPrompt:options.purpose&&context.systemPrompt?{append:context.systemPrompt}:undefined,
@@ -167,12 +194,13 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(event.type==='message_delta')stats={...stats,...event.usage};
     if(event.type==='content_block_start'&&['text','thinking'].includes(event.content_block.type)){
      const block={index:nextIndex++,type:event.content_block.type==='text'?'text':'reasoning',text:event.content_block.text||event.content_block.thinking||''};active.set(event.index,block);
+     if(block.text)trace('first');
      yield {type:'block-start',index:block.index,blockType:block.type};
      if(block.text)yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text:block.text};
     }
     if(event.type==='content_block_delta'&&active.has(event.index)){
      const block=active.get(event.index),text=event.delta.text||event.delta.thinking||'';block.text+=text;
-     if(text)yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};
+     if(text){trace('first');yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};}
     }
     if(event.type==='content_block_stop'&&active.has(event.index)){
      const block=active.get(event.index);active.delete(event.index);yield {type:'block-end',index:block.index,block:{type:block.type,text:block.text}};
@@ -182,30 +210,35 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(message.error)throw new Error(message.message?.content?.map(block=>block.text||'').join(' ')||message.error);
     const blocks=message.message?.content||[];stats={...stats,...message.message?.usage};
     if(!partial)for(const block of blocks)if(block.type==='text'||block.type==='thinking'){
+     trace('first');
      const index=nextIndex++,type=block.type==='text'?'text':'reasoning',text=block.text||block.thinking||'';
      yield {type:'block-start',index,blockType:type};yield {type:type==='text'?'text-delta':'reasoning-delta',index,text};yield {type:'block-end',index,block:{type,text}};
     }
     const calls=blocks.filter(block=>block.type==='tool_use');
     if(calls.length){
+     trace('first');
      const checked=calls.map(block=>{const name=names.get(block.name);if(!name||typeof block.id!=='string'||!block.id)throw new Error('CLI requested an unregistered host tool');
       const args=JSON.stringify(block.input);if(!args||args.length>2*1024*1024)throw new Error('CLI tool arguments too large');
       return {block,name,args};});
      for(const {block,name,args} of checked){const index=nextIndex++;
       yield {type:'block-start',index,blockType:'tool-call'};yield {type:'tool-call-delta',index,id:block.id,name,argumentsDelta:args};yield {type:'block-end',index,block:{type:'tool-call',id:block.id,name,arguments:args}};
      }
-     yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:{kind:'tool-calls'}};terminal=true;return;
+     yield {type:'usage',usage:usage(stats)};outcome='tools';yield {type:'finish',reason:{kind:'tool-calls'}};terminal=true;return;
     }
    }
    if(message.type==='result'){
     if(message.is_error||message.subtype!=='success')throw new Error(message.result||(Array.isArray(message.errors)?message.errors.filter(value=>typeof value==='string').slice(0,8).join('\n'):'')||message.subtype||'CLI request failed');
-    yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
+    yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};outcome='stop';yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
    }
   }
   throw new Error('CLI stream ended without a result');
- }catch(error){if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding. Check the network before retrying.'}}:failure(error,controller.signal.aborted)};}}
- finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});}
+ }catch(error){outcome=timedOut?'timeout':controller.signal.aborted?'aborted':'error';if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding. Check the network before retrying.'}}:failure(error,controller.signal.aborted)};}}
+ finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});
+  if(!options.purpose)console.log('[dsh-perf] codebuddy '+JSON.stringify({...timing,total:Math.round(performance.now()-started),outcome}));
+  if(!cacheMaintenance){cacheMaintenance=pruneCompileCache(root).catch(()=>{});}
+ }
 }
-module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm};
+module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm,pruneCompileCache};
 if(require.main===module){
  if(process.argv[2]==='--prepare')prepare().then(()=>console.log('CodeBuddy CLI verified and prepared.')).catch(()=>{console.error('CodeBuddy CLI preparation failed.');process.exitCode=1;});
  else if(process.argv[2]==='--check'){

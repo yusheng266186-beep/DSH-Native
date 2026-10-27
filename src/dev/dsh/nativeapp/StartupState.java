@@ -17,6 +17,30 @@ final class StartupState {
     void connected(boolean value) { connected = value; }
     boolean ready() { return painted && connected; }
 
+    /** Fixed numeric milestones only; no URLs, paths or conversation data. */
+    static final class Timing {
+        private static final String[] STAGES = {"assets", "runtime", "compat", "preflight", "process", "server", "core", "page", "paint", "handoff", "failed"};
+        private final long started;
+        private final long[] elapsed = new long[STAGES.length];
+        Timing(long started) { this.started = started; java.util.Arrays.fill(elapsed, -1L); }
+        synchronized boolean mark(String stage, long now) {
+            if (now < started) return false;
+            for (int i = 0; i < STAGES.length; i++) if (STAGES[i].equals(stage)) {
+                if (elapsed[i] >= 0L) return false;
+                elapsed[i] = now - started; return true;
+            }
+            return false;
+        }
+        synchronized String summary() {
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < STAGES.length; i++) if (elapsed[i] >= 0L) {
+                if (out.length() > 0) out.append(", ");
+                out.append(STAGES[i]).append('=').append(elapsed[i]).append("ms");
+            }
+            return out.length() == 0 ? "pending" : out.toString();
+        }
+    }
+
     static boolean cycleEnded(long start, long previous, long now) {
         return now >= start && now >= previous
                 && (now - start) / CYCLE_MS > Math.max(0L, previous - start) / CYCLE_MS;

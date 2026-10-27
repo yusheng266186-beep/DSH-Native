@@ -16,6 +16,11 @@ async function consume(options={},ctx=context){const out=[];for await(const chun
 try{
  fixture([{type:'stream_event',event:{type:'message_start',message:{usage:{input_tokens:14,cache_read_input_tokens:4}}}},{type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'text',text:''}}},{type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:'Synthetic reply'}}},{type:'stream_event',event:{type:'content_block_stop',index:0}},{type:'assistant',message:{content:[{type:'text',text:'Synthetic reply'}],usage:{output_tokens:3}}},{type:'result',subtype:'success',is_error:false,usage:{input_tokens:14,output_tokens:3,cache_read_input_tokens:4}}]);
  let out=await consume();check(out.filter(c=>c.type==='text-delta').map(c=>c.text).join('')==='Synthetic reply','streaming text is not duplicated by the full message');check(out.at(-1).reason.kind==='stop','success terminates');check(out.at(-2).usage.cacheReadTokens===4&&out.at(-2).usage.inputTokens===10,'inclusive CLI input is mapped to disjoint DSH input and cache buckets');
+ const recorded=[],log=console.log;console.log=line=>recorded.push(line);
+ try{await consume();}finally{console.log=log;}
+ const timing=JSON.parse(recorded.find(line=>line.startsWith('[dsh-perf] codebuddy ')).slice('[dsh-perf] codebuddy '.length));
+ check(Object.keys(timing).every(key=>['setup','submitted','first','total','warm','outcome'].includes(key))&&timing.total>=timing.first&&timing.first>=timing.setup,'timing is bounded to fixed numeric phases');
+ check(!recorded.join('').includes('synthetic-key')&&!recorded.join('').includes('Synthetic request'),'timing contains no credential or prompt');
  check(latest.options.effort==='max'&&latest.options.tools.length===0&&!latest.options.systemPrompt,'explicit CLI agent mode uses official persona, requested effort and no built-in tools');check(latest.options.settingSources.length===0&&latest.options.strictMcpConfig&&!latest.options.persistSession,'no inherited plugins, hooks or extra transcript');
  check(latest.options.env.CODEBUDDY_API_KEY==='synthetic-key-do-not-log'&&!latest.options.env.CODEBUDDY_CUSTOM_HEADERS,'key is private SDK environment, without client spoofing');
  check(latest.options.env.NODE_COMPILE_CACHE===path.join(root,'.codebuddy-home','compile-cache'),'compiled code cache stays in the private non-shareable CLI home');
@@ -83,6 +88,10 @@ try{
  await Array.fromAsync(cli.sessionQuery(protocol,request()));check(sessions.length===2&&sessions[1].connected&&!sessions[1].sent.length,'a completed normal reply also prepares the next quick follow-up without a model prompt');
  cli.clearWarm();sessions.length=0;const auxiliary=request();auxiliary.standby=false;
  await Array.fromAsync(cli.sessionQuery(protocol,auxiliary));check(sessions.length===1&&sessions[0].closed,'connection checks and auxiliary calls leave no idle child');
+ cli.clearWarm();sessions.length=0;await Array.fromAsync(cli.sessionQuery(protocol,request()));const expired=sessions[1];
+ await new Promise(resolve=>setTimeout(resolve,10100));
+ check(expired.closed&&!expired.sent.length,'unused standby closes after its actual ten-second deadline without a model request');
+ cli.clearWarm();
  const projectedHistory=cli.requestPrompt({messages:[{role:'assistant',content:[{type:'reasoning',text:'PRIVATE-OLD-REASONING'},{type:'text',text:'Keep visible answer'},{type:'tool-call',arguments:{reasoning:'KEEP-ARGUMENT'}}]},{role:'user',content:[{type:'text',text:'Keep user reasoning request'}]}]})[0].text;
  check(!projectedHistory.includes('PRIVATE-OLD-REASONING')&&projectedHistory.includes('Keep visible answer')&&projectedHistory.includes('KEEP-ARGUMENT')&&projectedHistory.includes('Keep user reasoning request'),'only prior assistant reasoning is omitted from the CLI projection; user text and tool arguments remain intact');
  const manifest=JSON.parse(await fs.readFile(path.join(root,'codebuddy-sdk-manifest.json'),'utf8'));
@@ -98,6 +107,18 @@ try{
   const initDeadline=setTimeout(()=>initialized.close(),10000);try{await initialized.connect();const modes=await initialized.getAvailableModes();check(Array.isArray(modes)&&modes.length>0,'actual trimmed SDK initializes and reads mode metadata with Android platform selection, without sending a model prompt');}finally{clearTimeout(initDeadline);initialized.close();}
   await fs.copyFile(new URL('../../payload/codebuddy-cli.cjs',import.meta.url),path.join(sandbox,'codebuddy-cli.cjs'));await fs.writeFile(path.join(sandbox,'codebuddy-sdk-manifest.json'),JSON.stringify({...manifest,sha256:'0'.repeat(64)}));await fs.writeFile(path.join(sandbox,'codebuddy-sdk.tar.zst'),'synthetic corrupt archive');
   const invalid=spawnSync(process.execPath,[path.join(sandbox,'codebuddy-cli.cjs'),'--prepare'],{encoding:'utf8',timeout:10000});check(invalid.status!==0&&!invalid.stdout.includes('prepared'),'unverified SDK archives cannot be installed');
+  const cache=path.join(sandbox,'.codebuddy-home','compile-cache','v24.0.0-arm64-test');await fs.mkdir(cache,{recursive:true});
+  const old=path.join(cache,'aaaaaaaa'),recent=path.join(cache,'bbbbbbbb'),outside=path.join(sandbox,'KEEP-CREDENTIAL');
+  await fs.writeFile(old,'obsolete bytecode');await fs.writeFile(recent,'active bytecode');await fs.writeFile(outside,'PRIVATE-CREDENTIAL-CANARY');
+  const oldTime=new Date(Date.now()-8*86400000);await fs.utimes(old,oldTime,oldTime);
+  await fs.symlink(outside,path.join(cache,'cccccccc'));
+  const oldSdk=path.join(sandbox,'.codebuddy-sdk-old');await fs.mkdir(oldSdk);await fs.writeFile(path.join(oldSdk,'keep'),'possibly used by an old core');
+  const cleaned=await cli.pruneCompileCache(sandbox);
+  check(cleaned.removedFiles===1&&!await fs.stat(old).then(()=>true,()=>false)&&await fs.readFile(recent,'utf8')==='active bytecode','only expired disposable bytecode is removed');
+  check(await fs.readFile(outside,'utf8')==='PRIVATE-CREDENTIAL-CANARY'&&await fs.readFile(path.join(oldSdk,'keep'),'utf8')==='possibly used by an old core','cache cleanup preserves symlink targets, credentials and possibly active old SDKs');
+  await fs.rm(path.join(sandbox,'.codebuddy-home','compile-cache'),{recursive:true});
+  await fs.symlink(path.dirname(outside),path.join(sandbox,'.codebuddy-home','compile-cache'));
+  check((await cli.pruneCompileCache(sandbox)).removedFiles===0&&await fs.readFile(outside,'utf8')==='PRIVATE-CREDENTIAL-CANARY','a redirected cache root is never traversed');
  }finally{await fs.rm(sandbox,{recursive:true,force:true});}
  console.log('CodeBuddy CLI transport: '+checks+' streaming, tools, schema, cancellation, deadline, privacy, bundle and Android-platform checks passed; no model prompts or device.');
 }finally{cli.clearWarm();clearInterval(keepAlive);queryModule.query=original;}
