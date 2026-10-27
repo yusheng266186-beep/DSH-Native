@@ -310,6 +310,9 @@ java -jar "$APKSIGNER_JAR" sign \
   --out "$BOOT/DSHNative-bootstrap.apk" "$OUT/unsigned.apk" 2>&1 | tail -3
 [ -f "$BOOT/DSHNative-bootstrap.apk" ] || die "签名失败"
 
+say "验证成品 APK 的实际组件安装、重启复用和缺件恢复"
+python3 "$BUILD/tests/check_apk_components.py" "$BOOT/DSHNative-bootstrap.apk"
+
 say "完成"
 ls -lh "$BOOT/DSHNative-bootstrap.apk"
 java -jar "$APKSIGNER_JAR" verify --min-sdk-version 24 --print-certs \

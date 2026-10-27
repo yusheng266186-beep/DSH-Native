@@ -24,8 +24,7 @@ final class AssetInstaller {
         identity = digest(index);
         for (String line : new String(index, "UTF-8").split("\n")) {
             String[] row = line.split("\t", -1);
-            if (row.length != 3 || !row[0].matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
-                    || Arrays.asList(row[0].split("/")).contains("..")
+            if (row.length != 3 || !validName(row[0])
                     || !row[2].matches("[0-9a-f]{64}")) throw new IOException("Invalid APK asset index");
             long size;
             try { size = Long.parseLong(row[1]); } catch (NumberFormatException error) { throw new IOException("Invalid asset length", error); }
@@ -33,6 +32,13 @@ final class AssetInstaller {
                 throw new IOException("Invalid or duplicate asset");
         }
         if (entries.isEmpty() || !entries.containsKey("node")) throw new IOException("Incomplete APK asset index");
+    }
+    static boolean validName(String name) {
+        // The shipped Android C++ library is libc++_shared.so. A plus sign is a
+        // filename character; traversal, absolute paths and separator aliases remain invalid.
+        if (name == null || !name.matches("[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*")) return false;
+        for (String segment : name.split("/")) if (segment.equals(".") || segment.equals("..")) return false;
+        return true;
     }
     boolean ready(File root) throws IOException {
         Map<String, String> proof = receipt(root);
