@@ -25,7 +25,8 @@ finally{tar.abort();}
 def archive(format=tarfile.PAX_FORMAT, corrupt=False):
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode='w', format=format) as tar:
-        names = ['short.txt', 'node_modules/' + 'a' * 130 + '/module.js', '资料/' + '鲸鱼' * 45 + '.txt']
+        names = ['short.txt', 'node_modules/' + 'a' * 130 + '/module.js', '资料/' + '鲸鱼' * 30 + '.txt']
+        assert all(len(piece.encode()) <= 255 for name in names for piece in name.split('/'))
         for name in names:
             data = ('CONTENT ' + name).encode()
             item = tarfile.TarInfo(name)
