@@ -49,8 +49,9 @@ final class ProcessSupervisor {
     }
 
     /** Configuration replacement requires the previous core to finish writing first. */
-    synchronized boolean stopAndWait(long timeoutMs) {
-        Process current = process;
+    boolean stopAndWait(long timeoutMs) {
+        final Process current;
+        synchronized (this) { current = process; }
         if (current == null) return true;
         current.destroy();
         long deadline = System.nanoTime() + Math.max(0L, Math.min(timeoutMs, 10000L)) * 1000000L;
@@ -59,8 +60,11 @@ final class ProcessSupervisor {
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return false; }
         }
         if (alive(current)) return false;
-        if (process == current) process = null;
-        return true;
+        synchronized (this) {
+            if (process == current) process = null;
+            // A concurrent replacement must not be mistaken for a stopped core.
+            return process == null;
+        }
     }
 
     /** 使用 API 1 就存在的 exitValue 判断，兼容本项目的最低系统版本。 */

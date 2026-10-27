@@ -36,6 +36,8 @@ public class ConnectionRecoveryTest {
         check("idle stuck connection reloads", ConnectionRecovery.shouldReload(false, 30_000L, 0), "wrong");
         check("attempt limit enforced", !ConnectionRecovery.shouldReload(false, 60_000L, 2), "wrong");
         check("negative attempts rejected", !ConnectionRecovery.shouldReload(false, 60_000L, -1), "wrong");
+        check("hidden Activity never reloads", !ConnectionRecovery.shouldReload(false, false, false, 60_000L, 0), "background reload");
+        check("disposed Activity never reloads", !ConnectionRecovery.shouldReload(false, true, true, 60_000L, 0), "stale Activity reload");
         check("problem states", ConnectionRecovery.isProblem(ConnectionRecovery.RETRYING)
                 && ConnectionRecovery.isProblem(ConnectionRecovery.ERROR)
                 && !ConnectionRecovery.isProblem(ConnectionRecovery.CONNECTED), "wrong");

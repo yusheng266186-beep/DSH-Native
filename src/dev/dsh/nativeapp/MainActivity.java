@@ -1737,7 +1737,7 @@ public class MainActivity extends Activity {
 
     /** 若连接在若干秒内没有恢复，自动刷新页面。 */
     private void scheduleReloadIfStuck() {
-        if (reloadScheduled) return;
+        if (reloadScheduled || activityDisposing || !inForeground) return;
         reloadScheduled = true;
         final long lostAt = connectionLostAt;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
@@ -1745,9 +1745,10 @@ public class MainActivity extends Activity {
                 try {
                     // 期间恢复过就不动
                     if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
+                    if (activityDisposing || !inForeground) { reloadScheduled = false; return; }
                     long sec = (System.currentTimeMillis() - lostAt) / 1000;
 
-                    boolean taskActive = lastSessionStatus != SessionStatus.IDLE
+                    boolean taskActive = deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
                             || taskTimeline.active() != null;
                     // 任务正在跑时**绝不刷新**。
                     // 刷新会丢掉滚动位置、输入框内容和展开的面板，而 agent
@@ -1767,7 +1768,7 @@ public class MainActivity extends Activity {
                         pushStatus(lastSessionStatus);
                         return;
                     }
-                    if (!ConnectionRecovery.shouldReload(false,
+                    if (!ConnectionRecovery.shouldReload(false, inForeground, activityDisposing,
                             System.currentTimeMillis() - lostAt, autoReloadCount)) {
                         reloadScheduled = false;
                         return;
@@ -8009,6 +8010,7 @@ public class MainActivity extends Activity {
         if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
+        if (connectionLostAt > 0L && ConnectionRecovery.isProblem(connectionState)) scheduleReloadIfStuck();
         try {
             if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('dsh-native-resume'));", null);
         } catch (Throwable error) { log("前台连接复核失败: " + error.getClass().getSimpleName()); }
