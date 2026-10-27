@@ -63,6 +63,12 @@ final class MobileLayout {
 
         String style = STYLE_OPEN
                 + "html{-webkit-text-size-adjust:100%;}"
+                + "[data-settings-toolbar]{min-height:40px;height:auto;gap:8px;}"
+                + "[data-settings-actions]{min-width:0;flex:1;}"
+                + "[data-settings-document-action]{min-width:0;max-width:100%;flex-wrap:wrap;gap:8px;}"
+                + "[data-settings-document-action]>[role=alert]{min-width:0;overflow-wrap:anywhere;}"
+                + "[data-settings-open-document]{max-width:100%;height:auto;min-height:calc(1.5em + 12px);"
+                + "white-space:normal;overflow-wrap:anywhere;line-height:1.5;}"
                 + "@media(max-width:840px){"
                 + "[role=dialog]{box-sizing:border-box!important;"
                 + "max-width:calc(100vw - 16px)!important;max-height:calc(100vh - 16px)!important;}"
