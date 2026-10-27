@@ -1128,6 +1128,9 @@ public class MainActivity extends Activity {
         if (live > 0) {
             if (!coreRuntimeIdentity().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreRuntimeIdentity", "")))
                 return "运行中的 DSH 尚未加载本版修复，请点击「重试启动」重启内核";
+            // Preparation also completes when a compatible authenticated core already exists.
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString("corePreparedKey", preparedRuntimeKey(root)).apply();
             chosenPort = live;
             log("复用已在运行的 DSH（端口 " + live + "），跳过启动，立即进入界面");
             setSplashStatus("正在连接已有服务…");

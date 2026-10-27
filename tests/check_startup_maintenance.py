@@ -28,6 +28,7 @@ assert 'RuntimeChecks.preflight' not in boot and 'runCapture' not in boot
 assert 'if (!preparedRuntimeValid) extractAssets(root);' in boot
 assert 'preparedRuntimeValid ? 0 : RuntimePreparation.prepareTools' in boot
 assert 'if (!preparedRuntimeValid) {\n            run(node' in boot
+assert boot.count('.putString("corePreparedKey", preparedRuntimeKey(root))') == 2
 assert 'cancelRuntimeInspection();' in method('private void beginStartup(')
 assert 'scheduleRuntimeChecks();' in method('private void finishStartupMaintenance()')
 assert 'interruptRuntimeInspection();' in method('protected void onPause()')
