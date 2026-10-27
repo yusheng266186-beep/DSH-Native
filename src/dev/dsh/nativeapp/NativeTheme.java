@@ -16,6 +16,9 @@ import java.util.WeakHashMap;
 
 /** Recolor retained controls and drawable states; never rebuild views or edit their contents. */
 final class NativeTheme {
+    interface Target { Context themeContext(); void applyTheme(); }
+    private static final WeakHashMap<Target, Boolean> targets = new WeakHashMap<Target, Boolean>();
+    static void watch(Target target) { synchronized (targets) { targets.put(target, Boolean.TRUE); } }
     enum Role { BG, CARD, BORDER, FIELD, FIELD_FOCUS, BTN, BTN_PRESS, ACCENT, BRAND,
         ACCENT_DARK, SUCCESS, WARN, ERROR, TEXT, TEXT_2, TEXT_3, ON_ACCENT, DIMMED,
         RIPPLE_PRIMARY, RIPPLE_SECONDARY }
@@ -90,10 +93,14 @@ final class NativeTheme {
                 ((ShapeDrawable) drawable).getPaint().setColor(fill);
             }
         }
+        java.util.List<Target> redraw;
+        synchronized (targets) { redraw = new java.util.ArrayList<Target>(targets.keySet()); }
+        for (Target target : redraw) if (owns(owner, target.themeContext())) target.applyTheme();
     }
 
     static void detach(Context owner) {
         synchronized (texts) { texts.keySet().removeIf(view -> owns(owner, view.getContext())); }
         synchronized (surfaces) { surfaces.values().removeIf(style -> owns(owner, style.owner.get())); }
+        synchronized (targets) { targets.keySet().removeIf(target -> owns(owner, target.themeContext())); }
     }
 }

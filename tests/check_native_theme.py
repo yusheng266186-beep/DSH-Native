@@ -64,8 +64,10 @@ public class ThemeProbe extends Context {
   GradientDrawable dimmed=NativeTheme.surface(owner,new GradientDrawable(),NativeTheme.Role.DIMMED,null,0);
   RippleDrawable ripple=NativeTheme.surface(owner,new RippleDrawable(),NativeTheme.Role.RIPPLE_SECONDARY,null,0);
   ShapeDrawable divider=NativeTheme.surface(owner,new ShapeDrawable(),NativeTheme.Role.BORDER,null,0);
+  final int[] redraw={0};NativeTheme.Target icon=new NativeTheme.Target(){public Context themeContext(){return owner;}public void applyTheme(){redraw[0]++;}};NativeTheme.watch(icon);
   WebView page=owner.webView;int count=android.view.View.created;
   owner.onWebTheme(true);Handler.advance(2000);
+  check(redraw[0]==1,"retained custom icons receive an explicit redraw with the new palette");
   check(owner.recreates==0,"theme transition must never recreate the Activity/WebView");
   check(DshUi.isDark()&&input.color==DshUi.TEXT()&&primary.color==DshUi.ON_ACCENT(),"retained inputs and primary contrast follow the new palette");
   check(status.color==DshUi.ERROR(),"async error state survives recoloring");
@@ -78,7 +80,8 @@ public class ThemeProbe extends Context {
   owner.onWebTheme(true);owner.onWebTheme(false);owner.onWebTheme(true);Handler.advance(2000);check(DshUi.isDark(),"rapid switches coalesce to the last value");
   owner.onWebTheme(false);owner.startupState.navigate();Handler.advance(2000);check(DshUi.isDark(),"old document callback cannot recolor the next navigation");
   owner.onWebTheme(false);owner.activityDisposing=true;Handler.advance(2000);check(DshUi.isDark(),"destroyed owner ignores pending theme work");
-  owner.activityDisposing=false;NativeTheme.detach(owner);int[] previous=DshUi.palette();DshUi.setDark(false);NativeTheme.apply(owner,previous,DshUi.palette());check(input.color!=DshUi.TEXT(),"detached controls are released from theme updates");
+  owner.activityDisposing=false;NativeTheme.detach(owner);int redraws=redraw[0];int[] previous=DshUi.palette();DshUi.setDark(false);NativeTheme.apply(owner,previous,DshUi.palette());check(input.color!=DshUi.TEXT(),"detached controls are released from theme updates");
+  check(redraw[0]==redraws,"detached custom icon targets are released");
   System.out.println("Native theme: "+checks+" production callback, retained state, color, lifecycle and cleanup checks passed; Android boundaries only.");
  }
 }
