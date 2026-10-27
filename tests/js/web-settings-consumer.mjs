@@ -1,3 +1,4 @@
+import {preparedFrontend} from './prepared-frontend.mjs';
 // Production DSH settings slots and RPC with the actual Java presenter and Android boundary fakes.
 // All credentials, configurations and model responses here are synthetic.
 import assert from 'node:assert/strict';
@@ -31,7 +32,7 @@ try{
  readline.createInterface({input:native.stdout}).on('line',line=>{const value=JSON.parse(line);if(value.ready)readyResolve(value);else pending.shift()?.(value);});
  const handshake=await ready;
  browser=await chromium.launch({headless:true});
- const mobile=await fs.readFile(mobileArg,'utf8'),injection=mobile.slice(mobile.indexOf('<style id="dsh-native-responsive">'),mobile.indexOf('</head>'));
+ const mobile=await fs.readFile(mobileArg,'utf8');
  for(const scenario of [{w:320,h:800,lang:'zh',theme:'dark'},{w:436,h:880,lang:'en',theme:'light'},{w:869,h:436,lang:'zh',theme:'light'},
   {w:360,h:430,lang:'en',theme:'dark',largeText:true},{w:768,h:1024,lang:'en',theme:'light',largeText:true},{w:1024,h:600,lang:'zh',theme:'dark',largeText:true}]){
   await rpc('settings/update',{ns:'locale',patch:{preference:scenario.lang}});await rpc('settings/update',{ns:'ui-theme',patch:{preference:scenario.theme}});
@@ -40,7 +41,7 @@ try{
   await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);
   page=await context.newPage();page.setDefaultTimeout(10000);const errors=[],fileCommands=[],nativeActions=[],prompts=[];page.on('request',request=>{if(new URL(request.url()).pathname==='/api/session/prompt')prompts.push(request);});let failNextRead=true,holdPoll,releasePoll;page.on('pageerror',error=>{errors.push(error.message);console.log('Browser boundary error: '+error.message);});
   page.on('console',message=>{if(!message.text().startsWith('[dsh-settings-ui] '))return;const command=message.text();const parsed=JSON.parse(command.slice('[dsh-settings-ui] '.length));if(parsed.op==='act')nativeActions.push(parsed);if(parsed.op==='file')fileCommands.push(parsed);let response;if(parsed.op==='read'&&failNextRead){failNextRead=false;response=Promise.resolve({id:parsed.id,ok:false,error:'synthetic read boundary failure'});}else{response=new Promise(resolve=>pending.push(resolve));native.stdin.write(command+'\n');}response.then(async reply=>{if(parsed.op==='state'&&holdPoll){const ready=holdPoll;holdPoll=null;await new Promise(resolve=>{releasePoll=resolve;ready();});}const text=JSON.stringify({ok:reply.ok,value:reply.value,error:reply.error});const total=Math.ceil(text.length/32000);for(let index=0;index<total;index++)await page.evaluate(detail=>window.dispatchEvent(new CustomEvent('dsh-settings-chunk',{detail})),{id:reply.id,index,total,part:text.slice(index*32000,(index+1)*32000)}).catch(()=>{});});});
-  await page.route(origin+'/',async route=>{const response=await route.fetch();const html=(await response.text()).replace(/content="width=device-width, initial-scale=1"/,'content="width='+Math.max(480,scenario.w)+'"');await route.fulfill({response,body:html.replace('</head>',injection+'</head>')});});
+  await page.route(origin+'/',async route=>{const response=await route.fetch();const html=preparedFrontend(await response.text(),mobile,scenario.w);await route.fulfill({response,body:html});});
   await page.addInitScript(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.__fixtureSockets=[];const Native=window.WebSocket;window.WebSocket=class extends Native{constructor(...args){super(...args);window.__fixtureSockets.push(this);}};window.__DSH_CONNECTION_RECOVERY__={backoffBaseMs:5000,backoffMaxMs:5000};});
   page.on('console',m=>{if(process.env.DSH_SETTINGS_LAYOUT_PROBE&&m.text().startsWith('[dsh-native] layout-probe '))console.log(m.text());});
   await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();

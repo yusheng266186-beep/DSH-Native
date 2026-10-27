@@ -1,3 +1,4 @@
+import {preparedFrontend} from './prepared-frontend.mjs';
 // The real Web core and production native RPC transport, with a local Platform fixture.
 // No real account, provider key or paid model request is used.
 import assert from 'node:assert/strict';
@@ -13,8 +14,6 @@ import {chromium} from 'playwright';
 
 const runtime = path.resolve(process.argv[2]), classes = path.resolve(process.argv[3]);
 const mobileHtml = await fs.readFile(process.argv[4], 'utf8');
-const mobileInjection = mobileHtml.slice(mobileHtml.indexOf('<style id="dsh-native-responsive">'), mobileHtml.indexOf('</head>'));
-assert(mobileInjection.startsWith('<style'), 'account UI must use the production mobile layout');
 const requireRuntime = createRequire(path.join(runtime, 'package.json'));
 const yaml = requireRuntime('js-yaml');
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-account-'));
@@ -162,9 +161,8 @@ try {
   accountPage = await context.newPage();
   const mobileRoute = (page, width) => page.route(origin + '/', async route => {
       const response = await route.fetch();
-      const html = (await response.text()).replace(/content="width=device-width, initial-scale=1"/,
-        'content="width=' + Math.max(480, width) + '"');
-      await route.fulfill({response, body: html.replace('</head>', mobileInjection + '</head>')});
+      const html = preparedFrontend(await response.text(), mobileHtml, 480);
+      await route.fulfill({response, body: html});
     });
   await mobileRoute(accountPage, 480);
   const pageErrors = []; accountPage.on('pageerror', error => pageErrors.push(error.message));
