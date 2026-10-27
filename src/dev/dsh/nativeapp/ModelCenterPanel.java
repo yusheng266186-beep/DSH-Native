@@ -597,7 +597,10 @@ final class ModelCenterPanel {
         final String provider = draft.provider;
         LinearLayout body = DshUi.paddedBody(act);
         body.addView(DshUi.title(act, UiText.t("选择模型", "Choose model")));
-        body.addView(DshUi.hint(act, ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)
+        body.addView(DshUi.hint(act, ModelConfig.CODEBUDDY.equals(provider)
+                ? UiText.t("读取内置官方 CLI 的模型资料，版本 " + CodeBuddyCatalog.VERSION + "。可搜索并选择模型；实际权限由账号与对话检查决定。",
+                        "Read model metadata from the bundled official CLI, version " + CodeBuddyCatalog.VERSION + ". Search and select a model; account permissions and a chat check determine access.")
+                : ModelConfig.DEEPSEEK_ACCOUNT.equals(provider)
                 ? UiText.t("读取账号模型目录。实际使用取决于 DeepSeek 账号权限和额度；图片和思考标签为能力提示。",
                         "Read the account model catalog. Usage depends on DeepSeek account permissions and balance; image and reasoning labels are capability hints.")
                 : UiText.t(

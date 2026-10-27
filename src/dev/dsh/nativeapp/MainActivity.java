@@ -979,6 +979,7 @@ public class MainActivity extends Activity {
     private String boot() throws Exception {
         final File root = new File(getFilesDir(), "dsh");
         appRoot = root;
+        preparedRuntimeValid = false;
         log("私有目录: " + root);
         File configHome = new File(root, ".dsh");
         if (ConfigBackup.hasInterruptedRestore(configHome)) {
@@ -1011,6 +1012,8 @@ public class MainActivity extends Activity {
 
         startHarnessService();
 
+        if (PayloadRollback.interruptedMode(root) == null && reuseOrStopPreviousAppCore()) return null;
+
         // Reopening the Activity must not traverse and rewrite the runtime before
         // checking a core which this exact version has already prepared.
         File dshDir = new File(root, "dsh");
@@ -1035,7 +1038,7 @@ public class MainActivity extends Activity {
         // 前置自检：先确认能否执行自带的 Node。
         // 这一步是整个架构成立的前提（Android 10+ 对 targetSdk>=29 的 App
         // 禁止 exec 私有目录文件）。放在下载之前，可以快速失败并给出明确原因。
-        if (!probeNodeExec(node)) {
+        if (!preparedRuntimeValid && !probeNodeExec(node)) {
             // 这是**非异常**路径，必须显式返回原因 ——
             // 它曾经静默 return：用户看到的是永久白屏（开屏一直转圈、不可点），
             // 而"报错给用户看"的代码全都写在抛异常那条分支里，根本不会执行。
@@ -1095,9 +1098,14 @@ public class MainActivity extends Activity {
         startupTiming.mark("runtime", android.os.SystemClock.elapsedRealtime());
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
-        int toolsRepaired = ToolEnvironment.repair(root);
-        log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
-        applyAndroidPatches(root, dshDir);
+        if (!preparedRuntimeValid) {
+            int toolsRepaired = ToolEnvironment.repair(root);
+            log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
+            applyAndroidPatches(root, dshDir);
+        } else {
+            preparedCoreReused = true;
+            log("[启动] 本版运行环境已经准备完成，跳过重复补丁扫描");
+        }
         startupTiming.mark("compat", android.os.SystemClock.elapsedRealtime());
         log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
@@ -1141,7 +1149,7 @@ public class MainActivity extends Activity {
         // 这就是「关掉再打开要等很久」的真正原因。
         //
         // 复用它：直接连上去，跳过整个启动过程。
-        int live = liveDshPort();
+        int live = preparedRuntimeValid ? 0 : liveDshPort();
         if (live > 0) {
             if (!appVersion().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreAppVersion", "")))
                 return "运行中的 DSH 尚未加载本版修复，请点击「重试启动」重启内核";
@@ -1302,6 +1310,7 @@ public class MainActivity extends Activity {
 
     private boolean payloadCheckAfterStartup;
     private boolean preparedCoreReused;
+    private boolean preparedRuntimeValid;
 
     private String preparedRuntimeKey(File root) {
         StringBuilder key = new StringBuilder(StartupReuse.key(appVersion(), payloadRevisionKey(),
@@ -1328,6 +1337,28 @@ public class MainActivity extends Activity {
         return new File(root, "tmp").isDirectory();
     }
 
+    /** Upgrade an owned idle core before touching its runtime; active work keeps its old UI. */
+    private boolean reuseOrStopPreviousAppCore() throws Exception {
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!HarnessService.isManagedProcessAlive() || appVersion().equals(prefs.getString("coreAppVersion", ""))) return false;
+        String url = HarnessService.managedUrl();
+        if (url == null) throw new IOException("已有内核正在启动，请稍后重试");
+        CoreRpcClient probe = CoreRpcClient.fromLaunchUrl(url);
+        int state = SessionStatus.UNKNOWN;
+        try { state = CoreTaskState.read(probe); }
+        catch (IOException unavailable) { log("升级前任务状态暂不可读，保留已有服务"); }
+        finally { probe.close(); }
+        if (state != SessionStatus.IDLE) {
+            log("升级准备延后：已有任务运行或状态未知，先连接原内核");
+            loadDshUi(url);
+            return true;
+        }
+        if (!HarnessService.stopManagedProcessAndWait(5000L)) throw new IOException("旧内核尚未退出，请稍后重试");
+        prefs.edit().remove("dshPort").remove("dshToken").remove("corePreparedKey").apply();
+        log("已安全退出空闲旧内核，继续准备本版环境");
+        return false;
+    }
+
     /** A failed proof/probe always falls through to the complete preparation path. */
     private boolean reusePreparedCore(File root, File dshDir, File toolsDir, File node) {
         try {
@@ -1341,6 +1372,7 @@ public class MainActivity extends Activity {
                     || !runtimeAssetsPresent(root) || !appVersion().equals(prefs.getString("coreAppVersion", ""))
                     || !(payloadRevisionKey() + "/" + appVersion() + "/"
                             + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
+            preparedRuntimeValid = true;
             int live = liveDshPort();
             if (live <= 0) return false;
             nodeRef = node; toolsDirRef = toolsDir; chosenPort = live;
@@ -1461,10 +1493,8 @@ public class MainActivity extends Activity {
         String token = savedDshToken();
         if (token == null || token.length() == 0) return 0;
         int saved = savedDshPort();
-        // 先试上次记录的那个端口，再扫常见的这一段
-        int[] candidates = new int[12];
-        candidates[0] = saved;
-        for (int i = 0; i < 11; i++) candidates[i + 1] = PORT + i;
+        // Token 属于保存的实例；不为已退出的内核逐个探测无关端口。
+        int[] candidates = new int[]{saved};
         for (int port : candidates) {
             if (port <= 0) continue;
             if (!portOpen(port)) continue;
@@ -5536,14 +5566,12 @@ public class MainActivity extends Activity {
             @Override public void log(String message) { MainActivity.this.log(message); }
 
             @Override public void refreshModelCatalog() {
-                // A plain WebView reload is not enough here: the long-lived DSH
-                // process can still hold the provider topology/model directory
-                // created at boot. Restart the idle runtime so the settings
-                // seam is read from disk before the WebUI builds its selector.
+                modelCatalogApplyFailed = false;
+                // The core owns live model namespaces and publishes catalog changes.
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                         .putBoolean("modelCatalogPending", true).apply();
                 if (lastSessionStatus != SessionStatus.IDLE || taskTimeline.active() != null) {
-                    log("模型目录已写入 DSH；当前任务运行中，暂不重启运行时（状态未知也延后）");
+                    log("模型目录已写入 DSH；任务运行或状态未知，等待空闲后应用");
                     toast(UiText.t("模型目录已保存，确认空闲后自动应用",
                             "Model catalog saved; it will apply automatically when DSH is idle."));
                     return;
@@ -6223,31 +6251,33 @@ public class MainActivity extends Activity {
         restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
     }
 
-    private boolean modelCatalogRestartScheduled;
+    private boolean modelCatalogApplying;
+    private boolean modelCatalogApplyFailed;
 
     private void applyPendingModelCatalog() {
-        if (modelCatalogRestartScheduled || lastSessionStatus != SessionStatus.IDLE
+        if (modelCatalogApplying || modelCatalogApplyFailed || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
                 || taskTimeline.active() != null || !getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getBoolean("modelCatalogPending", false)) return;
-        modelCatalogRestartScheduled = true;
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override public void run() {
-                modelCatalogRestartScheduled = false;
-                if (isFinishing() || isDestroyed() || lastSessionStatus != SessionStatus.IDLE
-                        || taskTimeline.active() != null) return;
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putBoolean("modelCatalogPending", false).apply();
-                try {
-                    lastSessionStatus = SessionStatus.UNKNOWN;
-                    restartAgent(UiText.t("正在应用上游模型目录…", "Applying the upstream model catalog…"));
-                    log("已应用模型目录，正在重启空闲 DSH 并刷新 WebUI");
-                } catch (Throwable error) {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                            .putBoolean("modelCatalogPending", true).apply();
-                    log("应用模型目录失败: " + shorten(error));
+        final NativeCoreApi api = coreApi();
+        if (api == null) return;
+        modelCatalogApplying = true;
+        api.execute(new NativeCoreApi.Work() {
+            @Override public Object run() throws Exception {
+                return api.call("session/androidApplyModelSettings", new org.json.JSONObject());
+            }
+        }, new NativeCoreApi.Callback() {
+            @Override public void complete(Object value, Throwable failure) {
+                modelCatalogApplying = false;
+                if (failure == null) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("modelCatalogPending", false).apply();
+                    log("模型目录已在当前内核中应用，保持界面和连接");
+                } else {
+                    modelCatalogApplyFailed = true;
+                    log("模型目录尚未应用: " + failure.getClass().getSimpleName());
+                    toast(UiText.t("模型已保存，但当前内核未能应用；可再次刷新重试", "Models saved, but not applied to the current core. Refresh again to retry."));
                 }
             }
-        }, 1200L);
+        });
     }
 
     private void restartAgent(final String progressMessage) {

@@ -83,7 +83,7 @@ STUBS = {
                 v.onAttachedToWindow();v.ready(true);View.at(1720);check(done==1,"reattached view can finish");
                 v=create();View.at(1350);View graphic=((android.view.ViewGroup)v.children.get(0)).children.get(0);
                 java.lang.reflect.Method draw=graphic.getClass().getDeclaredMethod("onDraw",Canvas.class);draw.setAccessible(true);
-                Canvas canvas=new Canvas();draw.invoke(graphic,canvas);check(canvas.marks.size()==1&&canvas.paths==1,"brand whale and a wake replace the dot loader");
+                Canvas canvas=new Canvas();draw.invoke(graphic,canvas);check(canvas.marks.size()==1&&canvas.paths==1,"brand whale and a fine wake render together");
                 for(float[] c:canvas.circles)check(c[0]-c[2]>=0&&c[0]+c[2]<=104&&c[1]-c[2]>=0&&c[1]+c[2]<=84,"motion stays within its bounds");
                 v.dismiss();check(View.frames.isEmpty(),"final cleanup");
                 v=create();int before=DshUi.reads;for(int frame=0;frame<60;frame++)View.at(1000+frame*16);

@@ -76,6 +76,22 @@ try{
    for(const item of await section.locator('button,input').evaluateAll(els=>els.map(el=>({height:el.clientHeight,scroll:el.scrollHeight}))))check(item.scroll<=item.height+2,'control text fits its height '+target+': '+JSON.stringify(item));
   }
   await open('updates');const settingsPage=page.locator('[data-device-page="updates"]');
+  await settingsPage.getByRole('button',{name:'Open model catalog',exact:true}).click();
+  const modelDialog=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Upstream models',exact:true})});
+  await modelDialog.waitFor();
+  const geometry=await modelDialog.evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),scroll:el.scrollHeight,height:el.clientHeight,vh:innerHeight,scrollers:[...el.querySelectorAll('*')].filter(node=>getComputedStyle(node).overflowY.match(/auto|scroll/)).map(node=>({height:node.clientHeight,scroll:node.scrollHeight}))}));
+  console.log('Model picker geometry',scenario.w,geometry);
+  check(geometry.rect.top>=-1&&geometry.rect.bottom<=geometry.vh+1,'model catalog dialog remains within the viewport');
+  const scrollable=await modelDialog.locator('*').evaluateAll(els=>els.some(el=>el.scrollHeight>el.clientHeight+30&&/auto|scroll/.test(getComputedStyle(el).overflowY)));
+  check(scrollable,'long upstream catalog provides a bounded scroll container');
+  const modelScroll=modelDialog.locator('[data-native-dialog-body]');const scrollRect=await modelScroll.boundingBox();
+  const touch=await context.newCDPSession(page);
+  await touch.send('Input.synthesizeScrollGesture',{x:scrollRect.x+scrollRect.width/2,y:scrollRect.y+scrollRect.height*.75,yDistance:-Math.min(180,scrollRect.height*.5),gestureSourceType:'touch',speed:500});
+  await page.waitForFunction(()=>document.querySelector('[data-native-dialog-body]')?.scrollTop>0);
+  check(await modelScroll.evaluate(el=>el.scrollTop>0),'a touch swipe scrolls the upstream catalog');await touch.detach();
+  await modelDialog.getByRole('button',{name:/^upstream-model-60 /}).click();
+  await settingsPage.getByRole('button',{name:'Selected model 60',exact:true}).waitFor();
+  check(true,'last upstream model is reachable and selection reaches the Java controller');
   await settingsPage.getByRole('button',{name:'Open details',exact:true}).click();
   await page.getByRole('heading',{name:'Operation details',exact:true}).waitFor();
   check(await page.getByText('Operation details',{exact:true}).count()===1,'nested native dialog uses its own title without a repeated body heading');

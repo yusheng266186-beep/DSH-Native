@@ -70,7 +70,24 @@ llm-pi-ai:
           maxTokens: 512
           input: [text]
 `);
- const launch=await boot();nativeStatus=await connectNativeStatus(launch,path.resolve(process.argv[4]));check(await nativeStatus.state()===0,'native task source works before WebView exists');const workspace=(await ok('workspace/create',{path:project})).workspace;assert((await rpc('settings/update',{ns:'ui-settings-general',patch:{welcomeNoticeVersion:'2026-09-28.1'}})).ok);
+ const launch=await boot();
+ // Match Android's CoreReadiness gate: the URL is printed before the legacy
+ // settings importer necessarily finishes its first provider write.
+ let imported=false;
+ for(let n=0;n<100;n++){const initial=await rpc('session/modelCatalog');if(initial.ok&&initial.value.groups.some(group=>group.id==='synthetic'&&group.models.some(model=>model.id==='synthetic'))){imported=true;break;}await sleep(50);}
+ check(imported,'initial legacy model import has settled before a live refresh');
+ const modelFile=path.join(home,'settings.yaml'),beforeModels=await fs.readFile(modelFile+'.imported','utf8'),samePid=child.pid;
+ const {createRequire}=await import('node:module'),yaml=createRequire(path.join(runtime,'package.json'))('yaml');
+ const nextModels=yaml.parse(beforeModels);nextModels['llm-pi-ai'].providers.synthetic.models.push({id:'synthetic-added',name:'Live catalog addition',contextWindow:64000,maxTokens:512,input:['text']});
+ await fs.writeFile(modelFile,yaml.stringify(nextModels));
+ const applied=await rpc('session/androidApplyModelSettings');if(!applied.ok)console.log('Synthetic live apply failure',applied.error);check(applied.ok,'saved model configuration applies through the actual live settings editor');
+ let liveCatalog=await rpc('session/modelCatalog');check(liveCatalog.value.groups.find(row=>row.id==='synthetic').models.some(row=>row.id==='synthetic-added'),'newly fetched model reaches the current Host without restart');
+ check(child.pid===samePid&&child.exitCode===null,'catalog application retains the running core');
+ check(await fs.stat(modelFile).catch(()=>null)===null,'successful live application consumes the pending legacy file');
+ await fs.writeFile(modelFile,'[broken yaml PRIVATE-CONFIG-CANARY');const rejectedSettings=await rpc('session/androidApplyModelSettings');check(!JSON.stringify(rejectedSettings).includes('PRIVATE-CONFIG-CANARY'),'invalid YAML never discloses private configuration in an RPC failure');check(!rejectedSettings.ok,'invalid saved settings refuses application without killing the core');
+ check(child.exitCode===null,'invalid refresh preserves the current core');
+ await fs.writeFile(modelFile,beforeModels);check((await rpc('session/androidApplyModelSettings')).ok,'next explicit valid refresh recovers in the same core');
+ nativeStatus=await connectNativeStatus(launch,path.resolve(process.argv[4]));check(await nativeStatus.state()===0,'native task source works before WebView exists');const workspace=(await ok('workspace/create',{path:project})).workspace;assert((await rpc('settings/update',{ns:'ui-settings-general',patch:{welcomeNoticeVersion:'2026-09-28.1'}})).ok);
  const create=async title=>{const created=await ok('session/create',{workspaceId:workspace.workspaceId});await ok('session/rename',{sessionId:created.sessionId,title});return created.sessionId;};
  const alpha=await create('Synthetic Alpha'), beta=await create('Synthetic Beta');
  browser=await chromium.launch({headless:true});context=await browser.newContext({locale:'zh-CN',viewport:{width:393,height:852},isMobile:true,hasTouch:true,deviceScaleFactor:3});

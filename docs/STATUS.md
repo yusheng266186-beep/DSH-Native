@@ -33,7 +33,7 @@
 | 任务与恢复 | 任务中心、持久化时间线、WebSocket 状态、受限草稿恢复已实现 | [阶段五 A 历史](PHASE5A-TASK-RECOVERY.md) |
 | 模型配置 | 实时目录、默认/项目覆盖、目录写入真实 DSH 配置已实现 | [模型说明](MODEL_REASONING.md) |
 | DeepSeek 账号 | 上游账号与余额界面、浏览器登录及账号模型；App 工具/模型中心打开同一上游页 | [账号说明](DEEPSEEK_ACCOUNT.md) |
-| 目录应用 | 已修复仅刷新 WebView 无效的问题；空闲后受控重载，运行/未知时延后 | [阶段五 G 历史](PHASE5G-MODEL-WEBUI-REFRESH.md) |
+| 目录应用 | 空闲后通过内核 settings 服务应用，保留进程和界面；运行/未知时延后 | [1.0 新增反馈修复](RELEASE_1_0.md) |
 | 思考选择器 | 原生与聊天框均可选择；所有模型追加字面量 max 请求 | [模型说明](MODEL_REASONING.md) |
 | 内核 | App 0.34.0 使用 payload-v13 / DSH 0.2.1-rc.3，保留 Android 兼容层 | [内核升级](CORE_UPGRADE.md) |
 | App 设置与会话 | 原 DSH 设置框架、真实归档/恢复/继续、重命名及可恢复回收站 | [App 设置](APP_SETTINGS.md) |
@@ -44,7 +44,7 @@
 
 ## 1.0 正式版收尾
 
-依次完成连接稳定、更新/配置事务、全页面适配、CodeBuddy 完整对话、性能与缓存、维护基础六项，见 [执行计划](RELEASE_1_0.md)。新增 [隐私](PRIVACY.md)、[开源来源](THIRD_PARTY.md) 和 [排障指南](TROUBLESHOOTING.md)。冻结兼容组合与实际引导二进制，未知能力和手机验收边界保留。最终综合验收与发布尚在进行，不预先宣布完成。
+依次完成连接稳定、更新/配置事务、全页面适配、CodeBuddy 完整对话、性能与缓存、维护基础六项，见 [执行计划](RELEASE_1_0.md)。新增 [隐私](PRIVACY.md)、[开源来源](THIRD_PARTY.md) 和 [排障指南](TROUBLESHOOTING.md)。冻结兼容组合与实际引导二进制，未知能力和手机验收边界保留。发布前追加的启动、模型目录重启与列表滚动问题正纳入最终验收，尚未发布。
 
 ## 0.40.2 的缓存统计与小鲸鱼动画
 
