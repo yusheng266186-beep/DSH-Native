@@ -38,6 +38,10 @@ public class AppArchitectureTest {
         }
     }
     static void assets(Path scratch) throws Exception {
+        for (String name : Arrays.asList("lib/libc++_shared.so", "licenses/CodeBuddy-CLI-LICENSE.txt", "node", "android-port-files.tsv"))
+            check(AssetInstaller.validName(name), "valid shipped component name: " + name);
+        for (String name : Arrays.asList("../outside", "lib/../outside", "lib/./file", "/outside", "lib//file", "lib/", "lib\\file", "lib/file\tname", "lib/file\nname"))
+            check(!AssetInstaller.validName(name), "unsafe component name rejected");
         File root = Files.createDirectory(scratch.resolve("installed")).toFile();
         Assets source = new Assets(); source.files.put("payload/node", new byte[2 * 1024 * 1024]);
         source.files.put("payload/config.cjs", "first".getBytes("UTF-8")); source.index();
