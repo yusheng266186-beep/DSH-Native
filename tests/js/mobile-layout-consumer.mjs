@@ -1,3 +1,4 @@
+import {preparedFrontend} from './prepared-frontend.mjs';
 // Render the shipped WebUI with the exact Java patch in a touch Chromium browser.
 // Only synthetic workspaces, drafts and uploads are used; no model prompt is sent.
 import assert from 'node:assert/strict';
@@ -12,8 +13,6 @@ const patched = await fs.readFile(process.argv[3], 'utf8');
 const probe = await fs.readFile(process.argv[4], 'utf8');
 const tools = await fs.readFile(process.argv[5], 'utf8');
 const touch = await fs.readFile(process.argv[6], 'utf8');
-const injection = patched.slice(patched.indexOf('<style id="dsh-native-responsive">'), patched.indexOf('</head>'));
-assert(injection.startsWith('<style'), 'must consume the generated Java patch');
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-layout-'));
 const evidence = process.env.DSH_LAYOUT_EVIDENCE_DIR;
 const fileName = 'long-unbroken-file-title-'.repeat(4) + '.txt';
@@ -105,10 +104,8 @@ try {
       // Preserve the Host's module registry, authentication and theme bootstrap.
       await page.route(origin + '/', async route => {
         const response = await route.fetch();
-        let html = await response.text();
-        html = html.replace(/content="width=device-width, initial-scale=1"/,
-          'content="width=' + Math.max(480, scenario.w) + '"');
-        await route.fulfill({response, body: html.replace('</head>', injection + '</head>')});
+        const html = preparedFrontend(await response.text(), patched, scenario.w);
+        await route.fulfill({response, body: html});
       });
       await page.goto(origin + '/');
       const later = page.getByRole('button', {name: /^(Configure later|稍后配置)$/});

@@ -24,7 +24,7 @@ import android.view.View;
  * 颜色取自 {@link DshUi#TEXT_3()}（弱化），目录用 {@link DshUi#TEXT_2()} 稍重，
  * 形成层级但不喧宾夺主。
  */
-public final class FileIconView extends View {
+public final class FileIconView extends View implements NativeTheme.Target {
 
     public static final int FOLDER = 0;
     public static final int FILE = 1;
@@ -44,7 +44,11 @@ public final class FileIconView extends View {
         stroke.setStrokeCap(Paint.Cap.ROUND);
         stroke.setStrokeJoin(Paint.Join.ROUND);
         stroke.setStrokeWidth(DshUi.dp(c, 1.4f));
+        NativeTheme.watch(this);
     }
+
+    @Override public Context themeContext() { return getContext(); }
+    @Override public void applyTheme() { setType(type); }
 
     /** 设置图标形态（{@link #FOLDER} / {@link #FILE} / {@link #LINK}）。 */
     public void setType(int t) {

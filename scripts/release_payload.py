@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import urllib.parse
 import urllib.request
 
@@ -21,13 +22,23 @@ def main():
     parser.add_argument('directory', type=pathlib.Path)
     parser.add_argument('--commit', required=True)
     parser.add_argument('--notes', type=pathlib.Path, required=True)
+    parser.add_argument('--transport', choices=('urllib', 'gh'), default='urllib',
+                        help='gh uses the existing CLI login and its configured proxy; no token argument')
     args = parser.parse_args()
     if not __import__('re').fullmatch(r'payload-v[0-9]+', args.tag):
         raise ValueError('invalid payload tag')
-    token = os.environ.get('DSH_GITHUB_TOKEN') or os.environ['GH_TOKEN']
+    token = None if args.transport == 'gh' else os.environ.get('DSH_GITHUB_TOKEN') or os.environ['GH_TOKEN']
 
     def api(url, method='GET', data=None, binary=False):
         if isinstance(data, dict): data = json.dumps(data).encode()
+        if args.transport == 'gh':
+            command = ['gh', 'api', url, '--method', method, '-H', 'Accept: application/vnd.github+json']
+            if data is not None:
+                command += ['--input', '-', '-H', 'Content-Type: ' + ('application/octet-stream' if binary else 'application/json')]
+            result = subprocess.run(command, input=data, capture_output=True, timeout=300)
+            if result.returncode:
+                raise RuntimeError('GitHub release transport failed: ' + result.stderr.decode(errors='replace')[:2000])
+            return json.loads(result.stdout)
         req = urllib.request.Request(url, data=data, method=method, headers={
             'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
             'Content-Type': 'application/octet-stream' if binary else 'application/json',
@@ -50,20 +61,44 @@ def main():
                      for line in (args.directory / 'SHA256SUMS.txt').read_text().splitlines())
     assert all(checksums[name] == value for name, value in expected.items() if name != 'SHA256SUMS.txt')
     base = f'https://api.github.com/repos/{REPO}/releases'
-    release = api(base, 'POST', dict(tag_name=args.tag, target_commitish=args.commit,
-        name=args.tag, body=args.notes.read_text(), draft=True, prerelease=False))
+    previous = [item for item in api(base + '?per_page=100') if item['tag_name'] == args.tag]
+    if previous:
+        if len(previous) != 1 or not previous[0]['draft']:
+            raise ValueError('Payload release already published; never replace immutable assets')
+        release = previous[0]
+        if release['target_commitish'] != args.commit:
+            raise ValueError('Existing draft belongs to a different commit')
+    else:
+        release = api(base, 'POST', dict(tag_name=args.tag, target_commitish=args.commit,
+            name=args.tag, body=args.notes.read_text(), draft=True, prerelease=False))
     upload = release['upload_url'].split('{')[0]
     # Draft protects readers until every asset has been fully verified. The
     # manifest is still last, preserving the payload publication contract.
     for name in names:
         path = args.directory / name
-        asset = api(upload + '?name=' + urllib.parse.quote(name), 'POST', path.read_bytes(), True)
+        existing = [asset for asset in release['assets'] if asset['name'] == name]
+        if existing:
+            asset = existing[0]
+        elif args.transport == 'gh':
+            # The asset endpoint rejects chunked stdin; release upload streams a
+            # file with its exact Content-Length through the existing CLI login.
+            subprocess.run(['gh', 'release', 'upload', args.tag, str(path), '--repo', REPO], check=True, timeout=300)
+            uploaded = api(release['url'])
+            asset = next(item for item in uploaded['assets'] if item['name'] == name)
+        else:
+            asset = api(upload + '?name=' + urllib.parse.quote(name), 'POST', path.read_bytes(), True)
         assert asset['size'] == path.stat().st_size
         assert asset.get('digest') == 'sha256:' + expected[name], f'uploaded digest differs: {name}'
         print(name + ': uploaded and SHA-verified', flush=True)
     published = api(release['url'], 'PATCH', dict(draft=False, make_latest='false'))
-    with urllib.request.urlopen(f'https://github.com/{REPO}/releases/download/{args.tag}/manifest.json', timeout=60) as response:
-        assert hashlib.sha256(response.read()).hexdigest() == expected['manifest.json']
+    public_url = f'https://github.com/{REPO}/releases/download/{args.tag}/manifest.json'
+    if args.transport == 'gh':
+        public = subprocess.run(['curl', '-fsSL', '--retry', '3', '--connect-timeout', '20', '--max-time', '120', public_url],
+                                capture_output=True, check=True).stdout
+    else:
+        with urllib.request.urlopen(public_url, timeout=60) as response:
+            public = response.read()
+    assert hashlib.sha256(public).hexdigest() == expected['manifest.json']
     print('Published: ' + published['html_url'])
 
 

@@ -78,7 +78,7 @@ for soname in $REQUIRED; do
 done
 echo "  共享库: $(ls "$P/lib" | wc -l) 个"
 
-for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-settings-ui.js connection-ui.js android-voice-ui.js android-bridge.cjs android-tools.cjs provider-cleanup.cjs codebuddy-cli.cjs codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json runtime-environment.md runtime-checks.js openssl.cnf preflight.js sharp-android.js pillow_shim.py settings-preset.yaml ca-certificates.crt; do
+for f in android-port-files.tsv archive-tar.cjs unpack.js snapshot.js android-bridge.cjs android-tools.cjs provider-cleanup.cjs codebuddy-cli.cjs codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json runtime-environment.md runtime-checks.js openssl.cnf preflight.js settings-preset.yaml ca-certificates.crt; do
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
@@ -86,6 +86,8 @@ cp -r "$BOOT/payload/licenses" "$P/licenses"
 [ -s "$BOOT/payload/dependency-notices.json" ] || die "缺少固定依赖清单"
 cp "$BOOT/payload/dependency-notices.json" "$P/dependency-notices.json"
 echo "  引导脚本: $(ls "$P" | grep -vE '^(node|lib)$' | tr '\n' ' ')"
+
+python3 "$BOOT/scripts/create_asset_index.py" "$OUT/apk/assets"
 
 # ---------------------------------------------------------------- 2. 资源
 say "2. 编译资源（图标 / 主题 / 配色）"

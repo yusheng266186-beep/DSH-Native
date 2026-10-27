@@ -50,11 +50,13 @@ final class ModelCenterPanel {
         if (api == null) {
             status.setText(UiText.t("请等待 DSH 启动完成后重试", "Wait for DSH to finish starting, then retry."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
             return;
         }
         if (!api.catalogGate.tryStart("model catalog")) {
             status.setText(UiText.t("模型目录正在更新，请等待本次请求完成", "A catalog refresh is already running. Wait for it to finish."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
             return;
         }
         final int revision = draft.checkRevision;
@@ -64,6 +66,7 @@ final class ModelCenterPanel {
                 + ModelConfig.providerName(provider, UiText.isEnglish())
                 + UiText.t(" 的模型列表…", " model catalog…"));
         status.setTextColor(DshUi.TEXT_2());
+        NativeTheme.text(status, NativeTheme.Role.TEXT_2);
         host.log("开始读取上游模型目录: " + provider);
         api.execute(new NativeCoreApi.Work() {
             @Override public Object run() throws Exception {
@@ -102,6 +105,7 @@ final class ModelCenterPanel {
                     if (owner.isShowing()) {
                         status.setText(catalogExceptionMessage(failure));
                         status.setTextColor(DshUi.ERROR());
+                        NativeTheme.text(status, NativeTheme.Role.ERROR);
                     }
                     return;
                 }
@@ -125,6 +129,7 @@ final class ModelCenterPanel {
                                     "当前输入已改变，请重新刷新后保存。",
                                     "Your inputs changed. Refresh again before saving.")));
                     status.setTextColor(DshUi.SUCCESS());
+                    NativeTheme.text(status, NativeTheme.Role.SUCCESS);
                 }
                 if (owner.isShowing() && result.upstream.cliSnapshot) renderCheck(status,result.upstream,result.entries,"");
                 host.refreshModelCatalog();
@@ -318,6 +323,7 @@ final class ModelCenterPanel {
                     checkStatus.setText(UiText.t("尚未检测服务商",
                             "Provider has not been checked"));
                     checkStatus.setTextColor(DshUi.TEXT_2());
+                    NativeTheme.text(checkStatus, NativeTheme.Role.TEXT_2);
                 }
             };
             final Runnable refresh = new Runnable() {
@@ -418,6 +424,7 @@ final class ModelCenterPanel {
                         catalogStatus.setText(UiText.t("请先填写当前服务商的 API Key",
                                 "Add the API key for the selected provider first."));
                         catalogStatus.setTextColor(DshUi.WARN());
+                        NativeTheme.text(catalogStatus, NativeTheme.Role.WARN);
                         return;
                     }
                     showModelChooser(act, host, dialog, settingsText, draft, model,
@@ -437,6 +444,7 @@ final class ModelCenterPanel {
                                     : UiText.t("当前密钥尚未保存。请在实时列表选择模型，再点击保存。",
                                             "This key has not been saved. Choose a live model, then select Save."));
                             catalogStatus.setTextColor(DshUi.WARN());
+                            NativeTheme.text(catalogStatus, NativeTheme.Role.WARN);
                             openChooser.onClick(v);
                         } else refreshConfigured(act, host, dialog, draft.provider,
                                 selectedKey(draft.provider, ccKey, dsKey), draft,
@@ -445,6 +453,7 @@ final class ModelCenterPanel {
                         host.log("读取已保存的账号失败: " + error.getClass().getSimpleName());
                         catalogStatus.setText(UiText.t("读取已保存的账号失败，请重试", "Could not read the saved account. Please retry."));
                         catalogStatus.setTextColor(DshUi.ERROR());
+                        NativeTheme.text(catalogStatus, NativeTheme.Role.ERROR);
                     }
                 }
             });
@@ -689,6 +698,7 @@ final class ModelCenterPanel {
                 status.setText(UiText.t("正在从服务商读取模型列表…",
                         "Loading models from the provider…"));
                 status.setTextColor(DshUi.TEXT_2());
+                NativeTheme.text(status, NativeTheme.Role.TEXT_2);
                 requestCatalog(act, host.coreApi(), provider, key, new CatalogCallback() {
                     @Override public void complete(ProviderCheck.Result result, Throwable error) {
                         if (act.isFinishing() || act.isDestroyed() || !dialog.isShowing()
@@ -701,6 +711,7 @@ final class ModelCenterPanel {
                             status.setText(UiText.t("读取失败：", "Load failed: ")
                                     + safeMessage(error));
                             status.setTextColor(DshUi.ERROR());
+                            NativeTheme.text(status, NativeTheme.Role.ERROR);
                             fill.run();
                             host.log("上游模型目录读取失败: "
                                     + error.getClass().getSimpleName());
@@ -711,6 +722,7 @@ final class ModelCenterPanel {
                             if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && result.state == ProviderCheck.KEY_REJECTED) {
                                 status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
                                 status.setTextColor(DshUi.WARN());
+                                NativeTheme.text(status, NativeTheme.Role.WARN);
                             } else renderCatalogFailure(status, result);
                             fill.run();
                             host.log("上游模型目录读取失败: " + provider + " HTTP "
@@ -759,6 +771,7 @@ final class ModelCenterPanel {
                 UiText.t("正在检测…", "Checking…"), true);
         status.setText(UiText.t("正在连接服务商…", "Connecting to provider…"));
         status.setTextColor(DshUi.TEXT_2());
+        NativeTheme.text(status, NativeTheme.Role.TEXT_2);
         if (draft.pendingCheck != null) draft.pendingCheck.set(false);
         final AtomicBoolean activeCheck = new AtomicBoolean(true); draft.pendingCheck=activeCheck;
         requestCatalog(act, host.coreApi(), provider, key, selectedModel, activeCheck, new CatalogCallback() {
@@ -772,6 +785,7 @@ final class ModelCenterPanel {
                     status.setText(UiText.t("连接失败：", "Connection failed: ")
                             + safeMessage(error));
                     status.setTextColor(DshUi.ERROR());
+                    NativeTheme.text(status, NativeTheme.Role.ERROR);
                     host.log("服务商检测失败: " + error.getClass().getSimpleName());
                     return;
                 }
@@ -784,6 +798,7 @@ final class ModelCenterPanel {
                 if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.state == ProviderCheck.KEY_REJECTED) {
                     status.setText(UiText.t("请先在模型中心登录 DeepSeek 账号", "Sign in to DeepSeek in Model center first."));
                     status.setTextColor(DshUi.WARN());
+                    NativeTheme.text(status, NativeTheme.Role.WARN);
                 } else if (ModelConfig.DEEPSEEK_ACCOUNT.equals(provider) && checked.hasCatalog()) {
                     status.setText(ProviderCheck.contains(checked, selectedModel)
                             ? UiText.t("账号授权已保存，当前模型已列入账号目录。实际使用取决于账号权限和额度。",
@@ -802,13 +817,15 @@ final class ModelCenterPanel {
                                     List<LiveModelCatalog.Entry> entries, String model) {
         if (result.cliChatVerified) {
             status.setText(UiText.t("官方 CodeBuddy CLI 对话检查通过。已验证当前模型；其他模型权限仍以账号为准。", "The official CodeBuddy CLI chat check passed for this model. Access to other models depends on your account."));
-            status.setTextColor(DshUi.SUCCESS()); return;
+            status.setTextColor(DshUi.SUCCESS());
+            NativeTheme.text(status, NativeTheme.Role.SUCCESS); return;
         }
         if (result.cliSnapshot) {
             status.setText(UiText.t("CodeBuddy 模型资料来自 CLI "+CodeBuddyCatalog.VERSION
                     +"。这不是对话或渠道校验；能列出模型不代表能对话。", "CodeBuddy model metadata is from CLI "+CodeBuddyCatalog.VERSION
                     +". This does not verify chat access or channel approval."));
-            status.setTextColor(DshUi.WARN()); return;
+            status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN); return;
         }
         if (result.hasCatalog()) {
             boolean present = ProviderCheck.contains(result, model);
@@ -819,47 +836,57 @@ final class ModelCenterPanel {
                         "Connected. The selected model is in the live upstream catalog; "
                                 + result.models.size() + " models were returned and can be used."));
                 status.setTextColor(DshUi.SUCCESS());
+                NativeTheme.text(status, NativeTheme.Role.SUCCESS);
             } else {
                 status.setText(UiText.t("连接正常，但服务商当前列表中没有所选模型。请重新选择。",
                         "Connected, but the selected model is not in the provider's current catalog. Choose another model."));
                 status.setTextColor(DshUi.WARN());
+                NativeTheme.text(status, NativeTheme.Role.WARN);
             }
         } else if (result.state == ProviderCheck.CHANNEL_REJECTED) {
             status.setText(UiText.t("CodeBuddy 拒绝当前调用渠道（11128），内置官方 CLI 也未通过校验。请检查账号接入权限或联系服务商。密钥和模型目录不能证明对话权限，重新导入目录不会解除限制。",
                     "CodeBuddy rejected this channel (11128); the bundled official CLI also failed verification. Check account access or contact the provider. A key or catalog does not establish chat access; reimporting metadata cannot remove the restriction."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
         } else if (result.state == ProviderCheck.MODEL_DENIED) {
             status.setText(UiText.t("当前账号不能使用所选模型或操作。请切换模型或检查账号权限；刷新目录不能开通模型权限。",
                     "This account cannot use the selected model or operation. Choose an available model or check account access; refreshing the catalog does not grant permission."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
         } else if (result.state == ProviderCheck.QUOTA_EXHAUSTED) {
             status.setText(UiText.t("CodeBuddy 额度或本次请求预算已用完，请检查账号额度后再试。",
                     "CodeBuddy quota or the request budget is exhausted. Check account quota before retrying."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
         } else if (result.state == ProviderCheck.KEY_REJECTED) {
             status.setText(UiText.t("服务商拒绝访问（HTTP " + result.httpCode
                             + "），请检查密钥及账户 API 权限。",
                     "Provider access was denied (HTTP " + result.httpCode
                             + "). Check your API key and account API access."));
             status.setTextColor(DshUi.ERROR());
+            NativeTheme.text(status, NativeTheme.Role.ERROR);
         } else if (result.state == ProviderCheck.RATE_LIMITED) {
             status.setText(UiText.t("服务商已识别密钥，但当前触发限流，请稍后重试。",
                     "The provider recognized the request but is rate-limiting it. Try again later."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
         } else if (result.state == ProviderCheck.ENDPOINT_CHANGED) {
             status.setText(UiText.t("模型列表端点不可用，服务商接口可能已调整。",
                     "The model-list endpoint is unavailable and may have changed."));
             status.setTextColor(DshUi.ERROR());
+            NativeTheme.text(status, NativeTheme.Role.ERROR);
         } else if (result.state == ProviderCheck.INVALID_RESPONSE) {
             status.setText(UiText.t("服务商已响应（HTTP " + result.httpCode
                             + "），但没有返回可识别的模型列表。原有目录已保留。",
                     "The provider responded (HTTP " + result.httpCode
                             + ") without a recognizable model catalog. Your existing catalog is preserved."));
             status.setTextColor(DshUi.WARN());
+            NativeTheme.text(status, NativeTheme.Role.WARN);
         } else {
             status.setText(UiText.t("服务商暂时不可用（HTTP " + result.httpCode + "）。",
                     "The provider is temporarily unavailable (HTTP " + result.httpCode + ")."));
             status.setTextColor(DshUi.ERROR());
+            NativeTheme.text(status, NativeTheme.Role.ERROR);
         }
     }
 

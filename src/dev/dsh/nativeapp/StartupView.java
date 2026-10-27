@@ -61,6 +61,12 @@ final class StartupView extends FrameLayout {
         addView(column, layout);
     }
 
+    void applyTheme() {
+        setBackgroundColor(DshUi.BG());
+        status.setTextColor(DshUi.TEXT_2());
+        whale.applyTheme();
+    }
+
     void status(String text) { status.setText(text); }
 
     void begin(String text) {
@@ -115,11 +121,16 @@ final class StartupView extends FrameLayout {
             super(activity);
             int id = activity.getResources().getIdentifier("dsh_startup_whale", "drawable", activity.getPackageName());
             mark = activity.getDrawable(id).mutate();
-            mark.setTint(DshUi.BRAND()); mark.setBounds(18, 0, 86, 68);
-            water.setColor(DshUi.BRAND()); water.setAlpha(42);
+            mark.setBounds(18, 0, 86, 68);
             water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(1.1f); water.setStrokeCap(Paint.Cap.ROUND);
-            bubbles.setColor(DshUi.BRAND()); bubbles.setAlpha(65);
+            applyTheme();
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        void applyTheme() {
+            mark.setTint(DshUi.BRAND());
+            water.setColor(DshUi.BRAND()); water.setAlpha(42);
+            bubbles.setColor(DshUi.BRAND()); bubbles.setAlpha(65);
+            invalidate();
         }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);

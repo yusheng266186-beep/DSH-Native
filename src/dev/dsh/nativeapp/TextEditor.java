@@ -160,6 +160,7 @@ public final class TextEditor {
             // 只能给不确定进度的那张 Drawable 上色。
             if (bar.getIndeterminateDrawable() != null) {
                 bar.getIndeterminateDrawable().setColorFilter(DshUi.ACCENT(), PorterDuff.Mode.SRC_IN);
+                NativeTheme.surface(act, bar.getIndeterminateDrawable(), NativeTheme.Role.ACCENT, null, -1);
             }
         } catch (Throwable ignored) { }
         body.addView(bar, DshUi.fullWidth(act, 14));
@@ -226,6 +227,7 @@ public final class TextEditor {
         ed.setTextSize(12f);
         ed.setTypeface(Typeface.MONOSPACE);
         ed.setTextColor(DshUi.TEXT());
+        NativeTheme.text(ed, NativeTheme.Role.TEXT);
         ed.setBackground(DshUi.fieldBg(act));
         ed.setGravity(Gravity.TOP | Gravity.START);
         ed.setHorizontallyScrolling(false);      // 自动换行，手机上更易读

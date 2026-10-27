@@ -1,3 +1,4 @@
+import {preparedFrontend} from './prepared-frontend.mjs';
 // Exercise the production settings component and session RPC against the pinned real core.
 // All homes, conversations and provider responses are synthetic and disposable.
 import assert from 'node:assert/strict';
@@ -10,7 +11,6 @@ import {connectNativeStatus} from './native-status-consumer.mjs';
 import {chromium} from 'playwright';
 const runtime=path.resolve(process.argv[2]);
 const mobile=await fs.readFile(process.argv[3],'utf8');
-const injection=mobile.slice(mobile.indexOf('<style id="dsh-native-responsive">'),mobile.indexOf('</head>'));
 const frontend=path.join(runtime,'node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html');
 const originalFrontend=await fs.readFile(frontend,'utf8');
 const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-app-settings-'));
@@ -38,7 +38,7 @@ async function openSettings(target='sessions'){
 async function choose(label){await page.locator('.app-tabs').getByRole('button',{name:label,exact:true}).click();}
 const row=id=>page.locator('article[data-session-id="'+id+'"]');
 try{
- await fs.writeFile(frontend,originalFrontend.replace(/<meta\b[^>]*name=["']viewport["'][^>]*>/ig,'<meta name="viewport" content="width=480" />').replace('</head>',injection+'</head>'));
+ await fs.writeFile(frontend,preparedFrontend(originalFrontend,mobile,480));
  provider=http.createServer(async(req,res)=>{
   let bytes='';for await(const chunk of req)bytes+=chunk;
   const request=JSON.parse(bytes);check(req.url==='/v1/chat/completions','only local fixture receives prompts');
@@ -181,7 +181,7 @@ llm-pi-ai:
  for(const scenario of [{w:320,h:800,lang:'zh',theme:'dark'},{w:360,h:800,lang:'en',theme:'light'},{w:436,h:880,lang:'zh',theme:'light'},{w:436,h:880,lang:'en',theme:'dark'},{w:600,h:960,lang:'zh',theme:'dark'},{w:869,h:436,lang:'en',theme:'light'}]){
   assert((await rpc('settings/update',{ns:'locale',patch:{preference:scenario.lang}})).ok);
   assert((await rpc('settings/update',{ns:'ui-theme',patch:{preference:scenario.theme}})).ok);
-  await stop();await fs.writeFile(frontend,originalFrontend.replace(/<meta\b[^>]*name=["']viewport["'][^>]*>/ig,'<meta name="viewport" content="width='+Math.max(480,scenario.w)+'" />').replace('</head>',injection+'</head>'));await boot();
+  await stop();await fs.writeFile(frontend,preparedFrontend(originalFrontend,mobile,scenario.w));await boot();
   context=await browser.newContext({locale:scenario.lang,viewport:{width:scenario.w,height:scenario.h},isMobile:true,hasTouch:true,reducedMotion:'reduce'});page=await context.newPage();
    await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();await sleep(400);await openSettings();await row(alpha).waitFor();
   check(await page.locator('#dsh-native-responsive').count()===1,'production mobile layout installed');check(await page.evaluate(()=>innerWidth)===Math.max(480,scenario.w),'production viewport width');

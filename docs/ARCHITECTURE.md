@@ -1,7 +1,7 @@
 # 架构与运行边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.1.0**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 目标与约束
@@ -14,26 +14,32 @@ DSH Native 提供 Android 本地项目、工具执行与 DSH WebUI。模型请�
 
 ```mermaid
 flowchart TD
-    A[MainActivity] --> B[WebView 与受限注入]
-    A --> C[原生面板与纯逻辑]
-    A --> D[前台服务]
-    B --> E[本地 Node / DSH]
-    E --> F[工具与项目]
-    E --> G[模型服务 API]
-    C --> H[配置与更新恢复]
-    H --> E
+    A[MainActivity / Android 回调] --> S[StartupCoordinator]
+    S --> I[AssetInstaller / RuntimePreparation]
+    S --> L[RuntimeLauncher / RuntimeChecks]
+    L --> H[HarnessService / 唯一内核进程]
+    A --> W[WebSession / 保留页面]
+    W --> D[DSH WebUI 与本机 RPC]
+    H --> D
+    A --> T[ThemeController / NativeTheme]
+    A --> N[SettingsNavigation / WebSettingsHost]
+    A --> R[ReleaseDownloader / PayloadRollback]
+    A --> G[AppLog / 脱敏诊断]
 ```
 
 | 边界 | 职责 |
 |---|---|
-| 原生整合 | 启动、安装、权限、配置、进程与页面生命周期 |
-| WebView | DSH 交互、模型聊天框、原设置框架中的 App 设置及会话操作 |
-| 纯逻辑 | 路径、能力、模型归一化、版本、状态机、空间与恢复决策 |
-| 前台服务 | 常驻任务看板及通知；实际存活仍受 Android/ROM 控制 |
-| DSH runtime | provider topology、agent、会话、插件、工具执行 |
-| 分发层 | APK、payload 及独立 stable/test 清单 |
+| 启动协调 | 先受理后执行，统一环境锁、取消与旧结果代次 |
+| 组件安装 | 构建时摘要索引、原子发布和私有内容回执；不拿 App 版本代替内容 |
+| 固定内核适配 | 发布前由 AndroidRuntimePort 完成 19 项适配；手机不再修改这些源码 |
+| 解包安装 | archive-tar.cjs 共享流式 GNU/PAX 解析；按文件原子发布，不缓冲整份展开 tar |
+| 设备环境 | 只准备设备路径与工具入口，自检/临时命令有超时和取消 |
+| 浏览器与主题 | 单一 WebSession 管理视图；主题/viewport 更新保留文档和草稿 |
+| 设置与能力 | DSH 原设置框架统一入口，SettingsNavigation 管理交接与过期回调 |
+| 前台服务 | 独占实际 DSH 进程及任务通知；存活仍受 Android/ROM 控制 |
+| 分发与诊断 | 可取消的独立下载器、可信清单/回滚，以及入口脱敏的后台日志 |
 
-原生与网页之间使用限定用途的消息与脚本；不暴露任意文件/命令执行的高权限 `JavascriptInterface`。
+原生与网页之间使用限定用途的消息与脚本；不暴露任意文件/命令执行的高权限 JavascriptInterface。完整实现、迁移和验证边界见 [1.1 重构](REFACTOR_1_1.md)。
 
 ## 3. 两段式分发与空间
 
@@ -41,12 +47,12 @@ APK 携带 Node、所需动态库、引导脚本与初始清单；DSH 和工具�
 
 | 分片 | 当前作用 |
 |---|---|
-| DSH | CLI、模块、WebUI 与依赖；v10 修订 5 |
-| 工具四片 | git/Python/npm/curl 等；从 v9 原样复用修订 4 |
+| DSH | 固定 CLI、模块、WebUI、依赖及构建期 Android 适配 |
+| 工具四片 | git/Python/npm/curl 等；保持既有固定字节与摘要 |
 
 `PayloadUpdate` 按修订号和哨兵判断变化，下载校验大小与 SHA-256。`remove` 显式列举旧文件删除，避免只删文件的更新因为哨兵没变而被跳过。
 
-v10 DSH 部分的 `unpacked_size` 按展开后文件块与目录占用计算，约 491 MiB；它不是全 App 总占用。预检还包含其余工具、下载缓存、更新前快照与余量；旧 manifest 兼容估算不能代替新字段。不要继续使用旧 316MB 展开总量或 550MiB 安装建议。
+DSH 分片的 `unpacked_size` 按固定清单保守计入展开后文件块与目录占用；它不是全 App 总占用。预检还包含其余工具、下载缓存、更新前快照与余量；旧 manifest 兼容估算不能代替新字段。不要继续使用旧 316MB 展开总量或 550MiB 安装建议。
 
 内核来源、归档完整性和依赖锁在 `runtime/core-source.json` 与 `runtime/core-package-lock.json`。payload 必须先独立完整发布，App 才引用该标签；App 运行包标签目前取自源码，不只依赖 latest 清单的信息字段。
 

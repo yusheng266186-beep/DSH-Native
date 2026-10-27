@@ -57,6 +57,7 @@ public final class ConfigBackupPanel {
         TextView warn = DshUi.hint(act, "备份包含账户密钥。新导出的 .dshbak 文件会使用"
                 + "口令加密；请牢记口令，遗失后无法恢复。旧版 ZIP 会标为明文。");
         warn.setTextColor(DshUi.WARN());
+        NativeTheme.text(warn, NativeTheme.Role.WARN);
         body.addView(warn, DshUi.fullWidth(act, 6));
 
         final TextView status = DshUi.hint(act, "");
@@ -195,6 +196,7 @@ public final class ConfigBackupPanel {
                 .replace(".dshbak", "").replace(".zip", ""));
         name.setTextSize(12.5f);
         name.setTextColor(DshUi.TEXT());
+        NativeTheme.text(name, NativeTheme.Role.TEXT);
         name.setSingleLine(true);
         name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         row.addView(name, new LinearLayout.LayoutParams(
@@ -204,6 +206,7 @@ public final class ConfigBackupPanel {
         meta.setText(ConfigBackup.describe(f));
         meta.setTextSize(10.5f);
         meta.setTextColor(DshUi.TEXT_3());
+        NativeTheme.text(meta, NativeTheme.Role.TEXT_3);
         meta.setSingleLine(true);
         meta.setGravity(Gravity.END);
         row.addView(meta, new LinearLayout.LayoutParams(
@@ -328,6 +331,7 @@ public final class ConfigBackupPanel {
         body.addView(second, DshUi.fullWidth(act, 6));
         final TextView error = DshUi.hint(act, "");
         error.setTextColor(DshUi.WARN());
+        NativeTheme.text(error, NativeTheme.Role.WARN);
         body.addView(error, DshUi.fullWidth(act, 4));
 
         Button cancel = DshUi.button(act, "取消", false);
@@ -367,6 +371,7 @@ public final class ConfigBackupPanel {
         body.addView(input, DshUi.fullWidth(act, 8));
         final TextView error = DshUi.hint(act, "");
         error.setTextColor(DshUi.WARN());
+        NativeTheme.text(error, NativeTheme.Role.WARN);
         body.addView(error, DshUi.fullWidth(act, 4));
         Button cancel = DshUi.button(act, "取消", false);
         Button next = DshUi.button(act, "继续", true);

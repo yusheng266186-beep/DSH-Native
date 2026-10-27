@@ -1,7 +1,7 @@
 # 给接手开发者与 Agent 的工作约定
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.1.0**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
@@ -76,14 +76,14 @@ bash scripts/check_model_consumer.sh
 
 | 范围 | 主要入口 |
 |---|---|
-| 启动、配置和生命周期 | `MainActivity.java`、`HarnessService.java`、`LocalServerProbe.java` |
+| 启动、配置和生命周期 | `MainActivity.java`、`StartupCoordinator`、`AssetInstaller`、`RuntimePreparation`、`RuntimeLauncher`、`RuntimeChecks`、`HarnessService.java` |
 | 模型与目录 | `ModelConfig`、`ProviderCheck`、`LiveModelCatalog`、`ModelCatalogSync`、`ModelReasoning`、`ModelEffortUi`、`ProjectModelSettings` |
 | 状态与恢复 | `SessionProbe`、`SessionStatus`、`TaskTimeline`、`ConnectionRecovery`、`DraftRecovery`、`ProcessSupervisor` |
 | 文件与项目 | `FileOps`、`FileBatch`、`FileTrash`、`FilePreview`、`WorkspaceProjects`、`FileBrowser`、`TextEditor` |
 | 安全与维护 | `PayloadUpdate`、`PayloadManifest`、`PayloadRollback`、`RuntimeDir`、`ConfigBackup`、`CredentialMerge`、`SecretMasker`、`DiagnosticReport`、`PluginPermissions` |
 | 配置与链接 | `YamlBlocks`、`WebUrl`、`ModelConfig`、`ModelImageSupport` |
-| 原生界面与交互 | `DshUi`、`DeviceLayout`、`MobileLayout`、`UiText`、`OperationGate`、`InteractionFeedback` |
-| 分发与内核 | `payload/`、`runtime/`、`scripts/prepare_core_payload.py`、`scripts/release_payload.py` |
+| 原生界面与交互 | `WebSession`、`SettingsNavigation`、`ThemeController`、`NativeTheme`、`DshUi`、`DeviceLayout`、`MobileLayout`、`UiText`、`OperationGate`、`InteractionFeedback` |
+| 分发与内核 | `payload/`、`runtime/`、`scripts/build_android_runtime.py`、`tools/java/`、`scripts/prepare_core_payload.py`、`scripts/release_payload.py` |
 
 路径以当前仓库 `src/dev/dsh/nativeapp/` 为准；不要把 CI 工作区的 `bootstrap/src` 错当仓库布局。
 

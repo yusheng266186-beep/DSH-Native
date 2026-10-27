@@ -17,7 +17,7 @@ def runtime_file(relative):
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('output');parser.add_argument('--installed');args=parser.parse_args()
  output=pathlib.Path(args.output).resolve();output.mkdir(parents=True,exist_ok=True)
- for name in ['codebuddy-cli.cjs','unpack.js']:
+ for name in ['codebuddy-cli.cjs','unpack.js','archive-tar.cjs']:
   source=ROOT/'payload'/name
   if source.resolve()!=(output/name).resolve():shutil.copyfile(source,output/name)
  with tempfile.TemporaryDirectory(prefix='dsh-codebuddy-build-') as temp:

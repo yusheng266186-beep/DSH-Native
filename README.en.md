@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.0.0**; source: **1.0.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.0.0**; source: **1.1.0**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -254,3 +254,5 @@ Repository code is licensed under [MIT](LICENSE). DSH, Node.js, Termux-origin bi
 - [Android 10 behavior changes](https://developer.android.com/about/versions/10/behavior-changes-10)
 
 Device controls now live in the DSH settings navigation. File previews and delivery cards offer editing, Android open-in-app and system sharing. External editing grants write access only after an explicit Edit action and requires a compatible content-URI editor. See [file actions](docs/FILE_ACTIONS.md) and [CodeBuddy import](docs/CODEBUDDY.md).
+
+[1.1 architecture refactor and verification / 架构重构与验证](docs/REFACTOR_1_1.md)。

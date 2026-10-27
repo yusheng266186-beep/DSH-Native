@@ -10,8 +10,8 @@
   },
   "core": {
     "version": "0.2.1-rc.3",
-    "payload": "payload-v13",
-    "manifest_sha256": "f155c4b021c38dfce31e055af68418296b170b456c6aad2c991c325c16769893"
+    "payload": "payload-v14",
+    "manifest_sha256": "b1b45149a370ad9b54cc6d8634c2471d833eb8fd0a13708515ac211b3d0d7dc1"
   },
   "codebuddy": {
     "sdk": "0.3.291",

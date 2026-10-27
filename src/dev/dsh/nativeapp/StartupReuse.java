@@ -1,6 +1,6 @@
 package dev.dsh.nativeapp;
 
-/** Reuse only an environment previously prepared by this exact App and payload. */
+/** Reuse only an environment prepared for the same component contents, payload and workspace. */
 final class StartupReuse {
     private StartupReuse() { }
 

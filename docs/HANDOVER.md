@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.1.0**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -165,7 +165,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 ### 8.2 主题与生命周期
 
-主题跟随 DSH `ui-theme.preference`。颜色使用 `DshUi.BG()` / `TEXT()` 等方法；常量可能被 javac 内联。`recreate()` 必须具有去抖复核、跨重建持久化限流、超限硬停止，否则实例字段重建后归零会造成无限振荡。
+1.1 由 ThemeController/NativeTheme 原位同步，主题与方向变化均不重建 Activity 或重载 WebView；启动、安装、下载和设置模块边界见 [重构记录](REFACTOR_1_1.md)。主题跟随 DSH `ui-theme.preference`。颜色使用 `DshUi.BG()` / `TEXT()` 等方法；常量可能被 javac 内联。`recreate()` 必须具有去抖复核、跨重建持久化限流、超限硬停止，否则实例字段重建后归零会造成无限振荡。
 
 每次页面加载重注入。主线程日志使用有界队列与后台写盘，不能每个网络回调同步写日志。内部探针消息由原生消费，不应完整刷入日志。
 

@@ -125,6 +125,7 @@ ATTR_IDS = {
 # android.content.pm.ActivityInfo configuration-change bits
 CONFIG_KEYBOARD_HIDDEN = 0x0020
 CONFIG_ORIENTATION = 0x0080
+CONFIG_UI_MODE = 0x0200
 CONFIG_SCREEN_SIZE = 0x0400
 
 
@@ -175,7 +176,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("1.0.0"))],
+              (A, "versionName", s("1.1.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -225,7 +226,7 @@ def manifest_tree():
                           (A, "exported", boolean(True)),
                           (A, "configChanges",
                            hx(CONFIG_ORIENTATION | CONFIG_SCREEN_SIZE
-                              | CONFIG_KEYBOARD_HIDDEN)),
+                              | CONFIG_KEYBOARD_HIDDEN | CONFIG_UI_MODE)),
                           # 键盘弹出时收缩窗口而不是平移，避免输入法盖住聊天内容
                           (A, "windowSoftInputMode", hx(0x10))],
                          [
