@@ -61,10 +61,16 @@ try{
  }finally{console.log=log;}
  check(trace.length===2&&trace[0].warm===false&&trace[1].warm===true,'actual SDK follow-up claims exactly one fresh standby');
  check(trace.every(row=>row.total>=row.first&&row.first>=row.submitted&&row.submitted>=row.setup),'actual SDK timings cover setup, submission, first content and completion');
- const children=()=>execFileSync('ps',['-axo','ppid=,comm='],{encoding:'utf8',timeout:5000}).split('\n').filter(line=>{const row=line.trim().split(/\s+/);return Number(row[0])===process.pid&&/(^|\/)node(js)?$/.test(row.slice(1).join(' '));}).length;
- check(children()===1,'only one idle official CLI child remains after a quick follow-up');
+ // Linux CLI changes its process title; count direct children, excluding this
+ // measurement's ps process. A completed child's asynchronous exit may settle
+ // later on a loaded runner, but it must do so within this bounded deadline.
+ const children=()=>execFileSync('ps',['-axo','ppid=,comm='],{encoding:'utf8',timeout:5000}).split('\n').filter(line=>{const row=line.trim().split(/\s+/);return Number(row[0])===process.pid&&!/(^|\/)ps$/.test(row.slice(1).join(' '));}).length;
+ const settledChildren=async expected=>{const until=Date.now()+3000;let count;do{count=children();if(count===expected)return count;await new Promise(resolve=>setTimeout(resolve,50));}while(Date.now()<until);return count;};
+ const idleChildren=await settledChildren(1);
+ check(idleChildren===1,'only one idle official CLI child remains after a quick follow-up; actual='+idleChildren);
  await new Promise(resolve=>setTimeout(resolve,10300));
- check(children()===0,'the actual idle CLI exits after its ten-second expiry');
+ const expiredChildren=await settledChildren(0);
+ check(expiredChildren===0,'the actual idle CLI exits after its ten-second expiry; actual='+expiredChildren);
  console.log('Synthetic SDK timing ms: '+JSON.stringify(trace)+'; measured on the host, not an Android latency guarantee.');
  console.log('CodeBuddy cache consumer: '+checks+' actual SDK/adapter checks passed; synthetic provider only.');
 }finally{
