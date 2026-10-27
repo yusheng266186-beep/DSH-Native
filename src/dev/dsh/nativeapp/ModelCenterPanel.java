@@ -822,8 +822,16 @@ final class ModelCenterPanel {
                 status.setTextColor(DshUi.WARN());
             }
         } else if (result.state == ProviderCheck.CHANNEL_REJECTED) {
-            status.setText(UiText.t("CodeBuddy 拒绝当前调用渠道（11128）。密钥和模型目录不能证明对话权限，请通过 CodeBuddy 官方 CLI / SDK，或联系服务商开通当前应用。重试或重新导入目录不会解除限制。",
-                    "CodeBuddy rejected this channel (11128). A key or model list does not establish chat permission. Use the official CLI / SDK, or ask the provider to authorize this app. Retrying or reimporting metadata cannot remove the restriction."));
+            status.setText(UiText.t("CodeBuddy 拒绝当前调用渠道（11128），内置官方 CLI 也未通过校验。请检查账号接入权限或联系服务商。密钥和模型目录不能证明对话权限，重新导入目录不会解除限制。",
+                    "CodeBuddy rejected this channel (11128); the bundled official CLI also failed verification. Check account access or contact the provider. A key or catalog does not establish chat access; reimporting metadata cannot remove the restriction."));
+            status.setTextColor(DshUi.WARN());
+        } else if (result.state == ProviderCheck.MODEL_DENIED) {
+            status.setText(UiText.t("当前账号不能使用所选模型或操作。请切换模型或检查账号权限；刷新目录不能开通模型权限。",
+                    "This account cannot use the selected model or operation. Choose an available model or check account access; refreshing the catalog does not grant permission."));
+            status.setTextColor(DshUi.WARN());
+        } else if (result.state == ProviderCheck.QUOTA_EXHAUSTED) {
+            status.setText(UiText.t("CodeBuddy 额度或本次请求预算已用完，请检查账号额度后再试。",
+                    "CodeBuddy quota or the request budget is exhausted. Check account quota before retrying."));
             status.setTextColor(DshUi.WARN());
         } else if (result.state == ProviderCheck.KEY_REJECTED) {
             status.setText(UiText.t("服务商拒绝访问（HTTP " + result.httpCode

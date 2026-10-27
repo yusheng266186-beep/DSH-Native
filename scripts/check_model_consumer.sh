@@ -101,6 +101,12 @@ node "$ROOT/tests/js/android-voice-simulation.mjs"
 node "$ROOT/tests/js/composer-effort-consumer.mjs" "$PROBE/runtime" "$PROBE/client.js" "$PROBE/catalog.json"
 node --expose-internals "$ROOT/tests/js/core-runtime-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/cache-meter-consumer.mjs" "$PROBE/runtime"
+SDK_ASSETS="${DSH_CODEBUDDY_ASSETS:-${RUNNER_TEMP:-$PROBE}/dsh-build/codebuddy-check}"
+if [ ! -f "$SDK_ASSETS/codebuddy-sdk-manifest.json" ]; then
+    SDK_ASSETS="$PROBE/codebuddy-check"
+    python3 "$ROOT/scripts/prepare_codebuddy_sdk.py" "$SDK_ASSETS"
+fi
+node --expose-internals "$ROOT/tests/js/codebuddy-conversation-consumer.mjs" "$PROBE/runtime" "$SDK_ASSETS"
 java -cp "$PROBE/classes" dev.dsh.nativeapp.StartupStateTest --dump-script > "$PROBE/startup.js"
 node --expose-internals "$ROOT/tests/js/startup-consumer.mjs" "$PROBE/runtime" "$PROBE/startup.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest --dump-html \

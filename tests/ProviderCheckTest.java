@@ -23,6 +23,10 @@ public class ProviderCheckTest {
         check("CLI metadata does not establish chat access", !CodeBuddyCatalog.metadata().accepted() && !CodeBuddyCatalog.metadata().cliChatVerified,"false approval");
         check("official CLI success establishes current model chat check", CodeBuddyCatalog.checkReply("{\"ok\":true}").cliChatVerified,"not verified");
         check("CLI channel refusal wins over an ambiguous ok flag", CodeBuddyCatalog.checkReply("{\"ok\":true,\"channelRejected\":true}").state==ProviderCheck.CHANNEL_REJECTED,"restriction lost");
+        check("CLI model access refusal differs from a bad key", CodeBuddyCatalog.checkReply("{\"ok\":false,\"failureCode\":\"CODEBUDDY_MODEL_ACCESS\"}").state==ProviderCheck.MODEL_DENIED,"model refusal lost");
+        check("CLI quota stays distinct", CodeBuddyCatalog.checkReply("{\"ok\":false,\"failureCode\":\"QUOTA\"}").state==ProviderCheck.QUOTA_EXHAUSTED,"quota lost");
+        check("CLI rate limit stays distinct", CodeBuddyCatalog.checkReply("{\"ok\":false,\"failureCode\":\"CODEBUDDY_RATE_LIMITED\"}").state==ProviderCheck.RATE_LIMITED,"rate limit lost");
+        check("unknown CLI failure cannot claim success", !CodeBuddyCatalog.checkReply("{\"ok\":false,\"failureCode\":\"PRIVATE-UNTRUSTED\"}").accepted(),"failure accepted");
         check("CLI rejected key does not expose models", CodeBuddyCatalog.checkReply("{\"keyRejected\":true}").models.isEmpty(),"leaked catalog");
         String json = "{\"data\":[{\"id\":\"alpha/model\"},{\"id\":\"beta\"},"
                 + "{\"id\":\"alpha/model\"}]}";

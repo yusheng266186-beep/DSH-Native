@@ -9,7 +9,7 @@ import java.util.Map;
 final class ProviderCheck {
     static final int READY = 1, KEY_REJECTED = 2, RATE_LIMITED = 3,
             SERVICE_ERROR = 4, ENDPOINT_CHANGED = 5, INVALID_RESPONSE = 6,
-            CHANNEL_REJECTED = 7, CLI_METADATA = 8;
+            CHANNEL_REJECTED = 7, CLI_METADATA = 8, MODEL_DENIED = 9, QUOTA_EXHAUSTED = 10;
     private ProviderCheck() { }
     static final class Result {
         final int state, httpCode;

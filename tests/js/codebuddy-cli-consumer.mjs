@@ -37,12 +37,27 @@ try{
  fixture([{type:'assistant',message:{content:[{type:'tool_use',id:'bad',name:'mcp__other__Bash',input:{}}]}}]);out=await consume();check(out.at(-1).reason.kind==='error'&&!out.some(c=>c.block?.type==='tool-call'),'unknown tools cannot escape the host tool registry');
  fixture([{type:'assistant',error:'api_error',message:{content:[{type:'text',text:'401 synthetic-key-do-not-log'}]}}]);out=await consume();check(!JSON.stringify(out).includes('synthetic-key-do-not-log')&&out.at(-1).reason.failure.message.includes('authentication'),'API failures never stream credentials as assistant text');
  fixture([{type:'result',subtype:'error_during_execution',is_error:true,result:'11128 unapproved channel'}]);out=await consume();check(out.at(-1).reason.failure.message.includes('11128'),'official CLI refusal stays visible');
+ for(const [error,code,hint] of [
+  ['context window exceeded','CONTEXT_WINDOW_EXCEEDED','Compact'],['403 model permission denied','CODEBUDDY_MODEL_ACCESS','available model'],
+  ['429 rate limit','CODEBUDDY_RATE_LIMITED','Wait'],['402 insufficient quota','QUOTA','quota'],['ECONNRESET','CODEBUDDY_NETWORK_ERROR','Check the network']]){
+  fixture([{type:'result',subtype:'error_during_execution',is_error:true,errors:[error+' PRIVATE-ERROR-CONTENT']}]);out=await consume();
+  check(out.at(-1).reason.failure.code===code&&out.at(-1).reason.failure.message.includes(hint)&&!JSON.stringify(out).includes('PRIVATE-ERROR-CONTENT'),'SDK errors array gives an actionable, private '+code);
+ }
+ fixture([{type:'assistant',message:{content:[{type:'tool_use',id:'valid',name:'mcp__dsh__tool_0_write',input:{}},{type:'tool_use',id:'invalid',name:'mcp__unknown',input:{}}]}}]);out=await consume();
+ check(out.at(-1).reason.kind==='error'&&!out.some(chunk=>chunk.blockType==='tool-call'),'an invalid tool batch cannot emit a partial actionable batch');
  fixture([{type:'result',subtype:'success',is_error:false}]);await consume({reasoningEffort:'off',purpose:'session-title'});check(latest.options.thinking.type==='disabled'&&latest.options.systemPrompt.append===context.systemPrompt,'off and auxiliary-task instructions retain their semantics');
  const projected=cli.requestPrompt({messages:[{role:'user',content:[{type:'image',data:'aGVsbG8=',mimeType:'image/png'}]}]});check(cli.requestPrompt({messages:[{role:'assistant',content:[{type:'toolCall',arguments:{usage:'keep',timestamp:123}}]}]})[0].text.includes('\"usage\":\"keep\"'),'tool argument keys are never stripped');
  check(projected[1].source.data==='aGVsbG8='&&!projected[0].text.includes('aGVsbG8='),'image bytes use SDK image blocks');
  const controller=new AbortController();queryModule.query=args=>(async function*(){await new Promise(resolve=>args.options.abortController.signal.addEventListener('abort',resolve,{once:true}));throw new Error('cancelled');})();
  const pending=consume({signal:controller.signal});setTimeout(()=>controller.abort(),30);out=await pending;check(out.at(-1).reason.kind==='aborted','caller cancellation settles the CLI request');
  out=await consume();check(out.at(-1).reason.failure.code==='LLM_STREAM_IDLE_TIMEOUT','an unresponsive CLI has a bounded idle deadline');
+ fixture([{type:'assistant',message:{content:[{type:'text',text:'After cancel'}]}},{type:'result',subtype:'success',is_error:false}]);out=await consume();
+ check(out.at(-1).reason.kind==='stop'&&out.find(chunk=>chunk.type==='text-delta')?.text==='After cancel','cancellation and deadline do not poison the next explicit request');
+ const history=Array.from({length:100},(_,index)=>({role:index%2?'assistant':'user',content:[{type:'text',text:'TURN-'+index+' '+('context '.repeat(100))}]}));
+ const long=cli.requestPrompt({messages:history})[0].text;
+ check(history.every((_,index)=>long.includes('TURN-'+index+' ')),'long history retains every visible turn without silent truncation');
+ out=await consume({}, {messages:[{role:'user',content:'x'.repeat(8*1024*1024+1)}],tools:[]});
+ check(out.at(-1).reason.failure.code==='CONTEXT_WINDOW_EXCEEDED','oversized context fails visibly before any SDK prompt is sent');
  // Exercise the production prewarm lifecycle with a protocol client, including
  // credential/config changes. No session is reused after a user message.
  let noToolsTurn=false;const sessions=[],frames=[{type:'assistant',message:{content:[{type:'tool_use',name:'mcp__dsh__tool_0_write',id:'warm-tool',input:{}}]}},{type:'result',subtype:'success',is_error:false}];

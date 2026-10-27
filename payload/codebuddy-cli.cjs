@@ -106,9 +106,19 @@ function requestPrompt(context){
  return [{type:'text',text},...images];
 }
 function failure(error,aborted){
- const text=String(error?.message||error);
- const code=aborted?'ABORTED':/401|unauthorized|authentication/i.test(text)?'INVALID_CREDENTIAL':/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)?'CONTEXT_WINDOW_EXCEEDED':/quota|credit/i.test(text)?'QUOTA':'CODEBUDDY_CLI_ERROR';
- return {kind:aborted?'aborted':'error',failure:{code,message:aborted?'CodeBuddy CLI request cancelled.':/11128|unapproved channel/i.test(text)?'CodeBuddy rejected this request channel (11128). The official CLI also refused it.':/401|unauthorized|authentication/i.test(text)?'CodeBuddy CLI authentication failed. Check the API key and its region.':/429|quota|credit/i.test(text)?'CodeBuddy CLI is rate limited or has no remaining quota.':/CODEBUDDY_BUNDLE_SPACE/.test(text)?'CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.':/CODEBUDDY_BUNDLE/.test(text)?'The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.':'CodeBuddy CLI failed. No host tool was executed by the CLI.'}};
+ const text=String(error?.message||error).slice(0,16384);
+ let code='CODEBUDDY_CLI_ERROR',message='CodeBuddy CLI failed. Check the connection and retry. The CLI did not execute a host tool.';
+ if(aborted){code='ABORTED';message='CodeBuddy CLI request cancelled.';}
+ else if(/11128|unapproved channel|channel verification/i.test(text)){code='CODEBUDDY_CHANNEL_REJECTED';message='CodeBuddy rejected this request channel (11128). The official CLI also refused it. Check your account access or use another provider.';}
+ else if(/401|unauthorized|authentication/i.test(text)){code='INVALID_CREDENTIAL';message='CodeBuddy CLI authentication failed. Check the API key and its region.';}
+ else if(/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)){code='CONTEXT_WINDOW_EXCEEDED';message='The conversation exceeds the CodeBuddy context limit. Compact it or start a new conversation; your history is retained.';}
+ else if(/quota|credit|402|error_max_budget/i.test(text)){code='QUOTA';message='CodeBuddy quota or the request budget is exhausted. Check your account quota before retrying.';}
+ else if(/429|rate.?limit|too many requests/i.test(text)){code='CODEBUDDY_RATE_LIMITED';message='CodeBuddy is rate limited. Wait briefly before sending again.';}
+ else if(/403|forbidden|permission.*(denied|model)|model.*(not found|unavailable|not supported|access|permission)|not.*authorized.*model/i.test(text)){code='CODEBUDDY_MODEL_ACCESS';message='This CodeBuddy account cannot use the selected model or operation. Choose an available model or check account access; the catalog alone does not verify permission.';}
+ else if(/ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|fetch failed|network.*(error|failed)/i.test(text)){code='CODEBUDDY_NETWORK_ERROR';message='The CodeBuddy connection failed. Check the network before sending again.';}
+ else if(/CODEBUDDY_BUNDLE_SPACE/.test(text))message='CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.';
+ else if(/CODEBUDDY_BUNDLE/.test(text))message='The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.';
+ return {kind:aborted?'aborted':'error',failure:{code,message}};
 }
 function usage(value={},modelUsage){
  const tokens=value=>Number.isSafeInteger(value)&&value>=0?value:0;
@@ -177,20 +187,22 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     }
     const calls=blocks.filter(block=>block.type==='tool_use');
     if(calls.length){
-     for(const block of calls){const name=names.get(block.name);if(!name)throw new Error('CLI requested an unregistered host tool');
-      const index=nextIndex++,args=JSON.stringify(block.input);if(args.length>2*1024*1024)throw new Error('CLI tool arguments too large');
+     const checked=calls.map(block=>{const name=names.get(block.name);if(!name||typeof block.id!=='string'||!block.id)throw new Error('CLI requested an unregistered host tool');
+      const args=JSON.stringify(block.input);if(!args||args.length>2*1024*1024)throw new Error('CLI tool arguments too large');
+      return {block,name,args};});
+     for(const {block,name,args} of checked){const index=nextIndex++;
       yield {type:'block-start',index,blockType:'tool-call'};yield {type:'tool-call-delta',index,id:block.id,name,argumentsDelta:args};yield {type:'block-end',index,block:{type:'tool-call',id:block.id,name,arguments:args}};
      }
      yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:{kind:'tool-calls'}};terminal=true;return;
     }
    }
    if(message.type==='result'){
-    if(message.is_error||message.subtype!=='success')throw new Error(message.result||'CLI request failed');
+    if(message.is_error||message.subtype!=='success')throw new Error(message.result||(Array.isArray(message.errors)?message.errors.filter(value=>typeof value==='string').slice(0,8).join('\n'):'')||message.subtype||'CLI request failed');
     yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
    }
   }
   throw new Error('CLI stream ended without a result');
- }catch(error){if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding.'}}:failure(error,controller.signal.aborted)};}}
+ }catch(error){if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding. Check the network before retrying.'}}:failure(error,controller.signal.aborted)};}}
  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});}
 }
 module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm};
@@ -203,7 +215,7 @@ if(require.main===module){
    try{for await(const chunk of stream({provider:'codebuddy',purpose:'connection-check',model:process.argv[3]||'deepseek-v4.1-flash',reasoningEffort:'max',signal:controller.signal},{messages:[{role:'user',content:[{type:'text',text:'Reply only OK.'}]}],tools:[]},{apiKey})){
     if(chunk.type==='text-delta')text+=chunk.text;if(chunk.type==='finish')reason=chunk.reason;
    }}finally{apiKey='';process.removeListener('SIGTERM',stop);}
-   console.log(JSON.stringify({ok:reason?.kind==='stop'&&text.trim().length>0,channelRejected:/11128/.test(reason?.failure?.message||''),keyRejected:/authentication/i.test(reason?.failure?.message||'')}));
+   console.log(JSON.stringify({ok:reason?.kind==='stop'&&text.trim().length>0,channelRejected:/11128/.test(reason?.failure?.message||''),keyRejected:/authentication/i.test(reason?.failure?.message||''),failureCode:reason?.failure?.code}));
   })().then(()=>process.exit(0)).catch(()=>{console.log('{"ok":false}');process.exit(1);});
  }
 }
