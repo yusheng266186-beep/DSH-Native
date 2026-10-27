@@ -6149,6 +6149,16 @@ public class MainActivity extends Activity {
         });
         body.addView(network, DshUi.fullWidth(this, 8));
 
+        android.widget.Button privacy = DshUi.button(this,
+                UiText.t("隐私与开源说明", "Privacy & open source"), false);
+        privacy.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                showPrivacyAndLicenses();
+            }
+        });
+        body.addView(privacy, DshUi.fullWidth(this, 16));
+
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, back), 560);
@@ -6163,6 +6173,39 @@ public class MainActivity extends Activity {
             @Override public void run() { showSettings(); }
         });
         parentPanel[0] = dialog;
+        dialog.show();
+    }
+
+    private void showPrivacyAndLicenses() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, UiText.t("隐私与开源说明", "Privacy & open source")));
+        body.addView(DshUi.hint(this, UiText.t(
+                "对话、所选附件和工具结果会发给你选择的模型服务商。语音由 Android 当前识别引擎处理；截图、剪贴板和分享按你的操作调用。服务商与外部应用适用各自的数据规则。",
+                "Conversations, selected attachments and tool results go to your chosen model provider. Voice uses your Android recognition engine. Capture, clipboard and sharing follow explicit operations. Providers and other apps apply their own data policies.")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "凭据与配置恢复保护记录保存在私有目录。诊断只由你主动导出，不包含凭据、配置、会话正文、附件、项目文件或 CodeBuddy 私有状态；分享前可自行查看。加密配置备份不包含完整历史和项目。",
+                "Credentials and configuration recovery records stay private. Diagnostics are exported only on request and exclude credentials, settings, conversation content, attachments, projects and private CodeBuddy state. Review before sharing. Encrypted configuration backups do not contain full history or projects.")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "DSH Native 的 MIT 许可不覆盖所有依赖。DSH、CodeBuddy、Node、共享库及工具保留各自许可；APK 随附原许可文本与固定依赖清单。",
+                "DSH Native's MIT license does not cover every dependency. DSH, CodeBuddy, Node, shared libraries and tools retain their licenses. The APK includes license texts and a locked dependency inventory.")), DshUi.fullWidth(this, 12));
+        for (final String page : new String[]{"PRIVACY", "THIRD_PARTY"}) {
+            android.widget.Button more = DshUi.button(this, "PRIVACY".equals(page)
+                    ? UiText.t("完整隐私说明", "Full privacy details") : UiText.t("组件、许可与来源", "Components, licenses & sources"), false);
+            more.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    handleUrl("https://github.com/" + REPO + "/blob/main/docs/" + page + ".md");
+                }
+            });
+            body.addView(more, DshUi.fullWidth(this, 12));
+        }
+        android.widget.Button back = DshUi.button(this, UiText.t("返回", "Back"), true);
+        final android.app.Dialog dialog = DshUi.dialog(this, DshUi.scroll(this, body), DshUi.footer(this, back), 560);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.swapDialog(dialog, true, new Runnable() { @Override public void run() { showDiagnosticsSettings(); } });
+            }
+        });
+        DshUi.onBack(dialog, new Runnable() { @Override public void run() { showDiagnosticsSettings(); } });
         dialog.show();
     }
 
@@ -7852,7 +7895,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.40.2\n");
+            w.write("APK 版本: 1.0.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();

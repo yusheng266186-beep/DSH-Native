@@ -13,10 +13,8 @@ set -euo pipefail
 BUILD="${1:?用法: ci_stage.sh <构建目录>}"
 REPO="${REPO:-yusheng266186-beep/DSH-Native}"
 
-# 内置负载从**最新一个已发布版本**的 APK 里取。
-# 不写死某个 tag：node 与那 10 个 .so 会随运行包一起升级，
-# 写死之后一旦升级，构建会继续用旧二进制而**毫无提示** ——
-# 正是这个项目反复出现的那类静默失败。
+# 内置负载从已发布 APK 继承，再按 runtime/compatibility.json 核对全部
+# 二进制。来源可更新，固定摘要必须经审查；不能静默混入未知工具链。
 PREV_TAG="${PREV_TAG:-}"
 PREV_APK="${DSH_PREVIOUS_APK:-}"
 # 优先走带 token 的 gh。
@@ -42,6 +40,7 @@ fi
 [ -n "$PREV_APK" ] || [ -n "$PREV_TAG" ] || { echo "[FAIL] 取不到上一个发布 tag。指定已校验的 DSH_PREVIOUS_APK，或 PREV_TAG=vX.Y.Z-bootstrap"; exit 1; }
 echo "  参考版本: $PREV_TAG"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$ROOT/scripts/check_compatibility.py"
 if [ -n "$PREV_APK" ]; then
     # A local reference is bound to the existing release manifest, never accepted merely because it is a ZIP.
     PREV_APK="$(python3 - "$PREV_APK" "$ROOT/latest.json" <<'PY'
@@ -74,11 +73,15 @@ say "2. 仓库源码 → 构建工作区"
 cp -r "$ROOT/src" "$BUILD/bootstrap/src"
 cp -r "$ROOT/payload" "$BUILD/bootstrap/payload"
 python3 "$ROOT/scripts/prepare_codebuddy_sdk.py" "$BUILD/bootstrap/payload"
+python3 "$ROOT/scripts/generate_dependency_notices.py" "$BUILD/bootstrap/payload/dependency-notices.json"
 cp "$ROOT/scripts/release.keystore" "$BUILD/bootstrap/release.keystore"
 cp -r "$ROOT/tests" "$BUILD/tests"
 # scripts/ 也带上一份：构建期 3.46 的 emoji 红线检查要扫它
 # （那条红线此前只写在文档里、没有闸门，违例就出在 scripts/bump_version.sh）
 cp -r "$ROOT/scripts" "$BUILD/bootstrap/scripts"
+cp -r "$ROOT/runtime" "$BUILD/bootstrap/runtime"
+cp "$ROOT/README.md" "$ROOT/README.en.md" "$ROOT/AGENTS.md" "$ROOT/LICENSE" "$ROOT/latest.json" "$ROOT/latest-test.json" "$BUILD/bootstrap/"
+cp -r "$ROOT/docs" "$ROOT/release-notes" "$ROOT/patch" "$ROOT/tools" "$BUILD/bootstrap/"
 cp "$ROOT/scripts/mkmanifest.py" "$ROOT/scripts/mkzip.py" "$ROOT/scripts/run_tests.sh" "$BUILD/"
 # prepare_core_payload.py carries the Android PTY provenance checks. Stage it so
 # tests/android_native_payload_test.py really runs during CI instead of skipping —
@@ -125,6 +128,7 @@ fi
 [ -s "$TMP/prev.apk" ] || { echo "[FAIL] 上一个 APK 下载失败"; exit 1; }
 unzip -q -o "$TMP/prev.apk" 'assets/payload/*' -d "$TMP/x"
 [ -f "$TMP/x/assets/payload/node" ] || { echo "[FAIL] APK 里没有 assets/payload/node"; exit 1; }
+python3 "$ROOT/scripts/check_compatibility.py" --payload "$TMP/x/assets/payload"
 cp "$TMP/x/assets/payload/node" "$BUILD/staging/data/data/com.termux/files/usr/bin/node"
 chmod +x "$BUILD/staging/data/data/com.termux/files/usr/bin/node"
 # 注意：不能写 cp lib/*.so —— 这 10 个库的命名并不统一，

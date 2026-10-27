@@ -512,6 +512,8 @@ else
 fi
 if ! python3 tests/release_metadata_test.py; then rc=1; fi
 if ! python3 tests/project_docs_test.py; then rc=1; fi
+if ! python3 tests/compatibility_test.py; then rc=1; fi
+if ! python3 tests/release_script_test.py; then rc=1; fi
 
 # 运行包原生二进制必须能在 Android 上 dlopen。
 #

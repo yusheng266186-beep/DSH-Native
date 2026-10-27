@@ -82,6 +82,9 @@ for f in unpack.js snapshot.js session-publish.js session-tools-core.js app-sett
   [ -f "$BOOT/payload/$f" ] || die "缺少引导脚本 $f"
   cp "$BOOT/payload/$f" "$P/$f"
 done
+cp -r "$BOOT/payload/licenses" "$P/licenses"
+[ -s "$BOOT/payload/dependency-notices.json" ] || die "缺少固定依赖清单"
+cp "$BOOT/payload/dependency-notices.json" "$P/dependency-notices.json"
 echo "  引导脚本: $(ls "$P" | grep -vE '^(node|lib)$' | tr '\n' ' ')"
 
 # ---------------------------------------------------------------- 2. 资源

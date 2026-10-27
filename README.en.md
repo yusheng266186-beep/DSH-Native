@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.40.2**; source: **0.40.2**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **0.40.2**; source: **1.0.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -35,6 +35,9 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 0.37.2 rechecks the project and window before opening a prepared file. Native actions now report system denial, missing activity handlers, unavailable notification channels and UI timeouts explicitly. Cancellation and service shutdown remove queued actions, including capture authorization startup races. Install over the existing App and restart the core.
 
 <!-- project-navigation:start -->
+
+The 1.0 candidate completes six ordered readiness stages and is undergoing final acceptance. See the [release plan](docs/RELEASE_1_0.md), [privacy](docs/PRIVACY.md), [third-party sources](docs/THIRD_PARTY.md) and [troubleshooting](docs/TROUBLESHOOTING.md). Download links still refer to the published build. Install over the existing app and restart its core.
+
 0.40.0 improves loopback recovery after background/screen-off returns without reloading chat or replaying prompts. The separate App tools button is removed; device controls use the original settings entry. Settings clicks survive background refreshes, while CodeBuddy prepares quick follow-ups and avoids retransmitting historical assistant reasoning. Install over the current app and restart the core; device validation remains with the user.
 
 ## Project overview
