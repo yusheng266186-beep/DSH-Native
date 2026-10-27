@@ -841,7 +841,9 @@ public final class FileBrowser {
             if (!shareable) share.setTextColor(DshUi.TEXT_3());
             if (!writable) {
                 rename.setTextColor(DshUi.TEXT_3());
+                NativeTheme.text(rename, NativeTheme.Role.TEXT_3);
                 del.setTextColor(DshUi.TEXT_3());
+                NativeTheme.text(del, NativeTheme.Role.TEXT_3);
             }
 
             final Dialog menu = DshUi.dialog(act, box,
@@ -1223,6 +1225,7 @@ public final class FileBrowser {
             name.setText(e.name);
             name.setTextSize(12.5f);
             name.setTextColor(e.dir ? DshUi.TEXT() : DshUi.TEXT_2());
+            NativeTheme.text(name, e.dir ? NativeTheme.Role.TEXT : NativeTheme.Role.TEXT_2);
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             // 名称与说明是行内容的视觉拆分，无障碍上已由行的 contentDescription
@@ -1233,6 +1236,7 @@ public final class FileBrowser {
             info.setText(FileListing.infoText(e));
             info.setTextSize(10.5f);
             info.setTextColor(DshUi.TEXT_3());
+            NativeTheme.text(info, NativeTheme.Role.TEXT_3);
             info.setSingleLine(true);
             info.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
             info.setGravity(Gravity.END);
@@ -1368,6 +1372,7 @@ public final class FileBrowser {
             Drawable ind = pb.getIndeterminateDrawable();
             if (ind != null) {
                 ind.setColorFilter(DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
+                NativeTheme.surface(pb.getContext(), ind, NativeTheme.Role.ACCENT, null, -1);
             }
         } catch (Throwable ignored) { }
     }
@@ -1434,6 +1439,7 @@ public final class FileBrowser {
         b.pathView.setTextSize(11f);
         b.pathView.setTypeface(Typeface.MONOSPACE);
         b.pathView.setTextColor(DshUi.TEXT_2());
+        NativeTheme.text(b.pathView, NativeTheme.Role.TEXT_2);
         b.pathView.setSingleLine(true);
         b.pathView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         body.addView(b.pathView, DshUi.fullWidth(act, GAP_TITLE));

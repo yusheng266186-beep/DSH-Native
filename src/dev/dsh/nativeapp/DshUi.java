@@ -34,7 +34,7 @@ import android.widget.TextView;
  * 自己配的深色与本机 Web 界面同屏时很容易看出不是一套。
  *
  * <p><b>主题在 {@link #applyTheme} 里一次性确定，颜色方法只读它。</b>
- * 因此切换深浅色只需要重建界面，不必重启进程。
+ * 切换深浅色原位更新已注册的文字和背景，保留控件与输入状态。
  */
 public final class DshUi {
     static StartupView startup(android.app.Activity activity, Runnable completed) {
@@ -281,17 +281,31 @@ public final class DshUi {
         return d;
     }
 
+    static int[] palette() {
+        return new int[]{BG(), CARD(), BORDER(), FIELD(), FIELD_FOCUS(), BTN(), BTN_PRESS(),
+                ACCENT(), BRAND(), ACCENT_DARK(), SUCCESS(), WARN(), ERROR(), TEXT(), TEXT_2(),
+                TEXT_3(), ON_ACCENT(), disabledFill(), 0x35FFFFFF, dark ? 0x24FFFFFF : 0x18000000};
+    }
+
+    private static GradientDrawable themedRound(Context c, NativeTheme.Role fill,
+            NativeTheme.Role stroke, float radius, float width) {
+        int[] colors = palette();
+        GradientDrawable drawable = round(NativeTheme.color(colors, fill),
+                stroke == null ? 0 : NativeTheme.color(colors, stroke), radius, width);
+        return NativeTheme.surface(c, drawable, fill, stroke, (int)Math.max(1, width));
+    }
+
     /** 卡片背景：卡片底色 + 极细描边 + 大圆角（深浅色各自取令牌）。 */
     public static GradientDrawable cardBg(Context c) {
-        return round(CARD(), BORDER(), dp(c, 16), dp(c, 1));
+        return themedRound(c, NativeTheme.Role.CARD, NativeTheme.Role.BORDER, dp(c, 16), dp(c, 1));
     }
 
     /** 输入框背景（含按下态）。 */
     public static StateListDrawable fieldBg(Context c) {
         StateListDrawable s = new StateListDrawable();
         s.addState(new int[]{android.R.attr.state_focused},
-                round(FIELD_FOCUS(), BORDER(), dp(c, 10), dp(c, 1)));
-        s.addState(new int[]{}, round(FIELD(), BORDER(), dp(c, 10), dp(c, 1)));
+                themedRound(c, NativeTheme.Role.FIELD_FOCUS, NativeTheme.Role.BORDER, dp(c, 10), dp(c, 1)));
+        s.addState(new int[]{}, themedRound(c, NativeTheme.Role.FIELD, NativeTheme.Role.BORDER, dp(c, 10), dp(c, 1)));
         return s;
     }
 
@@ -317,15 +331,15 @@ public final class DshUi {
         // 次按钮的禁用底用页面底色令牌：浅色下与原值 0xFFFFFFFF 完全相同，
         // 深色下比卡片更暗，天然读作「凹陷/不可用」。
         s.addState(new int[]{-android.R.attr.state_enabled},
-                round(primary ? disabledFill() : BG(), 0, dp(c, 10), 0));
+                themedRound(c, primary ? NativeTheme.Role.DIMMED : NativeTheme.Role.BG, null, dp(c, 10), 0));
         if (primary) {
             s.addState(new int[]{android.R.attr.state_pressed},
-                    round(ACCENT_DARK(), 0, dp(c, 10), 0));
-            s.addState(new int[]{}, round(ACCENT(), 0, dp(c, 10), 0));
+                    themedRound(c, NativeTheme.Role.ACCENT_DARK, null, dp(c, 10), 0));
+            s.addState(new int[]{}, themedRound(c, NativeTheme.Role.ACCENT, null, dp(c, 10), 0));
         } else {
             s.addState(new int[]{android.R.attr.state_pressed},
-                    round(BTN_PRESS(), 0, dp(c, 10), 0));
-            s.addState(new int[]{}, round(BTN(), 0, dp(c, 10), 0));
+                    themedRound(c, NativeTheme.Role.BTN_PRESS, null, dp(c, 10), 0));
+            s.addState(new int[]{}, themedRound(c, NativeTheme.Role.BTN, null, dp(c, 10), 0));
         }
         return s;
     }
@@ -342,7 +356,8 @@ public final class DshUi {
         android.content.res.ColorStateList colors =
                 android.content.res.ColorStateList.valueOf(ripple);
         GradientDrawable mask = round(0xFFFFFFFF, 0, dp(c, 10), 0);
-        return new android.graphics.drawable.RippleDrawable(colors, content, mask);
+        return NativeTheme.surface(c, new android.graphics.drawable.RippleDrawable(colors, content, mask),
+                primary ? NativeTheme.Role.RIPPLE_PRIMARY : NativeTheme.Role.RIPPLE_SECONDARY, null, 0);
     }
 
     // ---------------------------------------------------------------- 组件
@@ -355,7 +370,7 @@ public final class DshUi {
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
         WebSettingsHost.semantic(tv,"title");
-        return tv;
+        return NativeTheme.text(tv, NativeTheme.Role.TEXT);
     }
 
     /** 区块小标题（如「更新」）。 */
@@ -367,7 +382,7 @@ public final class DshUi {
         tv.setTypeface(tv.getTypeface(), android.graphics.Typeface.BOLD);
         if (android.os.Build.VERSION.SDK_INT >= 28) tv.setAccessibilityHeading(true);
         WebSettingsHost.semantic(tv,"section");
-        return tv;
+        return NativeTheme.text(tv, NativeTheme.Role.TEXT);
     }
 
     /** 字段标签。 */
@@ -377,7 +392,7 @@ public final class DshUi {
         tv.setTextSize(12.5f);
         tv.setTextColor(TEXT_2());
         WebSettingsHost.semantic(tv,"label");
-        return tv;
+        return NativeTheme.text(tv, NativeTheme.Role.TEXT_2);
     }
 
     /** 说明/次要文字。 */
@@ -388,7 +403,7 @@ public final class DshUi {
         tv.setTextColor(TEXT_3());
         tv.setLineSpacing(dp(c, 2), 1f);
         WebSettingsHost.semantic(tv,"hint");
-        return tv;
+        return NativeTheme.text(tv, NativeTheme.Role.TEXT_3);
     }
 
     /** 状态文字（可被异步更新）。 */
@@ -400,7 +415,7 @@ public final class DshUi {
         tv.setLineSpacing(dp(c, 2), 1f);
         tv.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         WebSettingsHost.semantic(tv,"status");
-        return tv;
+        return NativeTheme.text(tv, NativeTheme.Role.TEXT_2);
     }
 
     /** 输入框：浅灰圆角底、无下划线、内边距舒适（配色随主题）。 */
@@ -423,7 +438,7 @@ public final class DshUi {
                 et.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
             }
         }
-        return et;
+        return NativeTheme.text(et, NativeTheme.Role.TEXT);
     }
 
     /** 按钮：圆角矩形、统一按压深度与边界内水波纹。 */
@@ -434,6 +449,7 @@ public final class DshUi {
         b.setTextSize(13.5f);
         b.setAllCaps(false);
         b.setTextColor(primary ? ON_ACCENT() : TEXT());
+        NativeTheme.text(b, primary ? NativeTheme.Role.ON_ACCENT : NativeTheme.Role.TEXT);
         b.setBackground(buttonSurface(c, primary));
         // 清掉主题可能附加的背景着色（backgroundTint）——
         // 否则 setBackground 设的颜色会被 tint 覆盖，
@@ -500,6 +516,7 @@ public final class DshUi {
         WebSettingsHost.primary(b,primary);
         b.setBackground(buttonSurface(b.getContext(), primary));
         b.setTextColor(primary ? ON_ACCENT() : TEXT());
+        NativeTheme.text(b, primary ? NativeTheme.Role.ON_ACCENT : NativeTheme.Role.TEXT);
         markToggleState(b, primary);
         if (changed && animationsEnabled(b.getContext())) {
             b.animate().cancel();
@@ -541,6 +558,7 @@ public final class DshUi {
         WebSettingsHost.primary(button,false);
         button.setBackground(buttonSurface(button.getContext(), selected));
         button.setTextColor(selected ? ON_ACCENT() : TEXT());
+        NativeTheme.text(button, selected ? NativeTheme.Role.ON_ACCENT : NativeTheme.Role.TEXT);
         button.setAlpha(button.isEnabled() ? 1f : 0.62f);
         markToggleState(button, selected);
     }
@@ -585,6 +603,7 @@ public final class DshUi {
     public static GradientDrawable surfaceBg(Context c) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(FIELD());
+        NativeTheme.surface(c, d, NativeTheme.Role.FIELD, null, 0);
         d.setCornerRadius(dp(c, 10));
         return d;
     }
@@ -602,6 +621,7 @@ public final class DshUi {
                 new android.graphics.drawable.ShapeDrawable(
                         new android.graphics.drawable.shapes.RectShape());
         line.getPaint().setColor(BORDER());
+        NativeTheme.surface(c, line, NativeTheme.Role.BORDER, null, 0);
         line.setIntrinsicHeight(Math.max(1, dp(c, 1)));
         int inset = dp(c, 14);
         return new android.graphics.drawable.InsetDrawable(line, inset, 0, inset, 0);
@@ -616,6 +636,7 @@ public final class DshUi {
         StateListDrawable d = new StateListDrawable();
         GradientDrawable press = new GradientDrawable();
         press.setColor(BTN_PRESS());
+        NativeTheme.surface(c, press, NativeTheme.Role.BTN_PRESS, null, 0);
         press.setCornerRadius(dp(c, 8));
         GradientDrawable normal = new GradientDrawable();
         normal.setColor(0x00000000);
@@ -1043,6 +1064,7 @@ public final class DshUi {
             android.graphics.drawable.Drawable drawable = determinate
                     ? bar.getProgressDrawable() : bar.getIndeterminateDrawable();
             drawable.setColorFilter(ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
+            NativeTheme.surface(c, drawable, NativeTheme.Role.ACCENT, null, -1);
         } catch (Throwable ignored) { }
         LinearLayout.LayoutParams progressLp = fullWidth(c, 14);
         if (determinate) progressLp.height = Math.max(dp(c, 4), 4);

@@ -40,7 +40,9 @@ public class StartupRuntimeProbe {
  void log(String s){}void loadDshUi(String url){loaded=url;}void registerNetworkWatcher(){}
  void recordPatch(String name,boolean ok,String details){}void setSplashStatus(String text){}
  String preparedRuntimeKey(File root){return "reviewed-key";}String payloadRevisionKey(){return "v13";}
- String lastPreflightKey(){return "v13/1.0.0/"+workspace.getAbsolutePath();}
+ static class Components {String identity="asset-contents"; boolean ready(File root){return true;}}
+ Components components(){return new Components();}
+ String lastPreflightKey(){return "v13/asset-contents/"+workspace.getAbsolutePath();}
  boolean runtimeAssetsPresent(File root){return assetsPresent;}boolean payloadLocallyComplete(File a,File b){return complete;}
  boolean payloadUpdatePending(){return pending;}boolean payloadRollbackHold(){return hold;}
  String validatePayloadManifest(File file){return null;}int liveDshPort(){return live;}

@@ -13,6 +13,12 @@ if not m:
 print(m.group(1))
 PY
 )"
+if [ -n "${DSH_CONSUMER_PAYLOAD_DIR:-}" ]; then
+    # Pre-publication local run: the same APK-pinned manifest and full archive digests still apply.
+    for asset in dsh.tar.zst SHA256SUMS.txt manifest.json; do
+        cp "$DSH_CONSUMER_PAYLOAD_DIR/$asset" "$PROBE/$asset"
+    done
+else
 if ! gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
     --pattern dsh.tar.zst --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE" 2>"$PROBE/download.log"; then
     echo "Release API download failed; retrying the same official public assets over HTTPS."
@@ -20,6 +26,7 @@ if ! gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
         curl -fL --retry 3 --connect-timeout 20 --max-time 300 \
             -o "$PROBE/$asset" "https://github.com/yusheng266186-beep/DSH-Native/releases/download/$TAG/$asset"
     done
+fi
 fi
 bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
 (cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
@@ -32,56 +39,11 @@ else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
     "$ROOT"/src/dev/dsh/nativeapp/{CodeBuddyCatalog,ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi,FileActionsUi}.java \
     "$ROOT"/src/dev/dsh/nativeapp/{StartupState,StartupReuse,CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
     "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,ConnectionRecoveryTest,StartupStateTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
-java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.ConnectionRecoveryTest --apply "$PROBE/runtime" "$ROOT/payload/connection-ui.js"
-PERSISTENCE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js"
-java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.SessionPersistencePatchTest \
-    --dump-module "$PERSISTENCE" "$ROOT/payload/session-publish.js" > "$PROBE/persistence.js"
-mv "$PROBE/persistence.js" "$PERSISTENCE"
-for kind in account settings; do
-    package=dsh-client-ui-settings-account
-    [ "$kind" = settings ] && package=dsh-client-ui-settings-general
-    MODULE="$PROBE/runtime/node_modules/@deepseek-ai/$package/lib/client.js"
-    java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.AccountUiTest \
-        "--dump-$kind" "$MODULE" > "$PROBE/account-ui.js"
-    mv "$PROBE/account-ui.js" "$MODULE"
-done
-for kind in core client sessions; do
-    MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js"
-    HELPER="$ROOT/payload/session-tools-core.js"
-    if [ "$kind" = client ]; then
-        MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js"
-        HELPER="$ROOT/payload/app-settings-ui.js"
-    fi
-    if [ "$kind" = sessions ]; then MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-api-session-controller/lib/client.js"; fi
-    java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.AppSettingsUiTest \
-        "--dump-$kind" "$MODULE" "$HELPER" > "$PROBE/app-settings.js"
-    mv "$PROBE/app-settings.js" "$MODULE"
-done
-DELIVERY="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-deliverables/lib/client.js"
-java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.FileActionsUiTest --dump "$DELIVERY" > "$PROBE/delivery.js"
-mv "$PROBE/delivery.js" "$DELIVERY"
-PREVIEW="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js"
-java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.FileActionsUiTest --dump-preview "$PREVIEW" > "$PROBE/preview.js"
-mv "$PROBE/preview.js" "$PREVIEW"
-LAYOUT="$PROBE/runtime/node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js"
-java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTest \
-    --dump-layout "$LAYOUT" > "$PROBE/layout-client.js"
-mv "$PROBE/layout-client.js" "$LAYOUT"
+"${JAVAC[@]}" -encoding UTF-8 --release 8 -cp "$PROBE/classes" -d "$PROBE/classes" "$ROOT"/tools/java/dev/dsh/nativeapp/*.java
+java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.AndroidRuntimePort "$PROBE/runtime" "$ROOT/payload" --verify
+cmp "$PROBE/runtime/android-runtime-files.tsv" "$ROOT/payload/android-port-files.tsv"
 node "$ROOT/tests/js/connection-consumer.mjs" "$PROBE/runtime"
 node "$ROOT/tests/js/upgrade-runtime-consumer.mjs" "$PROBE/runtime" "$PROBE/manifest.json" "$PROBE/classes"
-for kind in voice filesystem; do
-    MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-experimental-client-ui-voice-input/lib/client.js"
-    HELPER="$ROOT/payload/android-voice-ui.js"
-    CLASS=VoiceUiTest
-    if [ "$kind" = filesystem ]; then
-        MODULE="$PROBE/runtime/node_modules/@deepseek-ai/dsh-fs-local/lib/index.js"
-        HELPER="$ROOT/payload/session-publish.js"
-        CLASS=FsWritePatchTest
-    fi
-    java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" "dev.dsh.nativeapp.$CLASS" \
-        --dump-module "$MODULE" "$HELPER" > "$PROBE/native-adapter.js"
-    mv "$PROBE/native-adapter.js" "$MODULE"
-done
 node "$ROOT/tests/js/provider-cleanup-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/fs-write-consumer.mjs" "$PROBE/runtime"
 node --expose-internals "$ROOT/tests/js/runtime-environment-consumer.mjs" "$PROBE/runtime"
@@ -113,6 +75,7 @@ java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.MobileLayoutTe
     "$PROBE/runtime/node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html" 480 > "$PROBE/mobile.html"
 node --expose-internals "$ROOT/tests/js/deepseek-account-consumer.mjs" "$PROBE/runtime" "$PROBE/classes" "$PROBE/mobile.html"
 node --expose-internals "$ROOT/tests/js/app-settings-consumer.mjs" "$PROBE/runtime" "$PROBE/mobile.html" "$PROBE/classes"
+python3 "$ROOT/tests/check_native_theme.py" --consumer "$PROBE/runtime" "$PROBE/mobile.html"
 python3 "$ROOT/tests/check_web_settings.py" --consumer "$PROBE/runtime" "$PROBE/mobile.html"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.LayoutProbeTest --dump-script > "$PROBE/layout-probe.js"
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$PROBE/web-tools.js"

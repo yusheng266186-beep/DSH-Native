@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "revision": 1,
+  "core": "0.2.1-rc.3",
+  "base_payload": "payload-v13",
+  "base_manifest_sha256": "f155c4b021c38dfce31e055af68418296b170b456c6aad2c991c325c16769893",
+  "base_archive_sha256": "f78c857d291d085d1e66529d7eb06787ad5b4091f92b3325d49042fd3e65cd88",
+  "base_archive_bytes": 114111860
+}

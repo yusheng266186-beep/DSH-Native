@@ -176,6 +176,7 @@ public final class LogViewer {
         final TextView view = new TextView(act);
         view.setTextSize(10.5f);
         view.setTextColor(DshUi.TEXT());
+        NativeTheme.text(view, NativeTheme.Role.TEXT);
         view.setTypeface(Typeface.MONOSPACE);
         view.setTextIsSelectable(true);
         view.setLineSpacing(DshUi.dp(act, 1.5f), 1f);

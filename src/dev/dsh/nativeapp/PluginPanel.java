@@ -344,6 +344,7 @@ public final class PluginPanel {
             t.setText(r.title);
             t.setTextSize(12.5f);
             t.setTextColor(DshUi.TEXT());
+            NativeTheme.text(t, NativeTheme.Role.TEXT);
             t.setSingleLine(true);
             text.addView(t, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));

@@ -270,6 +270,7 @@ public final class NetworkDiag {
                                 summary.setText(verdict);
                                 TextView v = DshUi.hint(act, "结论：" + verdict);
                                 v.setTextColor(DshUi.TEXT());
+                                NativeTheme.text(v, NativeTheme.Role.TEXT);
                                 v.setPadding(0, DshUi.dp(act, 14), 0, 0);
                                 results.addView(v);
                                 // 只有最新一轮能恢复按钮：被取代的那一轮，
@@ -480,6 +481,7 @@ public final class NetworkDiag {
         n.setText(name);
         n.setTextSize(11.5f);
         n.setTextColor(DshUi.TEXT_2());
+        NativeTheme.text(n, NativeTheme.Role.TEXT_2);
         n.setSingleLine(true);
         n.setEllipsize(android.text.TextUtils.TruncateAt.END);
         r.addView(n, new LinearLayout.LayoutParams(0,

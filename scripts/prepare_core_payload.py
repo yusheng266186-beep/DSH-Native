@@ -376,6 +376,10 @@ def main():
     for pkg in (runtime / 'node_modules/@deepseek-ai').glob('dsh-*/package.json'):
         assert json.loads(pkg.read_text())['version'] == source['version'], pkg
     native_sha, native_deps, pruned = patch_android(runtime, args.base)
+    # The upstream builder must ship the same complete Android contract as the
+    # pinned-archive builder. Phones no longer carry a source-rewriting fallback.
+    from build_android_runtime import apply_port
+    apply_port(runtime)
     removals = obsolete_paths(args.base, runtime)
     shard = args.out / 'dsh.tar.zst'
     # Fixed owner/timestamp and sorted paths make archives independent of npm's

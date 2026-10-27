@@ -41,7 +41,17 @@ if [ ! -d "$PAYLOAD_DIR" ]; then
 fi
 [ -d "$PAYLOAD_DIR" ] || { echo "找不到 payload 目录" >&2; exit 1; }
 
-SRC="$JAVA_DIR/StartupState.java
+SRC="$JAVA_DIR/SettingsNavigation.java
+     $JAVA_DIR/AppLog.java
+     $JAVA_DIR/ReleaseDownloader.java
+     $JAVA_DIR/RuntimeChecks.java
+     $JAVA_DIR/AssetInstaller.java
+     $JAVA_DIR/StartupCoordinator.java
+     $JAVA_DIR/ProcessRunner.java
+     $JAVA_DIR/RuntimeLauncher.java
+     $JAVA_DIR/RuntimePreparation.java
+     $JAVA_DIR/ViewportState.java
+     $JAVA_DIR/StartupState.java
      $JAVA_DIR/StartupReuse.java
      $JAVA_DIR/FileListing.java
      $JAVA_DIR/TextCodec.java
@@ -116,7 +126,9 @@ SRC="$JAVA_DIR/StartupState.java
      $JAVA_DIR/CrashReporter.java
      $JAVA_DIR/WorkerRegistry.java
      $JAVA_DIR/ProviderRoute.java"
-TESTS="tests/StartupStateTest.java
+TESTS="tests/ReleaseDownloaderTest.java
+       tests/AppArchitectureTest.java
+       tests/StartupStateTest.java
        tests/FileListingTest.java
        tests/TextCodecTest.java
        tests/VersionTest.java
@@ -202,7 +214,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
@@ -384,7 +396,7 @@ if ! grep -q 'FileTrash.move' "$JAVA_DIR/FileBrowser.java" \
         || ! grep -q 'FileBatch.transfer' "$JAVA_DIR/FileBrowser.java" \
         || ! grep -q 'FilePreview.kind' "$JAVA_DIR/FileBrowser.java" \
         || ! grep -q 'AppSettingsUi.openScript("sessions")' "$MAIN_ACTIVITY" \
-        || ! grep -q 'patchAppSettings(root, dshDir)' "$MAIN_ACTIVITY"; then
+        || ! grep -q 'RuntimePreparation.requirePort(root, dshDir)' "$MAIN_ACTIVITY"; then
     echo "  [FAIL] 文件或 App 会话设置接线不完整" >&2
     rc=1
 else
@@ -499,7 +511,8 @@ fi
 if ! grep -q 'IMPORTANT_FOR_AUTOFILL_NO' "$JAVA_DIR/DshUi.java" \
         || ! grep -q 'DshUi.clearLogSink(dshUiLogSink)' "$MAIN_ACTIVITY" \
         || ! grep -q 'activityWorkers.stop();' "$MAIN_ACTIVITY" \
-        || ! grep -q 'oldWebView.destroy();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'browserSession.close();' "$MAIN_ACTIVITY" \
+        || ! grep -q 'old.destroy();' "$JAVA_DIR/WebSession.java" \
         || ! grep -q 'CrashReporter.install(crashFile)' "$MAIN_ACTIVITY"; then
     echo "  [FAIL] 发布前隐私或 Activity 生命周期修复接线不完整" >&2
     rc=1
@@ -523,6 +536,8 @@ if ! python3 tests/release_script_test.py; then rc=1; fi
 # 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
+if ! python3 tests/check_web_session.py; then rc=1; fi
+if ! python3 tests/check_native_theme.py; then rc=1; fi
 if ! python3 tests/check_startup.py; then rc=1; fi
 if ! python3 tests/check_startup_runtime.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
@@ -544,7 +559,6 @@ if ! grep -q 'PayloadManifest.validate(' "$MAIN_ACTIVITY" \
         || ! grep -q 'WebUrl.escapeHtml(' "$MAIN_ACTIVITY" \
         || ! grep -q 'YamlBlocks.topLevelBlock(' "$MAIN_ACTIVITY" \
         || ! grep -q 'YamlBlocks.mergeMissingBlocks(' "$MAIN_ACTIVITY" \
-        || ! grep -q 'YamlBlocks.hasTopLevelKey(' "$MAIN_ACTIVITY" \
         || ! grep -q 'RuntimeDir.delete(' "$MAIN_ACTIVITY" \
         || ! grep -q 'ModelImageSupport.imageCapableModels(' "$MAIN_ACTIVITY" \
         || ! grep -q 'ModelCatalogPersistence.shouldSkipPresetInjection(' "$MAIN_ACTIVITY"; then

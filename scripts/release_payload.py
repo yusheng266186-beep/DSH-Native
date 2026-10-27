@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import urllib.parse
 import urllib.request
 
@@ -21,13 +22,21 @@ def main():
     parser.add_argument('directory', type=pathlib.Path)
     parser.add_argument('--commit', required=True)
     parser.add_argument('--notes', type=pathlib.Path, required=True)
+    parser.add_argument('--transport', choices=('urllib', 'gh'), default='urllib',
+                        help='gh uses the existing CLI login and its configured proxy; no token argument')
     args = parser.parse_args()
     if not __import__('re').fullmatch(r'payload-v[0-9]+', args.tag):
         raise ValueError('invalid payload tag')
-    token = os.environ.get('DSH_GITHUB_TOKEN') or os.environ['GH_TOKEN']
+    token = None if args.transport == 'gh' else os.environ.get('DSH_GITHUB_TOKEN') or os.environ['GH_TOKEN']
 
     def api(url, method='GET', data=None, binary=False):
         if isinstance(data, dict): data = json.dumps(data).encode()
+        if args.transport == 'gh':
+            command = ['gh', 'api', url, '--method', method, '-H', 'Accept: application/vnd.github+json']
+            if data is not None:
+                command += ['--input', '-', '-H', 'Content-Type: ' + ('application/octet-stream' if binary else 'application/json')]
+            result = subprocess.run(command, input=data, capture_output=True, check=True, timeout=300)
+            return json.loads(result.stdout)
         req = urllib.request.Request(url, data=data, method=method, headers={
             'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
             'Content-Type': 'application/octet-stream' if binary else 'application/json',
@@ -62,8 +71,14 @@ def main():
         assert asset.get('digest') == 'sha256:' + expected[name], f'uploaded digest differs: {name}'
         print(name + ': uploaded and SHA-verified', flush=True)
     published = api(release['url'], 'PATCH', dict(draft=False, make_latest='false'))
-    with urllib.request.urlopen(f'https://github.com/{REPO}/releases/download/{args.tag}/manifest.json', timeout=60) as response:
-        assert hashlib.sha256(response.read()).hexdigest() == expected['manifest.json']
+    public_url = f'https://github.com/{REPO}/releases/download/{args.tag}/manifest.json'
+    if args.transport == 'gh':
+        public = subprocess.run(['curl', '-fsSL', '--retry', '3', '--connect-timeout', '20', '--max-time', '120', public_url],
+                                capture_output=True, check=True).stdout
+    else:
+        with urllib.request.urlopen(public_url, timeout=60) as response:
+            public = response.read()
+    assert hashlib.sha256(public).hexdigest() == expected['manifest.json']
     print('Published: ' + published['html_url'])
 
 

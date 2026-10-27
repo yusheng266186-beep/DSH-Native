@@ -56,15 +56,15 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v13/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v14/";
     /**
-     * payload-v13 的 manifest.json 固定摘要。
+     * payload-v14 的 manifest.json 固定摘要。
      *
      * <p>摘要内置在 APK，而不是从同一个镜像下载，代理即使同时替换清单和归档
      * 也无法通过验证。更换 payload tag 或清单内容时必须同步更新这个值。
      */
     private static final String PAYLOAD_MANIFEST_SHA256 =
-            "f155c4b021c38dfce31e055af68418296b170b456c6aad2c991c325c16769893";
+            "b1b45149a370ad9b54cc6d8634c2471d833eb8fd0a13708515ac211b3d0d7dc1";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 
@@ -107,12 +107,12 @@ public class MainActivity extends Activity {
      */
     private int chosenPort = PORT;
 
+    private WebSession browserSession;
     private WebView webView;
     private TextView logView;
     private File crashFile;
     /** 私有运行日志；只有用户主动导出诊断时才复制到共享存储。 */
     private File sharedLog;
-    private final Object logLock = new Object();
     /** Activity 销毁时统一停止会永久等待的后台线程，避免主题重建后泄漏旧界面。 */
     private final WorkerRegistry activityWorkers = new WorkerRegistry();
     /** Shared across Activity rebuilds: never start a core midway through configuration replacement. */
@@ -134,7 +134,7 @@ public class MainActivity extends Activity {
 
         @Override public void onStopRequested() {
             log("收到停止请求，运行进程已结束");
-            runOnUiThread(new Runnable() {
+            postUi(new Runnable() {
                 @Override public void run() { finish(); }
             });
         }
@@ -158,7 +158,7 @@ public class MainActivity extends Activity {
         // DSH 网页有自己的语言设置，两者互不覆盖。
         configureUiLanguage();
 
-        // 主题必须**最先**解析：DshUi 的颜色是在创建视图时一次性取走的，
+        // 主题必须**最先**解析：先保证首帧与缓存的网页主题一致，
         // 晚一步就会有一批组件停在旧主题上（深浅混杂比全浅色更难看）。
         //
         // **跟谁走**：DSH 的主题是它自己的设置（ui-theme.preference =
@@ -208,25 +208,8 @@ public class MainActivity extends Activity {
         logView = new TextView(this);
         logView.setTextSize(10);
 
-        webView = new WebView(this);
-        // 页面首帧之前的底色。WebView 默认是白的 —— 深色下从开屏页
-        // 到页面渲染之间会闪一下全白，比"什么都不做"更刺眼。
-        webView.setBackgroundColor(DshUi.BG());
-        WebSettings ws = webView.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setAllowFileAccess(true);
-        // 关键：Android WebView 默认忽略 viewport meta 里的固定宽度，
-        // 必须开启 useWideViewPort 才会遵循，否则我们写入的 width=600 无效。
-        // loadWithOverviewMode 让页面整体缩放以适配屏幕宽度。
-        ws.setUseWideViewPort(true);
-        ws.setLoadWithOverviewMode(true);
-        // 允许双指缩放：适配后的布局文字偏小，用户可自行放大
-        ws.setSupportZoom(true);
-        ws.setBuiltInZoomControls(true);
-        ws.setDisplayZoomControls(false);
-        // 文字缩放：只影响字号，不改变布局宽度
-        ws.setTextZoom(currentZoom());
+        browserSession = new WebSession(this, currentZoom(), DshUi.BG());
+        webView = browserSession.view();
         // DSH 的「添加 → 文件」菜单会 click() 页面里的原生 <input type="file">。
         // WebView 必须由宿主实现 onShowFileChooser，否则点击毫无反应 ——
         // 这正是之前"无法上传文件"的真正原因。
@@ -289,7 +272,6 @@ public class MainActivity extends Activity {
                 showJsPrompt(message, defaultValue, result);
                 return true;
             }
-
 
             @Override
             public boolean onConsoleMessage(android.webkit.ConsoleMessage cm) {
@@ -381,8 +363,9 @@ public class MainActivity extends Activity {
                     }
                     // 网页主题上报：原生跟着 DSH 自己的主题走，
                     // 而不是跟 Android 系统深色（两者相互独立）
-                    if (m.indexOf("[dsh-theme] dark=") >= 0) {
-                        onWebTheme(m.indexOf("dark=1") >= 0);
+                    if (m.equals(ThemeSync.MARKER + "0") || m.equals(ThemeSync.MARKER + "1")) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort()))
+                            onWebTheme(m.endsWith("1"));
                         return true;
                     }
                     // WebSocket 生命周期由最早期只读包装器上报。它不包含 URL、
@@ -525,8 +508,9 @@ public class MainActivity extends Activity {
                 if (!splashHidden && WebUrl.isCoreUrl(url, savedDshPort())) {
                     armStartupTimeout();
                 }
-                if (webSettings != null) { webSettings.close(); webSettings = null; }
-                webSettingsRequests.clear();
+                if (settingsNavigation != null) settingsNavigation.close();
+        if (webSettings != null) { webSettings.close(); webSettings = null; }
+                if (settingsNavigation != null) settingsNavigation.documentChanged();
                 if (nativeVoice != null) nativeVoice.cancel();
                 try {
                     // 会话列表的首次请求通常发生在 onPageFinished 之前。
@@ -542,7 +526,6 @@ public class MainActivity extends Activity {
                     view.evaluateJavascript(SessionStatus.touchMenuFixScript(), null);
                 } catch (Throwable ignored) { }
             }
-
 
             /**
              * 拦截链接跳转：**外部链接交给系统浏览器，WebView 永远停在 DSH 页面上**。
@@ -867,58 +850,62 @@ public class MainActivity extends Activity {
         row.addView(button, lp);
     }
 
-    /** 启动互斥：防止并发 boot（例如启动还没走完，用户又点了「重试启动」）。 */
-    private final java.util.concurrent.atomic.AtomicBoolean booting =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final StartupCoordinator startupCoordinator = new StartupCoordinator(runtimeConfigLock,
+            new StartupCoordinator.Dispatcher() {
+                @Override public void post(Runnable work) { MainActivity.this.runOnUiThread(work); }
+            });
 
-    /**
-     * 后台跑一次启动流程。
-     *
-     * <p>三件事统一在这里做，避免每个调用点各写一遍（写两遍必然漏一处）：
-     * <ol>
-     *   <li><b>互斥</b>：同一时刻只允许一个 boot —— 并发 boot 会对同一批
-     *       运行包文件、端口、进程重复操作；</li>
-     *   <li><b>插件自愈</b>：带插件启动失败就写标记，下次不带插件；
-     *       最坏只是少一个插件，绝不会让 App 打不开；</li>
-     *   <li><b>失败出口</b>：抛异常、自检不通过、服务超时，用户看到的完全一样：
-     *       一句话原因 + 点开看日志 + 可重试。</li>
-     * </ol>
-     */
-    private void bootInBackground(final String what) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                if (!booting.compareAndSet(false, true)) {
-                    log("已有启动正在进行，忽略本次「" + what + "」");
-                    return;
+    private void postUi(Runnable work) { startupCoordinator.post(work); }
+
+    private void startWorker(final Runnable work, String name) {
+        Thread worker = new Thread(startupCoordinator.task(new Runnable() {
+            @Override public void run() {
+                try { work.run(); }
+                finally { activityWorkers.finished(Thread.currentThread()); }
+            }
+        }), name);
+        worker.setDaemon(true); activityWorkers.start(worker);
+    }
+
+    private void bootInBackground(String what) { beginStartup(what, null); }
+
+    /** Restart effects happen only after admission and environment exclusion. */
+    private void beginStartup(final String what, final String restartMessage) {
+        boolean accepted = startupCoordinator.start(new StartupCoordinator.Work() {
+            @Override public void run() throws Exception {
+                if (restartMessage != null) {
+                    if (!HarnessService.stopManagedProcessAndWait(5000L)) throw new IOException("原内核尚未退出，请稍后重试");
+                    startupCoordinator.checkpoint();
+                    if (nativeCoreApi != null) { nativeCoreApi.close(); nativeCoreApi = null; }
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove("dshPort").remove("dshToken").apply();
+                    postUi(new Runnable() { @Override public void run() {
+                        dshPageLoaded = false; splashHidden = false;
+                        launchStartedAt = android.os.SystemClock.elapsedRealtime();
+                        startupTiming = new StartupState.Timing(launchStartedAt);
+                        if (splashView != null) splashView.begin(restartMessage);
+                        startupState.navigate();
+                    }});
                 }
-                String reason = null;
-                boolean configLocked = false;
-                try {
-                    runtimeConfigLock.lockInterruptibly();
-                    configLocked = true;
-                    if (isFinishing() || isDestroyed()) return;
-                    reason = boot();
-                } catch (Throwable t) {
-                    log("错误: " + what + "失败: " + t);
-                    Log.e(TAG, "boot failed", t);
-                    reason = t.getClass().getSimpleName()
-                            + (t.getMessage() != null ? ": " + t.getMessage() : "");
+                String reason;
+                try { reason = boot(); }
+                catch (InterruptedException cancelled) { throw cancelled; }
+                catch (Exception error) {
                     if (usedPluginPatch && appRoot != null) {
-                        try {
-                            writeText(new File(appRoot, ".plugins-disabled"),
-                                    "上次带插件启动失败，已自动停用。\n"
-                                  + "删除本文件可重新尝试启用插件。\n");
-                            log("已自动停用插件覆盖层，下次启动将不带 --patch");
-                        } catch (Throwable ignored) { }
+                        writeText(new File(appRoot, ".plugins-disabled"), "上次带插件启动失败，已自动停用。\n");
+                        log("已停用失败的插件覆盖层，下次启动重新尝试");
                     }
-                } finally {
-                    if (configLocked) runtimeConfigLock.unlock();
-                    booting.set(false);
+                    throw error;
                 }
+                startupCoordinator.checkpoint();
                 if (reason != null) showBootFailure(reason);
             }
-        }).start();
+        }, new StartupCoordinator.Failure() {
+            @Override public void failed(Exception error) {
+                log("错误: " + what + "失败: " + error.getClass().getSimpleName());
+                showBootFailure(error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+            }
+        });
+        if (!accepted) log("已有启动正在进行，忽略本次「" + what + "」");
     }
 
     /** Every preparation failure, including early returns, exposes retry and logs immediately. */
@@ -1004,11 +991,10 @@ public class MainActivity extends Activity {
         final android.content.Intent shareIntent = pendingShareIntent;
         if (shareIntent != null) {
             pendingShareIntent = null;
-            runOnUiThread(new Runnable() {
+            postUi(new Runnable() {
                 @Override public void run() { handleShareIntent(shareIntent); }
             });
         }
-
 
         startHarnessService();
 
@@ -1029,6 +1015,8 @@ public class MainActivity extends Activity {
         }
         boolean interruptedFirstInstall = "fresh".equals(interruptedPayload);
         if (!interruptedFirstInstall && reusePreparedCore(root, dshDir, toolsDir, node)) return null;
+
+        startupCoordinator.checkpoint();
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
@@ -1094,18 +1082,15 @@ public class MainActivity extends Activity {
             }
         }
 
-
+        startupCoordinator.checkpoint();
         startupTiming.mark("runtime", android.os.SystemClock.elapsedRealtime());
-        // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
+        // Fixed-core adapters are part of the verified archive; only device paths remain.
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
-        if (!preparedRuntimeValid) {
-            int toolsRepaired = ToolEnvironment.repair(root);
-            log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
-            applyAndroidPatches(root, dshDir);
-        } else {
-            preparedCoreReused = true;
-            log("[启动] 本版运行环境已经准备完成，跳过重复补丁扫描");
-        }
+        RuntimePreparation.requirePort(root, dshDir);
+        recordPatch("预适配内核", true, "构建期完成 19 项固定内核适配；启动不改写源码");
+        int toolsRepaired = RuntimePreparation.prepareTools(root, payloadRevisionKey());
+        log("[启动] 设备工具环境准备 " + toolsRepaired + " 项，内核适配已在构建时完成");
+        dshDirRef = dshDir;
         startupTiming.mark("compat", android.os.SystemClock.elapsedRealtime());
         log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
@@ -1113,7 +1098,6 @@ public class MainActivity extends Activity {
         // 记录给插件管理用（安装时需要 node 与 npm 的路径）
 
         registerNetworkWatcher();
-
 
         toolsDirRef = toolsDir;
 
@@ -1123,7 +1107,7 @@ public class MainActivity extends Activity {
         // 每次启动都做一遍是「关掉再打开很慢」的一大来源。
         // 环境没变就没必要重测：用「运行包修订 + 资源版本 + 工作区」当指纹，
         // 三者都没变时直接跳过。真出问题时日志里仍能看到它是被跳过的。
-        String envKey = payloadRevisionKey() + "/" + appVersion() + "/"
+        String envKey = payloadRevisionKey() + "/" + components().identity + "/"
                 + (workspace != null ? workspace : root).getAbsolutePath();
         if (envKey.equals(lastPreflightKey())) {
             log("运行环境自检已通过过（环境未变），跳过以加快启动");
@@ -1191,82 +1175,12 @@ public class MainActivity extends Activity {
         dshCmd.add("--profile"); dshCmd.add("web");
         dshCmd.add("--no-open");
         dshCmd.add("--port"); dshCmd.add(String.valueOf(chosenPort));
-        ProcessBuilder pb = new ProcessBuilder(dshCmd);
-        pb.redirectErrorStream(true);
-        pb.directory(workspace != null ? workspace : root);
-
-        String libPath = new File(root, "lib").getAbsolutePath()
-                + ":" + new File(toolsDir, "lib").getAbsolutePath();
-        String binPath = ToolEnvironment.path(root);
-        // 注意：这里**故意不设 NODE_PATH**。
-        // DSH 从 <dshDir>/lib/bin.js 启动，Node 会沿目录向上自然找到
-        // <dshDir>/node_modules，无需 NODE_PATH。
-        // 而 NODE_PATH 是 Node 的遗留回退机制，会让同一个包经由不同路径
-        // 被加载成**多个模块实例** —— DSH 的错误分类依赖 `instanceof`，
-        // 实例不一致会导致「本是图片相关的错误」被兜底包装成
-        // "prompt rejected (session/agent-busy)"，真实原因就此丢失。
-        // （preflight 脚本位于 <root>/，那是另一个进程，仍需要 NODE_PATH。）
-
-        pb.environment().put("LD_LIBRARY_PATH", libPath);
-        pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
-        pb.environment().put("PATH", binPath);
-        pb.environment().put("HOME", root.getAbsolutePath());
-        pb.environment().put("DSH_HOME", new File(root, ".dsh").getAbsolutePath());
-        pb.environment().put("DSH_NATIVE_APP_ROOT", root.getAbsolutePath());
-        // V8 validates cache contents against the actual module source and Node version.
-        // This is disposable private code cache, never a replacement for payload validation.
-        pb.environment().put("NODE_COMPILE_CACHE", new File(getCacheDir(), "dsh-core-compile").getAbsolutePath());
-        pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
-        pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
-        pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
-        // 用 dumb 而非 xterm-256color：避免 dsh 输出 ANSI 颜色转义。
-        // 之前正是这些转义混进了 URL（\u001b[36m...\u001b[0m），
-        // 导致 WebView 加载了非法地址 → 下半屏一直空白。
-        pb.environment().put("TERM", "dumb");
-        // git 把系统配置硬编码为 /data/data/com.termux/files/usr/etc/gitconfig，
-        // 我们读不到该路径，禁用系统级配置以免产生警告；同时指定自带的 helper 目录。
-        pb.environment().put("GIT_CONFIG_NOSYSTEM", "1");
-        // git 的辅助程序（git-remote-https 等）在 libexec/git-core，
-        // 二进制里硬编码的是 Termux 路径，必须显式指定，否则 clone/push 失败。
-        File gitCore = new File(toolsDir, "libexec/git-core");
-        if (gitCore.isDirectory()) {
-            pb.environment().put("GIT_EXEC_PATH", gitCore.getAbsolutePath());
-        }
-        File gitTpl = new File(toolsDir, "share/git-core/templates");
-        if (gitTpl.isDirectory()) {
-            pb.environment().put("GIT_TEMPLATE_DIR", gitTpl.getAbsolutePath());
-        }
-        // Python 的安装前缀同样被硬编码为 Termux 路径；
-        // 指到我们自己的目录，sys.prefix 才正确、pip 才会装到这里。
-        // 证书包路径同样被硬编码成 Termux 路径（如 curl 的 cert.pem），
-        // App 里读不到会导致 HTTPS 全部失败。改为指向 APK 内置的根证书包。
-        // git 也走同一份（此前 curl/git clone 会报 error adding trust anchors）。
-        File caBundle = new File(root, "ca-certificates.crt");
-        if (caBundle.exists()) {
-            String ca = caBundle.getAbsolutePath();
-            pb.environment().put("CURL_CA_BUNDLE", ca);
-            pb.environment().put("SSL_CERT_FILE", ca);
-            pb.environment().put("GIT_SSL_CAINFO", ca);
-            pb.environment().put("REQUESTS_CA_BUNDLE", ca);   // 供 python-requests 类工具
-        }
-        // $SHELL 若不设置会继承到不存在的 Termux 路径（agent 已实测踩到），
-        // 显式指向自带 bash，依赖 $SHELL 的工具才不会误判。
-        File bash = new File(toolsDir, "bin/bash");
-        if (bash.exists()) {
-            pb.environment().put("SHELL", bash.getAbsolutePath());
-        }
-        // npm 的前缀同样被硬编码成 Termux 路径；指到自带目录，
-        // 这样 npm install -g 才会装进我们自己的可写目录。
-        pb.environment().put("PREFIX", toolsDir.getAbsolutePath());
-        pb.environment().put("npm_config_prefix", toolsDir.getAbsolutePath());
-        pb.environment().put("npm_config_cache", new File(root, ".npm-cache").getAbsolutePath());
-        pb.environment().put("npm_config_update_notifier", "false");
-        pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
-        pb.environment().put("PYTHONNOUSERSITE", "1");
+        ProcessBuilder pb = RuntimeLauncher.builder(dshCmd, root, toolsDir, workspace, getCacheDir());
 
         File legacySettings = new File(new File(root, ".dsh"), "settings.yaml");
         boolean needsLegacyImport = legacySettings.isFile();
         String expectedModelSettings = needsLegacyImport ? ProjectModelSettings.readFile(legacySettings) : "";
+        startupCoordinator.checkpoint();
         Process started = pb.start();
         HarnessService.adoptProcess(started);
         startupTiming.mark("process", android.os.SystemClock.elapsedRealtime());
@@ -1312,8 +1226,8 @@ public class MainActivity extends Activity {
     private boolean preparedCoreReused;
     private boolean preparedRuntimeValid;
 
-    private String preparedRuntimeKey(File root) {
-        StringBuilder key = new StringBuilder(StartupReuse.key(appVersion(), payloadRevisionKey(),
+    private String preparedRuntimeKey(File root) throws IOException {
+        StringBuilder key = new StringBuilder(StartupReuse.key(components().identity, payloadRevisionKey(),
                 (workspace != null ? workspace : root).getAbsolutePath()));
         // Preserve the existing import behavior when an external credentials file changes.
         for (String path : new String[]{"/sdcard/DSHNative/credentials.yaml", "/sdcard/DSHNative/.credentials.yaml",
@@ -1325,16 +1239,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean runtimeAssetsPresent(File root) throws IOException {
-        List<String> entries = new ArrayList<String>(); collect("payload", entries);
-        if (entries.isEmpty()) return false;
-        for (String entry : entries) {
-            File file = new File(root, entry.substring("payload/".length()));
-            if (!file.isFile() || file.length() <= 0L) return false;
-        }
-        for (String name : new String[]{"node", "npm", "npx", "dsh-android"}) {
-            if (!new File(root, ".native-bin/" + name).isFile()) return false;
-        }
-        return new File(root, "tmp").isDirectory();
+        return components().ready(root) && RuntimePreparation.toolsPresent(root);
     }
 
     /** Upgrade an owned idle core before touching its runtime; active work keeps its old UI. */
@@ -1363,14 +1268,13 @@ public class MainActivity extends Activity {
     private boolean reusePreparedCore(File root, File dshDir, File toolsDir, File node) {
         try {
             android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-            if (!new File(root, ".assets-version").isFile()) return false;
-            String assets = readText(new File(root, ".assets-version")).trim();
+            String assets = components().ready(root) ? components().identity : "";
             if (!StartupReuse.eligible(preparedRuntimeKey(root), prefs.getString("corePreparedKey", ""),
-                    appVersion(), assets, payloadLocallyComplete(dshDir, toolsDir),
+                    components().identity, assets, payloadLocallyComplete(dshDir, toolsDir),
                     payloadUpdatePending(), payloadRollbackHold()
                             || validatePayloadManifest(new File(root, "manifest.json")) == null)
                     || !runtimeAssetsPresent(root) || !appVersion().equals(prefs.getString("coreAppVersion", ""))
-                    || !(payloadRevisionKey() + "/" + appVersion() + "/"
+                    || !(payloadRevisionKey() + "/" + components().identity + "/"
                             + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
             preparedRuntimeValid = true;
             int live = liveDshPort();
@@ -1403,7 +1307,7 @@ public class MainActivity extends Activity {
                             if (preparedCoreReused) {
                                 runtimeConfigLock.lockInterruptibly(); locked = true;
                                 if (isFinishing() || isDestroyed()) return;
-                                int repaired = ToolEnvironment.repair(root);
+                                int repaired = RuntimePreparation.prepareTools(root, payloadRevisionKey());
                                 log("后台工具环境复核完成，修复 " + repaired + " 项");
                             }
                         } catch (Exception error) {
@@ -1428,7 +1332,7 @@ public class MainActivity extends Activity {
         rememberDsh(url);
         final String target = url;
         statusPageLoading = false;
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 WebView view = webView;
                 if (view == null || isFinishing() || isDestroyed()) return;
@@ -1439,8 +1343,7 @@ public class MainActivity extends Activity {
                 dshPageLoaded = false;
                 // 清除上一页双指缩放留下的页面比例。index.html 不再锁死
                 // initial-scale，0 会让 overview 模式按当前屏宽做 fit-to-width。
-                view.setInitialScale(0);
-                view.loadUrl(target);
+                browserSession.navigate(target);
             }
         });
     }
@@ -1607,6 +1510,7 @@ public class MainActivity extends Activity {
             msg.setText(message == null ? "" : message);
             msg.setTextSize(12.5f);
             msg.setTextColor(DshUi.TEXT());
+            NativeTheme.text(msg, NativeTheme.Role.TEXT);
             msg.setTextIsSelectable(true);
             android.widget.ScrollView sc = new android.widget.ScrollView(this);
             sc.addView(msg, new android.widget.FrameLayout.LayoutParams(
@@ -2013,7 +1917,7 @@ public class MainActivity extends Activity {
     private static final int[] ZOOM_STEPS = {100, 115, 130, 150};
     private static final String PREFS = "dsh-native";
     /** 当前已应用的 viewport 宽度（0 = 尚未应用）。 */
-    private volatile int appliedViewportWidth = 0;
+
     /** 工具链目录与 node 可执行文件（插件安装需要）。 */
     private volatile File toolsDirRef;
     private volatile File nodeRef;
@@ -2527,7 +2431,7 @@ public class MainActivity extends Activity {
             }
         }, "payload-check");
         t.setDaemon(true);
-        t.start();
+        activityWorkers.start(t);
     }
 
     /** 统计运行目录大小，不跟随符号链接；溢出时饱和到 Long.MAX_VALUE。 */
@@ -2775,7 +2679,7 @@ public class MainActivity extends Activity {
                     @Override public void run() {
                         try {
                             if (sharedLog != null && sharedLog.exists()) {
-                                writeText(sharedLog, "=== DSH Native 启动日志 ===\n");
+                                appLog.clear();
                             }
                         } catch (Throwable t) {
                             log("清空日志失败: " + t);
@@ -2800,7 +2704,7 @@ public class MainActivity extends Activity {
 
     /** 创建可重复使用的原生恢复卡片；卡片以外的 WebView 仍可继续操作。 */
     private void showSessionRecoveryBanner() {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 try {
                     if (rootView == null) return;
@@ -2879,7 +2783,7 @@ public class MainActivity extends Activity {
 
     /** 从根布局移除恢复提示，调用方不需要判断当前是否已显示。 */
     private void dismissRecoveryBanner() {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() { dismissRecoveryBannerNow(); }
         });
     }
@@ -2902,7 +2806,7 @@ public class MainActivity extends Activity {
      * 不包含 settings.yaml、凭据、会话正文、附件或项目文件。
      */
     private void exportDiagnostics() {
-        new Thread(new Runnable() {
+        startWorker(new Runnable() {
             @Override public void run() {
                 try {
                     java.util.List<File> dirs = new java.util.ArrayList<File>();
@@ -3024,7 +2928,7 @@ public class MainActivity extends Activity {
                     TransferState.atomicReplace(staged, out);
                     final File exported = out;
                     log("诊断包已导出: " + exported.getAbsolutePath());
-                    runOnUiThread(new Runnable() {
+                    postUi(new Runnable() {
                         @Override public void run() {
                             shareDiagnosticBundle(exported);
                         }
@@ -3034,7 +2938,7 @@ public class MainActivity extends Activity {
                     toast("导出诊断失败，请打开运行日志后复制");
                 }
             }
-        }, "dsh-diagnostics").start();
+        }, "dsh-diagnostics");
     }
 
     private static void writeDiagnosticEntry(java.util.zip.ZipOutputStream zip,
@@ -3449,7 +3353,6 @@ public class MainActivity extends Activity {
         }
     }
 
-
     /** 上一次推送给通知的状态（用于抑制重复推送）。 */
     private volatile int pushedState = -2;
     /** 是否已经推送过一次网络状态。 */
@@ -3647,28 +3550,7 @@ public class MainActivity extends Activity {
           + "  }catch(x){}"
           + "},true);"
           + "})();"
-          // 网页主题上报。
-          //
-          // DSH 的主题是它**自己的设置**（ui-theme.preference = light/dark/system），
-          // 与 Android 系统深色相互独立。原生若只跟系统，就会出现
-          // 「网页黑、原生白卡片」的同屏割裂（用户实测反馈过）。
-          // 属性名取自 DSH 前端：body[data-ds-dark-theme]。
-          + ";(function(){"
-          + "if(window.__dshTheme)return;window.__dshTheme=1;"
-          + "var last='';"
-          + "function report(){"
-          + "  try{"
-          + "    var d=document.body&&document.body.hasAttribute('data-ds-dark-theme');"
-          + "    var v=d?'1':'0';"
-          + "    if(v!==last){last=v;console.log('[dsh-theme] dark='+v);}"
-          + "  }catch(e){}"
-          + "}"
-          + "report();"
-          + "try{new MutationObserver(report).observe(document.documentElement,"
-          + "  {attributes:true,subtree:true,attributeFilter:['data-ds-dark-theme']});}"
-          + "catch(e){}"
-          + "setInterval(report,3000);"
-          + "})();"
+          + ViewportState.script(viewportWidthFor(getResources().getConfiguration())) + ThemeSync.script()
           // 客户端异常捕获：这是我此前一直缺的一块。
           // fetch 包装只能看到「已发出的请求」，而纯客户端抛错（例如
           // 文件 MIME 不在允许列表里而抛 UnsupportedImageMediaTypeError）
@@ -3705,166 +3587,6 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             log("警告: 注入会话恢复监听失败: " + t);
         }
-    }
-
-    /**
-     * Android 补丁：附件落盘时的「目录持久化」会向上遍历到文件系统根。
-     *
-     * <p><b>这是 DSH 自身的一个平台假设问题</b>：
-     * {@code ensureDurableHome()} 以 {@code parse(home).root}（即 {@code "/"}）
-     * 作为遍历边界，{@code ensureDurableDirectory()} 便逐级打开父目录做 fsync。
-     *
-     * <p>在桌面/容器里这没问题；但在 Android 上，App 只能访问
-     * {@code /data/user/0/<包名>} 子树 —— 遍历到 {@code /data/user/0} 就 EACCES。
-     * 由于该异常不是 AttachmentError，最终被上层兜底包装成
-     * {@code prompt rejected (session/agent-busy)}，把真实原因完全掩盖。
-     *
-     * <p>（实测：我的环境以 root 运行、家目录在 {@code /root/.dsh}，向上遍历
-     * 全部可访问，因此图片一直正常 —— 差异就在这里。）
-     *
-     * <p><b>修法</b>：把 {@code syncDirectory} 包一层，EACCES/EPERM 视为
-     * 「该层无需持久化」直接跳过。这些目录本就不属于本应用，
-     * 无法也不应去 fsync 它们。
-     */
-    private void patchAttachmentDurability(File dshDir) {
-        try {
-            File f = new File(dshDir,
-                    "node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js");
-            if (!f.exists()) {
-                log("  （未找到附件模块，跳过持久化补丁）");
-                return;
-            }
-            final String PATCH_TAG = "/* DSH-ANDROID-ATTACH-PATCH-v3 */";
-            File orig = new File(f.getParentFile(), "index.js.dshorig");
-
-            // 补丁会写回文件，而运行包不变时不会重新解压 ——
-            // 因此不能靠「文件里是否已有补丁」判断幂等：那样补丁升级永远进不去
-            // （实测：v0.16.2 的新补丁因 v0.16.0 已改过文件而被整体跳过）。
-            // 方案：保留一份**剥离过补丁的原文件**，之后每次都从它重新生成。
-            String cur = readText(f);
-            if (cur.contains(PATCH_TAG)) {
-                recordPatch("附件落盘", true, "已是最新");
-                log("  附件补丁已是最新（v3）");
-                return;
-            }
-
-            // payload 更新后，旧版本留下的 .dshorig 不能继续作为新版本的基线。
-            // 只要当前文件没有本次补丁标记，就先从当前文件剥出干净源码并覆盖备份；
-            // 否则新内核会被旧内核的备份重新生成，表现为升级后功能仍停在旧版。
-            String base = stripAndroidPatch(cur);
-            if (base.indexOf("await syncDirectory(") < 0) {
-                recordPatch("附件落盘", false, "DSH 代码已变化，补丁未应用（图片可能失效）");
-                log("  [警告] 附件模块中未找到预期调用，跳过补丁（可能 DSH 版本变化）");
-                return;
-            }
-            writeText(orig, base);
-            log("  已保存当前 DSH 版本的附件原文件（供补丁重新生成）");
-
-            String out = buildPatchedAttachment(readText(orig), PATCH_TAG);
-            if (out == null) {
-                recordPatch("附件落盘", false, "自检未通过，已放弃");
-                log("  [警告] 附件补丁自检未通过，放弃应用");
-                return;
-            }
-            writeText(f, out);
-            recordPatch("附件落盘", true, "越界 fsync 跳过 + 硬链接退化复制");
-            log("  已应用附件补丁 v3（越界 fsync 跳过 + 硬链接退化复制 + 失败原因可见）");
-        } catch (Throwable t) {
-            log("  [警告] 附件持久化补丁失败: " + t);
-        }
-    }
-
-    /**
-     * 剥离此前版本打过的附件补丁，还原出干净的模块源码。
-     *
-     * <p>设备上可能残留旧版补丁（补丁是写回文件的），必须先还原，
-     * 否则在新补丁上再包一层会造成重复包装甚至自我递归。
-     */
-    private static String stripAndroidPatch(String src) {
-        // 按**位置**裁剪，不按注释内容匹配 ——
-        // 旧版补丁的注释是两行、措辞还各不相同，按内容过滤会漏掉续行，
-        // 残留半截注释直接造成语法错误（实测踩过）。
-        // 补丁的包装函数总是前置在文件最前面，因此丢掉「最后一个包装函数
-        // 定义所在行之前」的全部内容即可。
-        String[] lines = src.split("\n", -1);
-        int cut = 0;
-        for (int i = 0; i < lines.length; i++) {
-            if (lines[i].contains("async function __android")) cut = i + 1;
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = cut; i < lines.length; i++) sb.append(lines[i]).append('\n');
-        String out = sb.toString();
-        out = out.replace("await __androidSyncDirectory(", "await syncDirectory(");
-        out = out.replace("await __androidLink(", "await link(");
-        return out;
-    }
-
-    /**
-     * 生成打过补丁的附件模块；自检不通过时返回 null。
-     *
-     * <p>三处加固：
-     * <ol>
-     *   <li><b>越界 fsync 吞错</b> —— DSH 的 {@code ensureDurableHome()} 以
-     *       {@code parse(home).root}（即 {@code "/"}）为遍历边界，会逐级打开父目录
-     *       做 fsync。Android 上 App 只能访问 {@code /data/user/0/<包名>} 子树，
-     *       走到 {@code /data/user/0} 即 EACCES。目录 fsync 属尽力而为，
-     *       失败不应中断附件写入，故吞掉所有错误并记日志。</li>
-     *   <li><b>硬链接退化为复制</b> —— 部分 Android 文件系统（FUSE/sdcardfs）不支持
-     *       {@code link()}，返回 EPERM/EXDEV/ENOSYS 等；此时改用读写复制。</li>
-     *   <li><b>失败原因可见</b> —— 原本 persist 失败只抛一句笼统消息，
-     *       真实 error.code 藏在 cause 字段里、界面看不到。</li>
-     * </ol>
-     */
-    private static String buildPatchedAttachment(String src, String tag) {
-        if (src == null || src.indexOf("await syncDirectory(") < 0) return null;
-        // 必须先替换调用点、再前置包装函数 —— 反过来会把包装函数自身的调用
-        // 也替换掉，造成自我递归（实测 RangeError: Maximum call stack size exceeded）。
-        String out = src.replace("await syncDirectory(", "await __androidSyncDirectory(");
-        // DSH 的构建格式在版本间会切换是否保留分号；两种写法都要覆盖，
-        // 否则内核升级后目录持久化补丁会生效，但附件硬链接回退会静默失效。
-        out = out.replace("await link(staged.path, target);", "await __androidLink(staged.path, target);");
-        out = out.replace("await link(staged.path, target)", "await __androidLink(staged.path, target)");
-        out = out.replace("await link(source, target);", "await __androidLink(source, target);");
-        out = out.replace("await link(source, target)", "await __androidLink(source, target)");
-
-        String marker = "throw new AttachmentError(\"Unable to persist attachment.\", "
-                + "\"ATTACHMENT_WRITE_FAILED\", { cause: error });";
-        String singleMarker = "throw new AttachmentError('Unable to persist attachment.', "
-                + "'ATTACHMENT_WRITE_FAILED', { cause: error })";
-        String detail = "console.error('[dsh-attach] persist failed: ' + String(error && error.code)"
-              + " + ' ' + String(error && error.message)"
-              + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
-              + " + String(error.cause.message)) : ''));\n\t\t\t"
-              + "throw new AttachmentError('Unable to persist attachment. ['"
-              + " + String(error && error.code) + '] ' + String(error && error.message)"
-              + " + (error && error.cause ? (' <= ' + String(error.cause.code) + ' '"
-              + " + String(error.cause.message)) : ''), 'ATTACHMENT_WRITE_FAILED', { cause: error })";
-        if (out.contains(marker)) {
-            out = out.replace(marker, detail + ";");
-        } else if (out.contains(singleMarker)) {
-            out = out.replace(singleMarker, detail);
-        }
-
-        String helper = tag + "\n"
-              + "async function __androidSyncDirectory(p){try{return await syncDirectory(p);}"
-              + "catch(e){console.error('[dsh-attach] syncDirectory skipped ' + p + ': '"
-              + " + String(e && e.code));}}\n"
-              + "async function __androidLink(from,to){try{return await link(from,to);}"
-              + "catch(e){var c=e&&e.code;"
-              + "if(c==='EPERM'||c==='EXDEV'||c==='ENOSYS'||c==='EACCES'||c==='EMLINK'"
-              + "||c==='EOPNOTSUPP'){"
-              + "console.error('[dsh-attach] link unsupported (' + c + '), copy instead');"
-              + "const b=await readFile(from);const fs=await import('node:fs/promises');"
-              + "await fs.writeFile(to,b,{mode:384});return;}"
-              + "throw e;}}\n";
-        out = helper + out;
-
-        // 自检：包装函数体内必须仍是原始调用，否则会自我递归
-        if (out.indexOf("__androidSyncDirectory(p){try{return await syncDirectory(p);}") < 0
-                || out.indexOf("__androidLink(from,to){try{return await link(from,to);}") < 0) {
-            return null;
-        }
-        return out;
     }
 
     // ---------------------------------------------------------------- 可选插件
@@ -4048,7 +3770,6 @@ public class MainActivity extends Activity {
                 .putStringSet("pluginPermissionGrants", grants).apply();
     }
 
-
     // ---------------------------------------------------------------- 应用内更新
     /** 当前 APK 版本名。 */
     private String appVersion() {
@@ -4197,7 +3918,7 @@ public class MainActivity extends Activity {
             return;
         }
         setMaintenanceBusy(button, "检查 App 更新并安装", "正在检查…", true);
-        new Thread(new Runnable() {
+        startWorker(new Runnable() {
             @Override public void run() {
                 boolean success = false;
                 String outcome = "检查失败";
@@ -4300,12 +4021,12 @@ public class MainActivity extends Activity {
                             outcome, success);
                 }
             }
-        }).start();
+        }, "dsh-operation");
     }
 
     private void setStatus(final android.widget.TextView tv, final String text) {
         if (tv == null) return;
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() { tv.setText(text); }
         });
     }
@@ -4314,7 +4035,7 @@ public class MainActivity extends Activity {
                                     final String idle, final String busy,
                                     final boolean on) {
         if (button == null) return;
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 DshUi.setBusy(button, idle, busy, on);
             }
@@ -4325,7 +4046,7 @@ public class MainActivity extends Activity {
                                       final String idle, final String outcome,
                                       final boolean success) {
         if (button == null) return;
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 DshUi.finishBusy(button, idle, outcome, success);
             }
@@ -4464,7 +4185,7 @@ public class MainActivity extends Activity {
                 return;
             }
             log("自动检查更新：发现新版本 " + rel[0] + "（当前 " + appVersion() + "）");
-            runOnUiThread(new Runnable() {
+            postUi(new Runnable() {
                 @Override public void run() {
                     toast("有新版本 " + rel[0] + "，可在通知栏「设置」中更新");
                 }
@@ -4489,13 +4210,16 @@ public class MainActivity extends Activity {
                 "正在更新…", true);
         // 用户主动重试即解除回滚后的自动更新暂缓；失败时恢复流程会重新设回。
         setPayloadRollbackHold(false);
-        new Thread(new Runnable() {
+        startWorker(new Runnable() {
             @Override public void run() {
                 boolean success = false;
                 String outcome = "更新失败";
                 payloadLastError = "";
                 setStatus(status, "正在检查运行包…");
+                boolean environmentLocked = false;
                 try {
+                    runtimeConfigLock.lockInterruptibly(); environmentLocked = true;
+                    if (activityDisposing) throw new InterruptedException("Activity closed");
                     File root = appRoot;
                     File node = new File(root, "node");
                     boolean upToDate = ensurePayload(node, root,
@@ -4516,12 +4240,13 @@ public class MainActivity extends Activity {
                     payloadLastError = shorten(t);
                     setStatus(status, "运行包更新失败，可再次点击重试：" + payloadLastError);
                 } finally {
+                    if (environmentLocked) runtimeConfigLock.unlock();
                     maintenanceGate.finish(OperationGate.PAYLOAD_UPDATE);
                     setMaintenanceResult(button, "更新运行包（DSH / 工具链）",
                             outcome, success);
                 }
             }
-        }).start();
+        }, "dsh-operation");
     }
 
     /** 用户确认后恢复最近一次更新前保存的运行环境。 */
@@ -4536,11 +4261,14 @@ public class MainActivity extends Activity {
             return;
         }
         setMaintenanceBusy(button, "恢复上一运行环境", "正在恢复…", true);
-        new Thread(new Runnable() {
+        startWorker(new Runnable() {
             @Override public void run() {
                 boolean success = false;
                 String outcome = "恢复失败";
+                boolean environmentLocked = false;
                 try {
+                    runtimeConfigLock.lockInterruptibly(); environmentLocked = true;
+                    if (activityDisposing) throw new InterruptedException("Activity closed");
                     File root = appRoot;
                     if (root == null) throw new IOException("运行目录尚未就绪");
                     setStatus(status, "正在验证并恢复上一运行环境…");
@@ -4555,12 +4283,13 @@ public class MainActivity extends Activity {
                     log("恢复上一运行环境失败: " + error);
                     setStatus(status, "恢复失败：" + payloadLastError);
                 } finally {
+                    if (environmentLocked) runtimeConfigLock.unlock();
                     maintenanceGate.finish(OperationGate.PAYLOAD_ROLLBACK);
                     setMaintenanceResult(button, "恢复上一运行环境",
                             outcome, success);
                 }
             }
-        }, "payload-rollback").start();
+        }, "payload-rollback");
     }
 
     // ---------------------------------------------------------------- 运行包
@@ -4575,7 +4304,7 @@ public class MainActivity extends Activity {
         final File cached = new File(root, "manifest.json");
         final File staged = new File(root, "manifest-"
                 + System.nanoTime() + ".next");
-        final DownloadControl control = new DownloadControl();
+        final ReleaseDownloader.Control control = new ReleaseDownloader.Control();
         final java.util.concurrent.atomic.AtomicReference<Throwable> error =
                 new java.util.concurrent.atomic.AtomicReference<Throwable>();
 
@@ -5106,9 +4835,8 @@ public class MainActivity extends Activity {
     /** Compact top-level hub; each category opens a focused page. */
     private String viewUrl() { return webView == null ? null : webView.getUrl(); }
 
-    private String nativeSettingsReturnPage;
     private WebSettingsHost webSettings;
-    private final java.util.LinkedHashSet<String> webSettingsRequests = new java.util.LinkedHashSet<String>();
+
 
     private WebSettingsHost webSettingsHost() {
         if (webSettings == null) webSettings = new WebSettingsHost(this, new WebSettingsHost.Launcher() {
@@ -5137,15 +4865,8 @@ public class MainActivity extends Activity {
                     else ExternalFileActions.launch(MainActivity.this,target,"edit",roots);
                 } else ExternalFileActions.launch(MainActivity.this,target,action,roots);
             }
-            @Override public void open(String page) {
-                if ("files".equals(page)) FileBrowser.showAt(MainActivity.this,appRoot,workspace,null);
-                else if ("tasks".equals(page)) showTaskCenter();
-                else if ("models".equals(page)) showAccountSettings();
-                else if ("display".equals(page)) showDisplaySettings();
-                else if ("updates".equals(page)) showUpdateSettings();
-                else if ("data".equals(page)) showDataSettings();
-                else if ("diagnostics".equals(page)) showDiagnosticsSettings();
-            }
+            @Override public void open(String page) { openDeviceSettings(page); }
+
         });
         return webSettings;
     }
@@ -5154,8 +4875,7 @@ public class MainActivity extends Activity {
         java.util.Map<?,?> command = WebSettingsProtocol.parse(message);
         if (command == null) return;
         String id = WebSettingsProtocol.text(command,"id");
-        if (!webSettingsRequests.add(id)) return;
-        while (webSettingsRequests.size() > 256) webSettingsRequests.remove(webSettingsRequests.iterator().next());
+        if (!settingsNavigation().accept(id)) return;
         org.json.JSONObject reply = new org.json.JSONObject();
         try {
             if (!inForeground || isFinishing() || isDestroyed()) throw new IllegalStateException("Foreground required");
@@ -5180,17 +4900,42 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showSettings() {
-        if (webSettings != null && webSettings.isEnabled()) { webSettings.reopenRoot(); return; }
-        final String page = nativeSettingsReturnPage == null ? "home" : nativeSettingsReturnPage;
-        nativeSettingsReturnPage = null;
-        if (webView != null && dshPageLoaded && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) {
-            webView.evaluateJavascript(AppSettingsUi.openScript(page), new android.webkit.ValueCallback<String>() {
-                @Override public void onReceiveValue(String ready) {
-                    if (!"true".equals(ready)) showFallbackSettings();
-                }
-            });
-        } else showFallbackSettings();
+    private void showSettings() { settingsNavigation().open(); }
+
+    private SettingsNavigation settingsNavigation;
+    private SettingsNavigation settingsNavigation() {
+        if (settingsNavigation == null) settingsNavigation = new SettingsNavigation(new SettingsNavigation.Host() {
+            @Override public long document() { return startupState.generation(); }
+            @Override public boolean ready() {
+                return !activityDisposing && webView != null && dshPageLoaded && WebUrl.isCoreUrl(viewUrl(), savedDshPort());
+            }
+            @Override public void web(String page, final SettingsNavigation.Result result) {
+                webView.evaluateJavascript(AppSettingsUi.openScript(page), new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String ready) { result.complete("true".equals(ready)); }
+                });
+            }
+            @Override public void acknowledge(String id, final SettingsNavigation.Result result) {
+                webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-native-settings-ack',"
+                        + "{detail:{id:'" + id + "',accepted:true}}));", new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String ignored) { result.complete(true); }
+                });
+            }
+            @Override public void device(AppSettingsCommands command) {
+                applyUiLanguage(command.locale); openDeviceSettings(command.action);
+            }
+            @Override public void fallback() { showFallbackSettings(); }
+        });
+        return settingsNavigation;
+    }
+
+    private void openDeviceSettings(String page) {
+        if ("files".equals(page)) FileBrowser.showAt(this, appRoot, workspace, null);
+        else if ("tasks".equals(page)) showTaskCenter();
+        else if ("models".equals(page)) showAccountSettings();
+        else if ("display".equals(page)) showDisplaySettings();
+        else if ("updates".equals(page)) showUpdateSettings();
+        else if ("data".equals(page)) showDataSettings();
+        else if ("diagnostics".equals(page)) showDiagnosticsSettings();
     }
 
     private void publishAppSettingsState() {
@@ -5207,26 +4952,9 @@ public class MainActivity extends Activity {
         } catch (Throwable error) { log("App 设置状态同步失败: " + error.getClass().getSimpleName()); }
     }
 
-    private String lastNativeSettingsCommand;
 
-    private void openNativeSettingsCommand(final AppSettingsCommands command) {
-        if (command.id.equals(lastNativeSettingsCommand)) return;
-        lastNativeSettingsCommand = command.id;
-        nativeSettingsReturnPage = command.action;
-        applyUiLanguage(command.locale);
-        // Acknowledge before opening a device panel so the upstream modal releases its focus layer.
-        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('dsh-native-settings-ack',"
-                + "{detail:{id:'" + command.id + "',accepted:true}}));", new android.webkit.ValueCallback<String>() {
-            @Override public void onReceiveValue(String ignored) {
-                if (isFinishing() || isDestroyed()) return;
-                if ("tasks".equals(command.action)) showTaskCenter();
-                else if ("models".equals(command.action)) showAccountSettings();
-                else if ("display".equals(command.action)) showDisplaySettings();
-                else if ("updates".equals(command.action)) showUpdateSettings();
-                else if ("data".equals(command.action)) showDataSettings();
-                else if ("diagnostics".equals(command.action)) showDiagnosticsSettings();
-            }
-        });
+    private void openNativeSettingsCommand(AppSettingsCommands command) {
+        settingsNavigation().device(command);
     }
 
     private void showFallbackSettings() {
@@ -6237,16 +5965,6 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    /** 设置页里的「标签 + 输入框」组合。 */
-    private android.widget.EditText addField(android.widget.LinearLayout body,
-                                             String label, String value,
-                                             boolean secret) {
-        body.addView(DshUi.label(this, label), DshUi.fullWidth(this, 14));
-        android.widget.EditText et = DshUi.input(this, value, secret);
-        body.addView(et, DshUi.fullWidth(this, 6));
-        return et;
-    }
-
     private void restartAgent() {
         restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
     }
@@ -6281,23 +5999,7 @@ public class MainActivity extends Activity {
     }
 
     private void restartAgent(final String progressMessage) {
-        if (nativeCoreApi != null) { nativeCoreApi.close(); nativeCoreApi = null; }
-        HarnessService.stopManagedProcess();
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .remove("dshPort").remove("dshToken").apply();
-        dshPageLoaded = false;
-        splashHidden = false;
-        launchStartedAt = android.os.SystemClock.elapsedRealtime();
-        startupTiming = new StartupState.Timing(launchStartedAt);
-        runOnUiThread(new Runnable() {
-            @Override public void run() {
-                if (splashView != null) {
-                    splashView.begin(progressMessage);
-                }
-                startupState.navigate();
-            }
-        });
-        bootInBackground("重启");
+        beginStartup("重启", progressMessage);
     }
 
     /**
@@ -6310,151 +6012,59 @@ public class MainActivity extends Activity {
      * <p>缓存到 prefs：下次启动时先用上次观察到的主题，避免开屏与界面
      * 在页面加载完成前闪一下另一种配色。
      */
-    private void onWebTheme(final boolean dark) {
-        try {
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .putBoolean("webDark", dark).apply();
-        } catch (Throwable ignored) { }
-
-        // 去抖：页面重载时会**先报一次旧主题、再报新主题**。
-        // 每收到一次就重建，就会形成：
-        //   重载 → 报浅色 → 重建 → 重载 → 报深色 → 重建 → …（无限）
-        // 用户遇到的「深浅反复横跳、不停重启」就是这么来的。
-        //
-        // 注意：主题观察者**只在变化时上报**，所以不能用「连续两次相同」
-        // 来判断稳定 —— 那样永远不会触发。正确做法是**延时复核**：
-        // 记下这次的值与时刻，等一会儿再看它有没有被新的上报取代。
-        pendingWebDark = dark;
-        final long stamp = ++webDarkStamp;
-        pendingWebDarkAt = System.currentTimeMillis();
-        if (DshUi.isDark() == dark) return;   // 已经一致，不必安排
-
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override public void run() {
-                try {
-                    // 期间又变了 → 说明页面还在晃动，这次不处理
-                    if (stamp != webDarkStamp) return;
-                    if (pendingWebDark != dark) return;
-                    if (DshUi.isDark() == dark) return;
-                    if (isFinishing()) return;
-                    log("网页主题稳定为：" + (dark ? "深色" : "浅色") + " → 重建界面");
-                    DshUi.setDark(dark);
-                    if (shouldAllowRecreate()) recreate();
-                } catch (Throwable t) {
-                    log("主题切换重建失败: " + t);
+    private ThemeController themeController;
+    private ThemeController themeController() {
+        if (themeController == null) {
+            final android.os.Handler dispatcher = new android.os.Handler(android.os.Looper.getMainLooper());
+            themeController = new ThemeController(new ThemeController.Host() {
+                @Override public boolean current(Object page, long generation) {
+                    return !activityDisposing && !isFinishing() && !isDestroyed()
+                            && page == webView && generation == startupState.generation();
                 }
-            }
-        }, 1200);
-    }
-
-    /** 最近上报的网页主题（延时复核用）。 */
-    /** 上报序号：新上报会让旧的延时任务失效。 */
-    private long webDarkStamp;
-    /** 最近一次上报的时刻。 */
-    private long pendingWebDarkAt;
-
-
-    /** 最近上报的网页主题（去抖用）。 */
-    private boolean pendingWebDark;
-    /** 同一主题连续上报了几次。 */
-    private int webDarkStableCount;
-
-
-    /**
-     * 重建节流 + 死循环自救。
-     *
-     * <p>主题切换需要重建界面，而重建本身又会带来配置变化 ——
-     * 只要两者对「应该是什么主题」的判断不一致，就会无限循环。
-     * 用户实际遇到过：界面在深浅之间反复横跳、应用不停重启，
-     * 而且**重装无效**（触发它的设置存在应用数据里，不随安装包改变）。
-     *
-     * <p>这里做两件事：
-     * <ol>
-     *   <li>短时间内重建太多次 → <b>拒绝重建</b>，先让界面停下来；</li>
-     *   <li>启动本身也太频繁（说明重启循环已经形成）→
-     *       <b>清掉主题偏好</b>，回到跟随系统 —— 给用户一条自救路径。</li>
-     * </ol>
-     */
-    private boolean shouldAllowRecreate() {
-        long now = System.currentTimeMillis();
-        try {
-            android.content.SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-            // 用「上一个重建时刻 + 这一窗口内的次数」记在 prefs 里 ——
-            // 实例字段每次重建都会被重置，起不到限流作用（踩过）。
-            long windowStart = p.getLong("recreateWindowStart", 0L);
-            int count = p.getInt("recreateCount", 0);
-            if (now - windowStart > 30000L) {
-                windowStart = now;
-                count = 0;
-            }
-            count++;
-            p.edit().putLong("recreateWindowStart", windowStart)
-                    .putInt("recreateCount", count).apply();
-
-            if (count <= 4) return true;
-            log("30 秒内已重建 " + count + " 次，停止重建以避免死循环");
-            // 不再清除 webDark —— 之前那样做反而让循环继续：
-            // 清掉后 onCreate 改用系统主题，页面仍会报它自己的主题，
-            // 两者不一致 → 继续重建。
-            return false;
-        } catch (Throwable t) {
-            return true;
+                @Override public boolean dark() { return DshUi.isDark(); }
+                @Override public void remember(boolean dark) {
+                    android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                    if (!prefs.contains("webDark") || prefs.getBoolean("webDark", !dark) != dark)
+                        prefs.edit().putBoolean("webDark", dark).apply();
+                }
+                @Override public void apply(boolean dark) { applyNativeTheme(dark); }
+                @Override public void failed(RuntimeException error) { log("主题同步失败: " + error.getClass().getSimpleName()); }
+            }, new ThemeController.Dispatcher() {
+                @Override public void post(Runnable work, long delayMs) { dispatcher.postDelayed(work, delayMs); }
+                @Override public void cancel(Runnable work) { dispatcher.removeCallbacks(work); }
+            });
         }
+        return themeController;
     }
 
+    private void onWebTheme(final boolean dark) {
+        themeController().rendered(webView, startupState.generation(), dark);
+    }
+
+    private void applyNativeTheme(boolean dark) {
+        if (activityDisposing || isFinishing() || isDestroyed() || DshUi.isDark() == dark) return;
+        int[] previous = DshUi.palette();
+        DshUi.setDark(dark);
+        NativeTheme.apply(this, previous, DshUi.palette());
+        if (rootView != null) rootView.setBackgroundColor(DshUi.BG());
+        if (webView != null) webView.setBackgroundColor(DshUi.BG());
+        if (logView != null) logView.setTextColor(DshUi.TEXT_2());
+        if (splashView != null) splashView.applyTheme();
+        if (topProgress != null && topProgress.getProgressDrawable() != null)
+            topProgress.getProgressDrawable().setColorFilter(DshUi.ACCENT(), android.graphics.PorterDuff.Mode.SRC_IN);
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(DshUi.BG()));
+        applySystemBars();
+        log("主题已原位更新：" + (dark ? "深色" : "浅色"));
+    }
 
     /** 轻提示。 */
     private void toast(final String msg) {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 if (!WebSettingsHost.toast(MainActivity.this, msg))
                     android.widget.Toast.makeText(MainActivity.this, msg, android.widget.Toast.LENGTH_SHORT).show();
             }
         });
-    }
-
-    /** 从凭据文件 refs: 段读取某个键。 */
-    private String readRef(File f, String key) {
-        try {
-            if (!f.exists()) return "";
-            boolean inRefs = false;
-            for (String ln : readText(f).split("\n", -1)) {
-                if (ln.matches("^refs\\s*:.*")) { inRefs = true; continue; }
-                if (inRefs) {
-                    if (ln.length() > 0 && !Character.isWhitespace(ln.charAt(0))) break;
-                    String t = ln.trim();
-                    if (t.startsWith(key + ":")) return t.substring(key.length() + 1).trim();
-                }
-            }
-        } catch (Throwable ignored) { }
-        return "";
-    }
-
-    /** 写回两个 API Key（保留文件里其它内容）。 */
-    private void writeRefs(File f, String cc, String ds) throws IOException {
-        String txt = f.exists() ? readText(f) : "version: 1\n";
-        txt = replaceRefLine(txt, "CODEBUDDY_API_KEY", cc);
-        txt = replaceRefLine(txt, "DEEPSEEK_API_KEY", ds);
-        if (txt.indexOf("refs:") < 0) txt += "refs:\n";
-        writeText(f, txt);
-    }
-
-    private String replaceRefLine(String txt, String key, String val) {
-        if (val == null || val.length() == 0) {
-            // 清空该行（保留键名，值为空）
-            return txt.replaceAll("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:).*$", "$1 ");
-        }
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:).*$").matcher(txt);
-        if (m.find()) {
-            return m.replaceFirst("$1 " + java.util.regex.Matcher.quoteReplacement(val));
-        }
-        // 追加到 refs: 段
-        java.util.regex.Matcher r = java.util.regex.Pattern.compile("(?m)^refs\\s*:.*$").matcher(txt);
-        if (r.find()) {
-            return txt.substring(0, r.end()) + "\n  " + key + ": " + val + txt.substring(r.end());
-        }
-        return txt + "refs:\n  " + key + ": " + val + "\n";
     }
 
     /** 读取 YAML 里某个标量（取第一个匹配的 key: value）。 */
@@ -6467,17 +6077,6 @@ public class MainActivity extends Activity {
             if (m.find()) return m.group(1).replaceAll("^[\"']|[\"']$", "");
         } catch (Throwable ignored) { }
         return "";
-    }
-
-    /** 替换 YAML 里某个标量的值。 */
-    private void setScalar(File f, String key, String val) throws IOException {
-        String txt = f.exists() ? readText(f) : "";
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("(?m)^(\\s*" + java.util.regex.Pattern.quote(key) + "\\s*:)\\s*.*$").matcher(txt);
-        if (m.find()) {
-            txt = m.replaceFirst("$1 \"" + java.util.regex.Matcher.quoteReplacement(val) + "\"");
-        }
-        writeText(f, txt);
     }
 
     // ---------------------------------------------------------------- 系统栏
@@ -6728,7 +6327,7 @@ public class MainActivity extends Activity {
 
     /** Status changes never restart the motion or extend its current cycle. */
     private void setSplashStatus(final String text) {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 if (splashView != null && !splashHidden) splashView.status(text);
             }
@@ -6737,7 +6336,7 @@ public class MainActivity extends Activity {
 
     /** Error pages bypass motion so retry and logs are immediately usable. */
     private void hideSplash() {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 splashHidden = true;
                 cancelStartupTimeout();
@@ -6789,11 +6388,6 @@ public class MainActivity extends Activity {
         return new String(b, 0, off, "UTF-8");
     }
 
-    /** YAML 里是否已存在某顶层键。 */
-    private boolean hasTopLevelKey(String yaml, String key) {
-        return YamlBlocks.hasTopLevelKey(yaml, key);
-    }
-
     /**
      * 把预置 YAML 中「目标文件尚不存在的顶层块」追加进去。
      *
@@ -6834,59 +6428,7 @@ public class MainActivity extends Activity {
      * @return 可执行返回 true；否则打印诊断信息并返回 false
      */
     private boolean probeNodeExec(File node) {
-        log("自检: 检查 Node 可执行性 …");
-        if (!node.exists()) {
-            log("错误: 自检失败: node 文件不存在 → " + node.getAbsolutePath());
-            return false;
-        }
-        // 记录权限位，便于判断 chmod 是否真的生效
-        log("  node 权限: " + (node.canExecute() ? "可执行" : "警告: 无执行位")
-                + ", 大小 " + (node.length() / 1048576) + "MB");
-
-        ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(), "--version");
-        pb.redirectErrorStream(true);
-        pb.environment().put("LD_LIBRARY_PATH",
-                new File(node.getParentFile(), "lib").getAbsolutePath());
-        // Termux 的 libcrypto 把 OPENSSLDIR 硬编码为 /data/data/com.termux/files/usr/etc/tls，
-        // 我们的 App 读不到，必须用自带配置覆盖，否则 OpenSSL 初始化失败、node 退出码 13。
-        pb.environment().put("OPENSSL_CONF",
-                new File(node.getParentFile(), "openssl.cnf").getAbsolutePath());
-        Process p = null;
-        try {
-            p = pb.start();
-        } catch (IOException e) {
-            log("");
-            log("[错误] 自检失败：无法执行自带的 Node");
-            log("    原因: " + e.getClass().getSimpleName() + ": " + e.getMessage());
-            log("");
-            log("  这通常意味着 SELinux 拦截了对私有目录的 execve。");
-            log("  本 App 已设 targetSdk=28 以规避该限制，若仍被拦截，");
-            log("  说明此 ROM 的策略更严格，需要改用 nativeLibraryDir 方案。");
-            log("");
-            log("  请把以上内容完整反馈，这是判断架构是否成立的关键依据。");
-            return false;
-        }
-        try {
-            BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), "UTF-8"));
-            String line;
-            StringBuilder sb = new StringBuilder();
-            while ((line = r.readLine()) != null) {
-                if (sb.length() > 0) sb.append(" | ");
-                sb.append(line.trim());
-            }
-            int code = p.waitFor();
-            if (code != 0) {
-                log("错误: 自检失败: node --version 退出码 " + code + "，输出: " + sb);
-                return false;
-            }
-            log("  自检通过，node 版本: " + sb);
-
-            return true;
-        } catch (Exception e) {
-            log("错误: 自检异常: " + e);
-            return false;
-        }
+        return RuntimeChecks.node(node, runtimeLog());
     }
 
     /**
@@ -6921,113 +6463,6 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) { }
     }
 
-    /**
-     * 应用 Android 专项补丁。
-     *
-     * <p>目前只处理 sharp：它的预编译产物是 glibc 链接的，Android(bionic) 无法
-     * dlopen。但它并非无法解决 —— DSH 只用到很窄的一组 sharp API
-     * （metadata / rotate / resize / jpeg / webp / toBuffer），
-     * 因此这里替换为一个**可用实现**：JS 侧提供同样的 API，
-     * 实际图像处理交给运行包自带的 Python + Pillow（sharp-android.js + pillow_shim.py）。
-     *
-     * <p>这样图片附件在手机上也能正常工作，且无需编译任何原生模块。
-     */
-    private void applyAndroidPatches(File root, File dshDir) throws IOException {
-        patchFileCreation(root, dshDir);
-        patchVoiceUi(root, dshDir);
-        patchCoreUpgrade(dshDir);
-        patchConnectionUi(root, dshDir);
-        patchSessionPersistence(root, dshDir);
-        patchAccountUi(dshDir);
-        patchAppSettings(root, dshDir);
-        patchFrontendLayout(dshDir);
-        patchFrontendViewport(dshDir);
-        patchAttachmentDurability(dshDir);
-        patchModelEffortUi(dshDir);
-        try {
-            File shim = new File(root, "sharp-android.js");
-            File helper = new File(root, "pillow_shim.py");
-            File sharpDir = new File(dshDir, "node_modules/sharp");
-            if (!shim.exists() || !helper.exists() || !sharpDir.isDirectory()) {
-                log("  [警告] 图片处理组件缺失，跳过（文字功能不受影响）");
-                return;
-            }
-            // 两者必须放在同一目录：JS 侧用 __dirname 定位 pillow_shim.py
-            copyFile(shim, new File(sharpDir, "index.js"));
-            copyFile(helper, new File(sharpDir, "pillow_shim.py"));
-            writeText(new File(sharpDir, "package.json"),
-                    "{\"name\":\"sharp\",\"version\":\"0.0.0-android-pillow\","
-                    + "\"main\":\"index.js\","
-                    + "\"description\":\"Android implementation backed by Python/Pillow\"}");
-            log("  已启用图片附件（sharp 由 Python/Pillow 实现）");
-        } catch (Throwable t) {
-            log("  [警告] Android 补丁应用失败: " + t);
-        }
-    }
-
-    private void patchCoreUpgrade(File dshDir) throws IOException {
-        int cleaned = CoreUpgrade.pruneEmptyModules(dshDir);
-        if (cleaned > 0) log("  已清理增量更新遗留的空依赖目录：" + cleaned + " 个");
-        File buddy = new File(dshDir, "node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js");
-        String originalBuddy = readText(buddy), nextBuddy = CoreUpgrade.codeBuddy(originalBuddy);
-        if (nextBuddy == null) throw new IOException("CodeBuddy CLI 接入补丁无法应用，请检查运行包");
-        if (!nextBuddy.equals(originalBuddy)) writeText(buddy, nextBuddy);
-        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) {
-            // A failed/offline update or explicit rollback may still use v12.
-            recordPatch("内核升级兼容", true, "保留上一运行包的账号与插件接口");
-            return;
-        }
-        File account = new File(dshDir, "node_modules/@deepseek-ai/dsh-llm-deepseek-account/lib/index.js");
-        File inspector = new File(dshDir, "node_modules/@deepseek-ai/dsh-experimental-inspector/lib/index.js");
-        String originalAccount = readText(account), originalInspector = readText(inspector);
-        String nextAccount = CoreUpgrade.account(originalAccount);
-        String nextInspector = CoreUpgrade.inspector(originalInspector);
-        if (nextAccount == null || nextInspector == null) {
-            recordPatch("内核升级兼容", false, "上游结构变化，未修改模块");
-            throw new IOException("内核升级兼容补丁无法应用，请检查运行包");
-        }
-        if (!nextAccount.equals(originalAccount)) writeText(account, nextAccount);
-        if (!nextInspector.equals(originalInspector)) writeText(inspector, nextInspector);
-        recordPatch("内核升级兼容", true, "账号实时目录、调试子线程与增量依赖目录");
-    }
-
-    private void patchConnectionUi(File root, File dshDir) throws IOException {
-        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
-        String helper = readText(new File(root, "connection-ui.js"));
-        for (String name : new String[]{"client.browser.js", "client.node.js"}) {
-            File module = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-connection/lib/" + name);
-            String source = readText(module), next = ConnectionRecovery.patchClient(source, helper);
-            if (next == null) throw new IOException("本机连接恢复补丁无法应用，请检查运行包");
-            if (!source.equals(next)) writeText(module, next);
-        }
-        recordPatch("本机连接恢复", true, "本机通道不随外网提示暂停，前台恢复使用原连接服务");
-    }
-
-    private void patchVoiceUi(File root, File dshDir) throws IOException {
-        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
-        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-experimental-client-ui-voice-input/lib/client.js");
-        if (!module.isFile() && CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
-        String source = readText(module);
-        String patched = VoiceUi.patch(source, readText(new File(root, "android-voice-ui.js")));
-        if (patched == null) {
-            recordPatch("Android 语音输入", false, "语音插件结构变化，未修改模块");
-            throw new IOException("语音输入兼容补丁无法应用，请检查运行包");
-        }
-        if (!source.equals(patched)) writeText(module, patched);
-        recordPatch("Android 语音输入", true, "系统识别、草稿插入与权限处理");
-    }
-
-    private void patchFileCreation(File root, File dshDir) throws IOException {
-        if (CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
-        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-fs-local/lib/index.js");
-        if (!module.isFile() && CoreUpgrade.legacyRuntime(readText(new File(dshDir, "package.json")))) return;
-        String source = readText(module);
-        String next = FsWritePatch.patch(source, readText(new File(root, "session-publish.js")));
-        if (next == null) throw new IOException("新建文件兼容补丁无法应用，请检查运行包");
-        if (!source.equals(next)) writeText(module, next);
-        recordPatch("新建文件兼容", true, "硬链接不可用时使用排他复制，保留同名文件");
-    }
-
     private NativeVoiceController nativeVoice;
     private NativeVoiceController voiceController() {
         if (nativeVoice == null) nativeVoice = new NativeVoiceController(this, new NativeVoiceController.Host() {
@@ -7047,90 +6482,6 @@ public class MainActivity extends Activity {
         return nativeVoice;
     }
 
-    private void patchFrontendLayout(File dshDir) throws IOException {
-        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js");
-        String source = readText(module);
-        String patched = MobileLayout.patchLayoutModule(source);
-        if (patched == null) {
-            recordPatch("窄屏面板导航", false, "上游布局结构变化，未修改文件");
-            throw new IOException("移动布局兼容补丁无法应用，请检查运行包");
-        }
-        if (!source.equals(patched)) writeText(module, patched);
-        recordPatch("窄屏面板导航", true, "打开面板时收起侧栏，保留正文宽度");
-    }
-
-    private void patchModelEffortUi(File dshDir) {
-        try {
-            File client = new File(dshDir,
-                    "node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js");
-            String source = readText(client);
-            String patched = ModelEffortUi.patch(source);
-            if (patched == null) {
-                recordPatch("max 请求标记", false, "上游选择器结构变化，未修改文件");
-                log("  [警告] max 请求标记未应用：选择器结构变化");
-                return;
-            }
-            if (!source.equals(patched)) writeText(client, patched);
-            recordPatch("max 请求标记", true, "聊天框显示 Max（说明在悬浮提示里）");
-        } catch (Throwable error) {
-            recordPatch("max 请求标记", false, "文件读取或写入失败");
-            log("  [警告] max 请求标记补丁失败: " + error.getClass().getSimpleName());
-        }
-    }
-
-    private void patchSessionPersistence(File root, File dshDir) throws IOException {
-        File module = new File(dshDir, "node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js");
-        String source = readText(module);
-        String patched = SessionPersistencePatch.patch(source, readText(new File(root, "session-publish.js")));
-        if (patched == null) {
-            recordPatch("会话保存", false, "内核结构变化，未修改文件");
-            throw new IOException("会话保存兼容补丁无法应用，请检查运行包");
-        }
-        if (!source.equals(patched)) writeText(module, patched);
-        recordPatch("会话保存", true, "首次保存与迁移均保留拒绝覆盖的复制降级");
-    }
-
-    private void patchAccountUi(File dshDir) throws IOException {
-        File account = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js");
-        File settings = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js");
-        String oldAccount = readText(account), oldSettings = readText(settings);
-        String newAccount = AccountUi.patchAccount(oldAccount), newSettings = AccountUi.patchSettings(oldSettings);
-        if (newAccount == null || newSettings == null) {
-            recordPatch("DSH 账号设置", false, "上游组件结构变化，未修改文件");
-            throw new IOException("DSH 账号界面兼容补丁无法应用，请检查运行包");
-        }
-        if (!oldAccount.equals(newAccount)) writeText(account, newAccount);
-        if (!oldSettings.equals(newSettings)) writeText(settings, newSettings);
-        recordPatch("DSH 账号设置", true, "上游账号界面、余额与浏览器授权");
-    }
-
-    private void patchAppSettings(File root, File dshDir) throws IOException {
-        File client = new File(dshDir, "node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js");
-        File core = new File(dshDir, "node_modules/@deepseek-ai/dsh-api-session-controller/lib/index.js");
-        File sessions = new File(dshDir, "node_modules/@deepseek-ai/dsh-api-session-controller/lib/client.js");
-        String oldSessions = readText(sessions);
-        String newSessions = AppSettingsUi.patchSessionClient(oldSessions);
-        String oldClient = readText(client), oldCore = readText(core);
-        String newClient = AppSettingsUi.patchClient(oldClient, readText(new File(root, "app-settings-ui.js")));
-        String newCore = AppSettingsUi.patchCore(oldCore, readText(new File(root, "session-tools-core.js")));
-        if (newClient == null || newCore == null || newSessions == null) {
-            recordPatch("App 设置与会话管理", false, "上游结构变化，未修改文件");
-            throw new IOException("App 设置兼容补丁无法应用，请检查运行包");
-        }
-        if (!oldSessions.equals(newSessions)) writeText(sessions, newSessions);
-        if (!oldCore.equals(newCore)) writeText(core, newCore);
-        if (!oldClient.equals(newClient)) writeText(client, newClient);
-        File delivery = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-ui-deliverables/lib/client.js");
-        String oldDelivery = readText(delivery), newDelivery = FileActionsUi.patch(oldDelivery);
-        if (newDelivery == null) throw new IOException("文件操作兼容补丁无法应用，请检查运行包");
-        if (!newDelivery.equals(oldDelivery)) writeText(delivery,newDelivery);
-        File preview = new File(dshDir,"node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js");
-        String oldPreview = readText(preview), newPreview = FileActionsUi.preview(oldPreview);
-        if (newPreview == null) throw new IOException("文件工具栏兼容补丁无法应用，请检查运行包");
-        if (!newPreview.equals(oldPreview)) writeText(preview,newPreview);
-        recordPatch("App 设置与会话管理", true, "DSH 设置框架、真实归档恢复与可恢复回收站");
-    }
-
     /**
      * 手机端适配：为前端写入安全的最小 viewport 与响应式 CSS。
      *
@@ -7142,37 +6493,6 @@ public class MainActivity extends Activity {
      */
     private int viewportWidthFor(android.content.res.Configuration cfg) {
         return MobileLayout.viewportWidth(cfg != null ? cfg.screenWidthDp : 400);
-    }
-
-    private void patchFrontendViewport(File dshDir) {
-        dshDirRef = dshDir;
-        File html = new File(dshDir,
-                "node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html");
-        if (!html.exists()) {
-            log("  [警告] 未找到前端 index.html，跳过 viewport 适配");
-            return;
-        }
-        try {
-            int want = viewportWidthFor(getResources().getConfiguration());
-            String src = readText(html);
-            String patched = MobileLayout.patchHtml(src, want);
-            if (patched == null) {
-                log("  [警告] viewport 标签格式不符，未做适配");
-                recordPatch("前端 viewport", false, "标签格式不符，未适配");
-                return;
-            }
-            if (!patched.equals(src)) {
-                writeText(html, patched);
-                log("  已写入响应式布局与 viewport：" + want + "px");
-            } else {
-                log("  响应式布局已是最新（" + want + "px）");
-            }
-            appliedViewportWidth = want;
-            recordPatch("前端 viewport", true, want + "px");
-            recordPatch("移动端响应式", true, "对话框、输入框与触控目标");
-        } catch (Throwable t) {
-            log("  [警告] viewport 适配失败: " + t);
-        }
     }
 
     private void copyFile(File src, File dst) throws IOException {
@@ -7198,68 +6518,12 @@ public class MainActivity extends Activity {
      * <p>失败不阻断启动，只告警 —— 这样即使有问题也能拿到最多的现场信息。
      */
     private boolean runPreflight(File node, File root, File toolsDir) {
-        setSplashStatus("正在检查运行环境…");
-        log("运行环境自检 …");
-        File script = new File(root, "preflight.js");
-        if (!script.exists()) { log("  [警告] 缺少 preflight.js，跳过"); return false; }
+        setSplashStatus(UiText.t("正在检查运行环境…", "Checking the runtime…"));
+        return RuntimeChecks.preflight(node, root, toolsDir, workspace, runtimeLog());
+    }
 
-        ProcessBuilder pb = new ProcessBuilder(node.getAbsolutePath(),
-                "--expose-internals", script.getAbsolutePath(), root.getAbsolutePath(),
-                (workspace != null ? workspace : root).getAbsolutePath());
-        pb.redirectErrorStream(true);
-        pb.directory(root);
-        pb.environment().put("LD_LIBRARY_PATH", new File(root, "lib").getAbsolutePath()
-                + ":" + new File(toolsDir, "lib").getAbsolutePath());
-        pb.environment().put("PATH", ToolEnvironment.path(root));
-        pb.environment().put("OPENSSL_CONF", new File(root, "openssl.cnf").getAbsolutePath());
-        File caB = new File(root, "ca-certificates.crt");
-        if (caB.exists()) {
-            pb.environment().put("CURL_CA_BUNDLE", caB.getAbsolutePath());
-            pb.environment().put("SSL_CERT_FILE", caB.getAbsolutePath());
-            pb.environment().put("GIT_SSL_CAINFO", caB.getAbsolutePath());
-        }
-        pb.environment().put("NODE_PATH", new File(root, "dsh/node_modules").getAbsolutePath());
-        pb.environment().put("TMPDIR", new File(root, "tmp").getAbsolutePath());
-        pb.environment().put("TMP", new File(root, "tmp").getAbsolutePath());
-        pb.environment().put("TEMP", new File(root, "tmp").getAbsolutePath());
-        pb.environment().put("PYTHONHOME", toolsDir.getAbsolutePath());
-        pb.environment().put("PYTHONNOUSERSITE", "1");
-        pb.environment().put("npm_config_prefix", toolsDir.getAbsolutePath());
-        pb.environment().put("npm_config_cache", new File(root, ".npm-cache").getAbsolutePath());
-        pb.environment().put("npm_config_update_notifier", "false");
-        pb.environment().put("HOME", root.getAbsolutePath());
-
-        try {
-            Process p = pb.start();
-            BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), "UTF-8"));
-            String line;
-            int failed = -1;
-            while ((line = r.readLine()) != null) {
-                if (line.startsWith("PREFLIGHT|")) {
-                    String[] f = line.split("\\|", 4);
-                    String tag = f.length > 1 ? f[1] : "";
-                    boolean pass = "PASS".equals(tag);
-                    boolean warn = "WARN".equals(tag);
-                    boolean info = "INFO".equals(tag);
-                    String detail = (f.length > 3 && f[3].length() > 0) ? " → " + f[3] : "";
-                    // INFO 用于「Android 上本就不需要」的项，避免用户误以为有问题
-                    log("  " + (pass ? "[通过]" : info ? "[信息]" : warn ? "[警告]" : "[错误]")
-                            + " " + (f.length > 2 ? f[2] : "?") + detail);
-                } else if (line.startsWith("PREFLIGHT_END|")) {
-                    try { failed = Integer.parseInt(line.substring(14).trim()); }
-                    catch (NumberFormatException ignored) { }
-                }
-            }
-            p.waitFor();
-            if (failed == 0) { log("  自检全部通过"); return true; }
-            log("  [警告] 有 " + (failed < 0 ? "若干" : String.valueOf(failed))
-                    + " 项未通过，仍继续启动以便收集信息");
-            return false;
-        } catch (Exception e) {
-            log("  [警告] 自检执行失败: " + e);
-            return false;
-        }
+    private RuntimeChecks.Log runtimeLog() {
+        return new RuntimeChecks.Log() { @Override public void line(String message) { log(message); } };
     }
 
     /** 计算文件 SHA-256，返回小写十六进制；失败返回空串。 */
@@ -7297,149 +6561,20 @@ public class MainActivity extends Activity {
 
     /** 从指定 release 路径下载（供 App 自更新使用，它不在运行包那个 release 下）。 */
     private void downloadPath(String basePath, String assetName, File out) throws IOException {
-        downloadPath(basePath, assetName, out, new DownloadControl(), true);
+        downloadPath(basePath, assetName, out, new ReleaseDownloader.Control(), true);
     }
 
-    /** 可取消、可跨次续传的分块下载；完成前只写入 .part 临时文件。 */
+    private ReleaseDownloader releaseDownloader;
+    private synchronized ReleaseDownloader transfers() {
+        if (releaseDownloader == null) releaseDownloader = new ReleaseDownloader(SOURCES, new ReleaseDownloader.Host() {
+            @Override public void log(String message) { MainActivity.this.log(message); }
+            @Override public void status(String message) { setSplashStatus(message); }
+        });
+        return releaseDownloader;
+    }
     private void downloadPath(String basePath, String assetName, File out,
-                              DownloadControl control, boolean resume) throws IOException {
-        final boolean quiet = assetName.endsWith(".json");
-        final int chunkSize = 2 * 1024 * 1024;
-        final int maxRetryPerSource = 4;
-
-        File partial = new File(out.getAbsolutePath() + ".part");
-        File identityFile = new File(out.getAbsolutePath() + ".part.id");
-        long prepared = TransferState.prepare(partial, identityFile,
-                basePath + assetName, resume);
-        long total = -1;
-        java.io.RandomAccessFile raf = new java.io.RandomAccessFile(partial, "rw");
-        try {
-            long done = prepared;
-            if (raf.length() != done) raf.setLength(done);
-            if (done > 0 && !quiet) log("  从 " + (done / 1048576) + " MB 继续下载");
-            int chunkIndex = (int) (done / chunkSize);
-            int retries = 0;
-            long startedAt = System.currentTimeMillis();
-            int lastLoggedPct = -1;
-            String lastError = null;
-
-            while (total < 0 || done < total) {
-                control.check();
-                long end = total < 0 ? done + chunkSize - 1
-                        : Math.min(done + chunkSize - 1, total - 1);
-                RangeResult result = null;
-
-                for (int source = 0; source < SOURCES.length && result == null; source++) {
-                    String url = SOURCES[source] + basePath + assetName;
-                    for (int attempt = 0; attempt < maxRetryPerSource; attempt++) {
-                        try {
-                            result = fetchRange(url, done, end, control);
-                            if (total < 0 && result.total != null) {
-                                total = result.total.longValue();
-                            }
-                            if (source > 0) log("  已切换到镜像源 #" + source);
-                            break;
-                        } catch (Exception e) {
-                            lastError = shorten(e);
-                            retries++;
-                            control.check();
-                            try {
-                                Thread.sleep(500L * (attempt + 1));
-                            } catch (InterruptedException interrupted) {
-                                Thread.currentThread().interrupt();
-                                throw new IOException("下载被中断");
-                            }
-                        }
-                    }
-                    if (result == null) {
-                        log("  源 #" + source + " 失败（" + lastError + "），尝试下一个");
-                    }
-                }
-
-                if (result == null) {
-                    throw new IOException("下载失败（块 " + chunkIndex + "，已下载 "
-                            + (done / 1048576) + "MB）：所有来源均不可用\n最后错误："
-                            + lastError + "\n请检查网络后重试，已下载部分会继续保留。");
-                }
-
-                long wanted = end - done + 1;
-                byte[] data = result.data;
-                if (data.length <= 0) throw new IOException("块 " + chunkIndex + " 内容为空");
-                if (data.length < wanted && total > 0 && done + data.length < total) {
-                    throw new IOException("块 " + chunkIndex + " 长度不足: "
-                            + data.length + " / " + wanted);
-                }
-                if (total > 0 && done + data.length > total) {
-                    throw new IOException("块 " + chunkIndex + " 超出文件总长度");
-                }
-                raf.seek(done);
-                raf.write(data);
-                done += data.length;
-                chunkIndex++;
-                if (total < 0 && data.length < wanted) total = done;
-
-                if (total > 0) {
-                    int pct = (int) (done * 100 / total);
-                    if (pct / 10 != lastLoggedPct / 10) {
-                        lastLoggedPct = pct;
-                        long seconds = Math.max(1,
-                                (System.currentTimeMillis() - startedAt) / 1000);
-                        if (!quiet) {
-                            log("  " + pct + "%  (" + (done / 1048576) + "/"
-                                    + (total / 1048576) + " MB, "
-                                    + (done / 1048576 / seconds) + " MB/s, 重试 "
-                                    + retries + " 次)");
-                            setSplashStatus("正在下载运行包 " + pct + "%");
-                        }
-                    }
-                }
-            }
-            control.check();
-            raf.getFD().sync();
-            log("  下载完成 " + (done / 1048576) + " MB，重试 " + retries + " 次");
-        } finally {
-            raf.close();
-        }
-        control.check();
-        TransferState.commit(partial, identityFile, out);
-    }
-
-    /** disconnect 用于中止 HttpURLConnection 的阻塞读取。 */
-    private static final class DownloadControl {
-        private boolean cancelled;
-        private HttpURLConnection active;
-
-        synchronized void bind(HttpURLConnection connection) throws IOException {
-            if (cancelled) {
-                connection.disconnect();
-                throw new IOException("下载已取消");
-            }
-            active = connection;
-        }
-
-        synchronized void unbind(HttpURLConnection connection) {
-            if (active == connection) active = null;
-        }
-
-        synchronized void cancel() {
-            cancelled = true;
-            if (active != null) active.disconnect();
-            active = null;
-        }
-
-        synchronized void check() throws IOException {
-            if (cancelled) throw new IOException("下载已取消");
-        }
-    }
-
-    private static final class RangeResult {
-        final byte[] data;
-        final Long total;
-
-        RangeResult(byte[] data, Long total) {
-            this.data = data;
-            this.total = total;
-        }
+                              ReleaseDownloader.Control control, boolean resume) throws IOException {
+        transfers().download(basePath, assetName, out, control, resume);
     }
 
     /** 压缩异常信息，避免日志刷屏。 */
@@ -7451,100 +6586,6 @@ public class MainActivity extends Activity {
     }
 
     /** 取指定字节范围；响应严格限制在本块大小内，避免镜像返回整包导致 OOM。 */
-    private RangeResult fetchRange(String url, long start, long end,
-                                   DownloadControl control) throws IOException {
-        HttpURLConnection c = null;
-        try {
-            // 手动跟随重定向：CDN 会 302 到签名 URL，且签名地址可能变化
-            String cur = url;
-            for (int hop = 0; hop < 8; hop++) {
-                control.check();
-                c = (HttpURLConnection) new URL(cur).openConnection();
-                control.bind(c);
-                c.setInstanceFollowRedirects(false);
-                c.setConnectTimeout(20000);
-                c.setReadTimeout(40000);
-                c.setRequestProperty("User-Agent", "DSHNative/0.2.0");
-                c.setRequestProperty("Range", "bytes=" + start + "-" + end);
-                c.setRequestProperty("Accept-Encoding", "identity");
-                int code = c.getResponseCode();
-                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                    String loc = c.getHeaderField("Location");
-                    control.unbind(c);
-                    c.disconnect();
-                    c = null;
-                    if (loc == null) throw new IOException("重定向缺少 Location");
-                    cur = loc;
-                    continue;
-                }
-                if (code != 200 && code != 206) {
-                    throw new IOException("HTTP " + code);
-                }
-                long maximum = end - start + 1;
-                Long total = null;
-                if (code == 206) {
-                    String cr = c.getHeaderField("Content-Range");   // bytes 0-1/33540352
-                    if (cr == null || !cr.startsWith("bytes ")) {
-                        throw new IOException("206 响应缺少 Content-Range");
-                    }
-                    try {
-                        int dash = cr.indexOf('-', 6);
-                        int slash = cr.lastIndexOf('/');
-                        long actualStart = Long.parseLong(cr.substring(6, dash).trim());
-                        long actualEnd = Long.parseLong(cr.substring(dash + 1, slash).trim());
-                        long parsedTotal = Long.parseLong(cr.substring(slash + 1).trim());
-                        if (actualStart != start || actualEnd < actualStart || actualEnd > end
-                                || parsedTotal <= actualEnd) {
-                            throw new IOException("Content-Range 与请求不一致: " + cr);
-                        }
-                        total = Long.valueOf(parsedTotal);
-                        maximum = actualEnd - actualStart + 1;
-                    } catch (NumberFormatException badRange) {
-                        throw new IOException("Content-Range 格式错误: " + cr);
-                    }
-                } else {
-                    if (start > 0) throw new IOException("服务器忽略 Range，无法安全续传");
-                    String length = c.getHeaderField("Content-Length");
-                    if (length != null) {
-                        try {
-                            long parsed = Long.parseLong(length.trim());
-                            if (parsed > maximum) {
-                                throw new IOException("服务器忽略 Range，返回整包 "
-                                        + parsed + " 字节");
-                            }
-                            if (parsed >= 0) total = Long.valueOf(parsed);
-                        } catch (NumberFormatException ignored) { }
-                    }
-                }
-                InputStream in = c.getInputStream();
-                try {
-                    java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream(
-                            (int) Math.min(maximum, 262144L));
-                    byte[] b = new byte[131072];
-                    long received = 0;
-                    int n;
-                    while ((n = in.read(b)) > 0) {
-                        control.check();
-                        received += n;
-                        if (received > maximum) {
-                            throw new IOException("响应超过请求块大小，已中止以避免内存溢出");
-                        }
-                        bos.write(b, 0, n);
-                    }
-                    if (code == 200 && total == null) total = Long.valueOf(received);
-                    return new RangeResult(bos.toByteArray(), total);
-                } finally {
-                    in.close();
-                }
-            }
-            throw new IOException("重定向次数过多");
-        } finally {
-            if (c != null) {
-                control.unbind(c);
-                c.disconnect();
-            }
-        }
-    }
 
     private String runCapture(File node, String[] args) {
         try {
@@ -7557,11 +6598,11 @@ public class MainActivity extends Activity {
             pb.environment().put("LD_LIBRARY_PATH", new File(node.getParentFile(), "lib").getAbsolutePath());
             pb.environment().put("OPENSSL_CONF",
                     new File(node.getParentFile(), "openssl.cnf").getAbsolutePath());
-            Process p = pb.start();
-            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
-            String line = r.readLine();
-            p.waitFor();
-            return line == null ? "(无输出)" : line.trim();
+            final String[] first = {null};
+            int code = ProcessRunner.run(pb, 15000L, new ProcessRunner.Lines() {
+                @Override public void line(String line) { if (first[0] == null) first[0] = line; }
+            });
+            return code == 0 ? (first[0] == null ? "(无输出)" : first[0].trim()) : "(退出码 " + code + ")";
         } catch (Exception e) {
             return "(失败: " + e.getMessage() + ")";
         }
@@ -7584,119 +6625,23 @@ public class MainActivity extends Activity {
             pb.environment().put("GIT_SSL_CAINFO", ca.getAbsolutePath());
         }
         pb.environment().put("TMPDIR", root.getAbsolutePath());
-        Process p = pb.start();
-        BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
-        String line;
-        while ((line = r.readLine()) != null) log("  " + line);
-        int code = p.waitFor();
+        int code = ProcessRunner.run(pb, 10L * 60 * 1000, new ProcessRunner.Lines() {
+            @Override public void line(String line) { log("  " + line); }
+        });
         if (code != 0) throw new IOException("子进程退出码 " + code);
     }
 
-    /** 递归解压 assets/payload 到目标目录。 */
+    private AssetInstaller componentInstaller;
+    private AssetInstaller components() throws IOException {
+        if (componentInstaller == null) componentInstaller = new AssetInstaller(new AssetInstaller.Source() {
+            @Override public InputStream open(String path) throws IOException { return getAssets().open(path); }
+        });
+        return componentInstaller;
+    }
+
     private void extractAssets(File target) throws IOException {
-        // 关键：此前是「文件已存在就跳过」，导致 APK 升级后
-        // preflight.js / unpack.js / sharp-android.js 等内置脚本**永远不会更新** ——
-        // 用户升级了 APK，跑的却还是旧脚本（preflight 的告警文案一直没变就是这个原因）。
-        // 改为按 APK 版本号判断：版本变了就整体重新解压，版本没变则保持快速跳过。
-        File verFile = new File(target, ".assets-version");
-        final String curVer = appVersion();
-        String haveVer = verFile.exists() ? readText(verFile).trim() : "";
-        final boolean refresh = !curVer.equals(haveVer);
-        if (refresh) {
-            setSplashStatus(UiText.t("正在准备新版组件…", "Preparing updated components…"));
-            log("APK 内置脚本需更新（" + (haveVer.length() == 0 ? "首次" : haveVer)
-                    + " → " + curVer + "），重新解压");
-        }
-
-        List<String> entries = new ArrayList<String>();
-        collect("payload", entries);
-        int skipped = 0;
-        for (String path : entries) {
-            String rel = path.substring("payload/".length());
-            if (rel.length() == 0) continue;
-            File out = new File(target, rel);
-            if (!refresh && out.exists() && out.length() > 0) continue;   // 版本未变，跳过
-            // 版本变了，但**内容未必变**。
-            //
-            // 原来只要版本号不同就把 93MB 全部重写一遍 —— 其中包括 47MB 的 node
-            // 和 31MB 的 ICU 数据，而这两个几乎从不变化。用户每次升级 APK 后
-            // 的首次启动都要为此多花几十秒的写入。
-            //
-            // 现在分两类：
-            //   小文件（脚本、证书，KB 级）—— 直接重写，省得比对；
-            //   大文件（二进制、库）—— 先比大小再比摘要，一致就跳过。
-            boolean isSmall = isSmallAsset(rel);
-            if (refresh && !isSmall && out.exists() && out.length() > 0
-                    && sameAsset(path, out)) {
-                skipped++;
-                continue;
-            }
-            File parent = out.getParentFile();
-            if (parent != null && !parent.exists()) parent.mkdirs();
-            InputStream in = getAssets().open(path);
-            OutputStream os = new FileOutputStream(out);
-            byte[] buf = new byte[262144];
-            int n;
-            while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
-            os.close();
-            in.close();
-        }
-        if (refresh && skipped > 0) {
-            log("  已跳过 " + skipped + " 个内容未变的文件（省下重复写入）");
-        }
-        try { writeText(verFile, curVer); } catch (Throwable ignored) { }
-    }
-
-    /** 小文件（脚本、证书）直接重写，不做摘要比对 —— 比对本身也要读一遍。 */
-    private static boolean isSmallAsset(String rel) {
-        return rel.endsWith(".js") || rel.endsWith(".cjs") || rel.endsWith(".py") || rel.endsWith(".crt")
-                || rel.endsWith(".json") || rel.endsWith(".txt") || rel.endsWith(".sh");
-    }
-
-    /**
-     * APK 内的资源与磁盘上的文件是否一致。
-     *
-     * <p>先比大小（便宜），再比 sha256（稍贵但准确）。
-     * 只比大小是不够的：同大小的不同构建会被漏掉，而那正是升级后必须更新的情况。
-     */
-    private boolean sameAsset(String assetPath, File disk) {
-        try {
-            // 一次遍历同时算大小与摘要 —— 不必为此把资源读两遍
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            long size = 0;
-            java.io.InputStream in = getAssets().open(assetPath);
-            try {
-                byte[] buf = new byte[262144];
-                int n;
-                while ((n = in.read(buf)) > 0) {
-                    md.update(buf, 0, n);
-                    size += n;
-                }
-            } finally {
-                in.close();
-            }
-            if (size != disk.length()) return false;
-
-            java.security.MessageDigest md2 = java.security.MessageDigest.getInstance("SHA-256");
-            java.io.FileInputStream fis = new java.io.FileInputStream(disk);
-            try {
-                byte[] buf = new byte[262144];
-                int n;
-                while ((n = fis.read(buf)) > 0) md2.update(buf, 0, n);
-            } finally {
-                fis.close();
-            }
-            return java.util.Arrays.equals(md.digest(), md2.digest());
-        } catch (Throwable t) {
-            // 比对失败就当作不同 —— 宁可多写一次，也不要留下过期的二进制
-            return false;
-        }
-    }
-
-    private void collect(String dir, List<String> out) throws IOException {
-        String[] children = getAssets().list(dir);
-        if (children == null || children.length == 0) { out.add(dir); return; }
-        for (String c : children) collect(dir + "/" + c, out);
+        int written = components().install(target);
+        log("[启动] 内置组件已校验，原子更新 " + written + " 项");
     }
 
     private void chmod(File f, String mode) {
@@ -7742,7 +6687,7 @@ public class MainActivity extends Activity {
                 + "a{color:" + htmlColor(DshUi.ACCENT()) + ";display:inline-block;padding:8px 0;min-height:32px}"
                 + "code{padding:2px 6px;border-radius:4px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}</style>"
                 + "</head><body><h1>" + title + "</h1><p>" + detail + "</p></body></html>";
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 WebView view = webView;
                 if (view == null || isFinishing() || isDestroyed()) return;
@@ -7795,35 +6740,10 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * 日志队列：写盘由一条专门的消费者线程做，调用方只入队。
-     *
-     * <p><b>为什么必须这样</b>：原来 {@code log()} 在**调用线程**里直接
-     * open/write/close 文件。而 {@code onConsoleMessage} 是 **UI 线程回调**，
-     * 每一条 {@code [dsh-api]} 响应都要写一次 —— 实测日志里 72% 的字节
-     * 来自这类行。也就是说：网页每发一个请求，主线程就要去 /sdcard 上
-     * 做一次同步文件写。会话一忙，主线程就被这些慢速 I/O 切碎，
-     * 表现出来正是"窗口卡住、点什么都没反应"。
-     *
-     * <p>有界队列：满了就丢日志。日志丢几条无所谓，卡住主线程不行。
-     */
-    private final java.util.concurrent.BlockingQueue<String> logQueue =
-            new java.util.concurrent.LinkedBlockingQueue<String>(4000);
-    private volatile boolean logWorkerStarted;
-    private final java.util.concurrent.atomic.AtomicInteger droppedLogLines =
-            new java.util.concurrent.atomic.AtomicInteger();
-
-    private void log(final String msg) {
-        Log.i(TAG, msg);
-        if (msg == null) return;
-        // onDestroy 之后只保留 logcat，不再复活会持有旧 Activity 的写盘线程。
-        if (activityWorkers.isStopped()) return;
-        if (!logWorkerStarted) startLogWorker();
-        // offer 而非 put：队列满时立即返回，绝不阻塞调用方（尤其是 UI 线程）
-        if (!logQueue.offer(msg)) {
-            droppedLogLines.incrementAndGet();
-        }
-    }
+    private final AppLog appLog = new AppLog(new AppLog.Sink() {
+        @Override public void write(String message) { Log.i(TAG, message); }
+    });
+    private void log(String message) { appLog.line(message); }
 
     /**
      * 主线程卡顿看门狗。
@@ -7872,68 +6792,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    private synchronized void startLogWorker() {
-        if (logWorkerStarted || activityWorkers.isStopped()) return;
-        logWorkerStarted = true;
-        Thread t = new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    while (!activityWorkers.isStopped()) {
-                        String m;
-                        m = logQueue.take();
-                        try {
-                            int dropped = droppedLogLines.getAndSet(0);
-                            if (dropped > 0) {
-                                appendSharedLog("（日志队列满，丢弃了 " + dropped + " 条）");
-                            }
-                            appendSharedLog(m);
-                        } catch (Throwable ignored) {
-                            // 日志写失败不能反过来影响功能
-                        }
-                    }
-                } catch (InterruptedException ignored) {
-                    // Activity 销毁时由 WorkerRegistry 主动中断。
-                } finally {
-                    logWorkerStarted = false;
-                    activityWorkers.finished(Thread.currentThread());
-                }
-            }
-        }, "dsh-log-writer");
-        t.setDaemon(true);
-        if (!activityWorkers.start(t)) logWorkerStarted = false;
-    }
-
     /** 初始化应用私有日志文件；共享存储只用于用户主动导出的脱敏诊断。 */
     private void initSharedLog() {
-        try {
-            File dir = new File(getFilesDir(), "logs");
-            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("无法创建私有日志目录");
-            sharedLog = new File(dir, "launch.log");
-            removeLegacySharedLogs();
-            // 追加而非覆盖：否则每次启动都会抹掉上一个会话的记录，
-            // 跨会话的问题（例如"应用内更新到底下载成功没有"）就无从追查。
-            // 超过上限时轮转一次，保留上一份，避免无限增长。
-            final long MAX_BYTES = 512 * 1024;
-            if (sharedLog.exists() && sharedLog.length() > MAX_BYTES) {
-                File prev = new File(sharedLog.getAbsolutePath() + ".1");
-                if (prev.exists()) prev.delete();
-                sharedLog.renameTo(prev);
-            }
-            java.io.FileWriter w = new java.io.FileWriter(sharedLog, true);
-            w.write("\n\n=== DSH Native 启动日志 ===\n");
-            w.write("时间: " + new java.util.Date() + "\n");
-            w.write("设备: " + android.os.Build.MODEL + " / Android "
-                    + android.os.Build.VERSION.RELEASE + " (SDK "
-                    + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 1.0.0\n");
-            w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
-            w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
-            w.close();
-            Log.i(TAG, "private log: " + sharedLog.getAbsolutePath());
-        } catch (Throwable t) {
-            Log.w(TAG, "initSharedLog failed", t);
-            sharedLog = null;
-        }
+        sharedLog = new File(new File(getFilesDir(), "logs"), "launch.log");
+        appLog.bind(sharedLog);
+        removeLegacySharedLogs();
+        log("=== DSH Native 启动日志 ===");
+        log("时间: " + new java.util.Date());
+        log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
+        log("APK 版本: 1.1.0");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
@@ -7967,52 +6834,20 @@ public class MainActivity extends Activity {
     }
 
     /** 追加一行到私有日志；即使在私有目录也先做脱敏。 */
-    private void appendSharedLog(String msg) {
-        if (sharedLog == null) return;
-        synchronized (logLock) {
-            java.io.FileWriter w = null;
-            try {
-                String line = maskSecrets(msg);
-                w = new java.io.FileWriter(sharedLog, true);
-                w.write(line);
-                w.write('\n');
-            } catch (Throwable ignored) {
-                // 权限未授予或存储不可用时静默跳过
-            } finally {
-                if (w != null) try { w.close(); } catch (Exception ignored) { }
-            }
-        }
-    }
 
-    /**
-     * 请求存储权限。
-     *
-     * <p>编译所用的 android.jar 是 API 16，没有 requestPermissions 方法，
-     * 因此用反射调用；运行期 API 23+ 均可用。
-     */
+    /** Request only permissions known to the running Android release. */
     private void requestStoragePermission() {
-        try {
-            java.lang.reflect.Method m = android.app.Activity.class.getMethod(
-                    "requestPermissions", String[].class, int.class);
-            m.invoke(this, new String[]{
-                    "android.permission.WRITE_EXTERNAL_STORAGE",
-                    "android.permission.READ_EXTERNAL_STORAGE",
-                    // Android 13+ 常驻通知需要它；拒绝也不影响服务运行，只是通知不显示
-                    "android.permission.POST_NOTIFICATIONS"}, 1001);
-            log("已请求存储与通知权限");
-        } catch (Throwable t) {
-            log("存储权限请求失败（不影响运行）: " + t.getClass().getSimpleName());
-        }
+        java.util.List<String> permissions = new java.util.ArrayList<String>();
+        permissions.add("android.permission.WRITE_EXTERNAL_STORAGE");
+        permissions.add("android.permission.READ_EXTERNAL_STORAGE");
+        if (android.os.Build.VERSION.SDK_INT >= 33) permissions.add("android.permission.POST_NOTIFICATIONS");
+        requestPermissions(permissions.toArray(new String[0]), 1001);
     }
 
-    /**
-     * 权限回调。
-     *
-     * <p>刻意不写 @Override：编译用的 android.jar(API 16) 未声明该方法，
-     * 但运行期 API 23+ 会正常回调。
-     */
+    @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         boolean granted = grantResults != null && grantResults.length > 0
                 && grantResults[0] == 0;   // PackageManager.PERMISSION_GRANTED
         if (requestCode == NativeVoiceController.REQUEST_MICROPHONE) {
@@ -8055,63 +6890,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * 屏幕方向变化：重新计算 viewport 宽度并重载页面。
-     *
-     * <p>为什么必须重载：viewport meta 只在页面加载时解析一次，
-     * 改了内容不会重新布局。好在只在宽度确实变化时才重载
-     * （轻微变化不触发），且 DSH 的会话在服务端，重载不丢内容。
-     *
-     * <p>清单已声明 configChanges 含 orientation/screenSize，
-     * 因此本方法会被调用，而 Activity 不会被重建。
-     */
+    /** Configuration changes update retained native views and the existing browser viewport. */
     @Override
     public void onConfigurationChanged(android.content.res.Configuration cfg) {
         super.onConfigurationChanged(cfg);
-        // 系统切深浅色本就会重建 Activity（清单的 configChanges 不含 uiMode）。
-        // 但个别 ROM 会把 uiMode 塞进一次「已声明由应用处理」的配置变化里一起下发，
-        // 那时这里不纠正就会停在旧主题 —— DshUi 的颜色是在建视图时取走的，
-        // 改标志位对已有视图无效，只能重建。
-        // 主题来源必须和 onCreate 保持一致 —— 否则会死循环。
-        //
-        // 踩过的坑（用户实际遇到：界面在深浅之间反复横跳、不停重启）：
-        //   onCreate            → 有 webDark 就用【网页主题】
-        //   onConfigurationChanged → 无条件用【系统主题】覆盖
-        // 而 recreate() 本身会带来一次配置变化，于是：
-        //   重建 → 配置变化 → 系统主题覆盖网页主题 → 不一致 → 再重建 → …
-        // 无限循环。
-        //
-        // 现在两边同一套规则：网页上报过主题就只认它。
-        boolean wasDark = DshUi.isDark();
-        android.content.SharedPreferences tp = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (tp.contains("webDark")) {
-            DshUi.setDark(tp.getBoolean("webDark", false));
-        } else {
-            DshUi.applyTheme(this);
-        }
-        if (DshUi.isDark() != wasDark) {
-            log("深色模式变化：重建界面以应用新主题");
-            if (shouldAllowRecreate()) {
-                recreate();
-            } else {
-                log("重建过于频繁，已跳过（防止深浅色死循环）");
-            }
-            return;
-        }
-        try {
-            int want = viewportWidthFor(cfg);
-            File dir = dshDirRef;
-            log("屏幕方向变化：宽 " + cfg.screenWidthDp + "dp → viewport "
-                    + want + "px（当前 " + appliedViewportWidth + "）");
-            if (dir == null || want == appliedViewportWidth) return;
-            patchFrontendViewport(dir);
-            if (webView != null) {
-                log("  重新加载页面以应用新的 viewport");
-                webView.reload();
-            }
-        } catch (Throwable t) {
-            log("  [警告] 方向切换处理失败: " + t);
-        }
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        boolean dark = prefs.contains("webDark") ? prefs.getBoolean("webDark", false)
+                : (cfg.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        themeController().system(webView, startupState.generation(), dark);
+        if (browserSession != null) browserSession.viewport(cfg.screenWidthDp);
     }
 
     @Override
@@ -8125,7 +6913,7 @@ public class MainActivity extends Activity {
         publishAppSettingsState();
         if (connectionLostAt > 0L && ConnectionRecovery.isProblem(connectionState)) scheduleReloadIfStuck();
         try {
-            if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('dsh-native-resume'));", null);
+            if (browserSession != null) browserSession.resume();
         } catch (Throwable error) { log("前台连接复核失败: " + error.getClass().getSimpleName()); }
     }
 
@@ -8139,6 +6927,7 @@ public class MainActivity extends Activity {
         }
         if (nativeVoice != null) nativeVoice.pause();
         super.onPause();
+        if (browserSession != null) browserSession.pause();
     }
 
     @Override
@@ -8214,7 +7003,7 @@ public class MainActivity extends Activity {
                             "Preparing 0 / " + totalItems + " items"),
                     totalItems);
             shareImportProgresses.add(importProgress);
-            new Thread(new Runnable() {
+            startWorker(new Runnable() {
                 @Override public void run() {
                     synchronized (SHARE_IMPORT_LOCK) {
                         int saved = 0;
@@ -8250,7 +7039,7 @@ public class MainActivity extends Activity {
                         finishShareImport(importProgress, saved, savedFiles, failures);
                     }
                 }
-            }, "share-import").start();
+            }, "share-import");
         } catch (Throwable t) {
             log("错误: 处理分享内容失败: " + t);
             toast("接收分享内容失败");
@@ -8259,7 +7048,7 @@ public class MainActivity extends Activity {
 
     private void updateShareImportProgress(final DshUi.TaskProgress progress,
                                            final int completed, final int total) {
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 progress.update(UiText.t("正在接收 " + completed + " / " + total + " 项",
                         "Receiving " + completed + " / " + total + " items"), completed);
@@ -8274,7 +7063,7 @@ public class MainActivity extends Activity {
                 new java.util.ArrayList<File>(savedFiles);
         final int failed = failures.size();
         final String firstFailure = failed > 0 ? failures.get(0) : "";
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 final String summary;
                 final int result;
@@ -8303,7 +7092,7 @@ public class MainActivity extends Activity {
         final java.util.List<String> names = new java.util.ArrayList<String>();
         for (File file : files) names.add(ShareTargets.displayName(file));
         final String prompt = ShareTask.prompt(activeProjectName(), names);
-        runOnUiThread(new Runnable() {
+        postUi(new Runnable() {
             @Override public void run() {
                 StringBuilder detail = new StringBuilder();
                 detail.append("已保存 ").append(files.size()).append(" 项到“")
@@ -8325,7 +7114,7 @@ public class MainActivity extends Activity {
     private void dispatchShareTaskPrompt(final String prompt) {
         if (prompt == null || prompt.length() == 0) return;
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            runOnUiThread(new Runnable() {
+            postUi(new Runnable() {
                 @Override public void run() { dispatchShareTaskPrompt(prompt); }
             });
             return;
@@ -8367,7 +7156,7 @@ public class MainActivity extends Activity {
 
     private void finishShareTaskSubmission(final String message, final int result) {
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            runOnUiThread(new Runnable() {
+            postUi(new Runnable() {
                 @Override public void run() { finishShareTaskSubmission(message, result); }
             });
             return;
@@ -8595,7 +7384,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         activityDisposing = true;
+        startupCoordinator.close();
+        if (releaseDownloader != null) releaseDownloader.close();
+        if (themeController != null) themeController.close();
+        NativeTheme.detach(this);
         unregisterNetworkWatcher();
+        if (settingsNavigation != null) settingsNavigation.close();
         if (webSettings != null) { webSettings.close(); webSettings = null; }
         NativeBridge.detach(this);
         if (nativeVoice != null) nativeVoice.dispose();
@@ -8621,23 +7415,14 @@ public class MainActivity extends Activity {
         HarnessService.clearListener(harnessListener);
         DshUi.clearLogSink(dshUiLogSink);
         activityWorkers.stop();
+        appLog.close();
         if (nativeCoreApi != null) nativeCoreApi.close();
 
-        // WebView 持有 Activity、回调和渲染线程。主题切换会重建 Activity，
-        // 旧实例若不显式销毁，会与看门狗一样累积到进程结束。
-        WebView oldWebView = webView;
         webView = null;
-        if (oldWebView != null) {
-            try { oldWebView.stopLoading(); } catch (Throwable ignored) { }
-            try { oldWebView.setWebChromeClient(null); } catch (Throwable ignored) { }
-            try { oldWebView.setWebViewClient(null); } catch (Throwable ignored) { }
-            try {
-                if (oldWebView.getParent() instanceof ViewGroup) {
-                    ((ViewGroup) oldWebView.getParent()).removeView(oldWebView);
-                }
-            } catch (Throwable ignored) { }
-            try { oldWebView.removeAllViews(); } catch (Throwable ignored) { }
-            try { oldWebView.destroy(); } catch (Throwable ignored) { }
+        if (browserSession != null) {
+            try { browserSession.close(); }
+            catch (RuntimeException error) { log("浏览器清理: " + error.getClass().getSimpleName()); }
+            browserSession = null;
         }
         super.onDestroy();
     }
