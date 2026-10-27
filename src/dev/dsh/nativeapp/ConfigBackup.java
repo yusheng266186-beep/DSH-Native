@@ -354,12 +354,15 @@ final class ConfigBackup {
         return entries;
     }
 
-    private static int restoreEntries(Map<String, byte[]> entries, File dshHome)
+    private static synchronized int restoreEntries(Map<String, byte[]> entries, File dshHome)
             throws IOException {
         if (dshHome == null) throw new IOException("配置目录为空");
         if (!dshHome.isDirectory() && !dshHome.mkdirs()) throw new IOException("无法创建配置目录");
         List<File> staged = new ArrayList<File>();
+        Map<String, byte[]> originals = new LinkedHashMap<String, byte[]>();
+        boolean journalReady = false;
         try {
+            recoverInterruptedRestore(dshHome);
             // 校验全部目标和父目录后才覆盖任何文件，允许的嵌套路径仍由 FILES 精确限定。
             List<File> targets = new ArrayList<File>();
             for (String name : entries.keySet()) {
@@ -373,10 +376,12 @@ final class ConfigBackup {
                     throw new IOException("配置目标不是文件");
                 }
                 targets.add(target);
+                originals.put(name, target.exists() ? readConfigBytes(target) : null);
             }
             int index = 0;
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 File temp = new File(dshHome, ".restore-" + index + "-" + System.nanoTime());
+                staged.add(temp);
                 FileOutputStream out = new FileOutputStream(temp);
                 try {
                     out.write(entry.getValue());
@@ -384,9 +389,10 @@ final class ConfigBackup {
                 } finally {
                     out.close();
                 }
-                staged.add(temp);
                 index++;
             }
+            writeRestoreJournal(dshHome, originals);
+            journalReady = true;
             int restored = 0;
             index = 0;
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
@@ -395,18 +401,147 @@ final class ConfigBackup {
                 restored++;
                 index++;
             }
+            if (!restoreJournal(dshHome).delete()) throw new IOException("无法提交配置恢复记录");
+            journalReady = false;
             return restored;
+        } catch (IOException failed) {
+            if (journalReady) {
+                try { recoverInterruptedRestore(dshHome); }
+                catch (IOException rollbackFailed) {
+                    failed.addSuppressed(rollbackFailed);
+                    throw new IOException("配置恢复未完成，原配置恢复记录已保留；请重试启动或导出诊断", failed);
+                }
+            }
+            throw failed;
         } finally {
             for (File file : staged) if (file.exists()) file.delete();
             wipeEntries(entries);
+            wipeEntries(originals);
         }
+    }
+
+    private static final String RESTORE_JOURNAL = ".native-config-restore";
+    private static final String RESTORE_MAGIC = "DSH-CONFIG-RESTORE-1";
+
+    static boolean hasInterruptedRestore(File dshHome) {
+        return new File(dshHome, RESTORE_JOURNAL).exists();
+    }
+
+    private static File restoreJournal(File home) throws IOException {
+        File file = new File(home.getCanonicalFile(), RESTORE_JOURNAL);
+        if (!file.equals(file.getCanonicalFile())) throw new IOException("配置恢复记录不能是符号链接");
+        return file;
+    }
+
+    /** Private, bounded undo record is durable before any live configuration changes. */
+    static void writeRestoreJournal(File home, Map<String, byte[]> originals) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeUTF(RESTORE_MAGIC);
+        if (originals.isEmpty() || originals.size() > FILES.length) throw new IOException("配置恢复记录无效");
+        out.writeInt(originals.size());
+        int total = 0;
+        for (Map.Entry<String, byte[]> entry : originals.entrySet()) {
+            configFile(home, entry.getKey());
+            byte[] value = entry.getValue();
+            int length = value == null ? -1 : value.length;
+            if (length > MAX_ENTRY_BYTES || (total += Math.max(0, length)) > MAX_TOTAL_BYTES)
+                throw new IOException("原配置超过恢复保护大小限制");
+            out.writeUTF(entry.getKey()); out.writeInt(length);
+            if (value != null) out.write(value);
+        }
+        out.flush();
+        byte[] raw = bytes.toByteArray();
+        byte[] digest = digest(raw);
+        File journal = restoreJournal(home);
+        if (journal.exists()) throw new IOException("存在尚未完成的配置恢复");
+        File temp = new File(home.getCanonicalFile(), RESTORE_JOURNAL + ".next");
+        if (!temp.equals(temp.getCanonicalFile())) throw new IOException("配置恢复暂存路径无效");
+        try {
+            try (FileOutputStream stream = new FileOutputStream(temp)) {
+                stream.write(raw); stream.write(digest); stream.getFD().sync();
+            }
+            if (!temp.renameTo(journal)) throw new IOException("无法保存配置恢复保护记录");
+        } finally {
+            Arrays.fill(raw, (byte) 0);
+            if (temp.exists()) temp.delete();
+        }
+    }
+
+    /** Replays undo idempotently before the core is allowed to read configuration. */
+    static synchronized boolean recoverInterruptedRestore(File home) throws IOException {
+        File journal = restoreJournal(home);
+        if (!journal.exists()) return false;
+        if (!journal.isFile() || journal.length() < 40 || journal.length() > MAX_TOTAL_BYTES + 4096)
+            throw new IOException("配置恢复保护记录损坏，已保留现场");
+        Map<String, byte[]> originals = new LinkedHashMap<String, byte[]>();
+        byte[] raw = new byte[(int) journal.length()];
+        try {
+            try (DataInputStream file = new DataInputStream(new FileInputStream(journal))) { file.readFully(raw); }
+            byte[] body = Arrays.copyOf(raw, raw.length - 32);
+            try {
+                if (!java.security.MessageDigest.isEqual(digest(body), Arrays.copyOfRange(raw, raw.length - 32, raw.length)))
+                    throw new IOException("配置恢复保护记录摘要不一致，已保留现场");
+                DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+                if (!RESTORE_MAGIC.equals(in.readUTF())) throw new IOException("配置恢复保护记录格式无效");
+                int count = in.readInt(), total = 0;
+                if (count < 1 || count > FILES.length) throw new IOException("配置恢复保护记录条目异常");
+                for (int i = 0; i < count; i++) {
+                    String name = in.readUTF();
+                    File target = configFile(home, name);
+                    if (originals.containsKey(name) || (target.exists() && !target.isFile()))
+                        throw new IOException("配置恢复保护目标异常");
+                    int length = in.readInt();
+                    if (length < -1 || length > MAX_ENTRY_BYTES || (total += Math.max(0, length)) > MAX_TOTAL_BYTES)
+                        throw new IOException("配置恢复保护记录大小异常");
+                    byte[] value = length < 0 ? null : new byte[length];
+                    if (value != null) in.readFully(value);
+                    originals.put(name, value);
+                }
+                if (in.read() != -1) throw new IOException("配置恢复保护记录尾部异常");
+            } finally { Arrays.fill(body, (byte) 0); }
+            for (Map.Entry<String, byte[]> entry : originals.entrySet()) {
+                File target = configFile(home, entry.getKey());
+                byte[] old = entry.getValue();
+                if (old == null) {
+                    if (target.exists() && !target.delete()) throw new IOException("无法撤销新增配置");
+                } else {
+                    byte[] current = target.isFile() ? readConfigBytes(target) : null;
+                    boolean same = Arrays.equals(old, current);
+                    if (current != null) Arrays.fill(current, (byte) 0);
+                    if (!same) writeAtomic(target, old);
+                }
+            }
+            if (!journal.delete()) throw new IOException("无法清理已恢复的配置保护记录");
+            return true;
+        } finally {
+            Arrays.fill(raw, (byte) 0);
+            wipeEntries(originals);
+        }
+    }
+
+    private static byte[] readConfigBytes(File file) throws IOException {
+        if (file.length() > MAX_ENTRY_BYTES) throw new IOException("原配置超过大小限制");
+        try (InputStream in = new FileInputStream(file)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buffer = new byte[8192]; int n;
+            while ((n = in.read(buffer)) != -1) {
+                if (out.size() + n > MAX_ENTRY_BYTES) throw new IOException("原配置超过大小限制");
+                out.write(buffer, 0, n);
+            }
+            return out.toByteArray();
+        }
+    }
+
+    private static byte[] digest(byte[] raw) throws IOException {
+        try { return java.security.MessageDigest.getInstance("SHA-256").digest(raw); }
+        catch (java.security.NoSuchAlgorithmException impossible) { throw new IOException("缺少 SHA-256", impossible); }
     }
 
     private static File configFile(File dshHome, String name) throws IOException {
         if (!Arrays.asList(FILES).contains(name)) throw new IOException("配置文件不在允许范围内");
-        File target = new File(dshHome, name);
+        File target = new File(dshHome.getCanonicalFile(), name);
         String root = dshHome.getCanonicalPath() + File.separator;
-        if (!target.getCanonicalPath().startsWith(root)) {
+        if (!target.getCanonicalPath().startsWith(root) || !target.getAbsoluteFile().equals(target.getCanonicalFile())) {
             throw new IOException("配置路径超出目录范围");
         }
         return target;

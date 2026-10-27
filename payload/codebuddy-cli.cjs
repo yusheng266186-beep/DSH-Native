@@ -10,6 +10,28 @@ const {promisify}=require('node:util');
 const run=promisify(execFile);
 let prepared;
 let warm;
+let cacheMaintenance;
+// Only disposable Node bytecode is aged out. SDK directories, credentials and
+// transcripts are never inferred to be unused from their age or folder name.
+async function pruneCompileCache(root,now=Date.now()){
+ const base=fs.realpathSync(root),home=path.join(base,'.codebuddy-home'),cache=path.join(home,'compile-cache');
+ let removedBytes=0,removedFiles=0,visited=0;
+ try{
+  for(const dir of [home,cache]){const info=await fsp.lstat(dir);if(info.isSymbolicLink()||!info.isDirectory())return {removedBytes,removedFiles};}
+  for(const entry of (await fsp.readdir(cache,{withFileTypes:true})).slice(0,32)){
+   if(!entry.isDirectory()||!/^v\d+\.\d+\.\d+-[a-zA-Z0-9_-]+$/.test(entry.name))continue;
+   const dir=path.join(cache,entry.name);if((await fsp.lstat(dir)).isSymbolicLink())continue;
+   for(const name of await fsp.readdir(dir)){
+    if(++visited>1024)return {removedBytes,removedFiles};
+    if(!/^[a-f0-9]{8,64}$/.test(name))continue;
+    const file=path.join(dir,name),info=await fsp.lstat(file);
+    if(!info.isFile()||info.isSymbolicLink()||now-info.mtimeMs<7*86400000)continue;
+    await fsp.unlink(file);removedFiles++;removedBytes+=info.size;
+   }
+  }
+ }catch{} // Best-effort disposable-cache cleanup cannot fail an otherwise completed reply.
+ return {removedBytes,removedFiles};
+}
 function clearWarm(){
  const entry=warm;warm=undefined;if(!entry)return;
  clearTimeout(entry.timer);entry.session.close();void entry.server?.close().catch(()=>{});
@@ -40,9 +62,11 @@ async function* sessionQuery(sdk,args){
  try{
   if(abortController.signal.aborted)throw new Error('ABORTED');
   if(entry){try{await waitFor(entry.ready,abortController.signal);}catch(error){session.close();await server?.close();session=undefined;server=undefined;if(abortController.signal.aborted)throw error;}}
+  args.trace?.('warm',!!session);
   if(!session){server=settings.mcpServers.dsh?.instance;session=sdk.unstable_v2_createSession(settings);}
   if(abortController.signal.aborted)throw new Error('ABORTED');
   for await(const message of args.prompt)await session.send(message);
+  args.trace?.('submitted');
   for await(const message of session.stream()){
    if(message.type==='assistant')prepareNext=(message.message?.content||[]).some(block=>block.type==='tool_use'&&args.hostTools.some(tool=>'mcp__dsh__'+tool.name===block.name));
    if(message.type==='result'&&message.subtype==='success'&&!message.is_error&&!settings.systemPrompt&&args.standby!==false)prepareNext=true;
@@ -106,9 +130,19 @@ function requestPrompt(context){
  return [{type:'text',text},...images];
 }
 function failure(error,aborted){
- const text=String(error?.message||error);
- const code=aborted?'ABORTED':/401|unauthorized|authentication/i.test(text)?'INVALID_CREDENTIAL':/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)?'CONTEXT_WINDOW_EXCEEDED':/quota|credit/i.test(text)?'QUOTA':'CODEBUDDY_CLI_ERROR';
- return {kind:aborted?'aborted':'error',failure:{code,message:aborted?'CodeBuddy CLI request cancelled.':/11128|unapproved channel/i.test(text)?'CodeBuddy rejected this request channel (11128). The official CLI also refused it.':/401|unauthorized|authentication/i.test(text)?'CodeBuddy CLI authentication failed. Check the API key and its region.':/429|quota|credit/i.test(text)?'CodeBuddy CLI is rate limited or has no remaining quota.':/CODEBUDDY_BUNDLE_SPACE/.test(text)?'CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.':/CODEBUDDY_BUNDLE/.test(text)?'The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.':'CodeBuddy CLI failed. No host tool was executed by the CLI.'}};
+ const text=String(error?.message||error).slice(0,16384);
+ let code='CODEBUDDY_CLI_ERROR',message='CodeBuddy CLI failed. Check the connection and retry. The CLI did not execute a host tool.';
+ if(aborted){code='ABORTED';message='CodeBuddy CLI request cancelled.';}
+ else if(/11128|unapproved channel|channel verification/i.test(text)){code='CODEBUDDY_CHANNEL_REJECTED';message='CodeBuddy rejected this request channel (11128). The official CLI also refused it. Check your account access or use another provider.';}
+ else if(/401|unauthorized|authentication/i.test(text)){code='INVALID_CREDENTIAL';message='CodeBuddy CLI authentication failed. Check the API key and its region.';}
+ else if(/context.*(large|length|window)|CODEBUDDY_CONTEXT_TOO_LARGE/i.test(text)){code='CONTEXT_WINDOW_EXCEEDED';message='The conversation exceeds the CodeBuddy context limit. Compact it or start a new conversation; your history is retained.';}
+ else if(/quota|credit|402|error_max_budget/i.test(text)){code='QUOTA';message='CodeBuddy quota or the request budget is exhausted. Check your account quota before retrying.';}
+ else if(/429|rate.?limit|too many requests/i.test(text)){code='CODEBUDDY_RATE_LIMITED';message='CodeBuddy is rate limited. Wait briefly before sending again.';}
+ else if(/403|forbidden|permission.*(denied|model)|model.*(not found|unavailable|not supported|access|permission)|not.*authorized.*model/i.test(text)){code='CODEBUDDY_MODEL_ACCESS';message='This CodeBuddy account cannot use the selected model or operation. Choose an available model or check account access; the catalog alone does not verify permission.';}
+ else if(/ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|fetch failed|network.*(error|failed)/i.test(text)){code='CODEBUDDY_NETWORK_ERROR';message='The CodeBuddy connection failed. Check the network before sending again.';}
+ else if(/CODEBUDDY_BUNDLE_SPACE/.test(text))message='CodeBuddy CLI needs about 200 MiB of free app storage for its first setup.';
+ else if(/CODEBUDDY_BUNDLE/.test(text))message='The bundled CodeBuddy CLI could not be verified. Reinstall this APK over the existing app.';
+ return {kind:aborted?'aborted':'error',failure:{code,message}};
 }
 function usage(value={},modelUsage){
  const tokens=value=>Number.isSafeInteger(value)&&value>=0?value:0;
@@ -127,6 +161,8 @@ function usage(value={},modelUsage){
   ...(value.cache_creation_input_tokens!=null||cacheWrite>0?{cacheWriteTokens:cacheWrite}:{})};
 }
 async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=180000}={}){
+ const started=performance.now(),timing={};let outcome='incomplete';
+ const trace=(stage,value)=>{if(stage==='warm')timing.warm=value;else if(['setup','submitted','first'].includes(stage)&&timing[stage]===undefined)timing[stage]=Math.round(performance.now()-started);};
  const controller=new AbortController(),cancel=()=>controller.abort();
  options.signal?.addEventListener('abort',cancel,{once:true});if(options.signal?.aborted)cancel();
  let query,server,terminal=false,stats={},nextIndex=0,partial=false;const active=new Map();let timer,timedOut=false;
@@ -135,6 +171,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(controller.signal.aborted)throw new Error('ABORTED');
   if(typeof apiKey!=='string'||!apiKey.trim())throw new Error('Authentication missing');
   const sdk=await prepare(root);
+  trace('setup');
   const tools=context.tools||[],names=new Map();
   const declarations=tools.map((tool,index)=>{const name='tool_'+index+'_'+tool.name.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,32);names.set('mcp__dsh__'+name,tool.name);return {name,description:tool.name+': '+tool.description,inputSchema:tool.parameters};});
   server=hostServer(sdk,declarations);
@@ -142,7 +179,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(controller.signal.aborted)throw new Error('ABORTED');
   const prompt=requestPrompt(context);
   async function* input(){yield {type:'user',session_id:'',parent_tool_use_id:null,message:{role:'user',content:prompt}};}
-  query=sdk.query({prompt:input(),hostTools:declarations,standby:!options.purpose,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
+  query=sdk.query({prompt:input(),trace,hostTools:declarations,standby:!options.purpose,options:{model:options.model,effort:options.reasoningEffort==='off'?undefined:options.reasoningEffort,thinking:options.reasoningEffort==='off'?{type:'disabled'}:undefined,
    // CodeBuddy CLI owns the agent persona. DSH's assembled model persona is
    // not used as a replacement CLI system prompt. Auxiliary tasks retain their instructions.
    systemPrompt:options.purpose&&context.systemPrompt?{append:context.systemPrompt}:undefined,
@@ -157,12 +194,13 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(event.type==='message_delta')stats={...stats,...event.usage};
     if(event.type==='content_block_start'&&['text','thinking'].includes(event.content_block.type)){
      const block={index:nextIndex++,type:event.content_block.type==='text'?'text':'reasoning',text:event.content_block.text||event.content_block.thinking||''};active.set(event.index,block);
+     if(block.text)trace('first');
      yield {type:'block-start',index:block.index,blockType:block.type};
      if(block.text)yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text:block.text};
     }
     if(event.type==='content_block_delta'&&active.has(event.index)){
      const block=active.get(event.index),text=event.delta.text||event.delta.thinking||'';block.text+=text;
-     if(text)yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};
+     if(text){trace('first');yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};}
     }
     if(event.type==='content_block_stop'&&active.has(event.index)){
      const block=active.get(event.index);active.delete(event.index);yield {type:'block-end',index:block.index,block:{type:block.type,text:block.text}};
@@ -172,28 +210,35 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(message.error)throw new Error(message.message?.content?.map(block=>block.text||'').join(' ')||message.error);
     const blocks=message.message?.content||[];stats={...stats,...message.message?.usage};
     if(!partial)for(const block of blocks)if(block.type==='text'||block.type==='thinking'){
+     trace('first');
      const index=nextIndex++,type=block.type==='text'?'text':'reasoning',text=block.text||block.thinking||'';
      yield {type:'block-start',index,blockType:type};yield {type:type==='text'?'text-delta':'reasoning-delta',index,text};yield {type:'block-end',index,block:{type,text}};
     }
     const calls=blocks.filter(block=>block.type==='tool_use');
     if(calls.length){
-     for(const block of calls){const name=names.get(block.name);if(!name)throw new Error('CLI requested an unregistered host tool');
-      const index=nextIndex++,args=JSON.stringify(block.input);if(args.length>2*1024*1024)throw new Error('CLI tool arguments too large');
+     trace('first');
+     const checked=calls.map(block=>{const name=names.get(block.name);if(!name||typeof block.id!=='string'||!block.id)throw new Error('CLI requested an unregistered host tool');
+      const args=JSON.stringify(block.input);if(!args||args.length>2*1024*1024)throw new Error('CLI tool arguments too large');
+      return {block,name,args};});
+     for(const {block,name,args} of checked){const index=nextIndex++;
       yield {type:'block-start',index,blockType:'tool-call'};yield {type:'tool-call-delta',index,id:block.id,name,argumentsDelta:args};yield {type:'block-end',index,block:{type:'tool-call',id:block.id,name,arguments:args}};
      }
-     yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:{kind:'tool-calls'}};terminal=true;return;
+     yield {type:'usage',usage:usage(stats)};outcome='tools';yield {type:'finish',reason:{kind:'tool-calls'}};terminal=true;return;
     }
    }
    if(message.type==='result'){
-    if(message.is_error||message.subtype!=='success')throw new Error(message.result||'CLI request failed');
-    yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
+    if(message.is_error||message.subtype!=='success')throw new Error(message.result||(Array.isArray(message.errors)?message.errors.filter(value=>typeof value==='string').slice(0,8).join('\n'):'')||message.subtype||'CLI request failed');
+    yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};outcome='stop';yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
    }
   }
   throw new Error('CLI stream ended without a result');
- }catch(error){if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding.'}}:failure(error,controller.signal.aborted)};}}
- finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});}
+ }catch(error){outcome=timedOut?'timeout':controller.signal.aborted?'aborted':'error';if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding. Check the network before retrying.'}}:failure(error,controller.signal.aborted)};}}
+ finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});
+  if(!options.purpose)console.log('[dsh-perf] codebuddy '+JSON.stringify({...timing,total:Math.round(performance.now()-started),outcome}));
+  if(!cacheMaintenance){cacheMaintenance=pruneCompileCache(root).catch(()=>{});}
+ }
 }
-module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm};
+module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm,pruneCompileCache};
 if(require.main===module){
  if(process.argv[2]==='--prepare')prepare().then(()=>console.log('CodeBuddy CLI verified and prepared.')).catch(()=>{console.error('CodeBuddy CLI preparation failed.');process.exitCode=1;});
  else if(process.argv[2]==='--check'){
@@ -203,7 +248,7 @@ if(require.main===module){
    try{for await(const chunk of stream({provider:'codebuddy',purpose:'connection-check',model:process.argv[3]||'deepseek-v4.1-flash',reasoningEffort:'max',signal:controller.signal},{messages:[{role:'user',content:[{type:'text',text:'Reply only OK.'}]}],tools:[]},{apiKey})){
     if(chunk.type==='text-delta')text+=chunk.text;if(chunk.type==='finish')reason=chunk.reason;
    }}finally{apiKey='';process.removeListener('SIGTERM',stop);}
-   console.log(JSON.stringify({ok:reason?.kind==='stop'&&text.trim().length>0,channelRejected:/11128/.test(reason?.failure?.message||''),keyRejected:/authentication/i.test(reason?.failure?.message||'')}));
+   console.log(JSON.stringify({ok:reason?.kind==='stop'&&text.trim().length>0,channelRejected:/11128/.test(reason?.failure?.message||''),keyRejected:/authentication/i.test(reason?.failure?.message||''),failureCode:reason?.failure?.code}));
   })().then(()=>process.exit(0)).catch(()=>{console.log('{"ok":false}');process.exit(1);});
  }
 }

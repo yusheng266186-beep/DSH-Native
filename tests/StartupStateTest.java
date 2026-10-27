@@ -34,6 +34,12 @@ public class StartupStateTest {
         check(!StartupReuse.eligible(key,key,"0.40.1","0.40.1",false,false,true), "missing runtime needs repair");
         check(!StartupReuse.eligible(key,key,"0.40.1","0.40.1",true,true,true), "pending slice update cannot be skipped");
         check(!StartupReuse.eligible(key,key,"0.40.1","0.40.1",true,false,false), "untrusted manifest cannot be skipped");
+        StartupState.Timing timing = new StartupState.Timing(1000L);
+        check("pending".equals(timing.summary()), "timing starts without invented zero measurements");
+        check(timing.mark("assets", 1012L) && timing.mark("paint", 1800L), "numeric milestones recorded");
+        check(!timing.mark("assets", 1400L) && timing.summary().contains("assets=12ms"), "later callbacks cannot replace the original milestone");
+        check(!timing.mark("PRIVATE-PATH", 1900L) && !timing.summary().contains("PRIVATE"), "only fixed diagnostic labels accepted");
+        check(!timing.mark("runtime", 900L) && !timing.summary().contains("runtime"), "clock reversal does not fabricate negative time");
         System.out.println("TOTAL: " + checks + " pass / 0 fail");
     }
     private static void check(boolean value, String message) {

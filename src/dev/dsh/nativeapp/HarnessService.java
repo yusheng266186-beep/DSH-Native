@@ -104,11 +104,12 @@ public class HarnessService extends Service {
                             new InputStreamReader(process.getInputStream(), "UTF-8"));
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        if (PROCESS.current() != process) continue;
                         String clean = stripAnsi(line);
                         Log.i(TAG, "[dsh] " + SecretMasker.mask(clean));
                         if (managedUrl == null) {
                             Matcher match = URL_PATTERN.matcher(clean);
-                            if (match.find()) managedUrl = match.group();
+                            if (match.find()) publishManagedUrl(process, match.group());
                         }
                         Listener listener = currentListener();
                         if (listener != null) {
@@ -119,7 +120,8 @@ public class HarnessService extends Service {
                 } catch (IOException e) {
                     Log.i(TAG, "dsh 输出流结束", e);
                 } finally {
-                    PROCESS.clear(process);
+                    // Closing stdout is not proof that the process exited.
+                    if (!ProcessSupervisor.alive(process)) PROCESS.clear(process);
                 }
             }
         }, "dsh-process-output");
@@ -136,7 +138,11 @@ public class HarnessService extends Service {
     }
 
     public static String managedUrl() {
-        return managedUrl;
+        return PROCESS.isAlive() ? managedUrl : null;
+    }
+
+    private static synchronized void publishManagedUrl(Process source, String url) {
+        if (PROCESS.current() == source) managedUrl = url;
     }
 
     /** 供设置页重启使用：只停进程，不关闭 Activity。 */
@@ -147,7 +153,9 @@ public class HarnessService extends Service {
 
     public static boolean stopManagedProcessAndWait(long timeoutMs) {
         boolean stopped = PROCESS.stopAndWait(timeoutMs);
-        if (stopped) managedUrl = null;
+        if (stopped) synchronized (HarnessService.class) {
+            if (PROCESS.current() == null) managedUrl = null;
+        }
         return stopped;
     }
 

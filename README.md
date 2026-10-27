@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**0.40.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -35,6 +35,9 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 0.37.2 完善原生动作的项目与生命周期检查：准备分享文件期间切换项目或窗口会停止旧请求；系统拒绝、没有可用 App、通知渠道缺失和界面超时给出明确错误。取消或服务停止会移除排队动作，截图授权启动时取消也不遗留请求。覆盖安装后重启内核。
 
 <!-- project-navigation:start -->
+
+1.0 候选按六项顺序完成稳定性、数据保护、全面适配、CodeBuddy、性能及维护基础，正在统一验收。详见[正式版计划](docs/RELEASE_1_0.md)、[隐私](docs/PRIVACY.md)、[组件许可](docs/THIRD_PARTY.md)和[排障](docs/TROUBLESHOOTING.md)。下载入口仍指向已发布版本，覆盖安装后重启内核。
+
 0.40.0 针对后台/息屏返回优化本机连接恢复，保留聊天页面和草稿；移除头像上方独立的 App 工具按钮，统一使用原设置入口。设备设置修复刷新期间点击丢失，并继续减少 CodeBuddy 本地准备与重复上下文开销。安装覆盖后重启内核，真机体验由用户验证。
 
 ## 项目概览
@@ -171,7 +174,7 @@ App 保留各模型已有的 `off / minimal / low / medium / high / xhigh` 等�
 
 稳定通道读取 `latest.json`；测试通道同时比较稳定与 `latest-test.json`，选择更高版本。测试清单保留其自身 APK 对应的运行包，不随稳定版随意改写。
 
-运行包更新采用先预检和快照、后替换、失败恢复的顺序。自动恢复后会暂缓再次更新，避免启动循环。当前固定内核是 DSH `0.2.0-rc.2`，属于**上游候选版**；App 的 stable 通道与上游内核的发布级别是两个概念。
+运行包更新采用先预检和快照、后替换、失败恢复的顺序。自动恢复后会暂缓再次更新，避免启动循环。当前固定内核是 DSH `0.2.1-rc.3`，属于**上游候选版**；App 的 stable 通道与上游内核的发布级别是两个概念。
 
 ## 数据与权限边界
 

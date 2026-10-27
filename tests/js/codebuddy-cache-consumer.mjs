@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import {createRequire} from 'node:module';
+import {execFileSync} from 'node:child_process';
 const require=createRequire(import.meta.url),cli=require('../../payload/codebuddy-cli.cjs');
 const root=process.argv[2],sdk=await cli.prepare(root),original=sdk.query;
 let checks=0,mode='text';const requests=[];
@@ -49,6 +50,28 @@ try{
  const usage=out.find(chunk=>chunk.type==='usage')?.usage;
  check(out.at(-1)?.reason.kind==='tool-calls'&&out.some(chunk=>chunk.block?.name==='write'),'official SDK tool request returns to DSH without executing a file operation');
  check(usage?.inputTokens===100&&usage.cacheReadTokens===900&&usage.totalTokens===1002,'tool-turn SDK usage also uses disjoint input buckets');
+ cli.clearWarm();mode='text';context.tools=[];
+ const trace=[],log=console.log;
+ console.log=value=>{if(String(value).startsWith('[dsh-perf] codebuddy '))trace.push(JSON.parse(value.slice('[dsh-perf] codebuddy '.length)));};
+ try{
+  for(let i=0;i<2;i++){
+   for await(const _chunk of cli.stream({model:'deepseek-v4.1-flash',reasoningEffort:'max',signal:controller.signal},context,{root,apiKey:'synthetic-provider-only',idleTimeoutMs:15000})){}
+   await new Promise(resolve=>setTimeout(resolve,200));
+  }
+ }finally{console.log=log;}
+ check(trace.length===2&&trace[0].warm===false&&trace[1].warm===true,'actual SDK follow-up claims exactly one fresh standby');
+ check(trace.every(row=>row.total>=row.first&&row.first>=row.submitted&&row.submitted>=row.setup),'actual SDK timings cover setup, submission, first content and completion');
+ // Linux CLI changes its process title; count direct children, excluding this
+ // measurement's ps process. A completed child's asynchronous exit may settle
+ // later on a loaded runner, but it must do so within this bounded deadline.
+ const children=()=>execFileSync('ps',['-axo','ppid=,comm='],{encoding:'utf8',timeout:5000}).split('\n').filter(line=>{const row=line.trim().split(/\s+/);return Number(row[0])===process.pid&&!/(^|\/)ps$/.test(row.slice(1).join(' '));}).length;
+ const settledChildren=async expected=>{const until=Date.now()+3000;let count;do{count=children();if(count===expected)return count;await new Promise(resolve=>setTimeout(resolve,50));}while(Date.now()<until);return count;};
+ const idleChildren=await settledChildren(1);
+ check(idleChildren===1,'only one idle official CLI child remains after a quick follow-up; actual='+idleChildren);
+ await new Promise(resolve=>setTimeout(resolve,10300));
+ const expiredChildren=await settledChildren(0);
+ check(expiredChildren===0,'the actual idle CLI exits after its ten-second expiry; actual='+expiredChildren);
+ console.log('Synthetic SDK timing ms: '+JSON.stringify(trace)+'; measured on the host, not an Android latency guarantee.');
  console.log('CodeBuddy cache consumer: '+checks+' actual SDK/adapter checks passed; synthetic provider only.');
 }finally{
  clearTimeout(deadline);controller.abort();cli.clearWarm();sdk.query=original;

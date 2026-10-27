@@ -21,7 +21,7 @@ final class CoreRpcClient {
             "account/getState", "account/startSignIn", "account/cancelSignIn",
             "account/hasRunningAccountTasks", "account/signOut", "account/getProfile",
             "account/getBalance", "session/modelCatalog", "session/list", "settings/describe",
-            "credentials/set", "credentials/unset"));
+            "credentials/set", "credentials/unset", "session/androidApplyModelSettings"));
     private final String origin;
     private final String token;
     private String cookie;

@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**0.40.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -196,3 +196,9 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 ### 8.8 协作与验收
 
 开工先 fetch；若安排并行任务，收到明确交回后再发布。源码/脚本/注释无 emoji，纯逻辑无 Android 导入，新 UI 无系统 AlertDialog。编译、模拟、真实内核消费、真机与付费服务验证分别报告。
+
+## 1.0 候选的数据恢复维护
+
+配置恢复的私有 `.native-config-restore` 是有界、带 SHA-256 的原配置撤销记录，不是用户备份格式。全部文件提交后删除即提交事务；中途失败或进程退出，启动在复用内核之前读取并恢复。无法验证/写回时保留记录并阻止启动混合配置。它含凭据原值，不得加入诊断、分享或普通日志；不要把它当缓存清理。
+
+运行包 `.payload-update-in-progress` 在首个目录修改前落盘。update/restore 必须先核验真实快照、等待旧进程退出再恢复；fresh 则强制重新消费全部片。恢复过程中保持原标志连续存在，只有目录和修订状态都恢复后才删除。不能通过删除标志伪装修复。生产 Java 恢复方法与实际 Node 归档在 `tests/check_payload_recovery.py` 中执行进程中断及失败重试回归。

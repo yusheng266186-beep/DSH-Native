@@ -60,7 +60,12 @@ final class ConnectionRecovery {
 
     /** 任务运行时绝不自动刷新；短暂断线与达到上限时也不刷新。 */
     static boolean shouldReload(boolean taskActive, long lostForMs, int attempts) {
-        return !taskActive && lostForMs >= RELOAD_AFTER_MS
+        return shouldReload(taskActive, true, false, lostForMs, attempts);
+    }
+
+    static boolean shouldReload(boolean taskActive, boolean foreground, boolean disposing,
+                                long lostForMs, int attempts) {
+        return !taskActive && foreground && !disposing && lostForMs >= RELOAD_AFTER_MS
                 && attempts >= 0 && attempts < MAX_AUTO_RELOADS;
     }
 

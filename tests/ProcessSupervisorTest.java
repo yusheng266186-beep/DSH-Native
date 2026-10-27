@@ -14,7 +14,7 @@ public class ProcessSupervisorTest {
         else { fail++; System.out.println("  FAIL " + what + "  -> " + detail); }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         ProcessSupervisor s = new ProcessSupervisor();
         FakeProcess first = new FakeProcess();
         FakeProcess second = new FakeProcess();
@@ -51,6 +51,37 @@ public class ProcessSupervisorTest {
         check("failed stop keeps supervision", s.current() == stuck && s.isAlive(), "handle lost");
         s.stop();
 
+        final java.util.concurrent.CountDownLatch destroying = new java.util.concurrent.CountDownLatch(1);
+        FakeProcess slow = new FakeProcess() {
+            @Override public void destroy() { destroyed = true; destroying.countDown(); }
+        };
+        s.adopt(slow);
+        Thread stopper = new Thread(() -> s.stopAndWait(1200));
+        stopper.start();
+        check("slow shutdown entered", destroying.await(1, java.util.concurrent.TimeUnit.SECONDS), "not started");
+        java.util.concurrent.FutureTask<Boolean> status = new java.util.concurrent.FutureTask<>(() -> s.isAlive());
+        new Thread(status).start();
+        boolean responsive = false;
+        try { responsive = status.get(250, java.util.concurrent.TimeUnit.MILLISECONDS); }
+        catch (java.util.concurrent.TimeoutException blocked) { }
+        check("shutdown cannot block UI status reader", responsive, "process lock held during shutdown wait");
+        slow.finish(); stopper.join(2000);
+        check("shutdown worker ends", !stopper.isAlive(), "wait leaked");
+
+        final java.util.concurrent.CountDownLatch replacing = new java.util.concurrent.CountDownLatch(1);
+        FakeProcess old = new FakeProcess() {
+            @Override public void destroy() { destroyed = true; replacing.countDown(); }
+        };
+        s.adopt(old);
+        final boolean[] stopped = {true};
+        Thread replacedStop = new Thread(() -> stopped[0] = s.stopAndWait(1000));
+        replacedStop.start(); replacing.await();
+        FakeProcess replacement = new FakeProcess();
+        s.adopt(replacement); old.finish(); replacedStop.join(2000);
+        check("stale stop preserves replacement", s.current() == replacement && s.isAlive(), "replacement lost");
+        check("config write rejected when another core exists", !stopped[0], "replacement treated as quiescent");
+        s.stop();
+
         boolean rejected = false;
         try { s.adopt(null); } catch (IllegalArgumentException expected) { rejected = true; }
         check("null process rejected", rejected, "should throw");
@@ -61,8 +92,8 @@ public class ProcessSupervisorTest {
     }
 
     static class FakeProcess extends Process {
-        boolean destroyed;
-        boolean running = true;
+        volatile boolean destroyed;
+        volatile boolean running = true;
 
         @Override public OutputStream getOutputStream() { return new ByteArrayOutputStream(); }
         @Override public InputStream getInputStream() { return new ByteArrayInputStream(new byte[0]); }

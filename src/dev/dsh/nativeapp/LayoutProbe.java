@@ -40,6 +40,7 @@ final class LayoutProbe {
                 + "&&parseFloat(s.minHeight)>r.width+6)issue='stretched';"
                 + "if(pr.width>0&&pr.height>0&&s.position!=='absolute'&&s.position!=='fixed'"
                 + "&&p.getAttribute('role')==='tab'&&r.bottom>pr.bottom+1)issue='tab-overflow';"
+                + "if(!issue&&n.tagName==='BUTTON'&&n.scrollHeight>n.clientHeight+2)issue='text-clipped';"
                 + "return {action:a,cls:String(n.className).slice(0,64),w:round(r.width),"
                 + "h:round(r.height),minH:s.minHeight,shrink:s.flexShrink,"
                 + "pw:round(pr.width),ph:round(pr.height),issue:issue};}"

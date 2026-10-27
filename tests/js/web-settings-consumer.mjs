@@ -32,7 +32,8 @@ try{
  const handshake=await ready;
  browser=await chromium.launch({headless:true});
  const mobile=await fs.readFile(mobileArg,'utf8'),injection=mobile.slice(mobile.indexOf('<style id="dsh-native-responsive">'),mobile.indexOf('</head>'));
- for(const scenario of [{w:320,h:800,lang:'zh',theme:'dark'},{w:436,h:880,lang:'en',theme:'light'},{w:869,h:436,lang:'zh',theme:'light'}]){
+ for(const scenario of [{w:320,h:800,lang:'zh',theme:'dark'},{w:436,h:880,lang:'en',theme:'light'},{w:869,h:436,lang:'zh',theme:'light'},
+  {w:360,h:430,lang:'en',theme:'dark',largeText:true},{w:768,h:1024,lang:'en',theme:'light',largeText:true},{w:1024,h:600,lang:'zh',theme:'dark',largeText:true}]){
   await rpc('settings/update',{ns:'locale',patch:{preference:scenario.lang}});await rpc('settings/update',{ns:'ui-theme',patch:{preference:scenario.theme}});
   context=await browser.newContext({viewport:{width:scenario.w,height:scenario.h},isMobile:true,hasTouch:true,locale:scenario.lang,reducedMotion:'reduce'});
   await context.grantPermissions(['local-network-access'],{origin});
@@ -43,6 +44,9 @@ try{
   await page.addInitScript(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.__fixtureSockets=[];const Native=window.WebSocket;window.WebSocket=class extends Native{constructor(...args){super(...args);window.__fixtureSockets.push(this);}};window.__DSH_CONNECTION_RECOVERY__={backoffBaseMs:5000,backoffMaxMs:5000};});
   page.on('console',m=>{if(process.env.DSH_SETTINGS_LAYOUT_PROBE&&m.text().startsWith('[dsh-native] layout-probe '))console.log(m.text());});
   await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
+  // Stress layout with enlarged text in the real settings tree. This is a CSS
+  // boundary approximation, not an Android WebView textZoom/device measurement.
+  if(scenario.largeText)await page.addStyleTag({content:'[data-shortcut-modal="settings"][role="dialog"] :is(button,input,textarea,label,p,h2,h3,h4,span){font-size:21px;line-height:1.5}'});
   if(process.env.DSH_SETTINGS_LAYOUT_PROBE)await page.evaluate(await fs.readFile(process.env.DSH_SETTINGS_LAYOUT_PROBE,'utf8'));
   await page.waitForFunction(()=>window.__dshLocalConnectionState==='connected');
   const beforeSockets=await page.evaluate(()=>{window.__connectionSentinel=Math.random();return {count:window.__fixtureSockets.length,sentinel:window.__connectionSentinel};});
@@ -69,8 +73,30 @@ try{
    const bounds=await section.evaluate(el=>({scroll:el.scrollWidth,width:el.clientWidth,rect:el.getBoundingClientRect().toJSON(),vw:innerWidth}));
    check(bounds.scroll<=bounds.width+1&&bounds.rect.right<=bounds.vw+1,'device settings fit '+target);
    for(const item of await section.locator('button,input').evaluateAll(els=>els.map(el=>({width:el.clientWidth,scroll:el.scrollWidth}))))check(item.scroll<=item.width+2,'control fits '+target);
+   for(const item of await section.locator('button,input').evaluateAll(els=>els.map(el=>({height:el.clientHeight,scroll:el.scrollHeight}))))check(item.scroll<=item.height+2,'control text fits its height '+target+': '+JSON.stringify(item));
   }
   await open('updates');const settingsPage=page.locator('[data-device-page="updates"]');
+  await settingsPage.getByRole('button',{name:'Open model catalog',exact:true}).click();
+  const modelDialog=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Upstream models',exact:true})});
+  await modelDialog.waitFor();
+  const geometry=await modelDialog.evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),scroll:el.scrollHeight,height:el.clientHeight,vh:innerHeight,scrollers:[...el.querySelectorAll('*')].filter(node=>getComputedStyle(node).overflowY.match(/auto|scroll/)).map(node=>({height:node.clientHeight,scroll:node.scrollHeight}))}));
+  console.log('Model picker geometry',scenario.w,geometry);
+  check(geometry.rect.top>=-1&&geometry.rect.bottom<=geometry.vh+1,'model catalog dialog remains within the viewport');
+  const scrollable=await modelDialog.locator('*').evaluateAll(els=>els.some(el=>el.scrollHeight>el.clientHeight+30&&/auto|scroll/.test(getComputedStyle(el).overflowY)));
+  check(scrollable,'long upstream catalog provides a bounded scroll container');
+  const modelScroll=modelDialog.locator('[data-native-dialog-body]');const scrollRect=await modelScroll.boundingBox();
+  const touch=await context.newCDPSession(page);
+  // Use actual touch events for scaled mobile viewports, retaining the real scroll assertion.
+  console.log('Touch viewport geometry',{scrollRect,viewport:await page.evaluate(()=>({width:innerWidth,height:innerHeight,scale:visualViewport?.scale,visualWidth:visualViewport?.width,visualHeight:visualViewport?.height}))});
+  const x=scrollRect.x+scrollRect.width/2,startY=scrollRect.y+scrollRect.height*.75,distance=Math.min(180,scrollRect.height*.5);
+  await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:startY}]});
+  for(let step=1;step<=12;step++){await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:startY-distance*step/12}]});await sleep(20);}
+  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await page.waitForFunction(()=>document.querySelector('[data-native-dialog-body]')?.scrollTop>0);
+  check(await modelScroll.evaluate(el=>el.scrollTop>0),'a touch swipe scrolls the upstream catalog');await touch.detach();
+  await modelDialog.getByRole('button',{name:/^upstream-model-60 /}).click();
+  await settingsPage.getByRole('button',{name:'Selected model 60',exact:true}).waitFor();
+  check(true,'last upstream model is reachable and selection reaches the Java controller');
   await settingsPage.getByRole('button',{name:'Open details',exact:true}).click();
   await page.getByRole('heading',{name:'Operation details',exact:true}).waitFor();
   check(await page.getByText('Operation details',{exact:true}).count()===1,'nested native dialog uses its own title without a repeated body heading');
@@ -84,6 +110,15 @@ try{
   await open('sessions');await page.locator('.dsh-device-sessions').waitFor();check(await page.locator('.dsh-device-sessions').getByRole('button',{name:scenario.lang==='en'?'New conversation':'新建对话',exact:true}).isVisible(),'session manager integrated');
   await open('models');await page.getByRole('heading',{name:scenario.lang==='en'?'Import CodeBuddy CLI connection':'导入 CodeBuddy CLI 连接',exact:true}).waitFor();
   if(process.env.DSH_SETTINGS_EVIDENCE_DIR)await page.screenshot({path:path.join(process.env.DSH_SETTINGS_EVIDENCE_DIR,'settings-models-'+scenario.w+'.png')});
+  const modelBounds=await page.locator('[data-device-slot="models"]').evaluate(el=>({width:el.clientWidth,scroll:el.scrollWidth,controls:[...el.querySelectorAll('button')].map(button=>({width:button.clientWidth,height:button.clientHeight,scrollWidth:button.scrollWidth,scrollHeight:button.scrollHeight}))}));
+  check(modelBounds.scroll<=modelBounds.width+1,'model extensions fit their settings column');
+  for(const control of modelBounds.controls)check(control.scrollWidth<=control.width+2&&control.scrollHeight<=control.height+2,'model action text is neither clipped nor overflowing: '+JSON.stringify(control));
+  for(const label of await page.locator('.dsh-settings-desktop-nav>span').all()){
+   if(await label.isVisible())check(await label.evaluate(el=>el.scrollWidth<=el.clientWidth+1&&el.scrollHeight<=el.clientHeight+1),'expanded-text navigation labels remain fully readable');
+  }
+  const documentAction=page.locator('[data-settings-open-document]');
+  check(await documentAction.isVisible(),'original settings document action retains its real entry');
+  check(await documentAction.evaluate(el=>el.scrollHeight<=el.clientHeight+2&&el.scrollWidth<=el.clientWidth+2),'original configuration action fits enlarged text');
   await page.getByRole('button',{name:scenario.lang==='en'?'Project models & catalog sync':'项目模型与目录同步',exact:true}).click();await page.locator('[data-device-page="models"]').getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();checks++;
   if(scenario.lang==='en'){
    await page.getByRole('button',{name:'Import connection',exact:true}).click();

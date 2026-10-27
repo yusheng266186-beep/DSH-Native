@@ -3,6 +3,7 @@ import { readFile as androidReadFile, writeFile as androidWriteFile, rename as a
     open as androidOpen, unlink as androidUnlink } from 'node:fs/promises';
 import { homedir as androidHome } from 'node:os';
 import { WorkspaceActiveSessionError as AndroidActiveSession } from '@deepseek-ai/dsh-workspace';
+import { parse as androidParseSettings } from 'yaml';
 
 // Deletion is a durable, recoverable trash operation. Session files stay owned
 // by the core; the App never edits a live log or removes a workspace directory.
@@ -88,6 +89,46 @@ function androidInstallSessionTools(Controller) {
         };
     }
     const methods = {
+        androidApplyModelSettings: async function() {
+            const pending = resolve(androidTrashState(this).directory, 'settings.yaml');
+            let source, consumed = false;
+            try {
+                const file = await androidOpen(pending, 'r');
+                try {
+                    if ((await file.stat()).size > 2 * 1024 * 1024) throw new Error('model settings too large');
+                    source = await file.readFile('utf8');
+                } finally { await file.close(); }
+                const document = androidParseSettings(source, {maxAliasCount: 0});
+                if (!document || typeof document !== 'object' || Array.isArray(document)) throw new Error('invalid model settings');
+                // Apply only managed volatile model fields through the core's own
+                // editor. Its validation, persistence and change events stay authoritative.
+                const allowed = {'llm-pi-ai':['providers'], 'llm-deepseek-api-key':['models','apiKeyEnv'],
+                    'agent-default-model':['provider','model','reasoningEffort']};
+                if (!this.ctx.get('settings')) throw new Error('live settings unavailable');
+                // Match the core importer: move the pending document before any
+                // profile edit can activate a fresh settings service and import it again.
+                await androidRename(pending, pending + '.imported'); consumed = true;
+                const applied = [];
+                for (const [ns, fields] of Object.entries(allowed)) {
+                    const settings = this.ctx.get('settings');
+                    const value = document[ns], descriptor = settings.describe().find(row => String(row.ns) === ns);
+                    if (!value || typeof value !== 'object' || !descriptor) continue;
+                    const patch = Object.fromEntries(fields.filter(key => Object.hasOwn(value,key)).map(key => [key,value[key]]));
+                    if (!Object.keys(patch).length) continue;
+                    await settings.update(ns, patch);
+                    await this.ctx.root.loader.await();
+                    applied.push(ns);
+                }
+                if (!applied.includes('agent-default-model')) throw new Error('default model settings unavailable');
+                return {applied};
+            } catch (error) {
+                if (consumed) {
+                    try { await androidWriteFile(pending, source, {flag:'wx',mode:0o600}); }
+                    catch (restoreError) { if (restoreError?.code !== 'EEXIST') throw new RemoteError('settings/rejected', 'Model settings remain in the private imported backup. Retry after checking storage.', {}); }
+                }
+                throw new RemoteError('settings/rejected', 'Saved model settings could not be applied. Refresh and retry.', {});
+            }
+        },
         androidList: async function(_request, signal) {
             const [result, trash] = await Promise.all([rawList(this, signal), androidReadTrash(this)]);
             const archived = new Set(this.ctx.workspaceRegistry.archivedSessionIds);

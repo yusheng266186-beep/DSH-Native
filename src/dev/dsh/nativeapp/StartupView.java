@@ -115,10 +115,10 @@ final class StartupView extends FrameLayout {
             super(activity);
             int id = activity.getResources().getIdentifier("dsh_startup_whale", "drawable", activity.getPackageName());
             mark = activity.getDrawable(id).mutate();
-            mark.setTint(DshUi.BRAND()); mark.setBounds(8, -5, 96, 83);
-            water.setColor(DshUi.BRAND()); water.setAlpha(65);
-            water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(1.4f); water.setStrokeCap(Paint.Cap.ROUND);
-            bubbles.setColor(DshUi.BRAND()); bubbles.setAlpha(100);
+            mark.setTint(DshUi.BRAND()); mark.setBounds(18, 0, 86, 68);
+            water.setColor(DshUi.BRAND()); water.setAlpha(42);
+            water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(1.1f); water.setStrokeCap(Paint.Cap.ROUND);
+            bubbles.setColor(DshUi.BRAND()); bubbles.setAlpha(65);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         @Override protected void onDraw(Canvas canvas) {
@@ -128,13 +128,13 @@ final class StartupView extends FrameLayout {
             canvas.save();
             canvas.translate((getWidth() - 104f * unit) / 2f, (getHeight() - 84f * unit) / 2f);
             canvas.scale(unit, unit);
-            wake.reset(); wake.moveTo(23, 77);
-            wake.cubicTo(35, 75 + swim, 47, 79 - swim, 59, 77);
-            wake.moveTo(66, 77); wake.cubicTo(71, 76 - swim, 77, 78 + swim, 82, 77);
+            wake.reset(); wake.moveTo(34, 70);
+            wake.cubicTo(42, 69 + .5f * swim, 49, 71 - .5f * swim, 56, 70);
+            wake.moveTo(62, 70); wake.cubicTo(65, 69.5f - .5f * swim, 69, 70.5f + .5f * swim, 72, 70);
             canvas.drawPath(wake, water);
-            canvas.drawCircle(97, 21 - 1.5f * swim, 1.3f, bubbles);
-            canvas.drawCircle(100, 30 + 1.5f * swim, .9f, bubbles);
-            canvas.save(); canvas.translate(0, -2f * swim); canvas.rotate(-2.4f * swim, 52, 42);
+            canvas.drawCircle(89, 20 - swim, .8f, bubbles);
+
+            canvas.save(); canvas.translate(0, -.7f * swim); canvas.rotate(-.8f * swim, 52, 34);
             mark.draw(canvas); canvas.restore(); canvas.restore();
         }
     }

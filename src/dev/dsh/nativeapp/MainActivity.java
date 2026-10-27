@@ -575,6 +575,7 @@ public class MainActivity extends Activity {
                 if (!WebUrl.isCoreUrl(url, savedDshPort())) {
                     return;
                 }
+                startupTiming.mark("page", android.os.SystemClock.elapsedRealtime());
                 if (!splashHidden) view.evaluateJavascript(StartupState.script(startupState.generation()), null);
                 // 注入必须**每次页面加载都做**，不能只做一次。
                 //
@@ -922,6 +923,7 @@ public class MainActivity extends Activity {
 
     /** Every preparation failure, including early returns, exposes retry and logs immediately. */
     private void showBootFailure(final String reason) {
+        startupTiming.mark("failed", android.os.SystemClock.elapsedRealtime());
         log("启动未完成: " + reason);
         try {
             final boolean payloadFailure = isPayloadFailure(reason);
@@ -977,7 +979,15 @@ public class MainActivity extends Activity {
     private String boot() throws Exception {
         final File root = new File(getFilesDir(), "dsh");
         appRoot = root;
+        preparedRuntimeValid = false;
         log("私有目录: " + root);
+        File configHome = new File(root, ".dsh");
+        if (ConfigBackup.hasInterruptedRestore(configHome)) {
+            if (!HarnessService.stopManagedProcessAndWait(5000L))
+                throw new IOException("配置恢复等待原内核退出，请稍后重试");
+            ConfigBackup.recoverInterruptedRestore(configHome);
+            log("已恢复上次中断前的完整配置");
+        }
 
         if (!supportsArm64Runtime()) {
             return "此版本只包含 arm64-v8a 运行环境；当前设备架构为 "
@@ -1002,21 +1012,33 @@ public class MainActivity extends Activity {
 
         startHarnessService();
 
+        if (PayloadRollback.interruptedMode(root) == null && reuseOrStopPreviousAppCore()) return null;
+
         // Reopening the Activity must not traverse and rewrite the runtime before
         // checking a core which this exact version has already prepared.
         File dshDir = new File(root, "dsh");
         File toolsDir = new File(root, "tools");
         File node = new File(root, "node");
-        if (reusePreparedCore(root, dshDir, toolsDir, node)) return null;
+        String interruptedPayload = PayloadRollback.interruptedMode(root);
+        if ("update".equals(interruptedPayload) || "restore".equals(interruptedPayload)) {
+            setSplashStatus("正在恢复中断前的运行环境…");
+            extractAssets(root);
+            chmod(node, "755");
+            restorePayloadRollback(node, root, true);
+            log("已恢复上次中断的运行包操作，自动更新暂缓");
+        }
+        boolean interruptedFirstInstall = "fresh".equals(interruptedPayload);
+        if (!interruptedFirstInstall && reusePreparedCore(root, dshDir, toolsDir, node)) return null;
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
         chmod(node, "755");
+        startupTiming.mark("assets", android.os.SystemClock.elapsedRealtime());
 
         // 前置自检：先确认能否执行自带的 Node。
         // 这一步是整个架构成立的前提（Android 10+ 对 targetSdk>=29 的 App
         // 禁止 exec 私有目录文件）。放在下载之前，可以快速失败并给出明确原因。
-        if (!probeNodeExec(node)) {
+        if (!preparedRuntimeValid && !probeNodeExec(node)) {
             // 这是**非异常**路径，必须显式返回原因 ——
             // 它曾经静默 return：用户看到的是永久白屏（开屏一直转圈、不可点），
             // 而"报错给用户看"的代码全都写在抛异常那条分支里，根本不会执行。
@@ -1035,7 +1057,7 @@ public class MainActivity extends Activity {
         // 直连超时的情况下最多 35 秒（15s 连接 + 20s 读取）才开始走镜像。
         // 现在改成：本地完整就直接启动，更新检查放到后台；
         // 若后台发现有更新，记一个标记，**下次启动时**再真正应用。
-        boolean locallyComplete = payloadLocallyComplete(dshDir, toolsDir);
+        boolean locallyComplete = !interruptedFirstInstall && payloadLocallyComplete(dshDir, toolsDir);
         boolean updatePending = payloadUpdatePending()
                 || (locallyComplete && validatePayloadManifest(new File(root, "manifest.json")) != null);
         boolean rollbackHold = payloadRollbackHold();
@@ -1060,7 +1082,8 @@ public class MainActivity extends Activity {
                 // 保留旧运行包继续启动，后台稍后会重新检查；首次安装则仍要报错。
                 // 五 D 的自动恢复完成后再复核关键文件；若恢复本身也失败，绝不能
                 // 继续拿“更新前曾经完整”这个旧结论启动一套可能已损坏的环境。
-                if (!locallyComplete || !payloadLocallyComplete(dshDir, toolsDir)) {
+                if (!locallyComplete || PayloadRollback.interruptedMode(root) != null
+                        || !payloadLocallyComplete(dshDir, toolsDir)) {
                     if (updateError instanceof Exception) throw (Exception) updateError;
                     throw new Exception(updateError);
                 }
@@ -1072,11 +1095,18 @@ public class MainActivity extends Activity {
         }
 
 
+        startupTiming.mark("runtime", android.os.SystemClock.elapsedRealtime());
         // 2.4 应用 Android 专项补丁（sharp 优雅降级等）
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
-        int toolsRepaired = ToolEnvironment.repair(root);
-        log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
-        applyAndroidPatches(root, dshDir);
+        if (!preparedRuntimeValid) {
+            int toolsRepaired = ToolEnvironment.repair(root);
+            log("  工具环境已准备，修复命令/解释器：" + toolsRepaired + " 项");
+            applyAndroidPatches(root, dshDir);
+        } else {
+            preparedCoreReused = true;
+            log("[启动] 本版运行环境已经准备完成，跳过重复补丁扫描");
+        }
+        startupTiming.mark("compat", android.os.SystemClock.elapsedRealtime());
         log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
         // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
@@ -1103,6 +1133,7 @@ public class MainActivity extends Activity {
             else log("运行环境仍有未通过项，下次启动会重新检查");
         }
 
+        startupTiming.mark("preflight", android.os.SystemClock.elapsedRealtime());
         // 3. 准备 DSH 配置（若不存在）
         run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
         prepareConfig(root);
@@ -1118,7 +1149,7 @@ public class MainActivity extends Activity {
         // 这就是「关掉再打开要等很久」的真正原因。
         //
         // 复用它：直接连上去，跳过整个启动过程。
-        int live = liveDshPort();
+        int live = preparedRuntimeValid ? 0 : liveDshPort();
         if (live > 0) {
             if (!appVersion().equals(getSharedPreferences(PREFS, MODE_PRIVATE).getString("coreAppVersion", "")))
                 return "运行中的 DSH 尚未加载本版修复，请点击「重试启动」重启内核";
@@ -1238,6 +1269,7 @@ public class MainActivity extends Activity {
         String expectedModelSettings = needsLegacyImport ? ProjectModelSettings.readFile(legacySettings) : "";
         Process started = pb.start();
         HarnessService.adoptProcess(started);
+        startupTiming.mark("process", android.os.SystemClock.elapsedRealtime());
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("coreAppVersion", appVersion()).apply();
         log("dsh web 已启动并交由前台服务监管 (pid " + pidOf(started) + ")");
 
@@ -1278,6 +1310,7 @@ public class MainActivity extends Activity {
 
     private boolean payloadCheckAfterStartup;
     private boolean preparedCoreReused;
+    private boolean preparedRuntimeValid;
 
     private String preparedRuntimeKey(File root) {
         StringBuilder key = new StringBuilder(StartupReuse.key(appVersion(), payloadRevisionKey(),
@@ -1304,6 +1337,28 @@ public class MainActivity extends Activity {
         return new File(root, "tmp").isDirectory();
     }
 
+    /** Upgrade an owned idle core before touching its runtime; active work keeps its old UI. */
+    private boolean reuseOrStopPreviousAppCore() throws Exception {
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!HarnessService.isManagedProcessAlive() || appVersion().equals(prefs.getString("coreAppVersion", ""))) return false;
+        String url = HarnessService.managedUrl();
+        if (url == null) throw new IOException("已有内核正在启动，请稍后重试");
+        CoreRpcClient probe = CoreRpcClient.fromLaunchUrl(url);
+        int state = SessionStatus.UNKNOWN;
+        try { state = CoreTaskState.read(probe); }
+        catch (IOException unavailable) { log("升级前任务状态暂不可读，保留已有服务"); }
+        finally { probe.close(); }
+        if (state != SessionStatus.IDLE) {
+            log("升级准备延后：已有任务运行或状态未知，先连接原内核");
+            loadDshUi(url);
+            return true;
+        }
+        if (!HarnessService.stopManagedProcessAndWait(5000L)) throw new IOException("旧内核尚未退出，请稍后重试");
+        prefs.edit().remove("dshPort").remove("dshToken").remove("corePreparedKey").apply();
+        log("已安全退出空闲旧内核，继续准备本版环境");
+        return false;
+    }
+
     /** A failed proof/probe always falls through to the complete preparation path. */
     private boolean reusePreparedCore(File root, File dshDir, File toolsDir, File node) {
         try {
@@ -1317,6 +1372,7 @@ public class MainActivity extends Activity {
                     || !runtimeAssetsPresent(root) || !appVersion().equals(prefs.getString("coreAppVersion", ""))
                     || !(payloadRevisionKey() + "/" + appVersion() + "/"
                             + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
+            preparedRuntimeValid = true;
             int live = liveDshPort();
             if (live <= 0) return false;
             nodeRef = node; toolsDirRef = toolsDir; chosenPort = live;
@@ -1367,6 +1423,7 @@ public class MainActivity extends Activity {
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
     private void loadDshUi(String url) {
+        startupTiming.mark("server", android.os.SystemClock.elapsedRealtime());
         log("界面就绪: " + briefUrl(url));
         rememberDsh(url);
         final String target = url;
@@ -1436,10 +1493,8 @@ public class MainActivity extends Activity {
         String token = savedDshToken();
         if (token == null || token.length() == 0) return 0;
         int saved = savedDshPort();
-        // 先试上次记录的那个端口，再扫常见的这一段
-        int[] candidates = new int[12];
-        candidates[0] = saved;
-        for (int i = 0; i < 11; i++) candidates[i + 1] = PORT + i;
+        // Token 属于保存的实例；不为已退出的内核逐个探测无关端口。
+        int[] candidates = new int[]{saved};
         for (int port : candidates) {
             if (port <= 0) continue;
             if (!portOpen(port)) continue;
@@ -1713,6 +1768,7 @@ public class MainActivity extends Activity {
                 }
                 scheduleReloadIfStuck();
             } else if (state == ConnectionRecovery.CONNECTED) {
+                startupTiming.mark("core", android.os.SystemClock.elapsedRealtime());
                 connectionState = state;
                 if (previous != state || connectionLostAt != 0L) {
                     log("[连接] WebSocket 已连接（" + source + "）");
@@ -1737,7 +1793,7 @@ public class MainActivity extends Activity {
 
     /** 若连接在若干秒内没有恢复，自动刷新页面。 */
     private void scheduleReloadIfStuck() {
-        if (reloadScheduled) return;
+        if (reloadScheduled || activityDisposing || !inForeground) return;
         reloadScheduled = true;
         final long lostAt = connectionLostAt;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
@@ -1745,9 +1801,10 @@ public class MainActivity extends Activity {
                 try {
                     // 期间恢复过就不动
                     if (connectionLostAt == 0 || connectionLostAt != lostAt) return;
+                    if (activityDisposing || !inForeground) { reloadScheduled = false; return; }
                     long sec = (System.currentTimeMillis() - lostAt) / 1000;
 
-                    boolean taskActive = lastSessionStatus != SessionStatus.IDLE
+                    boolean taskActive = deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
                             || taskTimeline.active() != null;
                     // 任务正在跑时**绝不刷新**。
                     // 刷新会丢掉滚动位置、输入框内容和展开的面板，而 agent
@@ -1767,7 +1824,7 @@ public class MainActivity extends Activity {
                         pushStatus(lastSessionStatus);
                         return;
                     }
-                    if (!ConnectionRecovery.shouldReload(false,
+                    if (!ConnectionRecovery.shouldReload(false, inForeground, activityDisposing,
                             System.currentTimeMillis() - lostAt, autoReloadCount)) {
                         reloadScheduled = false;
                         return;
@@ -1979,6 +2036,7 @@ public class MainActivity extends Activity {
     private StartupView splashView;
     private final StartupState startupState = new StartupState();
     private volatile long launchStartedAt = android.os.SystemClock.elapsedRealtime();
+    private volatile StartupState.Timing startupTiming = new StartupState.Timing(launchStartedAt);
     private Runnable startupTimeout;
     /** 顶部 WebView 加载进度条（2dp）。 */
     private android.widget.ProgressBar topProgress;
@@ -2644,7 +2702,9 @@ public class MainActivity extends Activity {
         PayloadRollback.Journal journal = loadPayloadRollback(root);
         if (journal == null) throw new IOException("没有完整且可信的运行环境快照");
         File rollback = new File(root, "payload-rollback");
-        HarnessService.stopManagedProcess();
+        if (!HarnessService.stopManagedProcessAndWait(5000L))
+            throw new IOException("恢复运行包前原内核尚未退出，请稍后重试");
+        PayloadRollback.beginChange(root, "restore");
 
         for (PayloadRollback.Target target : journal.targets) {
             File current = new File(root, target.name);
@@ -2674,6 +2734,7 @@ public class MainActivity extends Activity {
         }
 
         restorePayloadRevisionState(journal.revisions);
+        PayloadRollback.completeChange(root);
         try { deleteRuntimeChild(rollback, root); }
         catch (Throwable cleanupError) {
             log("回滚完成，但无法清理已使用的快照: " + shorten(cleanupError));
@@ -2902,6 +2963,7 @@ public class MainActivity extends Activity {
                             .add("UI language", UiText.isEnglish() ? "en" : "zh")
                             .add("Text zoom", currentZoom() + "%")
                             .add("Web page loaded", dshPageLoaded)
+                            .add("Startup milestones from launch", startupTiming.summary())
                             .section("Device")
                             .add("Manufacturer", android.os.Build.MANUFACTURER)
                             .add("Model", android.os.Build.MODEL)
@@ -4631,6 +4693,7 @@ public class MainActivity extends Activity {
     private boolean ensurePayload(File node, File root, File dshDir, File toolsDir)
             throws Exception {
         File mf = refreshPayloadManifest(root);
+        boolean interruptedFirstInstall = "fresh".equals(PayloadRollback.interruptedMode(root));
 
         org.json.JSONObject man = new org.json.JSONObject(readText(mf));
         org.json.JSONArray parts = man.getJSONArray("parts");
@@ -4663,7 +4726,7 @@ public class MainActivity extends Activity {
                 for (int k = 0; k < ra.length(); k++) rm.add(ra.optString(k, ""));
             }
             PayloadUpdate.Part info = new PayloadUpdate.Part(name, rev, matched, rm);
-            if (PayloadUpdate.needsWork(info, applied)) {
+            if (interruptedFirstInstall || PayloadUpdate.needsWork(info, applied)) {
                 missing.add(name);
                 changedTargets.add(part.getString("target"));
                 java.util.List<String> del = PayloadUpdate.removalsFor(info, applied);
@@ -4698,7 +4761,7 @@ public class MainActivity extends Activity {
         }
         long updateRequiredBytes = PayloadUpdate.requiredFreeBytes(
                 compressedBytes, cachedBytes, unpackedBytes);
-        boolean rollbackNeeded = payloadLocallyComplete(dshDir, toolsDir);
+        boolean rollbackNeeded = !interruptedFirstInstall && payloadLocallyComplete(dshDir, toolsDir);
         long liveTargetBytes = 0L;
         if (rollbackNeeded) {
             if (changedTargets.contains("dsh")) liveTargetBytes += directorySizeNoFollow(dshDir);
@@ -4765,10 +4828,12 @@ public class MainActivity extends Activity {
         boolean rollbackCreated = false;
         if (rollbackNeeded) {
             setSplashStatus("正在保存上一运行环境…");
-            HarnessService.stopManagedProcess();
+            if (!HarnessService.stopManagedProcessAndWait(5000L))
+                throw new IOException("更新运行包前原内核尚未退出，请稍后重试");
             createPayloadRollback(node, root, changedTargets, appliedRevs);
             rollbackCreated = true;
         }
+        PayloadRollback.beginChange(root, rollbackCreated ? "update" : "fresh");
         try {
             for (int i = 0; i < parts.length(); i++) {
                 org.json.JSONObject part = parts.getJSONObject(i);
@@ -4822,6 +4887,7 @@ public class MainActivity extends Activity {
         // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
         // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
         rememberPayloadRevisions(parts, dshDir, toolsDir);
+        PayloadRollback.completeChange(root);
         setPayloadRollbackHold(false);
         return false;
     }
@@ -5128,7 +5194,7 @@ public class MainActivity extends Activity {
     }
 
     private void publishAppSettingsState() {
-        if (webView == null || !WebUrl.isCoreUrl(viewUrl(), savedDshPort())) return;
+        if (!inForeground || activityDisposing || webView == null || !WebUrl.isCoreUrl(viewUrl(), savedDshPort())) return;
         try {
             org.json.JSONObject state = new org.json.JSONObject();
             state.put("version", appVersion());
@@ -5500,14 +5566,12 @@ public class MainActivity extends Activity {
             @Override public void log(String message) { MainActivity.this.log(message); }
 
             @Override public void refreshModelCatalog() {
-                // A plain WebView reload is not enough here: the long-lived DSH
-                // process can still hold the provider topology/model directory
-                // created at boot. Restart the idle runtime so the settings
-                // seam is read from disk before the WebUI builds its selector.
+                modelCatalogApplyFailed = false;
+                // The core owns live model namespaces and publishes catalog changes.
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                         .putBoolean("modelCatalogPending", true).apply();
                 if (lastSessionStatus != SessionStatus.IDLE || taskTimeline.active() != null) {
-                    log("模型目录已写入 DSH；当前任务运行中，暂不重启运行时（状态未知也延后）");
+                    log("模型目录已写入 DSH；任务运行或状态未知，等待空闲后应用");
                     toast(UiText.t("模型目录已保存，确认空闲后自动应用",
                             "Model catalog saved; it will apply automatically when DSH is idle."));
                     return;
@@ -6113,6 +6177,16 @@ public class MainActivity extends Activity {
         });
         body.addView(network, DshUi.fullWidth(this, 8));
 
+        android.widget.Button privacy = DshUi.button(this,
+                UiText.t("隐私与开源说明", "Privacy & open source"), false);
+        privacy.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                if (parentPanel[0] != null) parentPanel[0].dismiss();
+                showPrivacyAndLicenses();
+            }
+        });
+        body.addView(privacy, DshUi.fullWidth(this, 16));
+
         android.widget.Button back = DshUi.button(this, "返回", true);
         final android.app.Dialog dialog = DshUi.dialog(this,
                 DshUi.scroll(this, body), DshUi.footer(this, back), 560);
@@ -6130,6 +6204,39 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+    private void showPrivacyAndLicenses() {
+        android.widget.LinearLayout body = DshUi.paddedBody(this);
+        body.addView(DshUi.title(this, UiText.t("隐私与开源说明", "Privacy & open source")));
+        body.addView(DshUi.hint(this, UiText.t(
+                "对话、所选附件和工具结果会发给你选择的模型服务商。语音由 Android 当前识别引擎处理；截图、剪贴板和分享按你的操作调用。服务商与外部应用适用各自的数据规则。",
+                "Conversations, selected attachments and tool results go to your chosen model provider. Voice uses your Android recognition engine. Capture, clipboard and sharing follow explicit operations. Providers and other apps apply their own data policies.")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "凭据与配置恢复保护记录保存在私有目录。诊断只由你主动导出，不包含凭据、配置、会话正文、附件、项目文件或 CodeBuddy 私有状态；分享前可自行查看。加密配置备份不包含完整历史和项目。",
+                "Credentials and configuration recovery records stay private. Diagnostics are exported only on request and exclude credentials, settings, conversation content, attachments, projects and private CodeBuddy state. Review before sharing. Encrypted configuration backups do not contain full history or projects.")), DshUi.fullWidth(this, 12));
+        body.addView(DshUi.hint(this, UiText.t(
+                "DSH Native 的 MIT 许可不覆盖所有依赖。DSH、CodeBuddy、Node、共享库及工具保留各自许可；APK 随附原许可文本与固定依赖清单。",
+                "DSH Native's MIT license does not cover every dependency. DSH, CodeBuddy, Node, shared libraries and tools retain their licenses. The APK includes license texts and a locked dependency inventory.")), DshUi.fullWidth(this, 12));
+        for (final String page : new String[]{"PRIVACY", "THIRD_PARTY"}) {
+            android.widget.Button more = DshUi.button(this, "PRIVACY".equals(page)
+                    ? UiText.t("完整隐私说明", "Full privacy details") : UiText.t("组件、许可与来源", "Components, licenses & sources"), false);
+            more.setOnClickListener(new android.view.View.OnClickListener() {
+                @Override public void onClick(android.view.View v) {
+                    handleUrl("https://github.com/" + REPO + "/blob/main/docs/" + page + ".md");
+                }
+            });
+            body.addView(more, DshUi.fullWidth(this, 12));
+        }
+        android.widget.Button back = DshUi.button(this, UiText.t("返回", "Back"), true);
+        final android.app.Dialog dialog = DshUi.dialog(this, DshUi.scroll(this, body), DshUi.footer(this, back), 560);
+        back.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override public void onClick(android.view.View v) {
+                DshUi.swapDialog(dialog, true, new Runnable() { @Override public void run() { showDiagnosticsSettings(); } });
+            }
+        });
+        DshUi.onBack(dialog, new Runnable() { @Override public void run() { showDiagnosticsSettings(); } });
+        dialog.show();
+    }
+
     /** 设置页里的「标签 + 输入框」组合。 */
     private android.widget.EditText addField(android.widget.LinearLayout body,
                                              String label, String value,
@@ -6144,31 +6251,33 @@ public class MainActivity extends Activity {
         restartAgent(UiText.t("正在重启服务…", "Restarting service…"));
     }
 
-    private boolean modelCatalogRestartScheduled;
+    private boolean modelCatalogApplying;
+    private boolean modelCatalogApplyFailed;
 
     private void applyPendingModelCatalog() {
-        if (modelCatalogRestartScheduled || lastSessionStatus != SessionStatus.IDLE
+        if (modelCatalogApplying || modelCatalogApplyFailed || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
                 || taskTimeline.active() != null || !getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getBoolean("modelCatalogPending", false)) return;
-        modelCatalogRestartScheduled = true;
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override public void run() {
-                modelCatalogRestartScheduled = false;
-                if (isFinishing() || isDestroyed() || lastSessionStatus != SessionStatus.IDLE
-                        || taskTimeline.active() != null) return;
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putBoolean("modelCatalogPending", false).apply();
-                try {
-                    lastSessionStatus = SessionStatus.UNKNOWN;
-                    restartAgent(UiText.t("正在应用上游模型目录…", "Applying the upstream model catalog…"));
-                    log("已应用模型目录，正在重启空闲 DSH 并刷新 WebUI");
-                } catch (Throwable error) {
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                            .putBoolean("modelCatalogPending", true).apply();
-                    log("应用模型目录失败: " + shorten(error));
+        final NativeCoreApi api = coreApi();
+        if (api == null) return;
+        modelCatalogApplying = true;
+        api.execute(new NativeCoreApi.Work() {
+            @Override public Object run() throws Exception {
+                return api.call("session/androidApplyModelSettings", new org.json.JSONObject());
+            }
+        }, new NativeCoreApi.Callback() {
+            @Override public void complete(Object value, Throwable failure) {
+                modelCatalogApplying = false;
+                if (failure == null) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("modelCatalogPending", false).apply();
+                    log("模型目录已在当前内核中应用，保持界面和连接");
+                } else {
+                    modelCatalogApplyFailed = true;
+                    log("模型目录尚未应用: " + failure.getClass().getSimpleName());
+                    toast(UiText.t("模型已保存，但当前内核未能应用；可再次刷新重试", "Models saved, but not applied to the current core. Refresh again to retry."));
                 }
             }
-        }, 1200L);
+        });
     }
 
     private void restartAgent(final String progressMessage) {
@@ -6179,6 +6288,7 @@ public class MainActivity extends Activity {
         dshPageLoaded = false;
         splashHidden = false;
         launchStartedAt = android.os.SystemClock.elapsedRealtime();
+        startupTiming = new StartupState.Timing(launchStartedAt);
         runOnUiThread(new Runnable() {
             @Override public void run() {
                 if (splashView != null) {
@@ -6526,8 +6636,10 @@ public class MainActivity extends Activity {
         return DshUi.startup(this, new Runnable() {
             @Override public void run() {
                 splashHidden = true;
+                startupTiming.mark("handoff", android.os.SystemClock.elapsedRealtime());
                 cancelStartupTimeout();
                 log("[启动] 交接完成 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
+                log("[dsh-perf] startup " + startupTiming.summary());
                 finishStartupMaintenance();
                 dispatchStartupActions();
             }
@@ -6581,6 +6693,7 @@ public class MainActivity extends Activity {
             @Override public void onComplete(long requestId) {
                 if (isFinishing() || isDestroyed() || webView != view
                         || !startupState.painted(requestId)) return;
+                startupTiming.mark("paint", android.os.SystemClock.elapsedRealtime());
                 updateSplashReady();
             }
         });
@@ -7812,7 +7925,7 @@ public class MainActivity extends Activity {
             w.write("设备: " + android.os.Build.MODEL + " / Android "
                     + android.os.Build.VERSION.RELEASE + " (SDK "
                     + android.os.Build.VERSION.SDK_INT + ")\n");
-            w.write("APK 版本: 0.40.2\n");
+            w.write("APK 版本: 1.0.0\n");
             w.write("路径: " + sharedLog.getAbsolutePath() + "\n");
             w.write("说明: 本文件位于应用私有目录；主动导出时会再次脱敏。\n\n");
             w.close();
@@ -8009,6 +8122,8 @@ public class MainActivity extends Activity {
         if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
+        publishAppSettingsState();
+        if (connectionLostAt > 0L && ConnectionRecovery.isProblem(connectionState)) scheduleReloadIfStuck();
         try {
             if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('dsh-native-resume'));", null);
         } catch (Throwable error) { log("前台连接复核失败: " + error.getClass().getSimpleName()); }

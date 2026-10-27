@@ -32,7 +32,8 @@ currentPayloadTag() {
             | head -1 | sed -E 's|releases/download/([^/]+)/|\1|'
         return 0
     done
-    echo "payload-v7"
+    echo "[FAIL] 源码缺少运行包标签" >&2
+    return 1
 }
 
 
@@ -56,8 +57,10 @@ cd "$(dirname "$0")/.."
 APK="${BUILD_DIR}/bootstrap/DSHNative-bootstrap.apk"
 [ -f "$APK" ] || { echo "[FAIL] 找不到 APK: $APK"; exit 1; }
 
-SHA=$(sha256sum "$APK" | cut -d' ' -f1)
-SIZE=$(stat -c%s "$APK")
+SHA=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$APK")
+SIZE=$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "$APK")
+RELEASE_TMP="$(mktemp -d)"
+trap 'rm -rf "$RELEASE_TMP"' EXIT
 echo "  版本:   $VER  ($TAG)"
 echo "  通道:   $CHANNEL"
 echo "  APK:    $SIZE 字节"
@@ -72,15 +75,15 @@ fi
 # 2) 上传
 echo "  上传中 …"
 if [ -n "$NOTES" ] && [ -f "$NOTES" ]; then
-    EXTRA=()
+    EXTRA=(--repo "$REPO")
     [ "$CHANNEL" = "test" ] && EXTRA+=(--prerelease)
-    gh release create "$TAG" --repo "$REPO" "${EXTRA[@]}" \
+    gh release create "$TAG" "${EXTRA[@]}" \
         --title "$TITLE" \
         --notes-file "$NOTES" "$APK"
 else
-    EXTRA=()
+    EXTRA=(--repo "$REPO")
     [ "$CHANNEL" = "test" ] && EXTRA+=(--prerelease)
-    gh release create "$TAG" --repo "$REPO" "${EXTRA[@]}" \
+    gh release create "$TAG" "${EXTRA[@]}" \
         --title "$TITLE" \
         --notes "见仓库 README 与 git log。" "$APK"
 fi
@@ -89,6 +92,10 @@ fi
 ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets \
          --jq '.assets[] | select(.name=="'"$APK_NAME"'") | .size' 2>/dev/null || true)
 [ -n "$ASSETS" ] || { echo "[FAIL] release 已建但资产未上传，**不要更新 latest.json**"; exit 1; }
+[ "$ASSETS" = "$SIZE" ] || { echo "[FAIL] 已上传资产大小不一致，**不要更新清单**"; exit 1; }
+REMOTE_DIGEST=$(gh release view "$TAG" --repo "$REPO" --json assets \
+    --jq '.assets[] | select(.name=="'"$APK_NAME"'") | .digest')
+[ "$REMOTE_DIGEST" = "sha256:$SHA" ] || { echo "[FAIL] GitHub 资产摘要不一致，**不要更新清单**"; exit 1; }
 echo "  [OK] 资产已上传: $ASSETS 字节"
 
 # 4) 验证两条下载路径（CDN 需要时间，轮询）
@@ -97,8 +104,21 @@ for path in "$PRIMARY" "$MIRROR"; do
     host=$(echo "$path" | cut -d/ -f3)
     ok=0
     for i in $(seq 1 24); do
-        code=$(curl -sSL -o /dev/null -w '%{http_code}' -r 0-1023 --max-time 30 "$path" 2>/dev/null || echo 000)
-        if [ "$code" = "206" ] || [ "$code" = "200" ]; then ok=1; break; fi
+        code=$(curl -sSL -o "$RELEASE_TMP/download" -w '%{http_code}' -r 0-1023 --max-filesize "$SIZE" --max-time 30 "$path" 2>/dev/null || echo 000)
+        if { [ "$code" = "206" ] || [ "$code" = "200" ]; } && python3 - "$APK" "$RELEASE_TMP/download" "$code" <<'PY'
+import pathlib, sys
+apk, download = (pathlib.Path(p) for p in sys.argv[1:3])
+with apk.open('rb') as source:
+    prefix = source.read(1024)
+data = download.read_bytes()
+if sys.argv[3] == '206':
+    assert data == prefix, 'range download is not APK bytes'
+else:
+    import hashlib
+    assert len(data) == apk.stat().st_size, '200 response is not a complete APK'
+    assert hashlib.sha256(data).hexdigest() == hashlib.sha256(apk.read_bytes()).hexdigest(), 'download digest mismatch'
+PY
+        then ok=1; break; fi
         sleep 20
     done
     if [ "$ok" = "1" ]; then
@@ -113,6 +133,21 @@ done
 # 运行包标签在 bash 里算好再传进去 —— 之前直接写在 Python 里调用 bash 函数，
 # 那次发布就断在这里（好在清单是最后一步，没有写坏线上状态）。
 PAYLOAD_TAG="$(currentPayloadTag)"
+
+# 6) 从真实产物与真实 payload 清单生成 README / latest.json。
+#    版本、链接、APK 大小、payload 合计与 SHA-256 由同一脚本写入，
+#    不再保留五处需要手工同步的数字。
+PAYLOAD_MANIFEST="$RELEASE_TMP/manifest.json"
+curl -fsSL --retry 3 --max-time 120 \
+    "https://github.com/${REPO}/releases/download/${PAYLOAD_TAG}/manifest.json" \
+    -o "$PAYLOAD_MANIFEST"
+python3 - "$PAYLOAD_MANIFEST" <<'PY'
+import hashlib, pathlib, re, sys
+source = pathlib.Path('src/dev/dsh/nativeapp/MainActivity.java').read_text(encoding='utf-8')
+expected = re.search(r'PAYLOAD_MANIFEST_SHA256\s*=\s*"([a-f0-9]{64})"', source)
+assert expected, 'source has no trusted payload manifest digest'
+assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == expected[1], 'published payload manifest does not match the APK trust root'
+PY
 python3 - "$VER" "$TAG" "$SHA" "$NOTES" "$PAYLOAD_TAG" "$MANIFEST" "$CHANNEL" <<'PY'
 import json, sys, pathlib
 ver, tag, sha, notes_file, payload_tag, manifest, channel = sys.argv[1:8]
@@ -140,14 +175,6 @@ p.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n", encoding='utf
 print(f"  [OK] {manifest} → {ver}")
 PY
 
-# 6) 从真实产物与真实 payload 清单生成 README / latest.json。
-#    版本、链接、APK 大小、payload 合计与 SHA-256 由同一脚本写入，
-#    不再保留五处需要手工同步的数字。
-META_DIR="$(mktemp -d)"
-PAYLOAD_MANIFEST="$META_DIR/manifest.json"
-curl -fsSL --retry 3 --max-time 120 \
-    "https://github.com/${REPO}/releases/download/${PAYLOAD_TAG}/manifest.json" \
-    -o "$PAYLOAD_MANIFEST"
 python3 scripts/sync_project_metadata.py \
     --channel "$CHANNEL" \
     --version "$VER" \
@@ -156,4 +183,4 @@ python3 scripts/sync_project_metadata.py \
 python3 scripts/sync_project_metadata.py --check
 
 echo
-echo "  发布完成。${CHANNEL} 通道清单已更新，App 现在可以检测到 v${VER}。"
+echo "  发布资产已验证。${CHANNEL} 通道本地清单已生成；提交并推送清单后 App 可检测 v${VER}。"

@@ -11,8 +11,56 @@ final class PayloadRollback {
     static final String MAGIC = "DSH-PAYLOAD-ROLLBACK-V1";
     static final String JOURNAL_FILE = "journal.txt";
     static final long RESERVE_BYTES = 32L * 1024L * 1024L;
+    static final String INTERRUPTION_FILE = ".payload-update-in-progress";
 
     private PayloadRollback() { }
+
+    static String interruptedMode(java.io.File root) throws java.io.IOException {
+        java.io.File marker = interruptionFile(root);
+        if (!marker.exists()) return null;
+        if (!marker.isFile() || marker.length() > 80L) throw new java.io.IOException("运行包中断记录损坏");
+        byte[] raw = new byte[(int) marker.length()];
+        try (java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(marker))) {
+            in.readFully(raw);
+        }
+        String value = new String(raw, "UTF-8");
+        for (String mode : new String[]{"fresh", "update", "restore"}) {
+            if (("DSH-PAYLOAD-INTERRUPTED-1\n" + mode + "\n").equals(value)) return mode;
+        }
+        throw new java.io.IOException("运行包中断记录无效，已保留当前环境和快照");
+    }
+
+    static void beginChange(java.io.File root, String mode) throws java.io.IOException {
+        if (!("fresh".equals(mode) || "update".equals(mode) || "restore".equals(mode)))
+            throw new java.io.IOException("运行包操作类型无效");
+        String previous = interruptedMode(root);
+        // Keep a valid pending record continuously present while recovering it.
+        if (previous != null) {
+            if ("fresh".equals(previous) != "fresh".equals(mode))
+                throw new java.io.IOException("运行包中断操作类型不一致");
+            return;
+        }
+        java.io.File marker = interruptionFile(root), next = new java.io.File(root, INTERRUPTION_FILE + ".next");
+        if (FileOps.isSymbolicLink(next)) throw new java.io.IOException("运行包中断暂存路径无效");
+        try {
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(next)) {
+                out.write(("DSH-PAYLOAD-INTERRUPTED-1\n" + mode + "\n").getBytes("UTF-8"));
+                out.getFD().sync();
+            }
+            TransferState.atomicReplace(next, marker);
+        } finally { if (next.exists()) next.delete(); }
+    }
+
+    static void completeChange(java.io.File root) throws java.io.IOException {
+        java.io.File marker = interruptionFile(root);
+        if (marker.exists() && !marker.delete()) throw new java.io.IOException("无法提交运行包更新状态");
+    }
+
+    private static java.io.File interruptionFile(java.io.File root) throws java.io.IOException {
+        java.io.File file = new java.io.File(root, INTERRUPTION_FILE);
+        if (FileOps.isSymbolicLink(file)) throw new java.io.IOException("运行包中断记录路径无效");
+        return file;
+    }
 
     static final class Target {
         final String name;

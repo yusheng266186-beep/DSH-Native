@@ -433,15 +433,15 @@ else
 fi
 
 # 模型刷新位于原生模型设置，不再占侧栏；保存目录后空闲 DSH
-# 需要重载运行时而不是只刷新 WebView；任务运行中不能被重启打断。
+# 通过内核设置服务实时应用；任务运行中等待空闲，不重启界面。
 if grep -q 'REFRESH_MODELS_MARKER' "$JAVA_DIR/WebToolsEntry.java" \
         || ! grep -q '更新模型列表' "$JAVA_DIR/ModelCenterPanel.java" \
-        || ! grep -q 'restartAgent(UiText.t("正在应用上游模型目录' "$MAIN_ACTIVITY" \
-        || ! grep -q '当前任务运行中，暂不重启运行时' "$MAIN_ACTIVITY"; then
-    echo "  [FAIL] 阶段五 G WebUI 模型刷新入口或运行时重载接线不完整" >&2
+        || ! grep -q 'api.call("session/androidApplyModelSettings"' "$MAIN_ACTIVITY" \
+        || ! grep -q '任务运行或状态未知，等待空闲后应用' "$MAIN_ACTIVITY"; then
+    echo "  [FAIL] 阶段五 G WebUI 模型刷新入口或实时应用接线不完整" >&2
     rc=1
 else
-    echo "  ModelSettingsRefresh: native refresh entry / runtime reload / active-task guard"
+    echo "  ModelSettingsRefresh: native refresh entry / live settings application / active-task guard"
 fi
 
 
@@ -512,6 +512,8 @@ else
 fi
 if ! python3 tests/release_metadata_test.py; then rc=1; fi
 if ! python3 tests/project_docs_test.py; then rc=1; fi
+if ! python3 tests/compatibility_test.py; then rc=1; fi
+if ! python3 tests/release_script_test.py; then rc=1; fi
 
 # 运行包原生二进制必须能在 Android 上 dlopen。
 #
@@ -522,10 +524,12 @@ if ! python3 tests/project_docs_test.py; then rc=1; fi
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
 if ! python3 tests/check_startup.py; then rc=1; fi
+if ! python3 tests/check_startup_runtime.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
 if ! python3 tests/check_native_bridge.py; then rc=1; fi
 if ! python3 tests/check_web_settings.py; then rc=1; fi
 if ! python3 tests/check_file_actions.py; then rc=1; fi
+if ! python3 tests/check_payload_recovery.py; then rc=1; fi
 
 # 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
 #

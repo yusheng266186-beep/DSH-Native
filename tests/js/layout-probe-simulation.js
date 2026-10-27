@@ -90,6 +90,14 @@ controls.push(close); document.fire('click'); tick(2000);
 assert(records().some(r => r.action === 'close' && r.issue === 'tab-overflow'));
 
 logs.length = 0;
+const clipped = node('PRIVATE-SETTING-TITLE', 160, 26);
+clipped.tagName = 'BUTTON'; clipped.clientHeight = 26; clipped.scrollHeight = 34;
+controls.unshift(clipped); document.fire('change'); tick(2000);
+assert(records().some(r => r.issue === 'text-clipped'), 'text clipping must be reported');
+assert(!logs.join('').includes('PRIVATE-SETTING-TITLE'), 'clipping report must not include setting text');
+controls.shift();
+
+logs.length = 0;
 document.hidden = true; window.fire('resize'); tick(2000);
 assert.equal(logs.length, 0, 'hidden pages must not report');
 document.hidden = false; document.documentElement.clientWidth = 869;

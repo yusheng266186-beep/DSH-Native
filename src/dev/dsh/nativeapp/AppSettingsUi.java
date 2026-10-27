@@ -12,6 +12,18 @@ final class AppSettingsUi {
         if (source == null || helper == null || !helper.startsWith(TAG) || !helper.contains(END)) return null;
         String out = strip(source, TAG, END);
         if (out == null) return null;
+        String[][] anchors = {
+            {"className: SettingsRoot_module_css_default.header,", "\"data-settings-toolbar\": true,"},
+            {"className: SettingsRoot_module_css_default.actions,", "\"data-settings-actions\": true,"},
+            {"className: SettingsDocumentAction_module_css_default.action,", "\"data-settings-document-action\": true,"},
+            {"children: t(\"openDocument\")", "\"data-settings-open-document\": true,"}
+        };
+        for (String[] item : anchors) {
+            if (!out.contains(item[1])) {
+                out = once(out, item[0], item[1] + "\n" + item[0]);
+                if (out == null) return null;
+            }
+        }
         out = out.replace("\n            androidInstallAppSettings(ctx);", "");
         if (!out.contains("children: androidSettingsNavigation(rows, active, onSelect)")) {
             String start = "children: rows.map((row) =>";

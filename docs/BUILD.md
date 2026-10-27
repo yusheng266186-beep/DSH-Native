@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**0.40.2**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -256,3 +256,9 @@ python3 scripts/sync_project_metadata.py --check
 | 覆盖安装失败 | 包名与签名证书，不执行卸载绕过 |
 | 目录保存但网页未更新 | 实际 profile、live 标记、pending 和空闲重载，而不只 WebView reload |
 | Release 404 | 是否仍 draft、资产是否完整、直连/镜像是否可下载，禁止先写清单 |
+
+## 1.0 兼容与发布闸门
+
+`runtime/compatibility.json` 固定源码内核/SDK/Android 配置、两个依赖锁文件及 11 个实际引导二进制的大小和摘要。`ci_stage.sh` 在准备前和解出参考 APK 后分别核对；来源 APK 可以更新，但不能借此静默更换二进制。依赖或 SDK 版本变更需要一并审查冻结记录。
+
+构建生成 `assets/payload/dependency-notices.json`，原许可位于 `assets/payload/licenses/`；这些是应用资源，测试与开发文档不会被打入 APK。`release.sh` 在上传后核对 GitHub 资产摘要，分段响应须与 APK 前 1024 字节相同，全量响应须匹配完整摘要，payload 清单须符合源码内置信任根，全部通过后才写本地更新清单。失败不应手工推进版本清单。

@@ -16,7 +16,7 @@ public class PayloadRollbackTest {
         return "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         check("dsh target allowed", PayloadRollback.isSafeTarget("dsh"), "rejected");
         check("tools target allowed", PayloadRollback.isSafeTarget("tools"), "rejected");
         check("config target rejected", !PayloadRollback.isSafeTarget(".dsh"), "accepted");
@@ -64,6 +64,32 @@ public class PayloadRollbackTest {
         check("space calculation saturates",
                 PayloadRollback.requiredFreeBytes(Long.MAX_VALUE, Long.MAX_VALUE)
                         == Long.MAX_VALUE, "overflow");
+
+        java.io.File root = java.nio.file.Files.createTempDirectory("dsh-runtime-journal-").toFile();
+        check("no pending change initially", PayloadRollback.interruptedMode(root) == null, "present");
+        PayloadRollback.beginChange(root, "fresh");
+        check("first install interruption retained", "fresh".equals(PayloadRollback.interruptedMode(root)), "lost");
+        PayloadRollback.beginChange(root, "fresh");
+        check("retry preserves same journal", "fresh".equals(PayloadRollback.interruptedMode(root)), "changed");
+        PayloadRollback.completeChange(root);
+        PayloadRollback.beginChange(root, "update");
+        check("update interruption retained", "update".equals(PayloadRollback.interruptedMode(root)), "lost");
+        PayloadRollback.beginChange(root, "restore");
+        check("recovery keeps original durable interruption", "update".equals(PayloadRollback.interruptedMode(root)), "lost");
+        PayloadRollback.completeChange(root);
+        check("commit clears interruption", PayloadRollback.interruptedMode(root) == null, "retained");
+        java.io.File marker = new java.io.File(root, PayloadRollback.INTERRUPTION_FILE);
+        java.nio.file.Files.write(marker.toPath(), "truncated".getBytes("UTF-8"));
+        boolean rejected = false;
+        try { PayloadRollback.interruptedMode(root); } catch (java.io.IOException expected) { rejected = true; }
+        check("corrupt journal is rejected and preserved", rejected && marker.exists(), "ignored");
+        marker.delete();
+        java.io.File outside = java.nio.file.Files.createTempFile("dsh-journal-outside-", ".txt").toFile();
+        java.nio.file.Files.createSymbolicLink(marker.toPath(), outside.toPath());
+        rejected = false;
+        try { PayloadRollback.beginChange(root, "update"); } catch (java.io.IOException expected) { rejected = true; }
+        check("journal cannot write through a symlink", rejected && outside.length() == 0, "escaped");
+        marker.delete(); outside.delete(); root.delete();
 
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");
         if (fail > 0) System.exit(1);

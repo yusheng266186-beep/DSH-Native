@@ -29,5 +29,36 @@ for(const local of [true,false]){
  loop.stop();unregister();for(const cleanup of cleanups)cleanup?.();
  check(connection.state.getSnapshot()===undefined,'dispose releases connection state');
 }
+{
+ const browser=new EventTarget();browser.navigator={onLine:true};globalThis.window=browser;
+ const doc=new EventTarget();doc.visibilityState='visible';globalThis.document=doc;
+ let connection,calls=0,lose;const cleanups=[];
+ installConnection({provide(_name,value){connection=value;},effect(fn){cleanups.push(fn());}},
+  {location:{hostname:'127.0.0.1'}});
+ const unregister=connection.registerGenerationSource(async(signal,ready)=>{
+  calls++;ready({synthetic:true});
+  await new Promise((resolve,reject)=>{lose=()=>reject(new Error('synthetic generation lost'));signal.addEventListener('abort',resolve,{once:true});});
+ });
+ const loop=connection.start({}, {backoffBaseMs:10000,backoffMaxMs:10000});await sleep(30);
+ doc.visibilityState='hidden';lose();await sleep(30);
+ for(let i=0;i<20;i++)browser.dispatchEvent(new Event('dsh-native-resume'));
+ await sleep(180);
+ check(calls===1&&connection.state.getSnapshot()==='connecting','hidden app keeps existing bounded backoff without a reconnect storm');
+ doc.visibilityState='visible';doc.dispatchEvent(new Event('visibilitychange'));
+ for(let i=0;i<20;i++)browser.dispatchEvent(new Event('dsh-native-resume'));
+ await sleep(230);
+ check(calls===2&&connection.state.getSnapshot()==='connected','foreground shortens long backoff exactly once after actual generation loss');
+ for(let i=0;i<20;i++){
+  doc.visibilityState='hidden';doc.dispatchEvent(new Event('visibilitychange'));
+  doc.visibilityState='visible';doc.dispatchEvent(new Event('visibilitychange'));
+  browser.dispatchEvent(new Event('online'));browser.dispatchEvent(new Event('dsh-native-resume'));
+ }
+ await sleep(230);
+ check(calls===2,'repeated background/network events preserve a healthy generation');
+ loop.stop();unregister();for(const cleanup of cleanups)cleanup?.();
+ browser.__dshLocalConnectionState='disposed';browser.dispatchEvent(new Event('dsh-native-resume'));
+ await sleep(180);
+ check(calls===2&&browser.__dshLocalConnectionState==='disposed','disposed listeners and timers cannot reconnect an old page');
+}
 delete globalThis.window;delete globalThis.document;
 console.log('Actual Connection service: '+checks+' local/remote network and lifecycle checks passed; no model or device.');

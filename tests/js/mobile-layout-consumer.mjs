@@ -300,6 +300,7 @@ try {
         const r = await size(control); check(r.width >= 35.5 && Math.abs(r.height - 20) < .5, 'settings switch was squeezed or enlarged');
       }
       for (const button of await settings.locator('nav button').all()) {
+        if (!await button.isVisible()) continue;
         const lines = await button.evaluate(e => {
           const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT), tops = new Set();
           for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -309,7 +310,8 @@ try {
           }
           return tops.size;
         });
-        check(lines <= 1, 'settings button text wraps onto another line');
+        check(lines >= 1, 'settings navigation text has no visible line');
+        check(await button.locator('span').last().evaluate(el=>el.scrollWidth<=el.clientWidth+1&&el.scrollHeight<=el.clientHeight+1), 'settings navigation label is clipped');
       }
       if (evidence) await page.screenshot({path: path.join(evidence, `${scenario.w}-${scenario.lang}-${scenario.theme}-settings.png`)});
       const settingsClose = settings.getByRole('button', {name: /^(Close|关闭)$/});
