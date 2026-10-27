@@ -60,6 +60,20 @@ public class ToolEnvironmentTest {
             check(ToolEnvironment.repair(root.toFile())==1);
             check(new String(Files.readAllBytes(root.resolve(".native-bin/dsh-android")),StandardCharsets.UTF_8).contains("android-bridge.cjs' \"$@\""));
             check(ToolEnvironment.repair(root.toFile())==0);
+            // Exercise the production preparation receipt, including its post-repair timestamp.
+            write(root.resolve(".dsh/private-canary"),"preserved config");
+            Files.delete(root.resolve(".native-bin/npx"));
+            write(root.resolve("tools/bin/new-script"),"#!/data/data/com.termux/files/usr/bin/bash\necho retained\n");
+            root.resolve("tools/bin/new-script").toFile().setExecutable(true);
+            String previous=RuntimePreparation.signature(root.toFile(),"payload-v14");
+            check(RuntimePreparation.prepareTools(root.toFile(),"payload-v14")>=2);
+            String prepared=RuntimePreparation.signature(root.toFile(),"payload-v14");
+            check(!previous.equals(prepared));
+            check(new String(Files.readAllBytes(root.resolve(".tool-environment")),StandardCharsets.UTF_8).equals(prepared));
+            check(RuntimePreparation.prepareTools(root.toFile(),"payload-v14")==0);
+            check(RuntimePreparation.signature(root.toFile(),"payload-v14").equals(prepared));
+            check(!RuntimePreparation.signature(root.toFile(),"payload-v15").equals(prepared));
+            check(new String(Files.readAllBytes(root.resolve(".dsh/private-canary")),StandardCharsets.UTF_8).equals("preserved config"));
             System.out.println("TOTAL: "+checks+" pass / 0 fail");
         } finally { try(java.util.stream.Stream<Path> paths=Files.walk(root)){paths.sorted(Comparator.reverseOrder()).forEach(path->{try{Files.delete(path);}catch(Exception error){throw new RuntimeException(error);}});} }
     }

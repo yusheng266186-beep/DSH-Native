@@ -16,6 +16,9 @@ final class StartupCoordinator {
 
     StartupCoordinator(Lock environment, Dispatcher dispatcher) { this.environment = environment; this.dispatcher = dispatcher; }
     synchronized boolean start(final Work work, final Failure failure) {
+        return start(work, failure, null);
+    }
+    synchronized boolean start(final Work work, final Failure failure, Runnable admitted) {
         if (closed || active != null) return false;
         final long ticket = ++generation;
         active = new Thread(new Runnable() {
@@ -37,6 +40,8 @@ final class StartupCoordinator {
             }
         }, "dsh-startup-" + ticket);
         active.setDaemon(true);
+        // Revoke optional inspection before the worker can wait for its environment lock.
+        if (admitted != null) admitted.run();
         active.start();
         return true;
     }

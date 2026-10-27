@@ -33,7 +33,7 @@ public class StartupRuntimeProbe {
  static final int MODE_PRIVATE=0;static final String PREFS="fixture";
  static int checks,taskReads;static String tasks="false";
  final android.content.SharedPreferences prefs=new android.content.SharedPreferences();
- boolean preparedRuntimeValid,preparedCoreReused,payloadCheckAfterStartup,complete=true,assetsPresent=true,pending,hold;
+ boolean runtimeDiagnosticsPending,preparedRuntimeValid,preparedCoreReused,payloadCheckAfterStartup,complete=true,assetsPresent=true,pending,hold;
  File workspace,nodeRef,toolsDirRef;int live,chosenPort;long launchStartedAt;String loaded;
  String appVersion(){return "1.0.0";}String savedDshToken(){return "synthetic-token";}
  android.content.SharedPreferences getSharedPreferences(String p,int mode){return prefs;}
@@ -43,7 +43,7 @@ public class StartupRuntimeProbe {
  String preparedRuntimeKey(File root){return "reviewed-key";}String payloadRevisionKey(){return "v13";}
  static class Components {String identity="asset-contents"; boolean ready(File root){return true;}}
  Components components(){return new Components();}
- String lastPreflightKey(){return "v13/asset-contents/"+workspace.getAbsolutePath();}
+ String lastPreflightKey(){throw new AssertionError("optional diagnostics must not gate reuse");}
  boolean runtimeAssetsPresent(File root){return assetsPresent;}boolean payloadLocallyComplete(File a,File b){return complete;}
  boolean payloadUpdatePending(){return pending;}boolean payloadRollbackHold(){return hold;}
  String validatePayloadManifest(File file){return null;}int liveDshPort(){return live;}
@@ -66,7 +66,9 @@ public class StartupRuntimeProbe {
    p=fixture();p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");int before=taskReads;check(!p.reuseOrStopPreviousAppCore()&&taskReads==before&&HarnessService.calls==0,"same component and payload contents avoid upgrade RPC and shutdown even when app version differs");
    File root=new File(args[0]);Files.writeString(new File(root,".assets-version").toPath(),"1.0.0");
    p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");
-   check(!p.reusePreparedCore(root,root,root,root)&&p.preparedRuntimeValid,"a dead process retains verified disk preparation for a short cold start");
+   check(!p.reusePreparedCore(root,root,root,root)&&p.preparedRuntimeValid&&p.runtimeDiagnosticsPending,"a dead process retains verified disk preparation for a short cold start");
+   p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.live=3080;
+   check(p.reusePreparedCore(root,root,root,root)&&p.preparedCoreReused&&p.runtimeDiagnosticsPending&&p.loaded!=null,"live verified core reuses without a passed network/tool inspection");
    p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.pending=true;
    check(!p.reusePreparedCore(root,root,root,root)&&!p.preparedRuntimeValid,"pending payload update requires full preparation");
    p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.assetsPresent=false;

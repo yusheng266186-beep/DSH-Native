@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.1**；源码：**1.1.1**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.1**；源码：**1.1.2**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,13 +16,17 @@
 | 稳定运行包 | `payload-v14` · 压缩总量 143.7 MiB |
 | APK SHA-256 | `a0e40cd2bb06ef921940e0408451adc1191b7dc58a62161775dbb0011a74d66b` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `1.1.1` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `1.1.2` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v14` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
 <!-- dsh-release-facts:end -->
 
 源码高于 stable 时表示下一版正在准备。README 顶部下载始终指向已发布正式版；每轮用户修改完成后按约定递增版本，通过完整 Android CI，再走正式发布流程。
+
+## 1.1.2 启动等待优化
+
+完整工具/Python/DNS 检查改在首页真实绘制并交接后的前台空闲阶段运行，失败记录有一小时退避，且不影响已验证环境复用。内容回执、可信清单、完整性、工具指纹和工作区仍控制准备路径；已准备环境冷启避免重复组件安装、Node 版本探针与配置迁移。可取消检查让出重启/维护环境锁，并在聊天和退后台时中止。当前实现与自动验证见 [1.1.2 说明](../release-notes/v1.1.2.md)，不以主机测试推算手机启动秒数。
 
 ## 1.1.1 启动阻断修复
 

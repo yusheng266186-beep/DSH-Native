@@ -74,7 +74,7 @@ final class RuntimeChecks {
             if (code != 0) { log.line("  自检进程退出码 " + code); return false; }
             if (failed[0] == 0) { log.line("  自检全部通过"); return true; }
             log.line("  [警告] 有 " + (failed[0] < 0 ? "若干" : String.valueOf(failed[0]))
-                    + " 项未通过，仍继续启动以便收集信息");
+                    + " 项未通过；详情已记录，首页可继续使用");
             return false;
         } catch (InterruptedException cancelled) { Thread.currentThread().interrupt(); return false; }
         catch (IOException e) {

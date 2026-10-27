@@ -904,7 +904,7 @@ public class MainActivity extends Activity {
                 log("错误: " + what + "失败: " + error.getClass().getSimpleName());
                 showBootFailure(error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
             }
-        });
+        }, new Runnable() { @Override public void run() { cancelRuntimeInspection(); } });
         if (!accepted) log("已有启动正在进行，忽略本次「" + what + "」");
     }
 
@@ -967,6 +967,7 @@ public class MainActivity extends Activity {
         final File root = new File(getFilesDir(), "dsh");
         appRoot = root;
         preparedRuntimeValid = false;
+        runtimeDiagnosticsPending = false;
         log("私有目录: " + root);
         File configHome = new File(root, ".dsh");
         if (ConfigBackup.hasInterruptedRestore(configHome)) {
@@ -1019,8 +1020,9 @@ public class MainActivity extends Activity {
         startupCoordinator.checkpoint();
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
-        extractAssets(root);
-        chmod(node, "755");
+        if (!preparedRuntimeValid) extractAssets(root);
+        else log("[启动] 组件内容和安装回执已验证，跳过重复安装");
+        if (!node.canExecute()) chmod(node, "755");
         startupTiming.mark("assets", android.os.SystemClock.elapsedRealtime());
 
         // 前置自检：先确认能否执行自带的 Node。
@@ -1033,7 +1035,7 @@ public class MainActivity extends Activity {
             return "内置 Node 无法执行（这是整个架构成立的前提检查失败）";
         }
         setSplashStatus("正在准备运行环境…");
-        log("Node 就绪: " + runCapture(node, new String[]{"--version"}));
+        if (preparedRuntimeValid) log("[启动] 已验证的 Node 环境，跳过重复版本探针");
 
         // 2. 下载并解压运行包（首次启动）
 
@@ -1088,14 +1090,13 @@ public class MainActivity extends Activity {
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
         RuntimePreparation.requirePort(root, dshDir);
         recordPatch("预适配内核", true, "构建期完成 19 项固定内核适配；启动不改写源码");
-        int toolsRepaired = RuntimePreparation.prepareTools(root, payloadRevisionKey());
+        int toolsRepaired = preparedRuntimeValid ? 0 : RuntimePreparation.prepareTools(root, payloadRevisionKey());
         log("[启动] 设备工具环境准备 " + toolsRepaired + " 项，内核适配已在构建时完成");
         dshDirRef = dshDir;
         startupTiming.mark("compat", android.os.SystemClock.elapsedRealtime());
         log("[启动] 兼容准备耗时 " + (android.os.SystemClock.elapsedRealtime() - preparationStarted) + "ms");
 
-        // 2.5 运行环境自检 —— 一次性验证所有已知 Android 兼容性风险点
-        // 记录给插件管理用（安装时需要 node 与 npm 的路径）
+        // Record paths for plugin maintenance without launching optional tool diagnostics.
 
         registerNetworkWatcher();
 
@@ -1103,24 +1104,14 @@ public class MainActivity extends Activity {
 
         nodeRef = node;
 
-        // 自检要跑十几次 node 调用（crypto / 子进程 / git / python / rg / bash …），
-        // 每次启动都做一遍是「关掉再打开很慢」的一大来源。
-        // 环境没变就没必要重测：用「运行包修订 + 资源版本 + 工作区」当指纹，
-        // 三者都没变时直接跳过。真出问题时日志里仍能看到它是被跳过的。
-        String envKey = payloadRevisionKey() + "/" + components().identity + "/"
-                + (workspace != null ? workspace : root).getAbsolutePath();
-        if (envKey.equals(lastPreflightKey())) {
-            log("运行环境自检已通过过（环境未变），跳过以加快启动");
-        } else {
-            setSplashStatus(UiText.t("正在检查运行环境…", "Checking the runtime…"));
-            if (runPreflight(node, root, toolsDir)) rememberPreflightKey(envKey);
-            else log("运行环境仍有未通过项，下次启动会重新检查");
-        }
-
-        startupTiming.mark("preflight", android.os.SystemClock.elapsedRealtime());
-        // 3. 准备 DSH 配置（若不存在）
-        run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
-        prepareConfig(root);
+        // Full tool/Python/network inspection is maintenance, not a prerequisite
+        // for a local core or rendered page. Keep the real bootstrap checks above.
+        runtimeDiagnosticsPending = true;
+        if (!preparedRuntimeValid) {
+            run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
+            prepareConfig(root);
+        } else log("[启动] 配置与外部凭据未变，跳过重复迁移和预置同步");
+        startupTiming.mark("config", android.os.SystemClock.elapsedRealtime());
 
         // 4. 启动 dsh web
         File binJs = new File(dshDir, "lib/bin.js");
@@ -1242,6 +1233,7 @@ public class MainActivity extends Activity {
             File input = new File(path);
             key.append('\n').append(input.length()).append(':').append(input.lastModified());
         }
+        key.append('\n').append(RuntimePreparation.signature(root, payloadRevisionKey()));
         return key.toString();
     }
 
@@ -1280,10 +1272,9 @@ public class MainActivity extends Activity {
                     components().identity, assets, payloadLocallyComplete(dshDir, toolsDir),
                     payloadUpdatePending(), payloadRollbackHold()
                             || validatePayloadManifest(new File(root, "manifest.json")) == null)
-                    || !runtimeAssetsPresent(root) || !coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))
-                    || !(payloadRevisionKey() + "/" + components().identity + "/"
-                            + (workspace != null ? workspace : root).getAbsolutePath()).equals(lastPreflightKey())) return false;
+                    || !runtimeAssetsPresent(root) || !coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))) return false;
             preparedRuntimeValid = true;
+            runtimeDiagnosticsPending = true;
             int live = liveDshPort();
             if (live <= 0) return false;
             nodeRef = node; toolsDirRef = toolsDir; chosenPort = live;
@@ -1301,6 +1292,7 @@ public class MainActivity extends Activity {
     }
 
     private void finishStartupMaintenance() {
+        scheduleRuntimeChecks();
         if (!payloadCheckAfterStartup || appRoot == null) return;
         payloadCheckAfterStartup = false;
         final File root = appRoot;
@@ -1330,6 +1322,76 @@ public class MainActivity extends Activity {
                 worker.setDaemon(true); activityWorkers.start(worker);
             }
         }, 1500L);
+    }
+
+    private volatile boolean runtimeDiagnosticsPending;
+    private volatile Thread runtimeInspectionWorker;
+    private final java.util.concurrent.atomic.AtomicLong runtimeInspectionGeneration = new java.util.concurrent.atomic.AtomicLong();
+
+    private void cancelRuntimeInspection() {
+        runtimeDiagnosticsPending = false;
+        interruptRuntimeInspection();
+    }
+    private void interruptRuntimeInspection() {
+        runtimeInspectionGeneration.incrementAndGet();
+        Thread worker = runtimeInspectionWorker;
+        if (worker != null) worker.interrupt();
+    }
+    private final java.util.concurrent.atomic.AtomicBoolean runtimeDiagnosticsQueued = new java.util.concurrent.atomic.AtomicBoolean();
+
+    private String runtimeDiagnosticsKey(File root) throws IOException {
+        return payloadRevisionKey() + "/" + components().identity + "/"
+                + (workspace != null ? workspace : root).getAbsolutePath()
+                + "\n" + RuntimePreparation.signature(root, payloadRevisionKey());
+    }
+
+    /** A slow or failed optional capability check never blocks the core or the loading overlay. */
+    private void scheduleRuntimeChecks() {
+        final long generation = runtimeInspectionGeneration.get();
+        if (!runtimeDiagnosticsPending || !splashHidden || !inForeground || activityDisposing || appRoot == null
+                || startupCoordinator.busy() || maintenanceGate.active() != null
+                || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
+                || !runtimeDiagnosticsQueued.compareAndSet(false, true)) return;
+        startWorker(new Runnable() {
+            @Override public void run() {
+                boolean locked = false;
+                runtimeInspectionWorker = Thread.currentThread();
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                    if (!runtimeConfigLock.tryLock()) return;
+                    locked = true;
+                    if (activityDisposing || !inForeground || !splashHidden || !runtimeDiagnosticsPending
+                            || generation != runtimeInspectionGeneration.get() || startupCoordinator.busy()
+                            || maintenanceGate.active() != null || Thread.currentThread().isInterrupted()
+                            || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE) return;
+                    File root = appRoot;
+                    String key = runtimeDiagnosticsKey(root);
+                    android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                    if (!StartupDiagnostics.due(key, lastPreflightKey(), prefs.getString("preflightAttemptKey", ""),
+                            prefs.getLong("preflightAttemptAt", 0L), System.currentTimeMillis())) {
+                        runtimeDiagnosticsPending = false; return;
+                    }
+                    prefs.edit().putString("preflightAttemptKey", key).putLong("preflightAttemptAt", System.currentTimeMillis()).apply();
+                    long started = android.os.SystemClock.elapsedRealtime();
+                    log("[启动] 首页已交接，在空闲后台检查工具能力");
+                    boolean passed = RuntimeChecks.preflight(new File(root, "node"), root, new File(root, "tools"), workspace, runtimeLog());
+                    if (Thread.currentThread().isInterrupted() || generation != runtimeInspectionGeneration.get()) {
+                        prefs.edit().remove("preflightAttemptKey").remove("preflightAttemptAt").apply(); return;
+                    }
+                    if (passed) rememberPreflightKey(key);
+                    runtimeDiagnosticsPending = false;
+                    log("[dsh-perf] startup-inspection elapsed=" + (android.os.SystemClock.elapsedRealtime() - started)
+                            + "ms, passed=" + passed + ", after-handoff=true");
+                } catch (Exception unavailable) {
+                    runtimeDiagnosticsPending = false;
+                    log("后台工具能力检查未完成: " + unavailable.getClass().getSimpleName());
+                } finally {
+                    if (locked) runtimeConfigLock.unlock();
+                    if (runtimeInspectionWorker == Thread.currentThread()) runtimeInspectionWorker = null;
+                    runtimeDiagnosticsQueued.set(false);
+                }
+            }
+        }, "runtime-capability-inspection");
     }
 
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
@@ -3283,7 +3345,8 @@ public class MainActivity extends Activity {
             lastSessionStatus = state;
             pushStatus(state);
             publishAppSettingsState();
-            if (state == SessionStatus.IDLE) applyPendingModelCatalog();
+            if (state == SessionStatus.IDLE) { applyPendingModelCatalog(); scheduleRuntimeChecks(); }
+            else if (runtimeDiagnosticsQueued.get()) interruptRuntimeInspection();
             // 断线时为保护运行任务而跳过了自动刷新；一旦权威状态确认任务已
             // 结束，就可以在仍未恢复连接的情况下重新启动安全恢复计时器。
             if (state == SessionStatus.IDLE && connectionLostAt > 0L
@@ -4213,6 +4276,7 @@ public class MainActivity extends Activity {
             toast(message);
             return;
         }
+        cancelRuntimeInspection();
         setMaintenanceBusy(button, "更新运行包（DSH / 工具链）",
                 "正在更新…", true);
         // 用户主动重试即解除回滚后的自动更新暂缓；失败时恢复流程会重新设回。
@@ -4267,6 +4331,7 @@ public class MainActivity extends Activity {
             toast(message);
             return;
         }
+        cancelRuntimeInspection();
         setMaintenanceBusy(button, "恢复上一运行环境", "正在恢复…", true);
         startWorker(new Runnable() {
             @Override public void run() {
@@ -5592,6 +5657,7 @@ public class MainActivity extends Activity {
                 if (parentPanel[0] != null) parentPanel[0].dismiss();
                 ConfigBackupPanel.show(MainActivity.this, appRoot, dshHome, new ConfigBackupPanel.Host() {
                     @Override public void beforeRestore() throws IOException {
+                        cancelRuntimeInspection();
                         try { runtimeConfigLock.lockInterruptibly(); }
                         catch (InterruptedException interrupted) {
                             Thread.currentThread().interrupt();
@@ -6524,11 +6590,6 @@ public class MainActivity extends Activity {
      *
      * <p>失败不阻断启动，只告警 —— 这样即使有问题也能拿到最多的现场信息。
      */
-    private boolean runPreflight(File node, File root, File toolsDir) {
-        setSplashStatus(UiText.t("正在检查运行环境…", "Checking the runtime…"));
-        return RuntimeChecks.preflight(node, root, toolsDir, workspace, runtimeLog());
-    }
-
     private RuntimeChecks.Log runtimeLog() {
         return new RuntimeChecks.Log() { @Override public void line(String message) { log(message); } };
     }
@@ -6593,27 +6654,6 @@ public class MainActivity extends Activity {
     }
 
     /** 取指定字节范围；响应严格限制在本块大小内，避免镜像返回整包导致 OOM。 */
-
-    private String runCapture(File node, String[] args) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder();
-            List<String> cmd = new ArrayList<String>();
-            cmd.add(node.getAbsolutePath());
-            for (String a : args) cmd.add(a);
-            pb.command(cmd);
-            pb.redirectErrorStream(true);
-            pb.environment().put("LD_LIBRARY_PATH", new File(node.getParentFile(), "lib").getAbsolutePath());
-            pb.environment().put("OPENSSL_CONF",
-                    new File(node.getParentFile(), "openssl.cnf").getAbsolutePath());
-            final String[] first = {null};
-            int code = ProcessRunner.run(pb, 15000L, new ProcessRunner.Lines() {
-                @Override public void line(String line) { if (first[0] == null) first[0] = line; }
-            });
-            return code == 0 ? (first[0] == null ? "(无输出)" : first[0].trim()) : "(退出码 " + code + ")";
-        } catch (Exception e) {
-            return "(失败: " + e.getMessage() + ")";
-        }
-    }
 
     private void run(File node, File root, String[] args, Void unused) throws Exception {
         ProcessBuilder pb = new ProcessBuilder();
@@ -6807,7 +6847,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.1.1");
+        log("APK 版本: 1.1.2");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
@@ -6913,6 +6953,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
+        scheduleRuntimeChecks();
         if (splashView != null) splashView.resume();
         if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
@@ -6927,6 +6968,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         inForeground = false;
+        interruptRuntimeInspection();
         cancelStartupTimeout();
         if (splashView != null) {
             if (!splashHidden) { startupState.connected(false); splashView.ready(false); }
@@ -7392,6 +7434,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         activityDisposing = true;
         startupCoordinator.close();
+        cancelRuntimeInspection();
         if (releaseDownloader != null) releaseDownloader.close();
         if (themeController != null) themeController.close();
         NativeTheme.detach(this);

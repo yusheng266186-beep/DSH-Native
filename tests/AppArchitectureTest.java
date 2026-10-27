@@ -95,6 +95,13 @@ public class AppArchitectureTest {
         for (Runnable work : new ArrayList<>(queue)) work.run(); queue.clear(); check(failures.get() == 1, "single actionable failure callback");
         coordinator.post(effects::incrementAndGet); coordinator.close(); for (Runnable work : queue) work.run();
         check(effects.get() == 10 && !coordinator.start(effects::incrementAndGet, e -> {}), "disposed Activity cannot deliver UI or start new workers");
+        AtomicInteger admissions = new AtomicInteger();
+        StartupCoordinator admitted = new StartupCoordinator(new ReentrantLock(), Runnable::run);
+        CountDownLatch admissionRelease = new CountDownLatch(1), admissionEntered = new CountDownLatch(1);
+        check(admitted.start(() -> { check(admissions.get() == 1, "admission cancellation precedes all startup work"); admissionEntered.countDown(); admissionRelease.await(); }, e -> {}, admissions::incrementAndGet), "admission hook accepted");
+        check(admissionEntered.await(3, TimeUnit.SECONDS), "admitted worker entered");
+        check(!admitted.start(() -> {}, e -> {}, admissions::incrementAndGet) && admissions.get() == 1, "rejected duplicate never cancels a newer inspection");
+        admissionRelease.countDown(); awaitIdle(admitted); admitted.close();
         ReentrantLock held = new ReentrantLock(); held.lock(); StartupCoordinator blocked = new StartupCoordinator(held, Runnable::run);
         try { check(blocked.start(effects::incrementAndGet, e -> failures.incrementAndGet()), "waiting startup admitted once"); blocked.close(); awaitIdle(blocked); }
         finally { held.unlock(); }
