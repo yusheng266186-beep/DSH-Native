@@ -204,6 +204,59 @@ public class ConfigBackupTest {
         check("export refuses configuration paths escaping through symlinks", threw, "accepted");
         linkedProfile.delete();
 
+        System.out.println("=== 10. transaction failure and interrupted restore ===");
+        File tx = new File(base, "transaction"); tx.mkdirs();
+        File credentials = new File(tx, ".credentials.yaml"), settings = new File(tx, "settings.yaml");
+        write(credentials, "original credentials\n"); write(settings, "original settings\n");
+        File blocker = new File(tx, "settings.yaml.previous"); blocker.mkdirs();
+        write(new File(blocker, "occupied"), "not removable");
+        threw = false;
+        try { ConfigBackup.restoreFrom(zip, tx); } catch (java.io.IOException expected) { threw = true; }
+        check("later commit failure is reported", threw, "accepted");
+        check("earlier credential replacement rolls back", read(credentials).equals("original credentials\n"), "mixed configuration");
+        check("unchanged blocked target survives rollback", read(settings).equals("original settings\n"), "settings damaged");
+        check("successful undo clears pending record", !ConfigBackup.hasInterruptedRestore(tx), "record retained");
+        rmrf(blocker);
+        java.util.LinkedHashMap<String, byte[]> before = new java.util.LinkedHashMap<>();
+        before.put(".credentials.yaml", "original credentials\n".getBytes("UTF-8"));
+        before.put(ProjectModelSettings.FILE_NAME, null);
+        ConfigBackup.writeRestoreJournal(tx, before);
+        write(credentials, "partially replaced\n");
+        write(new File(tx, ProjectModelSettings.FILE_NAME), "partial project override");
+        File history = new File(tx, "history-kept.txt"); write(history, "history retained");
+        check("interrupted restore detected", ConfigBackup.hasInterruptedRestore(tx), "not detected");
+        check("startup recovery replays durable undo", ConfigBackup.recoverInterruptedRestore(tx), "not recovered");
+        check("startup recovery returns original bytes", read(credentials).equals("original credentials\n"), "not original");
+        check("undo removes only newly created configuration", !new File(tx, ProjectModelSettings.FILE_NAME).exists() && read(history).equals("history retained"), "history or project damaged");
+        check("startup recovery is idempotent", !ConfigBackup.recoverInterruptedRestore(tx), "replayed committed operation");
+        ConfigBackup.writeRestoreJournal(tx, before);
+        File journal = new File(tx, ".native-config-restore");
+        byte[] validJournal = java.nio.file.Files.readAllBytes(journal.toPath());
+        byte[] corruptJournal = validJournal.clone(); corruptJournal[10] ^= 1;
+        java.nio.file.Files.write(journal.toPath(), corruptJournal);
+        write(credentials, "interrupted current\n");
+        threw = false;
+        try { ConfigBackup.recoverInterruptedRestore(tx); } catch (java.io.IOException expected) { threw = true; }
+        check("corrupt undo blocks writes and keeps evidence", threw && journal.exists() && read(credentials).equals("interrupted current\n"), "corrupt replay");
+        java.nio.file.Files.write(journal.toPath(), validJournal);
+        credentials.delete(); credentials.mkdirs();
+        threw = false;
+        try { ConfigBackup.recoverInterruptedRestore(tx); } catch (java.io.IOException expected) { threw = true; }
+        check("unavailable target keeps undo for retry", threw && journal.isFile(), "record lost");
+        credentials.delete();
+        check("recovery can retry after target becomes writable", ConfigBackup.recoverInterruptedRestore(tx) && read(credentials).equals("original credentials\n"), "retry failed");
+        File unavailableStage = new File(tx, ".native-config-restore.next"); unavailableStage.mkdirs();
+        write(new File(unavailableStage, "occupied"), "keep");
+        threw = false;
+        try { ConfigBackup.restoreFrom(zip, tx); } catch (java.io.IOException expected) { threw = true; }
+        check("undo staging failure happens before any live write", threw && read(credentials).equals("original credentials\n") && !ConfigBackup.hasInterruptedRestore(tx), "partial write");
+        rmrf(unavailableStage);
+        java.nio.file.Files.createSymbolicLink(new File(tx, "settings.yaml.imported").toPath(), settings.toPath());
+        threw = false;
+        try { ConfigBackup.restoreEncrypted(current, tx, password); } catch (java.io.IOException expected) { threw = true; }
+        check("internal symlink aliases cannot overwrite another configuration", threw && read(settings).equals("original settings\n"), "aliased target accepted");
+        new File(tx, "settings.yaml.imported").delete();
+
         rmrf(base);
         System.out.println();
         System.out.println("TOTAL: " + pass + " pass / " + fail + " fail");

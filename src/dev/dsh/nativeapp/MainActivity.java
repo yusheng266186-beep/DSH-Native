@@ -978,6 +978,13 @@ public class MainActivity extends Activity {
         final File root = new File(getFilesDir(), "dsh");
         appRoot = root;
         log("私有目录: " + root);
+        File configHome = new File(root, ".dsh");
+        if (ConfigBackup.hasInterruptedRestore(configHome)) {
+            if (!HarnessService.stopManagedProcessAndWait(5000L))
+                throw new IOException("配置恢复等待原内核退出，请稍后重试");
+            ConfigBackup.recoverInterruptedRestore(configHome);
+            log("已恢复上次中断前的完整配置");
+        }
 
         if (!supportsArm64Runtime()) {
             return "此版本只包含 arm64-v8a 运行环境；当前设备架构为 "
@@ -1007,7 +1014,16 @@ public class MainActivity extends Activity {
         File dshDir = new File(root, "dsh");
         File toolsDir = new File(root, "tools");
         File node = new File(root, "node");
-        if (reusePreparedCore(root, dshDir, toolsDir, node)) return null;
+        String interruptedPayload = PayloadRollback.interruptedMode(root);
+        if ("update".equals(interruptedPayload) || "restore".equals(interruptedPayload)) {
+            setSplashStatus("正在恢复中断前的运行环境…");
+            extractAssets(root);
+            chmod(node, "755");
+            restorePayloadRollback(node, root, true);
+            log("已恢复上次中断的运行包操作，自动更新暂缓");
+        }
+        boolean interruptedFirstInstall = "fresh".equals(interruptedPayload);
+        if (!interruptedFirstInstall && reusePreparedCore(root, dshDir, toolsDir, node)) return null;
 
         // 1. 解压 APK 内置的引导负载（node + 脚本）
         extractAssets(root);
@@ -1035,7 +1051,7 @@ public class MainActivity extends Activity {
         // 直连超时的情况下最多 35 秒（15s 连接 + 20s 读取）才开始走镜像。
         // 现在改成：本地完整就直接启动，更新检查放到后台；
         // 若后台发现有更新，记一个标记，**下次启动时**再真正应用。
-        boolean locallyComplete = payloadLocallyComplete(dshDir, toolsDir);
+        boolean locallyComplete = !interruptedFirstInstall && payloadLocallyComplete(dshDir, toolsDir);
         boolean updatePending = payloadUpdatePending()
                 || (locallyComplete && validatePayloadManifest(new File(root, "manifest.json")) != null);
         boolean rollbackHold = payloadRollbackHold();
@@ -1060,7 +1076,8 @@ public class MainActivity extends Activity {
                 // 保留旧运行包继续启动，后台稍后会重新检查；首次安装则仍要报错。
                 // 五 D 的自动恢复完成后再复核关键文件；若恢复本身也失败，绝不能
                 // 继续拿“更新前曾经完整”这个旧结论启动一套可能已损坏的环境。
-                if (!locallyComplete || !payloadLocallyComplete(dshDir, toolsDir)) {
+                if (!locallyComplete || PayloadRollback.interruptedMode(root) != null
+                        || !payloadLocallyComplete(dshDir, toolsDir)) {
                     if (updateError instanceof Exception) throw (Exception) updateError;
                     throw new Exception(updateError);
                 }
@@ -2645,7 +2662,9 @@ public class MainActivity extends Activity {
         PayloadRollback.Journal journal = loadPayloadRollback(root);
         if (journal == null) throw new IOException("没有完整且可信的运行环境快照");
         File rollback = new File(root, "payload-rollback");
-        HarnessService.stopManagedProcess();
+        if (!HarnessService.stopManagedProcessAndWait(5000L))
+            throw new IOException("恢复运行包前原内核尚未退出，请稍后重试");
+        PayloadRollback.beginChange(root, "restore");
 
         for (PayloadRollback.Target target : journal.targets) {
             File current = new File(root, target.name);
@@ -2675,6 +2694,7 @@ public class MainActivity extends Activity {
         }
 
         restorePayloadRevisionState(journal.revisions);
+        PayloadRollback.completeChange(root);
         try { deleteRuntimeChild(rollback, root); }
         catch (Throwable cleanupError) {
             log("回滚完成，但无法清理已使用的快照: " + shorten(cleanupError));
@@ -4632,6 +4652,7 @@ public class MainActivity extends Activity {
     private boolean ensurePayload(File node, File root, File dshDir, File toolsDir)
             throws Exception {
         File mf = refreshPayloadManifest(root);
+        boolean interruptedFirstInstall = "fresh".equals(PayloadRollback.interruptedMode(root));
 
         org.json.JSONObject man = new org.json.JSONObject(readText(mf));
         org.json.JSONArray parts = man.getJSONArray("parts");
@@ -4664,7 +4685,7 @@ public class MainActivity extends Activity {
                 for (int k = 0; k < ra.length(); k++) rm.add(ra.optString(k, ""));
             }
             PayloadUpdate.Part info = new PayloadUpdate.Part(name, rev, matched, rm);
-            if (PayloadUpdate.needsWork(info, applied)) {
+            if (interruptedFirstInstall || PayloadUpdate.needsWork(info, applied)) {
                 missing.add(name);
                 changedTargets.add(part.getString("target"));
                 java.util.List<String> del = PayloadUpdate.removalsFor(info, applied);
@@ -4699,7 +4720,7 @@ public class MainActivity extends Activity {
         }
         long updateRequiredBytes = PayloadUpdate.requiredFreeBytes(
                 compressedBytes, cachedBytes, unpackedBytes);
-        boolean rollbackNeeded = payloadLocallyComplete(dshDir, toolsDir);
+        boolean rollbackNeeded = !interruptedFirstInstall && payloadLocallyComplete(dshDir, toolsDir);
         long liveTargetBytes = 0L;
         if (rollbackNeeded) {
             if (changedTargets.contains("dsh")) liveTargetBytes += directorySizeNoFollow(dshDir);
@@ -4766,10 +4787,12 @@ public class MainActivity extends Activity {
         boolean rollbackCreated = false;
         if (rollbackNeeded) {
             setSplashStatus("正在保存上一运行环境…");
-            HarnessService.stopManagedProcess();
+            if (!HarnessService.stopManagedProcessAndWait(5000L))
+                throw new IOException("更新运行包前原内核尚未退出，请稍后重试");
             createPayloadRollback(node, root, changedTargets, appliedRevs);
             rollbackCreated = true;
         }
+        PayloadRollback.beginChange(root, rollbackCreated ? "update" : "fresh");
         try {
             for (int i = 0; i < parts.length(); i++) {
                 org.json.JSONObject part = parts.getJSONObject(i);
@@ -4823,6 +4846,7 @@ public class MainActivity extends Activity {
         // 修订号只在**全部成功后**才记录：中途失败（校验不过、解压出错）
         // 若已记下，下次启动会误判为已应用，被删的文件就永远补不回来了
         rememberPayloadRevisions(parts, dshDir, toolsDir);
+        PayloadRollback.completeChange(root);
         setPayloadRollbackHold(false);
         return false;
     }
