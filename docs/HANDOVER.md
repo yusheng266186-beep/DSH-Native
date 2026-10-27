@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.1**；源码：**1.1.1**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.1**；源码：**1.1.2**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -57,7 +57,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 服务地址可能早于 legacy 模型导入完成，完成日志通常不输出到终端。存在待导入文件时，启动前保存预期配置，`CoreReadiness` 通过真实 `settings/describe` 核对默认、目录与能力，最多等待 30 秒；超时也不绕过该条件。系统日志同样必须走 `SecretMasker`。
 
-0.36.2 修复 `#!` 后空白的 shebang，并核对解释器实际目标仍在 tools 内。`runtime-checks.js` 通过真实 LocalFileSystem API 自检，在唯一临时目录中验证新建/读回/拒绝同名/按版本更新，只清理自己创建的目录。preflight 分别检查私有 tmp 与所选工作区；缓存键包含工作区，失败不缓存；旧 rc.2 明确跳过不支持的新版探针。可选 Python import 是 INFO，不能为了“全通过”自动装包或启用插件。新 helper 必须进入 APK assets 并随版本提取，实际运行包消费回归执行生产 helper 和 preflight 接线。
+0.36.2 修复 `#!` 后空白的 shebang，并核对解释器实际目标仍在 tools 内。`runtime-checks.js` 通过真实 LocalFileSystem API 自检，在唯一临时目录中验证新建/读回/拒绝同名/按版本更新，只清理自己创建的目录。preflight 分别检查私有 tmp 与所选工作区；缓存键包含工作区，失败不缓存为通过（1.1.2 起另记一小时尝试退避）；旧 rc.2 明确跳过不支持的新版探针。可选 Python import 是 INFO，不能为了“全通过”自动装包或启用插件。新 helper 必须进入 APK assets 并随版本提取，实际运行包消费回归执行生产 helper 和 preflight 接线。
 
 0.37.0 原生桥由 HarnessService 创建/停止 NativeBridgeServer，Activity 只以弱引用绑定前台能力。纯协议/文件/尺寸规则在 NativeBridgePolicy；NativeBridge 在主线程复核窗口与权限，再执行 Android 调用；文件暂存不阻塞 UI。NativeScreenCapture 单请求授权协调，NativeCaptureService 独立 mediaProjection 类型，只取一帧，回调与资源必须幂等释放。HTTP 不给网页 CORS，不接受浏览器 Origin 或 Sec-Fetch，令牌文件不能进普通日志或分享。客户端/插件的 .cjs 也必须随 APK 更新；在 --profile 前加载 App 自有 insert patch，实际 ToolRuntime 与 Web profile 消费回归必须通过。见[原生能力说明](ANDROID_BRIDGE.md)。
 
@@ -151,7 +151,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 `StartupState` 管理页面代次、真实握手和首帧证据，`StartupView` 只负责 720ms 小鲸鱼游动、水波与周期末交接。Slot 外层是 `display:contents`，必须检查子按钮的矩形，不能只看 slot 自身。`onPageFinished` 不等于 UI 可用；双帧后的消息还要经 `postVisualStateCallback` 确认。旧 8 秒/45 秒强撤遮罩已移除，前台 UI 超时直接给出失败页，后台取消计时、回前台重新计时。
 
-快速复用必须满足 `corePreparedKey`、同版资源、完整本地环境、自检通过和可信清单（恢复暂缓沿用已有恢复验证），并实际认证探测服务；任何条件缺失回完整准备。`corePreparedKey` 仅完整准备成功后记录，不能提前写成“完成”。变更工作区/外部凭据、版本或切片必须失效。工具复核与更新检查在界面交接后执行。Node 编译缓存在 Android 私有 cache，正常丢失可重建；本地检查不是手机测速。
+快速复用必须满足 `corePreparedKey`、同版资源、完整本地环境、工具指纹和可信清单（恢复暂缓沿用已有恢复验证），并实际认证探测服务；任何条件缺失回完整准备。`corePreparedKey` 仅完整准备成功后记录，不能提前写成“完成”。变更工作区/外部凭据、组件内容或切片必须失效。1.1.2 将完整能力检查移至首页交接后的前台空闲阶段，自检成功不再是复用门槛，失败同一指纹一小时退避；聊天、后台和重启/维护会中止检查，防止占住环境锁。工具复核与更新检查仍在界面交接后执行。Node 编译缓存在 Android 私有 cache，正常丢失可重建；本地检查不是手机测速。
 
 ## 8. 持续有效的事故防护与红线
 

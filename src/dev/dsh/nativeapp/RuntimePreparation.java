@@ -63,13 +63,25 @@ final class RuntimePreparation {
         return new File(root, "tmp").isDirectory();
     }
     static int prepareTools(File root, String payloadRevision) throws IOException {
-        String key = TOOLS_REVISION + "\n" + payloadRevision + "\n" + root.getCanonicalPath() + "\n" + new File(root, "tools/bin").lastModified() + "\n";
+        String key = signature(root, payloadRevision);
         File receipt = new File(root, ".tool-environment");
         if (receipt.isFile() && receipt.length() <= 8192 && toolsPresent(root)
                 && key.equals(new String(Files.readAllBytes(receipt.toPath()), StandardCharsets.UTF_8))) return 0;
         int fixed = ToolEnvironment.repair(root);
         if (!toolsPresent(root)) throw new IOException("Device commands were not prepared");
-        AssetInstaller.atomic(root, ".tool-environment", key);
+        // Repair itself can change tools/bin's directory timestamp.
+        AssetInstaller.atomic(root, ".tool-environment", signature(root, payloadRevision));
         return fixed;
+    }
+    static String signature(File root, String payloadRevision) throws IOException {
+        StringBuilder key = new StringBuilder(TOOLS_REVISION).append('\n').append(payloadRevision)
+                .append('\n').append(root.getCanonicalPath()).append('\n')
+                .append(new File(root, "tools/bin").lastModified()).append('\n')
+                .append(new File(root, "tools/lib/python3.14/site-packages").lastModified()).append('\n');
+        for (String name : new String[]{"node", "npm", "npx", "dsh-android"}) {
+            File file = new File(root, ".native-bin/" + name);
+            key.append(file.length()).append(':').append(file.lastModified()).append(':').append(file.canExecute()).append('\n');
+        }
+        return key.toString();
     }
 }

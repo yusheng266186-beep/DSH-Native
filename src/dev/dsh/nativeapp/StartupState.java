@@ -19,7 +19,7 @@ final class StartupState {
 
     /** Fixed numeric milestones only; no URLs, paths or conversation data. */
     static final class Timing {
-        private static final String[] STAGES = {"assets", "runtime", "compat", "preflight", "process", "server", "core", "page", "paint", "handoff", "failed"};
+        private static final String[] STAGES = {"assets", "runtime", "compat", "config", "process", "server", "core", "page", "paint", "handoff", "failed"};
         private final long started;
         private final long[] elapsed = new long[STAGES.length];
         Timing(long started) { this.started = started; java.util.Arrays.fill(elapsed, -1L); }
