@@ -86,7 +86,12 @@ try{
   check(scrollable,'long upstream catalog provides a bounded scroll container');
   const modelScroll=modelDialog.locator('[data-native-dialog-body]');const scrollRect=await modelScroll.boundingBox();
   const touch=await context.newCDPSession(page);
-  await touch.send('Input.synthesizeScrollGesture',{x:scrollRect.x+scrollRect.width/2,y:scrollRect.y+scrollRect.height*.75,yDistance:-Math.min(180,scrollRect.height*.5),gestureSourceType:'touch',speed:500});
+  // Use actual touch events for scaled mobile viewports, retaining the real scroll assertion.
+  console.log('Touch viewport geometry',{scrollRect,viewport:await page.evaluate(()=>({width:innerWidth,height:innerHeight,scale:visualViewport?.scale,visualWidth:visualViewport?.width,visualHeight:visualViewport?.height}))});
+  const x=scrollRect.x+scrollRect.width/2,startY=scrollRect.y+scrollRect.height*.75,distance=Math.min(180,scrollRect.height*.5);
+  await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y:startY}]});
+  for(let step=1;step<=12;step++){await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:startY-distance*step/12}]});await sleep(20);}
+  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
   await page.waitForFunction(()=>document.querySelector('[data-native-dialog-body]')?.scrollTop>0);
   check(await modelScroll.evaluate(el=>el.scrollTop>0),'a touch swipe scrolls the upstream catalog');await touch.detach();
   await modelDialog.getByRole('button',{name:/^upstream-model-60 /}).click();
