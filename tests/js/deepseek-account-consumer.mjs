@@ -161,7 +161,7 @@ try {
   accountPage = await context.newPage();
   const mobileRoute = (page, width) => page.route(origin + '/', async route => {
       const response = await route.fetch();
-      const html = preparedFrontend(await response.text(), mobileHtml, 480);
+      const html = preparedFrontend(await response.text(), mobileHtml, width);
       await route.fulfill({response, body: html});
     });
   await mobileRoute(accountPage, 480);
