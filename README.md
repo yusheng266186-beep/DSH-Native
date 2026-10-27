@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -36,7 +36,7 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 <!-- project-navigation:start -->
 
-1.0 候选按六项顺序完成稳定性、数据保护、全面适配、CodeBuddy、性能及维护基础，正在统一验收。详见[正式版计划](docs/RELEASE_1_0.md)、[隐私](docs/PRIVACY.md)、[组件许可](docs/THIRD_PARTY.md)和[排障](docs/TROUBLESHOOTING.md)。下载入口仍指向已发布版本，覆盖安装后重启内核。
+1.0.0 正式版已完成六项收尾与发布前新增反馈的自动验收：模型目录在当前内核应用、长列表支持触摸滑动、同版环境减少重复准备，保留品牌鲸鱼并细化轻量动效。详见[执行与验收记录](docs/RELEASE_1_0.md)、[隐私](docs/PRIVACY.md)、[组件许可](docs/THIRD_PARTY.md)和[排障](docs/TROUBLESHOOTING.md)。可直接覆盖安装，手机体验由用户安装验收。
 
 0.40.0 针对后台/息屏返回优化本机连接恢复，保留聊天页面和草稿；移除头像上方独立的 App 工具按钮，统一使用原设置入口。设备设置修复刷新期间点击丢失，并继续减少 CodeBuddy 本地准备与重复上下文开销。安装覆盖后重启内核，真机体验由用户验证。
 
@@ -62,13 +62,13 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 ## 下载与运行要求
 
-**当前版本：0.40.2**
+**当前版本：1.0.0**
 
-**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.40.2-bootstrap/DSHNative-bootstrap.apk)**（41.4 MiB）
+**[下载 DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v1.0.0-bootstrap/DSHNative-bootstrap.apk)**（41.5 MiB）
 
-[正式版发布说明](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.40.2-bootstrap) · [历史版本](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[正式版发布说明](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v1.0.0-bootstrap) · [历史版本](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256：`59fd17d1d85f6919a0982a7343b290b8693d6cfdcbb2c4f5f260a26f2b804d60`
+SHA-256：`d031d210486c9262af544b130e6513e3c0d8f9fb4489b96567bec3efcb068684`
 
 | 项目 | 要求与说明 |
 |---|---|

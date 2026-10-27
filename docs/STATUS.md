@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**0.40.2**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.0.0**；源码：**1.0.0**；源码运行包：`payload-v13`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -11,10 +11,10 @@
 <!-- dsh-release-facts:start -->
 | 项目 | 当前值 / 权威来源 |
 |---|---|
-| 已发布稳定版 | `0.40.2` · `v0.40.2-bootstrap` · `latest.json` |
-| 稳定 APK | `DSHNative-bootstrap.apk` · 41.4 MiB |
+| 已发布稳定版 | `1.0.0` · `v1.0.0-bootstrap` · `latest.json` |
+| 稳定 APK | `DSHNative-bootstrap.apk` · 41.5 MiB |
 | 稳定运行包 | `payload-v13` · 压缩总量 143.6 MiB |
-| APK SHA-256 | `59fd17d1d85f6919a0982a7343b290b8693d6cfdcbb2c4f5f260a26f2b804d60` |
+| APK SHA-256 | `d031d210486c9262af544b130e6513e3c0d8f9fb4489b96567bec3efcb068684` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
 | 当前源码版本 | `1.0.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v13` · `MainActivity.java` |
@@ -44,7 +44,7 @@
 
 ## 1.0 正式版收尾
 
-依次完成连接稳定、更新/配置事务、全页面适配、CodeBuddy 完整对话、性能与缓存、维护基础六项，见 [执行计划](RELEASE_1_0.md)。新增 [隐私](PRIVACY.md)、[开源来源](THIRD_PARTY.md) 和 [排障指南](TROUBLESHOOTING.md)。冻结兼容组合与实际引导二进制，未知能力和手机验收边界保留。发布前追加的启动、模型目录重启与列表滚动问题正纳入最终验收，尚未发布。
+已完成连接稳定、更新/配置事务、全页面适配、CodeBuddy 完整对话、性能与缓存、维护基础六项，以及追加的启动、模型目录重启与列表滚动修复；1.0.0 stable 已发布。完整结果见 [执行与验收记录](RELEASE_1_0.md)。新增 [隐私](PRIVACY.md)、[开源来源](THIRD_PARTY.md) 和 [排障指南](TROUBLESHOOTING.md)。冻结兼容组合与实际引导二进制；未知能力和用户手机验收边界保留。
 
 ## 0.40.2 的缓存统计与小鲸鱼动画
 

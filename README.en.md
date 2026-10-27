@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **0.40.2**; source: **1.0.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.0.0**; source: **1.0.0**; source payload: `payload-v13`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -36,7 +36,7 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 
 <!-- project-navigation:start -->
 
-The 1.0 candidate completes six ordered readiness stages and is undergoing final acceptance. See the [release plan](docs/RELEASE_1_0.md), [privacy](docs/PRIVACY.md), [third-party sources](docs/THIRD_PARTY.md) and [troubleshooting](docs/TROUBLESHOOTING.md). Download links still refer to the published build. Install over the existing app and restart its core.
+Stable 1.0.0 completes six readiness stages and the additional startup/catalog feedback checks. Model catalogs apply in the current core, long lists support touch scrolling, verified preparation is reused after process exit, and the brand whale keeps a quieter loading motion. See the [acceptance record](docs/RELEASE_1_0.md), [privacy](docs/PRIVACY.md), [third-party sources](docs/THIRD_PARTY.md) and [troubleshooting](docs/TROUBLESHOOTING.md). Install over the existing app; device acceptance remains with the user.
 
 0.40.0 improves loopback recovery after background/screen-off returns without reloading chat or replaying prompts. The separate App tools button is removed; device controls use the original settings entry. Settings clicks survive background refreshes, while CodeBuddy prepares quick follow-ups and avoids retransmitting historical assistant reasoning. Install over the current app and restart the core; device validation remains with the user.
 
@@ -58,13 +58,13 @@ For installation, use the download and setup sections below. Source, release and
 
 ## Download and requirements
 
-**Current stable release: 0.40.2**
+**Current stable release: 1.0.0**
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v0.40.2-bootstrap/DSHNative-bootstrap.apk)** (41.4 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v1.0.0-bootstrap/DSHNative-bootstrap.apk)** (41.5 MiB)
 
-[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v0.40.2-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v1.0.0-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256: `59fd17d1d85f6919a0982a7343b290b8693d6cfdcbb2c4f5f260a26f2b804d60`
+SHA-256: `d031d210486c9262af544b130e6513e3c0d8f9fb4489b96567bec3efcb068684`
 
 | Item | Requirement or behavior |
 |---|---|
@@ -168,7 +168,7 @@ Model Center keeps the selected provider’s refresh progress, model count, or e
 
 Stable clients read `latest.json`. Test-channel clients compare it with `latest-test.json` and select the higher version. Each published manifest stays bound to its own APK and payload.
 
-Runtime updates check space and take a snapshot before replacement, with recovery on failure. Automatic recovery holds further updates to avoid a startup loop. The pinned DSH core is `0.2.0-rc.2`, an **upstream release candidate**; the App's stable channel is independent of that upstream designation.
+Runtime updates check space and take a snapshot before replacement, with recovery on failure. Automatic recovery holds further updates to avoid a startup loop. The pinned core version and its upstream release status are recorded in [STATUS](docs/STATUS.md); the App's stable channel is independent of that upstream designation.
 
 ## Data and permission boundaries
 
