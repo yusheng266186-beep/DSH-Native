@@ -102,3 +102,11 @@ python3 scripts/sync_project_metadata.py --check
 0.37.1 的 check_native_bridge.py 也编译执行真实 NativeCaptureService，通过 NativeCaptureServiceTest 检查销毁后交付、取消与服务启动竞争、重复 Intent、旋转、系统停止、内存失败和计时器/图像资源释放。Android API/编码器是替身；NativeBridgePolicy 的 ByteBuffer 校验直接执行 JVM 实现。没有真机捕获或真实 PNG 证据。
 
 0.37.2 新增 NativeActionReliabilityTest：确定性主线程排队/窗口更换/系统拒绝替身执行生产 NativeBridge，真实等待其 5 秒 UI 超时，验证待执行动作移除和原文件保留。android-bridge-consumer 额外检查实际 HTTP 400/403 到 CLI/ToolRuntime 的错误保留，以及真实本机无响应 peer 的 12 秒客户端期限与无自动重试；不发送付费提示词。
+
+## Android 预适配运行包
+
+当前 App 要求发布前完成全部固定内核适配。用 `build_android_runtime.py --archive <可信旧 DSH 归档> --manifest <固定清单> --out <发布目录> --runtime <全新展开目录>` 生成完整 Android 分片。`runtime/android-port.json` 固定基底大小/摘要；Java 适配器检查 19 项变换和整条链幂等性。上游 npm 构建器 `prepare_core_payload.py` 也使用同一个 `apply_port` 入口，不能发布只做了一半适配的内核。
+
+复制其余四个已验证的工具分片，生成全部文件摘要后使用 `release_payload.py` 发布。`--transport gh` 使用现有 CLI 登录，支持只复用目标提交一致、已有资产摘要一致的草稿；已发布资产不可覆盖。manifest 始终最后上传，公开后仍需核对 APK 内置摘要。
+
+APK 最终组装后由 `create_asset_index.py` 生成 `assets/runtime-assets.tsv`；组件索引随签名保护。手机的 AssetInstaller 按内容原子安装，RuntimePreparation 只准备设备路径，不再携带内核源码变换。

@@ -35,7 +35,9 @@ def main():
             command = ['gh', 'api', url, '--method', method, '-H', 'Accept: application/vnd.github+json']
             if data is not None:
                 command += ['--input', '-', '-H', 'Content-Type: ' + ('application/octet-stream' if binary else 'application/json')]
-            result = subprocess.run(command, input=data, capture_output=True, check=True, timeout=300)
+            result = subprocess.run(command, input=data, capture_output=True, timeout=300)
+            if result.returncode:
+                raise RuntimeError('GitHub release transport failed: ' + result.stderr.decode(errors='replace')[:2000])
             return json.loads(result.stdout)
         req = urllib.request.Request(url, data=data, method=method, headers={
             'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
@@ -59,14 +61,32 @@ def main():
                      for line in (args.directory / 'SHA256SUMS.txt').read_text().splitlines())
     assert all(checksums[name] == value for name, value in expected.items() if name != 'SHA256SUMS.txt')
     base = f'https://api.github.com/repos/{REPO}/releases'
-    release = api(base, 'POST', dict(tag_name=args.tag, target_commitish=args.commit,
-        name=args.tag, body=args.notes.read_text(), draft=True, prerelease=False))
+    previous = [item for item in api(base + '?per_page=100') if item['tag_name'] == args.tag]
+    if previous:
+        if len(previous) != 1 or not previous[0]['draft']:
+            raise ValueError('Payload release already published; never replace immutable assets')
+        release = previous[0]
+        if release['target_commitish'] != args.commit:
+            raise ValueError('Existing draft belongs to a different commit')
+    else:
+        release = api(base, 'POST', dict(tag_name=args.tag, target_commitish=args.commit,
+            name=args.tag, body=args.notes.read_text(), draft=True, prerelease=False))
     upload = release['upload_url'].split('{')[0]
     # Draft protects readers until every asset has been fully verified. The
     # manifest is still last, preserving the payload publication contract.
     for name in names:
         path = args.directory / name
-        asset = api(upload + '?name=' + urllib.parse.quote(name), 'POST', path.read_bytes(), True)
+        existing = [asset for asset in release['assets'] if asset['name'] == name]
+        if existing:
+            asset = existing[0]
+        elif args.transport == 'gh':
+            # The asset endpoint rejects chunked stdin; release upload streams a
+            # file with its exact Content-Length through the existing CLI login.
+            subprocess.run(['gh', 'release', 'upload', args.tag, str(path), '--repo', REPO], check=True, timeout=300)
+            uploaded = api(release['url'])
+            asset = next(item for item in uploaded['assets'] if item['name'] == name)
+        else:
+            asset = api(upload + '?name=' + urllib.parse.quote(name), 'POST', path.read_bytes(), True)
         assert asset['size'] == path.stat().st_size
         assert asset.get('digest') == 'sha256:' + expected[name], f'uploaded digest differs: {name}'
         print(name + ': uploaded and SHA-verified', flush=True)
