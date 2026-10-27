@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix="dsh-runtime-recovery-") as temp:
         (root / ".dsh/keep.txt").write_text("private data retained")
         (root / "dsh/lib/bin.js").write_text("old core")
         (root / "tools/bin/bash").write_text("old tools")
-        for script in ["snapshot.js", "unpack.js"]:
+        for script in ["snapshot.js", "unpack.js", "archive-tar.cjs"]:
             shutil.copyfile(PAYLOAD / script, root / script)
         return root
 

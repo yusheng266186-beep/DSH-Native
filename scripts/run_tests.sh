@@ -536,6 +536,7 @@ if ! python3 tests/release_script_test.py; then rc=1; fi
 # 架构断言看不出这种问题（Termux 那份同样是 AArch64 ELF），只有检查 DT_NEEDED 才能发现。
 # 具体覆盖见 tests/android_native_payload_test.py（构造 ELF + 校验器 + 构建器接线）。
 if ! python3 tests/android_native_payload_test.py; then rc=1; fi
+if ! python3 tests/archive_installer_test.py; then rc=1; fi
 if ! python3 tests/check_web_session.py; then rc=1; fi
 if ! python3 tests/check_native_theme.py; then rc=1; fi
 if ! python3 tests/check_startup.py; then rc=1; fi

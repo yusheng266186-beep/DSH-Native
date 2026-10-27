@@ -24,7 +24,7 @@ PY
 ANDROID_HOME="$SDK" BT="$BT" DSH_PREVIOUS_APK="$REFERENCE" \
     bash "$ROOT/scripts/ci_stage.sh" "$BUILD"
 mkdir -p "$BUILD/codebuddy-check"
-for file in codebuddy-cli.cjs unpack.js codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json; do
+for file in codebuddy-cli.cjs unpack.js archive-tar.cjs codebuddy-sdk.tar.zst codebuddy-sdk-manifest.json; do
     cp "$BUILD/bootstrap/payload/$file" "$BUILD/codebuddy-check/$file"
 done
 node "$ROOT/tests/js/codebuddy-cli-consumer.mjs" "$BUILD/codebuddy-check"

@@ -32,7 +32,7 @@ bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
 (cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
     test -s dsh.sha256; sha256sum -c dsh.sha256)
 mkdir "$PROBE/runtime" "$PROBE/classes"
-tar --zstd --no-same-owner -xf "$PROBE/dsh.tar.zst" -C "$PROBE/runtime"
+node "$ROOT/payload/unpack.js" "$PROBE/dsh.tar.zst" "$PROBE/runtime"
 if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
