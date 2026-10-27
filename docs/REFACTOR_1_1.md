@@ -22,7 +22,7 @@
 - `ThemeController`、`ThemeSync`、`NativeTheme`：主题来源、80ms 合并、文档代次和弱引用颜色注册独立管理。删除主题触发的 `recreate()` 和旧 1.2 秒重建定时器；保留输入、光标、滚动、弹层及状态颜色。
 - `AndroidRuntimePort`、`AttachmentPort`、`build_android_runtime.py`：19 项固定内核适配统一在构建时完成；每个适配检查锚点和幂等性，再对整条链执行第二遍一致性检查。`payload-v14` 包含 Pillow、完整设置/文件/语音/连接适配，手机启动不再遍历改写这些模块。固定内核仍为 0.2.1-rc.3，四个工具分片逐字节复用 v13。
 - `AssetInstaller`：最终 APK 在打包时生成组件大小/摘要索引，资源按内容更新并原子替换。私有回执用于复用未变的大型组件；小脚本仍重新核对摘要。旧安装首次迁移按磁盘实际摘要确认，不用旧 App 版本号代替内容证明。中断/错误摘要不覆盖旧文件或回执。
-- `archive-tar.cjs`、`unpack.js`：用共享流式解包器替换旧整包缓冲解析器，支持 GNU 与 PAX 扩展长路径，保留可执行位/符号链接，并按文件原子发布。APK 安装、运行包恢复及 CodeBuddy SDK 解包都走同一实现；不会把完整展开 tar 一次性放入 JS 内存。消费回归也改用实际 APK 解包器，不再由桌面 tar 代劳。
+- `archive-tar.cjs`、`unpack.js`：用共享流式解包器替换旧整包缓冲解析器，支持 GNU 与 PAX 扩展长路径，保留可执行位/符号链接，并按文件原子发布。APK 安装、运行包恢复及 CodeBuddy SDK 解包都走同一实现；不会把完整展开 tar 一次性放入 JS 内存。消费回归按 APK 固定清单逐片校验全部五个公开归档的大小/摘要，再使用实际 APK 解包器和哨兵验证，不再由桌面 tar 代劳。
 - `RuntimePreparation`、`RuntimeLauncher`、`RuntimeChecks`、`ProcessRunner`：设备绝对路径、自检、进程环境与临时命令各自负责。工具准备按修订和工具目录变更执行；自检缓存按组件、分片及工作区确认。临时命令有超时和取消；实际 DSH 进程继续由 HarnessService 独占监管。
 - `StartupCoordinator`：同步决定启动/重启是否受理，再进入共享运行目录锁和执行停机。旧启动回调按代次丢弃，销毁取消等待；运行包更新、回滚和配置恢复使用同一环境锁。运行任务/未知状态下仍保护旧内核，不强行停机升级。是否需替换内核按组件内容、固定清单和工作区判定，删除旧 coreAppVersion 门槛；单纯提升 App 版本不再使相同内核失效。
 - `WebSession`、`ViewportState`：统一浏览器创建、设置、前后台和销毁。旋转/分屏直接更新现有 viewport，保持 480 窄屏下限，不再写 HTML 或重新加载页面。清理中的单个渲染器错误不会跳过后续销毁步骤。

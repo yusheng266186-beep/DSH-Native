@@ -15,24 +15,39 @@ PY
 )"
 if [ -n "${DSH_CONSUMER_PAYLOAD_DIR:-}" ]; then
     # Pre-publication local run: the same APK-pinned manifest and full archive digests still apply.
-    for asset in dsh.tar.zst SHA256SUMS.txt manifest.json; do
+    for asset in dsh.tar.zst tools-base.tar.zst tools-libs.tar.zst tools-python.tar.zst tools-npm.tar.zst SHA256SUMS.txt manifest.json; do
         cp "$DSH_CONSUMER_PAYLOAD_DIR/$asset" "$PROBE/$asset"
     done
 else
 if ! gh release download "$TAG" --repo yusheng266186-beep/DSH-Native \
-    --pattern dsh.tar.zst --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE" 2>"$PROBE/download.log"; then
+    --pattern '*.tar.zst' --pattern SHA256SUMS.txt --pattern manifest.json --dir "$PROBE" 2>"$PROBE/download.log"; then
     echo "Release API download failed; retrying the same official public assets over HTTPS."
-    for asset in dsh.tar.zst SHA256SUMS.txt manifest.json; do
+    for asset in dsh.tar.zst tools-base.tar.zst tools-libs.tar.zst tools-python.tar.zst tools-npm.tar.zst SHA256SUMS.txt manifest.json; do
         curl -fL --retry 3 --connect-timeout 20 --max-time 300 \
             -o "$PROBE/$asset" "https://github.com/yusheng266186-beep/DSH-Native/releases/download/$TAG/$asset"
     done
 fi
 fi
 bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
-(cd "$PROBE"; awk '$2 ~ /(^|\/)dsh\.tar\.zst$/ {print $1 "  dsh.tar.zst"}' SHA256SUMS.txt > dsh.sha256;
-    test -s dsh.sha256; sha256sum -c dsh.sha256)
-mkdir "$PROBE/runtime" "$PROBE/classes"
-node "$ROOT/payload/unpack.js" "$PROBE/dsh.tar.zst" "$PROBE/runtime"
+mkdir "$PROBE/runtime" "$PROBE/tools" "$PROBE/classes"
+python3 - "$ROOT" "$PROBE" <<'PY_ARCHIVES'
+import hashlib, json, pathlib, subprocess, sys
+root, probe = map(pathlib.Path, sys.argv[1:])
+def digest(file):
+    h = hashlib.sha256()
+    with file.open('rb') as stream:
+        for data in iter(lambda: stream.read(262144), b''):
+            h.update(data)
+    return h.hexdigest()
+for part in json.loads((probe / 'manifest.json').read_text())['parts']:
+    archive = probe / part['name']
+    assert archive.stat().st_size == part['size'] and digest(archive) == part['sha256'], 'Archive differs from APK-trusted manifest: ' + part['name']
+    target = probe / ('runtime' if part['target'] == 'dsh' else 'tools')
+    subprocess.run(['node', str(root / 'payload/unpack.js'), str(archive), str(target)], check=True)
+    sentinel = target / part['sentinel']['path']
+    assert sentinel.stat().st_size == part['sentinel']['size'] and digest(sentinel) == part['sentinel']['sha256'], 'App unpacked sentinel differs: ' + part['name']
+print('Actual APK installer: all five trusted archives and extracted sentinels verified.')
+PY_ARCHIVES
 if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
