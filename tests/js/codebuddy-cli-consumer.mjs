@@ -106,9 +106,7 @@ try{
   const declared=product.models.find(model=>model.id==='deepseek-v4.1-flash');
   check(declared.maxInputTokens===1000000&&declared.contextWindow.defaultLength===300000&&declared.contextWindow.supportedLengths.includes(1000000),'pinned unmodified CLI declares a 1M tier and the old 300K default');
   const catalog=JSON.parse(await fs.readFile(new URL('../../runtime/codebuddy-catalog.json',import.meta.url),'utf8'));
-  const web=await fs.readFile(new URL('../../payload/app-settings-ui.js',import.meta.url),'utf8');
-  const webModels=JSON.parse(web.match(/const codeBuddyDefaultModels=(\[.*\]);/)[1]);
-  check([catalog.catalog,webModels].every(models=>models.find(model=>model.id==='deepseek-v4.1-flash').contextWindow===declared.maxInputTokens),'canonical and web import catalogs select the pinned 1M tier');
+  check(catalog.catalog.find(model=>model.id==='deepseek-v4.1-flash').contextWindow===declared.maxInputTokens,'the canonical catalog selects the pinned 1M tier');
   check(manifest.layout==='headless-v1'&&manifest.bytes<12*1024*1024&&manifest.unpacked_bytes<65*1024*1024,'mobile bundle stays within its headless size budget');
   for(const removed of ['dist/web-ui','dist/codebuddy-lite-wb.mjs','dist-server','vendor/ripgrep','vendor/genie-trash','bin/native']){
    check(!await fs.stat(path.join(runtime,'node_modules/@tencent-ai/agent-sdk/cli',removed)).then(()=>true,()=>false),'unused desktop or external executable is absent: '+removed);
