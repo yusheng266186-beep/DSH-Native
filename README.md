@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.3**；源码：**1.1.3**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.3**；源码：**1.1.4**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -37,6 +37,8 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 1.1.2 优化首页启动等待：完整工具与网络检查移到首页显示后空闲运行，已验证环境避免重复安装、探针和配置迁移，失败检查不再影响复用；重启和聊天优先。见[版本说明](release-notes/v1.1.2.md)，实际手机耗时由用户安装反馈。
 
 1.1.3 按活泼灵动的方向打磨首页动画：鲸鱼轻游、独立摆尾、偶尔眨眼和冒泡，配上品牌标题与细水波；就绪后直接进入短过渡，并完善横屏、大字体和后台暂停。见[版本说明](release-notes/v1.1.3.md)。
+
+1.1.4 继续缩短启动等待：首次准备最多并行下载 3 个运行包分片，沿用可用下载源；存活内核减少重复磁盘校验和 HTTP 探测，恢复页面优先于可选维护。更新检查、安装包清理和工具检查等首页交接后至少 5 秒无操作再运行，页面错误监听也减少整页扫描。见[版本说明](release-notes/v1.1.4.md)，实际手机提速幅度由安装体验确认。
 
 <!-- project-navigation:start -->
 

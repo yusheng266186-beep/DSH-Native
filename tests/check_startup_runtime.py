@@ -18,12 +18,14 @@ def method(signature):
         elif text[end] == '}': depth -= 1
         end += 1
     return text[start:end]
-methods = '\n'.join(method(s) for s in ['private boolean reuseOrStopPreviousAppCore()', 'private boolean reusePreparedCore('])
+methods = '\n'.join(method(s) for s in ['private boolean reuseManagedCore(', 'private boolean reuseOrStopPreviousAppCore()', 'private boolean reusePreparedCore('])
 HARNESS = r'''
 package dev.dsh.nativeapp;
 import java.io.*;import java.util.*;import java.nio.file.*;import java.net.*;import com.sun.net.httpserver.*;
 class HarnessService {
- static boolean alive=true,stops=true;static int calls;static String url;
+ static String proofIdentity,proofKey;static boolean alive=true,stops=true;static int calls;static String url;
+ static void rememberPrepared(String identity,String key){proofIdentity=identity;proofKey=key;}
+ static String preparedUrl(String identity,String key){return identity.equals(proofIdentity)&&key.equals(proofKey)?url:null;}
  static boolean isManagedProcessAlive(){return alive;}static String managedUrl(){return url;}
  static boolean stopManagedProcessAndWait(long ms){calls++;return stops;}
 }
@@ -34,7 +36,7 @@ public class StartupRuntimeProbe {
  static int checks,taskReads;static String tasks="false";
  final android.content.SharedPreferences prefs=new android.content.SharedPreferences();
  boolean runtimeDiagnosticsPending,preparedRuntimeValid,preparedCoreReused,payloadCheckAfterStartup,complete=true,assetsPresent=true,pending,hold;
- File workspace,nodeRef,toolsDirRef;int live,chosenPort;long launchStartedAt;String loaded;
+ File workspace,nodeRef,toolsDirRef,dshDirRef;int assetReads,probes;int live,chosenPort;long launchStartedAt;String loaded;
  String appVersion(){return "1.0.0";}String savedDshToken(){return "synthetic-token";}
  android.content.SharedPreferences getSharedPreferences(String p,int mode){return prefs;}
  void log(String s){}void loadDshUi(String url){loaded=url;}void registerNetworkWatcher(){}
@@ -44,13 +46,13 @@ public class StartupRuntimeProbe {
  static class Components {String identity="asset-contents"; boolean ready(File root){return true;}}
  Components components(){return new Components();}
  String lastPreflightKey(){throw new AssertionError("optional diagnostics must not gate reuse");}
- boolean runtimeAssetsPresent(File root){return assetsPresent;}boolean payloadLocallyComplete(File a,File b){return complete;}
+ boolean runtimeAssetsPresent(File root){assetReads++;return assetsPresent;}boolean payloadLocallyComplete(File a,File b){return complete;}
  boolean payloadUpdatePending(){return pending;}boolean payloadRollbackHold(){return hold;}
- String validatePayloadManifest(File file){return null;}int liveDshPort(){return live;}
+ String validatePayloadManifest(File file){return null;}int liveDshPort(){probes++;return live;}
  String readText(File file)throws IOException{return Files.readString(file.toPath());}
  __METHODS__
  static void check(boolean v,String why){if(!v)throw new AssertionError(why);checks++;}
- static StartupRuntimeProbe fixture(){StartupRuntimeProbe p=new StartupRuntimeProbe();p.prefs.values.put("coreAppVersion","0.40.2");p.prefs.values.put("dshPort","3080");p.prefs.values.put("dshToken","synthetic-token");p.prefs.values.put("corePreparedKey","reviewed-key");p.prefs.values.put("private-canary","keep");HarnessService.alive=true;HarnessService.stops=true;HarnessService.calls=0;return p;}
+ static StartupRuntimeProbe fixture(){StartupRuntimeProbe p=new StartupRuntimeProbe();p.prefs.values.put("coreAppVersion","0.40.2");p.prefs.values.put("dshPort","3080");p.prefs.values.put("dshToken","synthetic-token");p.prefs.values.put("corePreparedKey","reviewed-key");p.prefs.values.put("private-canary","keep");HarnessService.alive=true;HarnessService.stops=true;HarnessService.calls=0;HarnessService.proofIdentity=null;HarnessService.proofKey=null;return p;}
  public static void main(String[] args)throws Exception {
   HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
   server.createContext("/",e->{e.getResponseHeaders().add("Location","/");e.getResponseHeaders().add("Set-Cookie","dsh_session=fixture; HttpOnly");e.sendResponseHeaders(303,-1);e.close();});
@@ -73,6 +75,13 @@ public class StartupRuntimeProbe {
    check(!p.reusePreparedCore(root,root,root,root)&&!p.preparedRuntimeValid,"pending payload update requires full preparation");
    p=fixture();p.workspace=root;p.prefs.values.put("coreRuntimeIdentity","reviewed-core-contents");p.assetsPresent=false;
    check(!p.reusePreparedCore(root,root,root,root)&&!p.preparedRuntimeValid,"missing bootstrap assets require repair");
+   p=fixture();HarnessService.rememberPrepared("reviewed-core-contents","reviewed-key");
+   check(p.reuseManagedCore(root,root,root,root)&&p.loaded.equals(HarnessService.url)&&p.assetReads==0&&p.probes==0,"live Service proof connects without disk rehash or redundant HTTP");
+   p=fixture();HarnessService.rememberPrepared("reviewed-core-contents","stale-key");
+   check(!p.reuseManagedCore(root,root,root,root),"changed workspace or credentials cannot reuse process proof");
+   p=fixture();HarnessService.rememberPrepared("reviewed-core-contents","reviewed-key");p.pending=true;
+   check(!p.reuseManagedCore(root,root,root,root),"pending runtime update overrides live process shortcut");
+   p.pending=false;HarnessService.alive=false;check(!p.reuseManagedCore(root,root,root,root),"dead managed process requires preparation");
    System.out.println("Startup runtime: "+checks+" production upgrade/reuse and real authenticated task RPC checks passed; no device.");
   }finally{server.stop(0);}
  }

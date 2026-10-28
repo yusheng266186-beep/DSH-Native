@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.1.3**; source: **1.1.3**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.1.3**; source: **1.1.4**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -37,6 +37,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 1.1.2 shortens the startup critical path by moving full tool/Python/network inspection after the homepage handoff, reusing verified preparation, and cancelling inspection for chat or restart. Failed optional checks no longer block reuse. See [release notes](release-notes/v1.1.2.md); device timing remains subject to user testing.
 
 1.1.3 gives the startup whale a more lively swim, independent tail movement, occasional blinks and rising bubbles, with a brand title and short readiness-driven transition. Landscape, large text and background pausing are handled by the same native scene. See [release notes](release-notes/v1.1.3.md).
+
+1.1.4 stages up to three runtime shards concurrently and remembers a working download source. A live prepared core avoids repeated disk verification and HTTP probes, while page restoration precedes optional maintenance. Update checks, cached APK cleanup and tool inspection wait until at least five quiet seconds after the homepage handoff or foreground return. Recovery error detection processes changed nodes instead of repeatedly reading the whole page. See [release notes](release-notes/v1.1.4.md); actual phone timing still needs user testing.
 
 <!-- project-navigation:start -->
 

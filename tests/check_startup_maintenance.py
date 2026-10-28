@@ -32,6 +32,9 @@ assert boot.count('.putString("corePreparedKey", preparedRuntimeKey(root))') == 
 assert 'cancelRuntimeInspection();' in method('private void beginStartup(')
 assert 'scheduleRuntimeChecks();' in method('private void finishStartupMaintenance()')
 assert 'interruptRuntimeInspection();' in method('protected void onPause()')
+assert 'foregroundResumedAt = android.os.SystemClock.uptimeMillis()' in method('private StartupView buildSplash()')
+assert 'RuntimePreparation.prepareTools' not in method('private void finishStartupMaintenance()')
+assert 'runtimeConfigLock.tryLock()' in method('private void finishStartupMaintenance()')
 methods = '\n'.join(method(s) for s in ['private void cancelRuntimeInspection()',
     'private void interruptRuntimeInspection()', 'private void scheduleRuntimeChecks()'])
 HARNESS = r'''
@@ -47,7 +50,8 @@ public class StartupMaintenanceProbe {
  final AtomicBoolean runtimeDiagnosticsQueued=new AtomicBoolean();
  final AtomicLong runtimeInspectionGeneration=new AtomicLong();
  volatile boolean runtimeDiagnosticsPending=true,splashHidden=true,inForeground=true,activityDisposing;
- volatile Thread runtimeInspectionWorker;File appRoot,workspace;int state=SessionStatus.IDLE;
+ boolean quiet=true;boolean startupQuiet(){return quiet;}
+ volatile Thread runtimeInspectionWorker,startupMaintenanceWorker;File appRoot,workspace;int state=SessionStatus.IDLE;
  final android.content.SharedPreferences prefs=new android.content.SharedPreferences();
  final AtomicReference<Throwable> workerFailure=new AtomicReference<>();
  final List<Runnable> queued=new ArrayList<>();final AtomicInteger probes=new AtomicInteger();String key="environment-1";
@@ -75,7 +79,12 @@ public class StartupMaintenanceProbe {
   check(StartupDiagnostics.due("x","","x",now-StartupDiagnostics.RETRY_MS,now),"failed inspection retries after backoff");
   check(StartupDiagnostics.due("y","x","x",now-1,now),"changed environment inspected immediately");
   check(StartupDiagnostics.due("x","","x",now+1,now),"wall clock reversal cannot prevent inspection");
+  check(!StartupDiagnostics.quiet(4999,0,0),"foreground needs five quiet seconds");
+  check(!StartupDiagnostics.quiet(10000,0,6000),"recent typing or touch defers optional checks");
+  check(StartupDiagnostics.quiet(11000,0,6000),"quiet interval admits checks");
+  check(!StartupDiagnostics.quiet(1000,2000,0),"monotonic reversal cannot admit checks");
   StartupMaintenanceProbe p=new StartupMaintenanceProbe(root);
+  p.quiet=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"foreground restore and user interaction outrank inspections");p.quiet=true;
   p.splashHidden=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"no probe before first-frame handoff");
   p.splashHidden=true;p.inForeground=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"no probe while backgrounded");
   p.inForeground=true;p.state=SessionStatus.UNKNOWN;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"unknown task evidence protects chat");

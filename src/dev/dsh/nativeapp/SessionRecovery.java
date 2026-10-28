@@ -66,11 +66,26 @@ final class SessionRecovery {
     /** 监听页面可见错误文本，补上没有走控制台或 fetch 的失败路径。 */
     static String domWatcherScript() {
         return "(function(){if(window.__dshRecoveryWatch)return;window.__dshRecoveryWatch=1;"
-                + "var last='';function scan(){try{var t=(document.body&&document.body.innerText)||'';"
+                + "var pending=[],timer=0,last=-Infinity;"
                 + "var re=/(SessionPersistenceCorruptionError|session persistence corruption|stored log is corrupt|resume failed for session|failed to resume session)/i;"
-                + "var m=t.match(re);if(m&&t!==last){last=t;console.error('[dsh-session-recovery-dom] '+t.slice(0,1000));}"
-                + "}catch(x){}}scan();try{new MutationObserver(scan).observe(document.documentElement,{subtree:true,childList:true,characterData:true});}catch(x){}"
-                + "setInterval(scan,1500);})();";
+                + "function inspect(n){if(!n||!n.isConnected)return;"
+                + "var walk=document.createTreeWalker(n,4),t=n.nodeType===3?n:walk.nextNode(),count=0,budget=32768;"
+                + "while(t&&count++<128&&budget>0){var text=(t.nodeValue||'').slice(0,4096);budget-=text.length;"
+                + "if(re.test(text)){var e=t.parentElement;if(e&&!e.closest('#__dshRecovery')&&e.getClientRects().length"
+                + "&&Date.now()-last>=5000){last=Date.now();console.error('[dsh-session-recovery-dom] SessionPersistenceCorruptionError');return;}}"
+                + "t=walk.nextNode();}}"
+                + "function flush(){timer=0;if(document.hidden){pending=[];return;}"
+                + "var work=pending;pending=[];for(var i=0;i<work.length;i++)inspect(work[i]);}"
+                + "function queue(n){if(document.hidden||!n||pending.length>=32)return;"
+                + "if(pending.indexOf(n)<0)pending.push(n);if(!timer)timer=setTimeout(flush,120);}"
+                + "var observer=new MutationObserver(function(records){if(document.hidden)return;"
+                + "for(var i=0;i<records.length;i++){var r=records[i];if(r.type==='characterData')queue(r.target);"
+                + "else for(var j=0;j<r.addedNodes.length;j++)queue(r.addedNodes[j]);}});"
+                + "function visible(){observer.disconnect();if(timer)clearTimeout(timer);timer=0;pending=[];"
+                + "if(document.hidden)return;observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true});"
+                + "var es=document.querySelectorAll('[role=alert],[role=status],[aria-live=assertive],[aria-live=polite]');"
+                + "for(var i=0;i<es.length&&i<32;i++)queue(es[i]);}"
+                + "document.addEventListener('visibilitychange',visible);visible();})();";
     }
 
     /** 尝试点击 DSH 自己的「新建会话」按钮。 */
