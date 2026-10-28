@@ -2,7 +2,8 @@ package dev.dsh.nativeapp;
 
 /** Startup readiness and animation boundaries, independent of Android timing. */
 final class StartupState {
-    static final long CYCLE_MS = 720L;
+    static final long SWIM_MS = 2400L;
+    static final long HANDOFF_MS = 180L;
     static final String PAINTED = "[dsh-startup] painted ";
     private long generation;
     private boolean painted;
@@ -41,9 +42,15 @@ final class StartupState {
         }
     }
 
-    static boolean cycleEnded(long start, long previous, long now) {
-        return now >= start && now >= previous
-                && (now - start) / CYCLE_MS > Math.max(0L, previous - start) / CYCLE_MS;
+    /** Separate decorative timing from readiness: a slow loop must never extend startup. */
+    static float swimPhase(long elapsed) {
+        return Math.max(0L, elapsed) % SWIM_MS / (float) SWIM_MS;
+    }
+
+    /** Bounded smoothstep handoff, independent of the whale's current position. */
+    static float handoffProgress(long elapsed) {
+        float t = Math.min(1f, Math.max(0f, elapsed / (float) HANDOFF_MS));
+        return t * t * (3f - 2f * t);
     }
 
     /** The launcher is mounted only after the core UI shell is available. No text is inspected. */

@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.2**；源码：**1.1.2**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.2**；源码：**1.1.3**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -149,7 +149,7 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 ## 启动维护（0.40.2）
 
-`StartupState` 管理页面代次、真实握手和首帧证据，`StartupView` 只负责 720ms 小鲸鱼游动、水波与周期末交接。Slot 外层是 `display:contents`，必须检查子按钮的矩形，不能只看 slot 自身。`onPageFinished` 不等于 UI 可用；双帧后的消息还要经 `postVisualStateCallback` 确认。旧 8 秒/45 秒强撤遮罩已移除，前台 UI 超时直接给出失败页，后台取消计时、回前台重新计时。
+`StartupState` 管理页面代次、真实握手和首帧证据；1.1.3 的 `StartupView` 使用独立的 2.4 秒游动周期和 180ms 平滑交接，真实就绪后不等待周期末。断连在交接完成前撤回透明度，失败直接移除遮罩。Slot 外层是 `display:contents`，必须检查子按钮的矩形，不能只看 slot 自身。`onPageFinished` 不等于 UI 可用；双帧后的消息还要经 `postVisualStateCallback` 确认。旧 8 秒/45 秒强撤遮罩已移除，前台 UI 超时直接给出失败页，后台取消计时、回前台重新计时。
 
 快速复用必须满足 `corePreparedKey`、同版资源、完整本地环境、工具指纹和可信清单（恢复暂缓沿用已有恢复验证），并实际认证探测服务；任何条件缺失回完整准备。`corePreparedKey` 仅完整准备成功后记录，不能提前写成“完成”。变更工作区/外部凭据、组件内容或切片必须失效。1.1.2 将完整能力检查移至首页交接后的前台空闲阶段，自检成功不再是复用门槛，失败同一指纹一小时退避；聊天、后台和重启/维护会中止检查，防止占住环境锁。工具复核与更新检查仍在界面交接后执行。Node 编译缓存在 Android 私有 cache，正常丢失可重建；本地检查不是手机测速。
 

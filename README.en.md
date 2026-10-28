@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.1.2**; source: **1.1.2**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.1.2**; source: **1.1.3**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -36,6 +36,8 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 
 1.1.2 shortens the startup critical path by moving full tool/Python/network inspection after the homepage handoff, reusing verified preparation, and cancelling inspection for chat or restart. Failed optional checks no longer block reuse. See [release notes](release-notes/v1.1.2.md); device timing remains subject to user testing.
 
+1.1.3 refines the startup scene with a 2.4-second swim, brand title, layered ripples and a short readiness-driven transition. Landscape, large text and background pausing are handled by the same native scene. See [release notes](release-notes/v1.1.3.md).
+
 <!-- project-navigation:start -->
 
 Stable 1.0.0 completes six readiness stages and the additional startup/catalog feedback checks. Model catalogs apply in the current core, long lists support touch scrolling, verified preparation is reused after process exit, and the brand whale keeps a quieter loading motion. See the [acceptance record](docs/RELEASE_1_0.md), [privacy](docs/PRIVACY.md), [third-party sources](docs/THIRD_PARTY.md) and [troubleshooting](docs/TROUBLESHOOTING.md). Install over the existing app; device acceptance remains with the user.
@@ -50,7 +52,7 @@ Stable 1.0.0 completes six readiness stages and the additional startup/catalog f
 | Platform | Android / ARM64 / native runtime |
 | Role | Independent Android adaptation of DeepSeek Harness |
 
-Startup uses a small themed whale swimming above a quiet wake. The current cycle ends only after both the core connection and the rendered shell are ready. Prepared background cores are reused early; App and payload updates keep their actual preparation status visible.
+Startup pairs a larger brand whale with a slow swim, subtle ripples and clear status text in both themes. Once the core connection and rendered shell are ready, a 180ms transition opens the page without waiting for a full animation loop. Reduced motion opens it immediately. Prepared background cores are reused early; updates retain real preparation status.
 
 For installation, use the download and setup sections below. Source, release and validation facts are maintained in [STATUS](docs/STATUS.md).
 [Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) uses a separate Termux / Debian environment.
