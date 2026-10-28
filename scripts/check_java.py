@@ -26,7 +26,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PURE = ["PayloadDownloads", "ReleaseDownloader", "StartupDiagnostics", "FileActionsUi", "CodeBuddyCatalog", "WebSettingsProtocol", "NativeBridgePolicy", "NativeBridgeServer", "CoreTaskState", "VoiceUi", "VoiceStartGate", "FsWritePatch", "ToolEnvironment", "CoreUpgrade", "FileListing", "TextCodec", "Version", "TaskNotifier",
+PURE = ["WhaleShape", "PayloadDownloads", "ReleaseDownloader", "StartupDiagnostics", "FileActionsUi", "CodeBuddyCatalog", "WebSettingsProtocol", "NativeBridgePolicy", "NativeBridgeServer", "CoreTaskState", "VoiceUi", "VoiceStartGate", "FsWritePatch", "ToolEnvironment", "CoreUpgrade", "FileListing", "TextCodec", "Version", "TaskNotifier",
         "TaskTimeline", "ConnectionRecovery", "DraftRecovery",
         "FileOps", "ConfigBackup", "ShareTargets", "PluginSpecs", "PayloadUpdate",
         "SessionStatus", "SessionProbe", "SessionRecovery", "ProcessSupervisor", "TransferState",

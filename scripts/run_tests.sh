@@ -54,6 +54,7 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/RuntimePreparation.java
      $JAVA_DIR/ViewportState.java
      $JAVA_DIR/StartupState.java
+     $JAVA_DIR/WhaleShape.java
      $JAVA_DIR/StartupReuse.java
      $JAVA_DIR/FileListing.java
      $JAVA_DIR/TextCodec.java
@@ -128,7 +129,8 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/CrashReporter.java
      $JAVA_DIR/WorkerRegistry.java
      $JAVA_DIR/ProviderRoute.java"
-TESTS="tests/PayloadDownloadsTest.java
+TESTS="tests/WhaleShapeTest.java
+       tests/PayloadDownloadsTest.java
        tests/ReleaseDownloaderTest.java
        tests/AppArchitectureTest.java
        tests/StartupStateTest.java
@@ -217,7 +219,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in WhaleShapeTest PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
@@ -240,6 +242,9 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  [FAIL] 找不到 node，无法验证 WebUI 工具入口脚本" >&2
     rc=1
 else
+    PAINT_JS="$OUT/startup-paint.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.StartupStateTest --dump-script > "$PAINT_JS"
+    if ! node tests/js/startup-paint-simulation.js "$PAINT_JS"; then rc=1; fi
     INPUT_JS="$OUT/startup-input.js"
     java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.SessionRecoveryTest --dump-input > "$INPUT_JS"
     if ! node tests/js/startup-interaction-simulation.js "$INPUT_JS"; then rc=1; fi
@@ -549,6 +554,7 @@ if ! python3 tests/archive_installer_test.py; then rc=1; fi
 if ! python3 tests/check_web_session.py; then rc=1; fi
 if ! python3 tests/check_native_theme.py; then rc=1; fi
 if ! python3 tests/check_startup.py; then rc=1; fi
+if ! python3 tests/check_whale_shape.py; then rc=1; fi
 if ! python3 tests/check_startup_runtime.py; then rc=1; fi
 if ! python3 tests/check_startup_maintenance.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
