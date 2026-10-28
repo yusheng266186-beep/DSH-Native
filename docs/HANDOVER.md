@@ -157,6 +157,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
 `PayloadDownloads` 最多 3 个归档同时暂存，统一进度按清单大小合并；失败取消同组请求，保留可复用归档/续传片段。所有大小和 SHA-256 通过后，`ensurePayload` 才开始原有快照、改动与回滚；不可边下载边解压。`ReleaseDownloader` 按轮切源并记住成功来源，不降低 Range 或摘要校验。恢复错误 DOM 监听只处理合并后的变化节点和告警节点，限制节点数、文本量及报告频率，隐藏时断开观察，禁止恢复整页 innerText 轮询。
 
+软键盘 IME 可能绕过 Activity 按键回调；`StartupDiagnostics.interactionScript` 监听网页 input/keydown，只发送固定操作标记（500ms 合并及末次补报），不访问输入值。原生只接受当前内核页的标记，重置空闲窗口并撤销检查；隐藏时取消末次计时器。
+
 ## 8. 持续有效的事故防护与红线
 
 ### 8.1 签名与覆盖安装

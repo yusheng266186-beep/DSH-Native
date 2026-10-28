@@ -240,6 +240,9 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  [FAIL] 找不到 node，无法验证 WebUI 工具入口脚本" >&2
     rc=1
 else
+    INPUT_JS="$OUT/startup-input.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.SessionRecoveryTest --dump-input > "$INPUT_JS"
+    if ! node tests/js/startup-interaction-simulation.js "$INPUT_JS"; then rc=1; fi
     RECOVERY_JS="$OUT/session-recovery.js"
     java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.SessionRecoveryTest --dump-script > "$RECOVERY_JS"
     if ! node tests/js/session-recovery-simulation.js "$RECOVERY_JS"; then rc=1; fi

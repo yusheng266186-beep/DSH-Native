@@ -279,6 +279,10 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    if (StartupDiagnostics.INTERACTION.equals(m)) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())) noteStartupInteraction();
+                        return true;
+                    }
                     if (m.startsWith(StartupState.PAINTED)) {
                         if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())) onStartupPainted(m);
                         return true;
@@ -3750,7 +3754,7 @@ public class MainActivity extends Activity {
     /** 监听页面可见的恢复错误，处理没有走 fetch 或控制台的页面失败。 */
     private void installSessionRecoveryWatcher() {
         try {
-            webView.evaluateJavascript(SessionRecovery.domWatcherScript(), null);
+            webView.evaluateJavascript(SessionRecovery.domWatcherScript() + StartupDiagnostics.interactionScript(), null);
         } catch (Throwable t) {
             log("警告: 注入会话恢复监听失败: " + t);
         }
@@ -7056,6 +7060,10 @@ public class MainActivity extends Activity {
 
     @Override public void onUserInteraction() {
         super.onUserInteraction();
+        noteStartupInteraction();
+    }
+
+    private void noteStartupInteraction() {
         lastInteractionAt = android.os.SystemClock.uptimeMillis();
         interruptRuntimeInspection();
         queueIdleStartupMaintenance();
