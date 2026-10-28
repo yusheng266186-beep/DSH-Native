@@ -4328,10 +4328,15 @@ public class MainActivity extends Activity {
      * 保留「比当前新但还没装」的那一份 —— 用户取消安装后可以再次直接安装。
      */
     private void cleanupStaleUpdateApk() {
+        final String operation = "APK cache cleanup";
+        if (activityDisposing || !inForeground || !startupQuiet() || !maintenanceGate.tryStart(operation)) return;
         try {
             File apk = UpdateProvider.apkFile(this);
             if (!apk.exists()) return;
+            long length = apk.length(), modified = apk.lastModified();
             String v = apkVersionOf(apk);
+            if (activityDisposing || !inForeground || !startupQuiet()
+                    || apk.length() != length || apk.lastModified() != modified) return;
             if (v != null && isNewer(v, appVersion())) {
                 log("本地缓存有未安装的更新包: " + v + "（" + (apk.length() / 1048576) + " MB）");
                 return;
@@ -4339,7 +4344,9 @@ public class MainActivity extends Activity {
             apk.delete();
             log("已清理过期更新包（" + (v == null ? "无法解析" : v)
                     + "，当前 " + appVersion() + "）");
-        } catch (Throwable ignored) { }
+        } catch (Throwable error) {
+            log("Cached APK cleanup deferred: " + error.getClass().getSimpleName());
+        } finally { maintenanceGate.finish(operation); }
     }
 
     /** 启动后的静默检查：只记日志；有新版本时提示一次，不打断使用。 */
