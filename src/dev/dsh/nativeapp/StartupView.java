@@ -33,6 +33,7 @@ final class StartupView extends FrameLayout {
                 setAlpha(1f - exit);
                 column.setTranslationY(restingOffset - DshUi.dp(activity, 6) * exit);
             }
+            whale.animated = motion;
             whale.elapsed = motion ? Math.max(0L, now - started) : 0L;
             whale.invalidate();
             if (motion) postOnAnimation(this);
@@ -52,6 +53,7 @@ final class StartupView extends FrameLayout {
         column.setPadding(DshUi.dp(activity, 24), DshUi.dp(activity, 16),
                 DshUi.dp(activity, 24), DshUi.dp(activity, 16));
         whale = new Whale(activity);
+        whale.animated = motion;
         column.addView(whale, new LinearLayout.LayoutParams(
                 DshUi.dp(activity, 208), DshUi.dp(activity, 160)));
         title = DshUi.title(activity, "DeepSeek Harness");
@@ -105,7 +107,7 @@ final class StartupView extends FrameLayout {
         motion = DshUi.animationsEnabled(activity);
         resetPresentation(); setVisibility(View.VISIBLE); setClickable(true); status(text);
         started = SystemClock.uptimeMillis(); pausedAt = paused ? started : 0L;
-        whale.elapsed = 0L; whale.invalidate();
+        whale.animated = motion; whale.elapsed = 0L; whale.invalidate();
         if (!paused && isAttachedToWindow() && motion) postOnAnimation(frame);
     }
 
@@ -134,7 +136,7 @@ final class StartupView extends FrameLayout {
         if (done || getVisibility() != View.VISIBLE) return;
         // Returning to an already ready page never introduces another entrance animation.
         if (ready) { finish(); return; }
-        if (!motion) { whale.elapsed = 0L; whale.invalidate(); }
+        if (!motion) { whale.animated = motion; whale.elapsed = 0L; whale.invalidate(); }
         else if (isAttachedToWindow()) postOnAnimation(frame);
     }
 
@@ -156,38 +158,47 @@ final class StartupView extends FrameLayout {
         removeCallbacks(frame); super.onDetachedFromWindow();
     }
 
-    /** Articulated brand whale: a flowing swim, independent tail beat and occasional blink. */
+    /** A single continuous silhouette, with soft light and a wave flowing through the tail. */
     private static final class Whale extends View {
-        private final android.graphics.drawable.Drawable mark, tail;
+        private final WhaleShape shape = new WhaleShape();
+        private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint water = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint bubbles = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint eyeCover = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint eyelid = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path silhouette = new android.graphics.Path();
         private final android.graphics.Path wake = new android.graphics.Path();
+        private final WhaleShape.Sink outline = new WhaleShape.Sink() {
+            @Override public void move(float x, float y) { silhouette.moveTo(x, y); }
+            @Override public void curve(float x1, float y1, float x2, float y2, float x3, float y3) {
+                silhouette.cubicTo(x1, y1, x2, y2, x3, y3);
+            }
+            @Override public void close() { silhouette.close(); }
+        };
         long elapsed;
+        boolean animated = true;
         Whale(Activity activity) {
             super(activity);
-            int id = activity.getResources().getIdentifier("dsh_startup_whale_body", "drawable", activity.getPackageName());
-            mark = activity.getDrawable(id).mutate();
-            mark.setBounds(48, 0, 160, 112);
-            int tailId = activity.getResources().getIdentifier("dsh_startup_whale_tail", "drawable", activity.getPackageName());
-            tail = activity.getDrawable(tailId).mutate(); tail.setBounds(48, 0, 160, 112);
-            water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(.8f); water.setStrokeCap(Paint.Cap.ROUND);
-            bubbles.setStyle(Paint.Style.STROKE); bubbles.setStrokeWidth(.8f);
-            eyelid.setStyle(Paint.Style.STROKE); eyelid.setStrokeWidth(.7f); eyelid.setStrokeCap(Paint.Cap.ROUND);
+            water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(.65f); water.setStrokeCap(Paint.Cap.ROUND);
+            bubbles.setStyle(Paint.Style.STROKE); bubbles.setStrokeWidth(.65f);
             applyTheme();
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
+        private static int blend(int color, int other, float amount) {
+            int red = (int) (((color >> 16) & 255) * (1f - amount) + ((other >> 16) & 255) * amount);
+            int green = (int) (((color >> 8) & 255) * (1f - amount) + ((other >> 8) & 255) * amount);
+            int blue = (int) ((color & 255) * (1f - amount) + (other & 255) * amount);
+            return 0xff000000 | (red << 16) | (green << 8) | blue;
+        }
         void applyTheme() {
             int brand = DshUi.BRAND();
-            mark.setTint(brand);
-            tail.setTint(brand); eyeCover.setColor(brand); eyelid.setColor(DshUi.BG());
+            ink.setShader(new android.graphics.LinearGradient(14f, 8f, 31f, 44f,
+                    new int[]{blend(brand, 0xffffffff, .16f), brand, blend(brand, 0xff000000, .12f)},
+                    new float[]{0f, .52f, 1f}, android.graphics.Shader.TileMode.CLAMP));
             halo.setShader(new android.graphics.RadialGradient(104f, 72f, 68f,
-                    new int[]{(brand & 0x00ffffff) | 0x10000000, (brand & 0x00ffffff) | 0x05000000,
+                    new int[]{(brand & 0x00ffffff) | 0x0c000000, (brand & 0x00ffffff) | 0x03000000,
                             brand & 0x00ffffff}, new float[]{0f, .55f, 1f}, android.graphics.Shader.TileMode.CLAMP));
-            shadow.setColor(brand); shadow.setAlpha(10);
+            shadow.setColor(brand); shadow.setAlpha(9);
             water.setColor(brand); bubbles.setColor(brand);
             invalidate();
         }
@@ -195,42 +206,37 @@ final class StartupView extends FrameLayout {
             super.onDraw(canvas);
             float unit = Math.min(getWidth() / 208f, getHeight() / 160f);
             float phase = StartupState.swimPhase(elapsed);
-            float swim = (float) Math.sin(phase * 2 * Math.PI);
+            float swim = animated ? (float) Math.sin(phase * 2 * Math.PI) : 0f;
             canvas.save();
             canvas.translate((getWidth() - 208f * unit) / 2f, (getHeight() - 160f * unit) / 2f);
             canvas.scale(unit, unit);
             canvas.drawCircle(104f, 72f, 68f, halo);
-            canvas.drawOval(80f + swim, 123f, 128f - swim, 128f, shadow);
+            canvas.drawOval(81f + swim, 124f, 127f - swim, 128f, shadow);
             for (int i = 0; i < 2; i++) {
                 float p = (phase + i * .5f) % 1f;
-                float radius = 19f + 30f * p, height = 3f + 5f * p;
+                float radius = 19f + 28f * p, height = 2.8f + 4f * p;
                 float envelope = (float) Math.sin(Math.PI * p);
-                water.setAlpha((int) (65f * envelope * envelope * (1f - p)));
-                canvas.drawOval(104f - radius, 125f - height, 104f + radius, 125f + height, water);
+                water.setAlpha((int) (48f * envelope * envelope * (1f - p)));
+                canvas.drawOval(104f - radius, 126f - height, 104f + radius, 126f + height, water);
             }
-            water.setAlpha(42);
-            wake.reset(); wake.moveTo(65f, 119f);
-            wake.cubicTo(77f, 117f + swim, 89f, 121f - swim, 100f, 119f);
-            wake.moveTo(109f, 119f); wake.cubicTo(118f, 118f - swim, 133f, 120f + swim, 142f, 119f);
+            water.setAlpha(28);
+            wake.reset(); wake.moveTo(67f, 120f);
+            wake.cubicTo(78f, 118.8f + swim * .4f, 88f, 121f - swim * .4f, 97f, 120f);
+            wake.moveTo(113f, 120f); wake.cubicTo(122f, 119f - swim * .4f, 132f, 121f + swim * .4f, 141f, 120f);
             canvas.drawPath(wake, water);
-            for (int i = 0; i < 3; i++) {
-                float p = (phase + i * .31f) % 1f;
+            for (int i = 0; i < 2; i++) {
+                float p = (phase + i * .43f) % 1f;
                 float envelope = (float) Math.sin(Math.PI * p);
-                bubbles.setAlpha((int) (85f * envelope * envelope));
-                canvas.drawCircle(40f + i * 7f + 3f * swim, 105f - p * 52f, 1.2f + .8f * p, bubbles);
+                bubbles.setAlpha((int) (64f * envelope * envelope));
+                canvas.drawCircle(33f + i * 8f + 1.5f * swim, 106f - p * 48f, 1.25f + .65f * p, bubbles);
             }
-            canvas.save(); canvas.translate(4.8f * swim, -4.2f * swim);
-            canvas.rotate(-3.4f * swim, 104f, 62f);
             canvas.save();
-            canvas.rotate(8f * (float) Math.sin(phase * 4 * Math.PI), 134.7f, 42.3f);
-            tail.draw(canvas); canvas.restore();
-            mark.draw(canvas);
-            float blink = StartupState.blinkClosure(elapsed);
-            if (blink > 0f) {
-                eyeCover.setAlpha((int) (255f * blink)); eyelid.setAlpha((int) (255f * blink));
-                canvas.drawCircle(108.4f, 55.1f, 1.55f, eyeCover);
-                canvas.drawLine(107.5f, 55.1f, 109.3f, 55.1f, eyelid);
-            }
+            canvas.translate(2.6f * swim, -2.7f * swim);
+            canvas.rotate(-1.8f * swim, 104f, 64f);
+            canvas.translate(40f, -2f); canvas.scale(2.56f, 2.56f);
+            silhouette.rewind();
+            shape.trace(phase, animated ? StartupState.blinkClosure(elapsed) : 0f, animated, outline);
+            canvas.drawPath(silhouette, ink);
             canvas.restore(); canvas.restore();
         }
     }

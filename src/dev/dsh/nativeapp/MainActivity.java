@@ -508,6 +508,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 startupState.navigate();
+                deferredLayoutPage = -1L; statusWatcherPending = false;
                 if (splashView != null) splashView.ready(false);
                 if (!splashHidden && WebUrl.isCoreUrl(url, savedDshPort())) {
                     armStartupTimeout();
@@ -554,67 +555,17 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void onPageFinished(WebView view, String url) {
-                // 注意：loadDataWithBaseURL() 显示状态页时**同样会触发本回调**。
-                // 之前没做区分，导致开屏被提前撤掉（露出状态页），
-                // 且开屏淡到 alpha=0 后仍占满全屏、吃掉所有触摸事件 —— 表现为"整个应用点不动"。
-                // 因此只认真正的 DSH 服务地址。
-                if (!WebUrl.isCoreUrl(url, savedDshPort())) {
-                    return;
-                }
-                startupTiming.mark("page", android.os.SystemClock.elapsedRealtime());
-                if (!splashHidden) view.evaluateJavascript(StartupState.script(startupState.generation()), null);
-                // 注入必须**每次页面加载都做**，不能只做一次。
-                //
-                // 之前这里是 `if (dshPageLoaded) return;`。而 reload（断连自动刷新、
-                // 屏幕旋转、手动刷新）会把页面里的注入脚本全部清空，`dshPageLoaded`
-                // 却仍是 true —— 于是刷新之后**状态看板、任务完成通知、接口诊断
-                // 全部静默失效**，通知栏永远停在刷新前的那一刻。
-                // 这正是「任务在跑、状态栏却显示空闲」的第二个原因。
-                //
-                // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
-                // 重复注入没有副作用。
-                installFetchDiagnostics();
-                view.evaluateJavascript(VoiceUi.bridgeScript(), null);
-                installSessionProbe(view);
-                installConnectionWatcher(view);
-                installDraftRecovery(view);
-                installSessionRecoveryWatcher();
-                installStatusWatcher();
-                installWebToolsEntry();
-                publishAppSettingsState();
-                // 安装持续的只读体检：后续附件、面板、旋转会触发去抖测量。
-                view.postDelayed(new Runnable() {
-                    @Override public void run() {
-                        if (isFinishing() || isDestroyed() || webView != view) return;
-                        view.evaluateJavascript(LayoutProbe.script(), null);
-                    }
-                }, 1500L);
-                // 首次探针还没有给出真实状态时，推一次「正在获取状态」。
-                //
-                // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
-                // 实测过一次：App 更新后服务被重建，占位文案「正在运行」就那么
-                // 一直显示着，而对话早已结束。
-                // 探针现在嵌入 index.html，真实状态可能已经在 onPageFinished 前到达；
-                // 此时绝不能再用 UNKNOWN 把它覆盖掉。
-                if (lastSessionStatus == SessionStatus.UNKNOWN) {
-                    pushStatus(SessionStatus.UNKNOWN);
-                }
-                final String sharedPrompt = pendingSharedTaskPrompt;
-                if (sharedPrompt != null) {
-                    pendingSharedTaskPrompt = null;
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                            .postDelayed(new Runnable() {
-                        @Override public void run() { dispatchShareTaskPrompt(sharedPrompt); }
-                    }, 800);
-                }
-                if (dshPageLoaded) {
-                    log("DSH 界面已重新加载，状态采集脚本已重新注入");
-                    return;
-                }
-                dshPageLoaded = true;
-                log("DSH 文档已加载，等待界面绘制与内核握手");
+            public void onPageCommitVisible(WebView view, String url) {
+                if (view != webView || !WebUrl.isCoreUrl(url, savedDshPort())) return;
+                startupTiming.mark("commit", android.os.SystemClock.elapsedRealtime());
+                onCoreDocumentVisible(view, url);
+            }
 
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                if (view != webView || !WebUrl.isCoreUrl(url, savedDshPort())) return;
+                startupTiming.mark("page", android.os.SystemClock.elapsedRealtime());
+                onCoreDocumentVisible(view, url);
             }
 
             @Override
@@ -1094,6 +1045,7 @@ public class MainActivity extends Activity {
         startupTiming.mark("runtime", android.os.SystemClock.elapsedRealtime());
         // Fixed-core adapters are part of the verified archive; only device paths remain.
         long preparationStarted = android.os.SystemClock.elapsedRealtime();
+        setSplashStatus(UiText.t("正在核对本地工具…", "Checking local tools…"));
         RuntimePreparation.requirePort(root, dshDir);
         recordPatch("预适配内核", true, "构建期完成 19 项固定内核适配；启动不改写源码");
         int toolsRepaired = preparedRuntimeValid ? 0 : RuntimePreparation.prepareTools(root, payloadRevisionKey());
@@ -1114,6 +1066,7 @@ public class MainActivity extends Activity {
         // for a local core or rendered page. Keep the real bootstrap checks above.
         runtimeDiagnosticsPending = true;
         if (!preparedRuntimeValid) {
+            setSplashStatus(UiText.t("正在同步本地配置…", "Preparing local configuration…"));
             run(node, root, new String[]{new File(root, "provider-cleanup.cjs").getAbsolutePath(), root.getAbsolutePath(), dshDir.getAbsolutePath()}, null);
             prepareConfig(root);
         } else log("[启动] 配置与外部凭据未变，跳过重复迁移和预置同步");
@@ -1326,6 +1279,8 @@ public class MainActivity extends Activity {
     private volatile Thread startupMaintenanceWorker;
     private final java.util.concurrent.atomic.AtomicBoolean startupMaintenanceQueued = new java.util.concurrent.atomic.AtomicBoolean();
     private Runnable idleStartupMaintenance;
+    private long deferredLayoutPage = -1L;
+    private boolean statusWatcherPending;
 
     private boolean startupQuiet() {
         return StartupDiagnostics.quiet(android.os.SystemClock.uptimeMillis(), foregroundResumedAt, lastInteractionAt);
@@ -1356,6 +1311,11 @@ public class MainActivity extends Activity {
             queueIdleStartupMaintenance(); return;
         }
         scheduleRuntimeChecks();
+        if (deferredLayoutPage == startupState.generation() && webView != null
+                && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) {
+            deferredLayoutPage = -1L;
+            webView.evaluateJavascript(LayoutProbe.script(), null);
+        }
         if (startupCleanupPending) {
             startupCleanupPending = false;
             startWorker(new Runnable() { @Override public void run() {
@@ -1495,9 +1455,72 @@ public class MainActivity extends Activity {
         }, "runtime-capability-inspection");
     }
 
+    /** Commit-visible starts observing the real shell; full document load is only a fallback. */
+    private void onCoreDocumentVisible(WebView view, String url) {
+        // 注意：loadDataWithBaseURL() 显示状态页时**同样会触发本回调**。
+        // 之前没做区分，导致开屏被提前撤掉（露出状态页），
+        // 且开屏淡到 alpha=0 后仍占满全屏、吃掉所有触摸事件 —— 表现为"整个应用点不动"。
+        // 因此只认真正的 DSH 服务地址。
+        if (!WebUrl.isCoreUrl(url, savedDshPort())) {
+            return;
+        }
+        view.evaluateJavascript(StartupState.script(startupState.generation()), null);
+        // 注入必须**每次页面加载都做**，不能只做一次。
+        //
+        // 之前这里是 `if (dshPageLoaded) return;`。而 reload（断连自动刷新、
+        // 屏幕旋转、手动刷新）会把页面里的注入脚本全部清空，`dshPageLoaded`
+        // 却仍是 true —— 于是刷新之后**状态看板、任务完成通知、接口诊断
+        // 全部静默失效**，通知栏永远停在刷新前的那一刻。
+        // 这正是「任务在跑、状态栏却显示空闲」的第二个原因。
+        //
+        // 两个脚本内部都有幂等守卫（__dshDiag / __dshStatusWatch），
+        // 重复注入没有副作用。
+        installFetchDiagnostics();
+        view.evaluateJavascript(VoiceUi.bridgeScript(), null);
+        installSessionProbe(view);
+        installConnectionWatcher(view);
+        installDraftRecovery(view);
+        installSessionRecoveryWatcher();
+        if (splashHidden) installStatusWatcher();
+        else statusWatcherPending = true;
+        installWebToolsEntry();
+        publishAppSettingsState();
+        deferredLayoutPage = startupState.generation();
+        queueIdleStartupMaintenance();
+        // 首次探针还没有给出真实状态时，推一次「正在获取状态」。
+        //
+        // 前台服务的占位通知并不知道有没有任务在跑，不该让它一直挂着 ——
+        // 实测过一次：App 更新后服务被重建，占位文案「正在运行」就那么
+        // 一直显示着，而对话早已结束。
+        // 探针现在嵌入 index.html，真实状态可能已经在 onPageFinished 前到达；
+        // 此时绝不能再用 UNKNOWN 把它覆盖掉。
+        if (lastSessionStatus == SessionStatus.UNKNOWN) {
+            pushStatus(SessionStatus.UNKNOWN);
+        }
+        if (dshPageLoaded) {
+            log("DSH 界面已重新加载，状态采集脚本已重新注入");
+            return;
+        }
+        dshPageLoaded = true;
+        log("聊天文档已提交，等待可操作界面绘制与内核握手");
+    }
+
+    private void dispatchPendingSharedTask() {
+        if (!splashHidden || !dshPageLoaded || !startupState.ready()) return;
+        final String sharedPrompt = pendingSharedTaskPrompt;
+        if (sharedPrompt != null) {
+            pendingSharedTaskPrompt = null;
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                    .postDelayed(new Runnable() {
+                @Override public void run() { dispatchShareTaskPrompt(sharedPrompt); }
+            }, 800);
+        }
+    }
+
     /** 加载 DSH 界面（复用实例与新建实例都走这里）。 */
     private void loadDshUi(String url) {
         startupTiming.mark("server", android.os.SystemClock.elapsedRealtime());
+        setSplashStatus(UiText.t("正在加载聊天界面…", "Loading the chat interface…"));
         log("界面就绪: " + briefUrl(url));
         rememberDsh(url);
         final String target = url;
@@ -6418,6 +6441,8 @@ public class MainActivity extends Activity {
                 cancelStartupTimeout();
                 log("[启动] 交接完成 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
                 log("[dsh-perf] startup " + startupTiming.summary());
+                dispatchPendingSharedTask();
+                if (statusWatcherPending) { statusWatcherPending = false; installStatusWatcher(); }
                 finishStartupMaintenance();
                 dispatchStartupActions();
             }
@@ -6468,6 +6493,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateSplashReady() {
+        if (splashHidden && startupState.ready()) dispatchPendingSharedTask();
         if (splashView != null && !splashHidden) splashView.ready(inForeground && startupState.ready());
     }
 
@@ -6950,7 +6976,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.1.4");
+        log("APK 版本: 1.1.5");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
@@ -7286,7 +7312,7 @@ public class MainActivity extends Activity {
             });
             return;
         }
-        if (webView == null || !dshPageLoaded) {
+        if (webView == null || !dshPageLoaded || !startupState.ready() || !splashHidden) {
             pendingSharedTaskPrompt = prompt;
             toast("任务已排队，DSH 界面就绪后自动提交");
             return;

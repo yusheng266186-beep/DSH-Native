@@ -55,10 +55,23 @@ try {
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);
  check(messages.length===1&&messages[0]==='[dsh-startup] painted 17','real mounted WebUI emits exactly one paint signal');
  await page.evaluate(script);await sleep(100);check(messages.length===1,'repeated onPageFinished injection does not duplicate completion');
+ // A non-critical image can hold full document load after the real shell is visible.
+ let releaseImage, imageRequested=false;
+ await page.route('http://startup.invalid/**',async route=>{
+  if(route.request().resourceType()==='document')return route.fulfill({contentType:'text/html',body:'<!doctype html><button data-slot="settings.launcher">Settings</button><textarea data-composer-input></textarea><img src="/slow.svg">'});
+  imageRequested=true;await new Promise(resolve=>{releaseImage=async()=>{await route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'});resolve();};});
+ });
+ await page.goto('http://startup.invalid/',{waitUntil:'domcontentloaded'});messages.length=0;
+ for(let n=0;n<100&&!imageRequested;n++)await sleep(20);
+ check(imageRequested&&await page.evaluate(()=>document.readyState)!=='complete','slow image actually holds full document load');
+ await page.evaluate(script.replace('generation=17','generation=27'));
+ for(let n=0;n<100&&!messages.includes('[dsh-startup] painted 27');n++)await sleep(20);
+ check(messages.includes('[dsh-startup] painted 27')&&await page.evaluate(()=>document.readyState)!=='complete','visible shell is paint-proven before optional image completion');
+ await releaseImage();await page.waitForLoadState('load');await page.unroute('http://startup.invalid/**');
  // A blank/hidden document cannot fake readiness, and a stale double-frame callback is discarded.
  await page.goto('about:blank');messages.length=0;
  await page.evaluate(script);await sleep(100);check(messages.length===0,'no shell means no paint signal');
- await page.evaluate(()=>{const node=document.createElement('button');node.dataset.slot='settings.launcher';node.style.display='none';document.body.append(node);});
+ await page.evaluate(()=>{const node=document.createElement('button');node.dataset.slot='settings.launcher';node.style.display='none';document.body.append(node);var input=document.createElement('textarea');input.setAttribute('data-composer-input','');document.body.append(input);});
  await sleep(100);check(messages.length===0,'hidden shell is not a visible first frame');
  await page.evaluate(()=>{document.querySelector('button').style.display='';});
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);check(messages.length===1,'late visible shell finishes without another document load');
@@ -66,7 +79,7 @@ try {
  await sleep(100);check(!messages.includes('[dsh-startup] painted 18')&&messages.includes('[dsh-startup] painted 19'),'old animation-frame callback cannot complete the next generation');
  await page.goto('about:blank');messages.length=0;
  await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'}));
- await page.evaluate(script);await page.evaluate(()=>{document.body.innerHTML='<button data-slot="settings.launcher">Settings</button>';window.dispatchEvent(new Event('dsh-native-resume'));});
+ await page.evaluate(script);await page.evaluate(()=>{document.body.innerHTML='<button data-slot="settings.launcher">Settings</button><textarea data-composer-input></textarea>';window.dispatchEvent(new Event('dsh-native-resume'));});
  await sleep(100);check(messages.length===0,'background does not claim a painted foreground shell');
  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'visible'});document.dispatchEvent(new Event('visibilitychange'));});
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);check(messages.length===1,'foreground visibility resumes paint detection even when the shell mounted in the background');

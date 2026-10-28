@@ -20,7 +20,7 @@ final class StartupState {
 
     /** Fixed numeric milestones only; no URLs, paths or conversation data. */
     static final class Timing {
-        private static final String[] STAGES = {"assets", "runtime", "compat", "config", "process", "server", "core", "page", "paint", "handoff", "failed"};
+        private static final String[] STAGES = {"assets", "runtime", "compat", "config", "process", "server", "core", "commit", "page", "paint", "handoff", "failed"};
         private final long started;
         private final long[] elapsed = new long[STAGES.length];
         Timing(long started) { this.started = started; java.util.Arrays.fill(elapsed, -1L); }
@@ -66,17 +66,21 @@ final class StartupState {
         return "(function(){var generation=" + generation + ";"
                 + "if(window.__dshStartupPaint&&window.__dshStartupPaint.generation===generation)return;"
                 + "if(window.__dshStartupPaint)window.__dshStartupPaint.stop();"
-                + "var stopped=false,observer;function stop(){stopped=true;"
-                + "if(observer)observer.disconnect();document.removeEventListener('visibilitychange',check);window.removeEventListener('dsh-native-resume',check);}"
+                + "var stopped=false,observer,queued=false;function stop(){stopped=true;"
+                + "if(observer)observer.disconnect();document.removeEventListener('visibilitychange',schedule);window.removeEventListener('dsh-native-resume',schedule);}"
                 + "window.__dshStartupPaint={generation:generation,stop:stop};"
-                + "function visible(el){return el&&el.getClientRects().length&&getComputedStyle(el).visibility!=='hidden'&&getComputedStyle(el).opacity!=='0';}"
+                + "function visible(el){if(!el||!el.getClientRects().length)return false;var s=getComputedStyle(el);return s.visibility!=='hidden'&&s.opacity!=='0';}"
+                + "function schedule(){if(stopped||queued||document.visibilityState==='hidden')return;queued=true;requestAnimationFrame(function(){queued=false;check();});}"
                 + "function check(){if(stopped||document.visibilityState==='hidden')return;var el=document.querySelector('[data-slot=\"settings.launcher\"]');"
                 // Slot wrappers use display:contents and have no rectangle of their own.
                 + "if(!el)return;if(!visible(el)){var controls=el.querySelectorAll('button,[role=\"button\"]');"
                 + "el=null;for(var i=0;i<controls.length;i++)if(visible(controls[i])){el=controls[i];break;}}if(!el)return;"
+                + "var surface=document.querySelector('[data-composer-input]');if(!visible(surface)){"
+                + "var dialogs=document.querySelectorAll('[role=dialog]');surface=null;"
+                + "for(var j=0;j<dialogs.length&&j<8;j++)if(visible(dialogs[j])){surface=dialogs[j];break;}if(!surface)return;}"
                 + "stop();requestAnimationFrame(function(){requestAnimationFrame(function(){"
                 + "if(window.__dshStartupPaint.generation===generation)console.log('" + PAINTED + "'+generation);});});}"
-                + "observer=new MutationObserver(check);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true});"
-                + "document.addEventListener('visibilitychange',check);window.addEventListener('dsh-native-resume',check);check();})();";
+                + "observer=new MutationObserver(schedule);observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});"
+                + "document.addEventListener('visibilitychange',schedule);window.addEventListener('dsh-native-resume',schedule);schedule();})();";
     }
 }

@@ -4,6 +4,7 @@
 Android preferences/priority and task/paint signals are controlled boundaries, not a device.
 """
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -27,7 +28,7 @@ boot = method('private String boot()')
 assert 'RuntimeChecks.preflight' not in boot and 'runCapture' not in boot
 assert 'if (!preparedRuntimeValid) extractAssets(root);' in boot
 assert 'preparedRuntimeValid ? 0 : RuntimePreparation.prepareTools' in boot
-assert 'if (!preparedRuntimeValid) {\n            run(node' in boot
+assert re.search(r'if \(!preparedRuntimeValid\) \{\s*(?:setSplashStatus\([^\n]+\);\s*)?run\(node', boot)
 assert boot.count('.putString("corePreparedKey", preparedRuntimeKey(root))') == 2
 assert 'cancelRuntimeInspection();' in method('private void beginStartup(')
 assert 'scheduleRuntimeChecks();' in method('private void finishStartupMaintenance()')
@@ -36,6 +37,12 @@ assert 'foregroundResumedAt = android.os.SystemClock.uptimeMillis()' in method('
 assert 'RuntimePreparation.prepareTools' not in method('private void finishStartupMaintenance()')
 assert 'runtimeConfigLock.tryLock()' in method('private void finishStartupMaintenance()')
 assert 'reportProgress = startupCoordinator.task(' in method('private boolean ensurePayload(')
+assert 'LayoutProbe.script()' not in method('private void onCoreDocumentVisible(')
+assert 'onCoreDocumentVisible(view, url)' in method('public void onPageCommitVisible(')
+assert 'StartupState.script(' in method('private void onCoreDocumentVisible(')
+assert 'postVisualStateCallback' in method('private void onStartupPainted(')
+assert 'LayoutProbe.script()' in method('private void finishStartupMaintenance()')
+assert 'statusWatcherPending' in method('private StartupView buildSplash()')
 methods = '\n'.join(method(s) for s in ['private void cancelRuntimeInspection()',
     'private void interruptRuntimeInspection()', 'private void cleanupStaleUpdateApk()', 'private void scheduleRuntimeChecks()'])
 HARNESS = r'''
