@@ -36,7 +36,7 @@ Version 0.34.0 upgrades the core to DSH 0.2.1-rc.3 and audits existing mobile la
 
 1.1.2 shortens the startup critical path by moving full tool/Python/network inspection after the homepage handoff, reusing verified preparation, and cancelling inspection for chat or restart. Failed optional checks no longer block reuse. See [release notes](release-notes/v1.1.2.md); device timing remains subject to user testing.
 
-1.1.3 refines the startup scene with a 2.4-second swim, brand title, layered ripples and a short readiness-driven transition. Landscape, large text and background pausing are handled by the same native scene. See [release notes](release-notes/v1.1.3.md).
+1.1.3 gives the startup whale a more lively swim, independent tail movement, occasional blinks and rising bubbles, with a brand title and short readiness-driven transition. Landscape, large text and background pausing are handled by the same native scene. See [release notes](release-notes/v1.1.3.md).
 
 <!-- project-navigation:start -->
 
@@ -52,7 +52,7 @@ Stable 1.0.0 completes six readiness stages and the additional startup/catalog f
 | Platform | Android / ARM64 / native runtime |
 | Role | Independent Android adaptation of DeepSeek Harness |
 
-Startup pairs a larger brand whale with a slow swim, subtle ripples and clear status text in both themes. Once the core connection and rendered shell are ready, a 180ms transition opens the page without waiting for a full animation loop. Reduced motion opens it immediately. Prepared background cores are reused early; updates retain real preparation status.
+Startup pairs a larger brand whale with independent tail movement, occasional blinks, rising bubbles and clear status text in both themes. Once the core connection and rendered shell are ready, a 180ms transition opens the page without waiting for a full animation loop. Reduced motion opens it immediately. Prepared background cores are reused early; updates retain real preparation status.
 
 For installation, use the download and setup sections below. Source, release and validation facts are maintained in [STATUS](docs/STATUS.md).
 [Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) uses a separate Termux / Debian environment.

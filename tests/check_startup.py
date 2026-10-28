@@ -57,7 +57,7 @@ STUBS = {
     'android/graphics/Path.java': 'package android.graphics;public class Path {public void reset(){}public void moveTo(float a,float b){}public void cubicTo(float a,float b,float c,float d,float e,float f){}}',
     'android/graphics/drawable/Drawable.java': 'package android.graphics.drawable;public class Drawable {int a,b,c,d;public Drawable mutate(){return this;}public void setTint(int v){}public void setBounds(int a,int b,int c,int d){this.a=a;this.b=b;this.c=c;this.d=d;}public void draw(android.graphics.Canvas v){v.marks.add(new int[]{a,b,c,d});}}',
     'android/graphics/Canvas.java': '''package android.graphics;public class Canvas {
-        public java.util.List<int[]> marks=new java.util.ArrayList<>();public int paths,ovals;public void save(){}public void restore(){}public void translate(float x,float y){}public void scale(float x,float y){}public void rotate(float a,float x,float y){}public void drawPath(Path p,Paint b){paths++;}public void drawOval(float l,float t,float r,float b,Paint p){ovals++;}public java.util.List<float[]> circles=new java.util.ArrayList<>();public void drawCircle(float x,float y,float r,Paint p){circles.add(new float[]{x,y,r});}
+        public java.util.List<int[]> marks=new java.util.ArrayList<>();public int paths,ovals,lines;public void save(){}public void restore(){}public void translate(float x,float y){}public void scale(float x,float y){}public java.util.List<Float> angles=new java.util.ArrayList<>();public void rotate(float a,float x,float y){angles.add(a);}public void drawLine(float x,float y,float a,float b,Paint p){lines++;}public void drawPath(Path p,Paint b){paths++;}public void drawOval(float l,float t,float r,float b,Paint p){ovals++;}public java.util.List<float[]> circles=new java.util.ArrayList<>();public void drawCircle(float x,float y,float r,Paint p){circles.add(new float[]{x,y,r});}
     }''',
     'dev/dsh/nativeapp/DshUi.java': '''package dev.dsh.nativeapp;public class DshUi {
         static boolean motion=true;static int reads;static int BG(){return 0;}static int ACCENT(){return 0x4d6bfe;}static int BRAND(){return 0x4d6bfe;}static int TEXT_2(){return 0;}static int TEXT(){return 0;}
@@ -93,8 +93,10 @@ STUBS = {
                 v.onAttachedToWindow();v.ready(true);View.at(1180);check(done==1,"reattached view can finish");
                 v=create();View.at(1350);View graphic=((android.view.ViewGroup)((android.view.ViewGroup)v.children.get(0)).children.get(0)).children.get(0);
                 java.lang.reflect.Method draw=graphic.getClass().getDeclaredMethod("onDraw",Canvas.class);draw.setAccessible(true);
-                Canvas canvas=new Canvas();draw.invoke(graphic,canvas);check(canvas.marks.size()==1&&canvas.paths==1&&canvas.ovals==3,"brand whale, wake and layered ripples render together");
+                Canvas canvas=new Canvas();draw.invoke(graphic,canvas);check(canvas.marks.size()==2&&canvas.paths==1&&canvas.ovals==3,"brand body, independent tail, wake and layered ripples render together");
+                check(canvas.angles.size()==2&&!canvas.angles.get(0).equals(canvas.angles.get(1)),"tail articulates independently of the body's swimming pitch");
                 for(float[] c:canvas.circles)check(c[0]-c[2]>=0&&c[0]+c[2]<=208&&c[1]-c[2]>=0&&c[1]+c[2]<=160,"motion stays within its bounds");
+                View.at(7280);Canvas blink=new Canvas();draw.invoke(graphic,blink);check(blink.lines==1,"occasional blink draws within the swimming pose");
                 v.onSizeChanged(640,320,320,640);check(graphic.layout.height<160,"short landscape reduces the decorative area");
                 android.widget.TextView status=(android.widget.TextView)((android.view.ViewGroup)((android.view.ViewGroup)v.children.get(0)).children.get(0)).children.get(2);
                 check(status.minLines==3&&status.maxLines==3,"status changes reserve stable text space");

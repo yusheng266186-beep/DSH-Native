@@ -36,7 +36,7 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 1.1.2 优化首页启动等待：完整工具与网络检查移到首页显示后空闲运行，已验证环境避免重复安装、探针和配置迁移，失败检查不再影响复用；重启和聊天优先。见[版本说明](release-notes/v1.1.2.md)，实际手机耗时由用户安装反馈。
 
-1.1.3 打磨首页动画：2.4 秒舒缓轻游、品牌标题和水波层次，连接及首帧就绪后直接进入短过渡，并完善横屏、大字体和后台暂停。见[版本说明](release-notes/v1.1.3.md)。
+1.1.3 按活泼灵动的方向打磨首页动画：鲸鱼轻游、独立摆尾、偶尔眨眼和冒泡，配上品牌标题与细水波；就绪后直接进入短过渡，并完善横屏、大字体和后台暂停。见[版本说明](release-notes/v1.1.3.md)。
 
 <!-- project-navigation:start -->
 
@@ -56,7 +56,7 @@ DSH Native 将 Android 原生 Node.js、DeepSeek Harness（DSH）和常用开发
 
 [版本与下载](https://github.com/yusheng266186-beep/DSH-Native/releases) · [使用与开发](#下载与运行要求) · [项目总导航](https://github.com/yusheng266186-beep/yusheng266186-beep)
 
-启动页使用放大的品牌鲸鱼、舒缓轻游与细水波，搭配深浅主题和清晰的状态文字。内核连接及界面首帧就绪后以 180ms 过渡进入，无需等待完整动画；关闭系统动画时直接进入。已准备好的后台内核优先复用，更新期间显示真实准备进度。
+启动页使用放大的品牌鲸鱼，以独立摆尾、轻游、偶尔眨眼和冒泡增加生命感，搭配深浅主题和清晰的状态文字。内核连接及界面首帧就绪后以 180ms 过渡进入，无需等待完整动画；关闭系统动画时直接进入。已准备好的后台内核优先复用，更新期间显示真实准备进度。
 
 项目的发布、源码和验证状态统一见 [STATUS](docs/STATUS.md)。[Codex Harness Mobile](https://github.com/yusheng266186-beep/codex-harness-mobile) 使用 Termux / Debian，是另一种移动工作台方案。
 

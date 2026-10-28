@@ -20,6 +20,12 @@ public class StartupStateTest {
         check(StartupState.swimPhase(0L) == 0f && StartupState.swimPhase(-20L) == 0f, "motion starts at its resting pose");
         check(StartupState.swimPhase(600L) == .25f, "swimming is deliberately slower than a spinner");
         check(StartupState.swimPhase(2400L) == 0f, "swim loops without a discontinuous pose");
+        check(StartupState.blinkClosure(0L) == 0f && StartupState.blinkClosure(6199L) == 0f,
+                "the eye normally remains open");
+        check(StartupState.blinkClosure(6280L) == 1f && StartupState.blinkClosure(6360L) == 0f,
+                "a brief blink closes and opens again");
+        check(StartupState.blinkClosure(7200L + 6280L) == 1f,
+                "blinking is occasional rather than on every tail beat");
         check(StartupState.handoffProgress(-1L) == 0f, "clock reversal cannot start a fade");
         check(StartupState.handoffProgress(90L) == .5f, "handoff has a smooth midpoint");
         check(StartupState.handoffProgress(180L) == 1f && StartupState.handoffProgress(9000L) == 1f,

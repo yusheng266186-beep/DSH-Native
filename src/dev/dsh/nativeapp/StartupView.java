@@ -156,28 +156,34 @@ final class StartupView extends FrameLayout {
         removeCallbacks(frame); super.onDetachedFromWindow();
     }
 
-    /** Opaque brand silhouette, slow swimming, soft light and two quiet expanding ripples. */
+    /** Articulated brand whale: a flowing swim, independent tail beat and occasional blink. */
     private static final class Whale extends View {
-        private final android.graphics.drawable.Drawable mark;
+        private final android.graphics.drawable.Drawable mark, tail;
         private final Paint halo = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint water = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint bubbles = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint eyeCover = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint eyelid = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Path wake = new android.graphics.Path();
         long elapsed;
         Whale(Activity activity) {
             super(activity);
-            int id = activity.getResources().getIdentifier("dsh_startup_whale", "drawable", activity.getPackageName());
+            int id = activity.getResources().getIdentifier("dsh_startup_whale_body", "drawable", activity.getPackageName());
             mark = activity.getDrawable(id).mutate();
             mark.setBounds(48, 0, 160, 112);
+            int tailId = activity.getResources().getIdentifier("dsh_startup_whale_tail", "drawable", activity.getPackageName());
+            tail = activity.getDrawable(tailId).mutate(); tail.setBounds(48, 0, 160, 112);
             water.setStyle(Paint.Style.STROKE); water.setStrokeWidth(.8f); water.setStrokeCap(Paint.Cap.ROUND);
             bubbles.setStyle(Paint.Style.STROKE); bubbles.setStrokeWidth(.8f);
+            eyelid.setStyle(Paint.Style.STROKE); eyelid.setStrokeWidth(.7f); eyelid.setStrokeCap(Paint.Cap.ROUND);
             applyTheme();
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         void applyTheme() {
             int brand = DshUi.BRAND();
             mark.setTint(brand);
+            tail.setTint(brand); eyeCover.setColor(brand); eyelid.setColor(DshUi.BG());
             halo.setShader(new android.graphics.RadialGradient(104f, 72f, 68f,
                     new int[]{(brand & 0x00ffffff) | 0x10000000, (brand & 0x00ffffff) | 0x05000000,
                             brand & 0x00ffffff}, new float[]{0f, .55f, 1f}, android.graphics.Shader.TileMode.CLAMP));
@@ -207,15 +213,25 @@ final class StartupView extends FrameLayout {
             wake.cubicTo(77f, 117f + swim, 89f, 121f - swim, 100f, 119f);
             wake.moveTo(109f, 119f); wake.cubicTo(118f, 118f - swim, 133f, 120f + swim, 142f, 119f);
             canvas.drawPath(wake, water);
-            for (int i = 0; i < 2; i++) {
-                float p = (phase + i * .58f) % 1f;
+            for (int i = 0; i < 3; i++) {
+                float p = (phase + i * .31f) % 1f;
                 float envelope = (float) Math.sin(Math.PI * p);
-                bubbles.setAlpha((int) (65f * envelope * envelope));
-                canvas.drawCircle(166f + i * 8f + 2f * swim, 100f - p * 40f, 1.2f + .8f * p, bubbles);
+                bubbles.setAlpha((int) (85f * envelope * envelope));
+                canvas.drawCircle(40f + i * 7f + 3f * swim, 105f - p * 52f, 1.2f + .8f * p, bubbles);
             }
-            canvas.save(); canvas.translate(1.8f * swim, -3.2f * swim);
-            canvas.rotate(-1.6f * swim, 104f, 62f);
-            mark.draw(canvas); canvas.restore(); canvas.restore();
+            canvas.save(); canvas.translate(4.8f * swim, -4.2f * swim);
+            canvas.rotate(-3.4f * swim, 104f, 62f);
+            canvas.save();
+            canvas.rotate(8f * (float) Math.sin(phase * 4 * Math.PI), 134.7f, 42.3f);
+            tail.draw(canvas); canvas.restore();
+            mark.draw(canvas);
+            float blink = StartupState.blinkClosure(elapsed);
+            if (blink > 0f) {
+                eyeCover.setAlpha((int) (255f * blink)); eyelid.setAlpha((int) (255f * blink));
+                canvas.drawCircle(108.4f, 55.1f, 1.55f, eyeCover);
+                canvas.drawLine(107.5f, 55.1f, 109.3f, 55.1f, eyelid);
+            }
+            canvas.restore(); canvas.restore();
         }
     }
 }

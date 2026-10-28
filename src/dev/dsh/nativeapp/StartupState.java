@@ -47,6 +47,14 @@ final class StartupState {
         return Math.max(0L, elapsed) % SWIM_MS / (float) SWIM_MS;
     }
 
+    /** A brief, occasional blink, with a fully open eye at both ends. */
+    static float blinkClosure(long elapsed) {
+        long local = Math.max(0L, elapsed) % (SWIM_MS * 3L) - 6200L;
+        if (local < 0L || local >= 160L) return 0f;
+        float wave = (float) Math.sin(Math.PI * local / 160f);
+        return wave * wave;
+    }
+
     /** Bounded smoothstep handoff, independent of the whale's current position. */
     static float handoffProgress(long elapsed) {
         float t = Math.min(1f, Math.max(0f, elapsed / (float) HANDOFF_MS));
