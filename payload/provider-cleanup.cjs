@@ -15,6 +15,10 @@ async function migrate(root,runtime){
   if(yaml.isMap(providers))for(const pair of [...providers.items]){
    const id=String(pair.key?.value??pair.key),item=pair.value;
    if(id==='codebuddy'&&yaml.isMap(item)&&item.get('baseURL')==='https://www.codebuddy.cn/v2'&&['CodeBuddy',undefined].includes(item.get('displayName')))item.set('displayName','CodeBuddy CLI');
+   if(id==='codebuddy'&&yaml.isMap(item)&&item.get('baseURL')==='https://www.codebuddy.cn/v2'){
+    const models=item.get('models',true);
+    if(yaml.isSeq(models))for(const model of models.items)if(yaml.isMap(model)&&model.get('id')==='deepseek-v4.1-flash'&&[undefined,300000].includes(model.get('contextWindow')))model.set('contextWindow',1000000);
+   }
    if(id==='commandcode'||(yaml.isMap(item)&&(item.get('apiKeyEnv')==='COMMANDCODE_API_KEY'||String(item.get('baseURL')||'').includes('api.commandcode.ai'))))providers.delete(id);
   }
   if(map.get('provider')==='commandcode'){

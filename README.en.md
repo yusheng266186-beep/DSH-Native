@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.1.5**; source: **1.1.5**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.1.5**; source: **1.1.6**; source payload: `payload-v14`; pinned DSH: `0.2.1-rc.3` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -234,6 +234,8 @@ python3 scripts/sync_project_metadata.py --docs-only --check
 ```
 
 After release assets and download routes are verified, `release.yml` / `release.sh` generates manifests and synchronizes both READMEs, every document's status block, and the current status table. Historical iteration content is retained. Do not edit generated blocks manually. Source can lead the published release, but documentation must show both accurately.
+
+Starting with 1.1.6, CodeBuddy DeepSeek V4.1 Flash selects the 1M context tier in both DSH and the official CLI. Releases reuse the signed APK from successful full CI of the identical source tree; see [Build and release](docs/BUILD.md).
 
 ## Repository map
 

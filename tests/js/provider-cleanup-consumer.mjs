@@ -28,6 +28,17 @@ try{
  const projects=await fs.readFile(path.join(home,'.native-project-models'),'utf8');
  check(projects.includes(['G',...['codebuddy','deepseek-v4.1-flash','max'].map(hex)].join('\t'))&&projects.includes(['P',...['Project A','deepseek-official','deepseek-flash','high'].map(hex)].join('\t')),'hex encoded global migrated, direct project override preserved');
  check((await migrate(root,runtime)).updated===0,'migration idempotent');
+ const oldBuddy={baseURL:'https://www.codebuddy.cn/v2',models:[{id:'deepseek-v4.1-flash',contextWindow:300000},{id:'other-model',contextWindow:300000}]};
+ await fs.writeFile(path.join(home,'settings.yaml'),yaml.stringify({'llm-pi-ai':{providers:{codebuddy:oldBuddy,custom:{...JSON.parse(JSON.stringify(oldBuddy)),baseURL:'https://example.test/v1'}}}}));
+ const oldProfile=profile.find(item=>item.id==='llm-pi-ai');oldProfile.config.providers.codebuddy=oldBuddy;
+ await fs.writeFile(path.join(home,'profiles/web/cordis.patch.yml'),yaml.stringify(profile));
+ const history=path.join(home,'sessions','keep.json');await fs.mkdir(path.dirname(history),{recursive:true});await fs.writeFile(history,JSON.stringify(oldBuddy));
+ await migrate(root,runtime);
+ const upgraded=yaml.parse(await fs.readFile(path.join(home,'settings.yaml'),'utf8'))['llm-pi-ai'].providers;
+ check(upgraded.codebuddy.models[0].contextWindow===1000000&&upgraded.codebuddy.models[1].contextWindow===300000&&upgraded.custom.models[0].contextWindow===300000,'only the official DeepSeek 300K default upgrades to 1M');
+ check(yaml.parse(await fs.readFile(path.join(home,'profiles/web/cordis.patch.yml'),'utf8')).find(item=>item.id==='llm-pi-ai').config.providers.codebuddy.models[0].contextWindow===1000000,'the active web profile also upgrades');
+ check(await fs.readFile(history,'utf8')===JSON.stringify(oldBuddy),'historical sessions are unchanged');
+ check((await migrate(root,runtime)).updated===0,'context migration is idempotent');
  check((await fs.stat(path.join(home,'.credentials.yaml'))).mode%512===384,'written credentials remain private');
  const before=await fs.readFile(path.join(home,'settings.yaml'));
  await fs.writeFile(path.join(home,'settings.yaml.imported'),'not: [valid');

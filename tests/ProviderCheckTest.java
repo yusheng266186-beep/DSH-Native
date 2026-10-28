@@ -21,6 +21,7 @@ public class ProviderCheckTest {
         check("CodeBuddy unknown response does not claim ready", !CodeBuddyCatalog.probe(400,"{}").accepted(),"accepted");
         check("CodeBuddy rate limit remains distinct", CodeBuddyCatalog.probe(429,"{}").state==ProviderCheck.RATE_LIMITED,"lost status");
         check("CLI metadata does not establish chat access", !CodeBuddyCatalog.metadata().accepted() && !CodeBuddyCatalog.metadata().cliChatVerified,"false approval");
+        check("DeepSeek CLI metadata selects the declared 1M tier", CodeBuddyCatalog.metadata().metadata.get("deepseek-v4.1-flash").details.contains("contextWindow: 1000000"),"old 300K budget");
         check("official CLI success establishes current model chat check", CodeBuddyCatalog.checkReply("{\"ok\":true}").cliChatVerified,"not verified");
         check("CLI channel refusal wins over an ambiguous ok flag", CodeBuddyCatalog.checkReply("{\"ok\":true,\"channelRejected\":true}").state==ProviderCheck.CHANNEL_REJECTED,"restriction lost");
         check("CLI model access refusal differs from a bad key", CodeBuddyCatalog.checkReply("{\"ok\":false,\"failureCode\":\"CODEBUDDY_MODEL_ACCESS\"}").state==ProviderCheck.MODEL_DENIED,"model refusal lost");

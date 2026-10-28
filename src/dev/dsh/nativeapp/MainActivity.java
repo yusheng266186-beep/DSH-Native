@@ -6976,7 +6976,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.1.5");
+        log("APK 版本: 1.1.6");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */

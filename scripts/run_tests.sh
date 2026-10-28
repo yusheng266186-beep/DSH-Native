@@ -562,6 +562,7 @@ if ! python3 tests/check_native_bridge.py; then rc=1; fi
 if ! python3 tests/check_web_settings.py; then rc=1; fi
 if ! python3 tests/check_file_actions.py; then rc=1; fi
 if ! python3 tests/check_payload_recovery.py; then rc=1; fi
+if ! python3 tests/check_verified_build.py; then rc=1; fi
 
 # 从 MainActivity 抽出的纯逻辑类，必须**真的被调用**。
 #

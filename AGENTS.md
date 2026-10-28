@@ -1,7 +1,7 @@
 # 给接手开发者与 Agent 的工作约定
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.5**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
@@ -14,7 +14,7 @@
 2. 核对受影响的真实代码和消费路径；不要只修改 UI 标签或孤立的配置字段。
 3. 保持逻辑与 Android UI 分离；新增判断优先进入可在 JVM 验证的纯逻辑类。
 4. 执行适当检查，更新中英文入口、当前状态和相关技术文档。
-5. 用户已约定每轮修改完成后递增版本，并直接发布 stable；须先通过完整 Android CI，再合并 main，经 `release.yml` / `release.sh` 发布。不得绕过签名、下载或清单校验。
+5. 用户已约定每轮修改完成后递增版本，并直接发布 stable；版本先写入 PR，通过完整 Android CI 再合并 main。运行 `release.yml` 时传入该完整 CI 的 `build_run_id`，按 Git tree、版本、成功运行与 APK 摘要复用同一产物；无匹配产物才完整重建。不得绕过签名、下载或清单校验。
 6. 若任务实际安排了并行协作，必须取得所有相关任务的明确交回；文件一段时间不变不是完成证据。
 
 ## 2. 必须保留的红线

@@ -24,6 +24,8 @@ try{
  check(latest.options.effort==='max'&&latest.options.tools.length===0&&!latest.options.systemPrompt,'explicit CLI agent mode uses official persona, requested effort and no built-in tools');check(latest.options.settingSources.length===0&&latest.options.strictMcpConfig&&!latest.options.persistSession,'no inherited plugins, hooks or extra transcript');
  check(latest.options.env.CODEBUDDY_API_KEY==='synthetic-key-do-not-log'&&!latest.options.env.CODEBUDDY_CUSTOM_HEADERS,'key is private SDK environment, without client spoofing');
  check(latest.options.env.NODE_COMPILE_CACHE===path.join(root,'.codebuddy-home','compile-cache'),'compiled code cache stays in the private non-shareable CLI home');
+ check(JSON.parse(latest.options.extraArgs.settings).contextWindow===1000000,'the production SDK receives the public CLI settings for the 1M session budget');
+ check(cli.contextSettings('other-model')===undefined,'other models keep their declared context limits');
  const input=[];for await(const item of latest.prompt)input.push(item);check(!JSON.stringify(input).includes('synthetic-key-do-not-log')&&JSON.stringify(input).includes('Synthetic request'),'prompt preserves user context without credential');
  fixture([{type:'result',subtype:'success',is_error:false,usage:{input_tokens:1000,output_tokens:2,cache_read_input_tokens:900,cache_creation_input_tokens:50}}]);
  out=await consume();check(out.at(-2).usage.inputTokens===50&&out.at(-2).usage.totalTokens===1002,'cache read and write are counted once in total and context pressure');
@@ -80,6 +82,9 @@ try{
  await Array.fromAsync(cli.sessionQuery(protocol,request('synthetic-other')));check(previous.closed&&previous.sent.length===0&&sessions[2].sent.length===1,'credential change discards the standby without sending data to it');
  cli.clearWarm();sessions.length=0;preparedQuery=cli.sessionQuery(protocol,request());await preparedQuery.next();await preparedQuery.return();const differentModel=sessions[1];
  await Array.fromAsync(cli.sessionQuery(protocol,request('synthetic-one','other-model')));check(differentModel.closed&&differentModel.sent.length===0,'model changes cannot claim another configuration standby');
+ cli.clearWarm();sessions.length=0;const large=request();large.options.extraArgs=cli.contextSettings(large.options.model);preparedQuery=cli.sessionQuery(protocol,large);await preparedQuery.next();await preparedQuery.return();const largeStandby=sessions[1];
+ check(JSON.parse(largeStandby.settings.extraArgs.settings).contextWindow===1000000,'fresh standby inherits the selected 1M budget before sending any prompt');
+ await Array.fromAsync(cli.sessionQuery(protocol,request()));check(largeStandby.closed&&largeStandby.sent.length===0,'a different context setting cannot claim the prepared 1M session');
  cli.clearWarm();sessions.length=0;const cancellation=new AbortController();preparedQuery=cli.sessionQuery(protocol,request('synthetic-one','deepseek-v4.1-flash',cancellation));await preparedQuery.next();cancellation.abort();await preparedQuery.return();check(sessions.length===1&&sessions[0].closed,'cancellation creates no standby');
  cli.clearWarm();sessions.length=0;const waitingProtocol={...protocol,unstable_v2_createSession:settings=>{const session=protocol.unstable_v2_createSession(settings);if(sessions.length===2)session.getAvailableModes=()=>new Promise(()=>{});return session;}};
  preparedQuery=cli.sessionQuery(waitingProtocol,request());await preparedQuery.next();await preparedQuery.return();const waiting=sessions[1],cancelWaiting=new AbortController(),waitingQuery=cli.sessionQuery(waitingProtocol,request('synthetic-one','deepseek-v4.1-flash',cancelWaiting));const pendingWarm=waitingQuery.next();setTimeout(()=>cancelWaiting.abort(),20);await assert.rejects(pendingWarm,/ABORTED/);check(waiting.closed&&waiting.sent.length===0,'cancellation interrupts an unresponsive standby initialization before any prompt');
@@ -97,6 +102,11 @@ try{
  const manifest=JSON.parse(await fs.readFile(path.join(root,'codebuddy-sdk-manifest.json'),'utf8'));
  const runtime=path.join(root,'.codebuddy-sdk-'+manifest.sdk+'-'+manifest.sha256.slice(0,16)),sandbox=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-sdk-boundary-'));
  try{
+  const product=JSON.parse(await fs.readFile(path.join(runtime,'node_modules/@tencent-ai/agent-sdk/cli/product.json'),'utf8'));
+  const declared=product.models.find(model=>model.id==='deepseek-v4.1-flash');
+  check(declared.maxInputTokens===1000000&&declared.contextWindow.defaultLength===300000&&declared.contextWindow.supportedLengths.includes(1000000),'pinned unmodified CLI declares a 1M tier and the old 300K default');
+  const catalog=JSON.parse(await fs.readFile(new URL('../../runtime/codebuddy-catalog.json',import.meta.url),'utf8'));
+  check(catalog.catalog.find(model=>model.id==='deepseek-v4.1-flash').contextWindow===declared.maxInputTokens,'the canonical catalog selects the pinned 1M tier');
   check(manifest.layout==='headless-v1'&&manifest.bytes<12*1024*1024&&manifest.unpacked_bytes<65*1024*1024,'mobile bundle stays within its headless size budget');
   for(const removed of ['dist/web-ui','dist/codebuddy-lite-wb.mjs','dist-server','vendor/ripgrep','vendor/genie-trash','bin/native']){
    check(!await fs.stat(path.join(runtime,'node_modules/@tencent-ai/agent-sdk/cli',removed)).then(()=>true,()=>false),'unused desktop or external executable is absent: '+removed);
