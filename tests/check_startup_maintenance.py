@@ -35,6 +35,7 @@ assert 'interruptRuntimeInspection();' in method('protected void onPause()')
 assert 'foregroundResumedAt = android.os.SystemClock.uptimeMillis()' in method('private StartupView buildSplash()')
 assert 'RuntimePreparation.prepareTools' not in method('private void finishStartupMaintenance()')
 assert 'runtimeConfigLock.tryLock()' in method('private void finishStartupMaintenance()')
+assert 'reportProgress = startupCoordinator.task(' in method('private boolean ensurePayload(')
 methods = '\n'.join(method(s) for s in ['private void cancelRuntimeInspection()',
     'private void interruptRuntimeInspection()', 'private void cleanupStaleUpdateApk()', 'private void scheduleRuntimeChecks()'])
 HARNESS = r'''

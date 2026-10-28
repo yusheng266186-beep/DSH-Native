@@ -94,6 +94,7 @@ private void transfer(String basePath, String assetName, File out,
                             + lastError + "\n请检查网络后重试，已下载部分会继续保留。");
                 }
 
+                control.check();
                 long wanted = end - done + 1;
                 byte[] data = result.data;
                 if (data.length <= 0) throw new IOException("块 " + chunkIndex + " 内容为空");

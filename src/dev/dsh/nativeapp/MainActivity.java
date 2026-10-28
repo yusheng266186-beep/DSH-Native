@@ -4706,12 +4706,17 @@ public class MainActivity extends Activity {
                     part.getString("name"), part.getLong("size"), part.getString("sha256")));
         }
         final int[] lastPercent = {-1};
+        final Runnable reportProgress = startupCoordinator.task(new Runnable() {
+            @Override public void run() {
+                setSplashStatus(UiText.t("正在下载并校验运行包 ", "Downloading and verifying runtime ") + lastPercent[0] + "%");
+            }
+        });
         PayloadDownloads staging = new PayloadDownloads(plan, new PayloadDownloads.Progress() {
             @Override public void changed(long done, long total) {
                 int percent = total > 0 ? (int) (done * 100 / total) : 100;
                 if (percent == lastPercent[0]) return;
                 lastPercent[0] = percent;
-                setSplashStatus(UiText.t("正在下载并校验运行包 ", "Downloading and verifying runtime ") + percent + "%");
+                reportProgress.run();
             }
         });
         java.util.LinkedHashMap<String, File> archives;
