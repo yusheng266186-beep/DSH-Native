@@ -14,6 +14,7 @@ public class ReleaseDownloaderTest {
     public static void main(String[] args) throws Exception {
         byte[] bytes = new byte[5 * 1024 * 1024 + 91]; for (int i = 0; i < bytes.length; i++) bytes[i] = (byte)(i % 251);
         AtomicInteger calls = new AtomicInteger(); List<Long> offsets = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger failedSource = new AtomicInteger();
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         ExecutorService handlers = Executors.newCachedThreadPool(r -> {Thread t = new Thread(r); t.setDaemon(true); return t;});server.setExecutor(handlers);
@@ -25,6 +26,7 @@ public class ReleaseDownloaderTest {
             exchange.sendResponseHeaders(206, count);exchange.getResponseBody().write(bytes, (int)start, count);exchange.close();
         });
         server.createContext("/stall", exchange -> { try { exchange.sendResponseHeaders(206, 1024);exchange.getResponseBody().write(new byte[]{1});exchange.getResponseBody().flush();entered.countDown();release.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } finally { exchange.close(); } });
+        server.createContext("/bad", exchange -> { failedSource.incrementAndGet(); exchange.sendResponseHeaders(503, -1); exchange.close(); });
         server.start(); String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/";
         Path scratch = Files.createTempDirectory("dsh-release-transport-");
         ReleaseDownloader transport = new ReleaseDownloader(new String[]{""}, new ReleaseDownloader.Host() {public void log(String s){} public void status(String s){}});
@@ -37,6 +39,17 @@ public class ReleaseDownloaderTest {
             TransferState.prepare(partial, identity, base + "file", true); Files.write(partial.toPath(), Arrays.copyOf(bytes, 2 * 1024 * 1024)); offsets.clear();
             transport.download(base, "file", target, new ReleaseDownloader.Control(), true);
             check(offsets.get(0) == 2 * 1024 * 1024 && Arrays.equals(bytes, Files.readAllBytes(target.toPath())), "retry preserves previously downloaded ranges");
+            AtomicLong progress = new AtomicLong();
+            ReleaseDownloader failover = new ReleaseDownloader(new String[]{base + "bad?url=", ""}, new ReleaseDownloader.Host() {
+                public void log(String s) {} public void status(String s) {}
+                public void progress(String name, long done, long total) { progress.set(done); }
+            });
+            try {
+                failover.download(base, "file", scratch.resolve("mirror-one").toFile(), new ReleaseDownloader.Control(), true);
+                failover.download(base, "file", scratch.resolve("mirror-two").toFile(), new ReleaseDownloader.Control(), true);
+                check(failedSource.get() == 1, "failed source is tried once before failover; working source reused for following chunks and shards");
+                check(Arrays.equals(bytes, Files.readAllBytes(scratch.resolve("mirror-two"))) && progress.get() == bytes.length, "preferred source preserves bytes and reports actual aggregate input");
+            } finally { failover.close(); }
             AtomicBoolean cancelled = new AtomicBoolean();
             Thread pending = new Thread(() -> {try {transport.download(base, "stall", scratch.resolve("stall").toFile(), new ReleaseDownloader.Control(), false);} catch(IOException expected) {cancelled.set(true);}});
             pending.start();check(entered.await(3, TimeUnit.SECONDS), "blocking read is exercised");long start = System.nanoTime();transport.close();

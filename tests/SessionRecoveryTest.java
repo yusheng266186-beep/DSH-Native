@@ -11,6 +11,12 @@ public class SessionRecoveryTest {
     }
 
     public static void main(String[] args) {
+        if (args.length > 0 && "--dump-script".equals(args[0])) {
+            System.out.print(SessionRecovery.domWatcherScript()); return;
+        }
+        if (args.length > 0 && "--dump-input".equals(args[0])) {
+            System.out.print(StartupDiagnostics.interactionScript()); return;
+        }
         String screenshot = "resume failed for session session-1: "
                 + "SessionPersistenceCorruptionError: stored log is corrupt: "
                 + "TypeError: internals.fs.rename is not a function";

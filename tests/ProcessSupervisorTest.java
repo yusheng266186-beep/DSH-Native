@@ -23,15 +23,24 @@ public class ProcessSupervisorTest {
         s.adopt(first);
         check("adopt exposes process", s.current() == first, "wrong process");
         check("adopted process is alive", s.isAlive(), "should be alive");
+        s.prepared(second, "runtime", "key");
+        check("unowned preparation rejected", !s.prepared("runtime", "key"), "wrong source accepted");
+        s.prepared(first, "runtime", "key");
+        check("live prepared process reused", s.prepared("runtime", "key"), "proof missing");
+        check("changed runtime invalidates reuse", !s.prepared("next-runtime", "key"), "stale proof");
+        check("changed environment invalidates reuse", !s.prepared("runtime", "next-key"), "stale proof");
 
         s.adopt(second);
         check("replacing process stops previous", first.destroyed, "old process still alive");
         check("replacement becomes current", s.current() == second, "wrong current");
+        check("replacement cannot inherit proof", !s.prepared("runtime", "key"), "proof leaked");
+        s.prepared(second, "runtime", "key");
 
         check("stale clear is rejected", !s.clear(first), "should be false");
         check("stale clear cannot remove replacement", s.current() == second, "cleared new process");
         second.finish();
         check("natural exit is detected", !s.isAlive(), "should be stopped");
+        check("dead core cannot reuse proof", !s.prepared("runtime", "key"), "dead proof");
         check("matching clear succeeds", s.clear(second), "should be true");
         check("matching clear removes process", s.current() == null, "not cleared");
 

@@ -6,11 +6,15 @@ import java.util.*;
 
 /** Release transport, resumable files and cancellation. Does not own UI or runtime policy. */
 final class ReleaseDownloader {
-    interface Host { void log(String message); void status(String message); }
+    interface Host {
+        void log(String message); void status(String message);
+        default void progress(String asset, long done, long total) { }
+    }
     private final String[] sources;
     private final Host host;
     private final Set<Control> active = new HashSet<Control>();
     private boolean closed;
+    private volatile int preferredSource;
     ReleaseDownloader(String[] sources, Host host) { this.sources = sources.clone(); this.host = host; }
     private void log(String message) { host.log(message); }
     private void setSplashStatus(String message) { host.status(message); }
@@ -55,26 +59,28 @@ private void transfer(String basePath, String assetName, File out,
                         : Math.min(done + chunkSize - 1, total - 1);
                 RangeResult result = null;
 
-                for (int source = 0; source < sources.length && result == null; source++) {
+                int firstSource = preferredSource;
+                // Try every source once before retrying a failed one. Keep the source
+                // that worked across chunks and across the following runtime shards.
+                for (int turn = 0; turn < sources.length * maxRetryPerSource && result == null; turn++) {
+                    int source = (firstSource + turn) % sources.length;
                     String url = sources[source] + basePath + assetName;
-                    for (int attempt = 0; attempt < maxRetryPerSource; attempt++) {
+                    try {
+                        result = fetchRange(url, done, end, control);
+                        preferredSource = source;
+                        if (total < 0 && result.total != null) {
+                            total = result.total.longValue();
+                        }
+                        if (source > 0) log("  已切换到镜像源 #" + source);
+                    } catch (Exception e) {
+                        lastError = shorten(e);
+                        retries++;
+                        control.check();
                         try {
-                            result = fetchRange(url, done, end, control);
-                            if (total < 0 && result.total != null) {
-                                total = result.total.longValue();
-                            }
-                            if (source > 0) log("  已切换到镜像源 #" + source);
-                            break;
-                        } catch (Exception e) {
-                            lastError = shorten(e);
-                            retries++;
-                            control.check();
-                            try {
-                                Thread.sleep(500L * (attempt + 1));
-                            } catch (InterruptedException interrupted) {
-                                Thread.currentThread().interrupt();
-                                throw new IOException("下载被中断");
-                            }
+                            if (turn >= sources.length) Thread.sleep(500L * (turn / sources.length));
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new IOException("下载被中断");
                         }
                     }
                     if (result == null) {
@@ -88,6 +94,7 @@ private void transfer(String basePath, String assetName, File out,
                             + lastError + "\n请检查网络后重试，已下载部分会继续保留。");
                 }
 
+                control.check();
                 long wanted = end - done + 1;
                 byte[] data = result.data;
                 if (data.length <= 0) throw new IOException("块 " + chunkIndex + " 内容为空");
@@ -101,6 +108,7 @@ private void transfer(String basePath, String assetName, File out,
                 raf.seek(done);
                 raf.write(data);
                 done += data.length;
+                host.progress(assetName, done, total);
                 chunkIndex++;
                 if (total < 0 && data.length < wanted) total = done;
 
@@ -190,8 +198,8 @@ private RangeResult fetchRange(String url, long start, long end,
                 c = (HttpURLConnection) new URL(cur).openConnection();
                 control.bind(c);
                 c.setInstanceFollowRedirects(false);
-                c.setConnectTimeout(20000);
-                c.setReadTimeout(40000);
+                c.setConnectTimeout(url.contains("manifest.json") ? 3000 : 5000);
+                c.setReadTimeout(url.contains("manifest.json") ? 5000 : 40000);
                 c.setRequestProperty("User-Agent", "DSHNative/0.2.0");
                 c.setRequestProperty("Range", "bytes=" + start + "-" + end);
                 c.setRequestProperty("Accept-Encoding", "identity");

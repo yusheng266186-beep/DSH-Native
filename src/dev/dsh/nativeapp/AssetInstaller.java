@@ -43,7 +43,7 @@ final class AssetInstaller {
     boolean ready(File root) throws IOException {
         Map<String, String> proof = receipt(root);
         if (!identity.equals(proof.get("@index"))) return false;
-        for (Entry e : entries.values()) if (!matches(root, e, proof)) return false;
+        for (Entry e : entries.values()) { interrupted(); if (!matches(root, e, proof)) return false; }
         return true;
     }
     int install(File root) throws IOException {

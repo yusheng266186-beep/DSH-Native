@@ -186,6 +186,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/FileActionsUi.java boots
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsCommands.java bootstrap/src/dev/dsh/nativeapp/WebSettingsProtocol.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/StartupState.java bootstrap/src/dev/dsh/nativeapp/StartupReuse.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/NativeBridgePolicy.java bootstrap/src/dev/dsh/nativeapp/NativeBridgeServer.java bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ReleaseDownloader.java bootstrap/src/dev/dsh/nativeapp/PayloadDownloads.java"
 for f in $PURE_FILES; do
     [ -f "$f" ] || die "缺少纯逻辑文件 $f"
     if grep -nE '^import +android\.|^import +androidx\.' "$f" >/dev/null 2>&1; then

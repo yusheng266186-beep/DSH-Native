@@ -10,12 +10,30 @@ package dev.dsh.nativeapp;
 final class ProcessSupervisor {
 
     private Process process;
+    private Process preparedProcess;
+    private String preparedIdentity, preparedKey;
+
+    synchronized void prepared(Process source, String identity, String key) {
+        if (source == null || source != process || !alive(source)) return;
+        preparedProcess = source; preparedIdentity = identity; preparedKey = key;
+    }
+
+    synchronized boolean prepared(String identity, String key) {
+        return process != null && process == preparedProcess && alive(process)
+                && identity != null && identity.equals(preparedIdentity)
+                && key != null && key.equals(preparedKey);
+    }
+
+    synchronized void forgetPrepared() {
+        preparedProcess = null; preparedIdentity = null; preparedKey = null;
+    }
 
     /** 接管一个新进程；已有的不同进程会先被停止，避免产生多个实例。 */
     synchronized void adopt(Process next) {
         if (next == null) throw new IllegalArgumentException("process 不能为空");
         if (process == next) return;
         Process previous = process;
+        forgetPrepared();
         process = next;
         if (previous != null && alive(previous)) {
             try { previous.destroy(); } catch (Throwable ignored) { }
@@ -36,6 +54,7 @@ final class ProcessSupervisor {
     synchronized boolean clear(Process expected) {
         if (process != expected) return false;
         process = null;
+        forgetPrepared();
         return true;
     }
 
@@ -43,6 +62,7 @@ final class ProcessSupervisor {
     synchronized boolean stop() {
         Process current = process;
         process = null;
+        forgetPrepared();
         if (current == null) return false;
         try { current.destroy(); } catch (Throwable ignored) { }
         return true;
@@ -61,7 +81,7 @@ final class ProcessSupervisor {
         }
         if (alive(current)) return false;
         synchronized (this) {
-            if (process == current) process = null;
+            if (process == current) { process = null; forgetPrepared(); }
             // A concurrent replacement must not be mistaken for a stopped core.
             return process == null;
         }

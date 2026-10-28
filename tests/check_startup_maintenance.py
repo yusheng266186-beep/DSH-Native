@@ -32,11 +32,16 @@ assert boot.count('.putString("corePreparedKey", preparedRuntimeKey(root))') == 
 assert 'cancelRuntimeInspection();' in method('private void beginStartup(')
 assert 'scheduleRuntimeChecks();' in method('private void finishStartupMaintenance()')
 assert 'interruptRuntimeInspection();' in method('protected void onPause()')
+assert 'foregroundResumedAt = android.os.SystemClock.uptimeMillis()' in method('private StartupView buildSplash()')
+assert 'RuntimePreparation.prepareTools' not in method('private void finishStartupMaintenance()')
+assert 'runtimeConfigLock.tryLock()' in method('private void finishStartupMaintenance()')
+assert 'reportProgress = startupCoordinator.task(' in method('private boolean ensurePayload(')
 methods = '\n'.join(method(s) for s in ['private void cancelRuntimeInspection()',
-    'private void interruptRuntimeInspection()', 'private void scheduleRuntimeChecks()'])
+    'private void interruptRuntimeInspection()', 'private void cleanupStaleUpdateApk()', 'private void scheduleRuntimeChecks()'])
 HARNESS = r'''
 package dev.dsh.nativeapp;
 import java.io.*;import java.nio.file.*;import java.util.*;import java.util.concurrent.*;import java.util.concurrent.atomic.*;import java.util.concurrent.locks.*;
+class UpdateProvider {static File file;static File apkFile(Object owner){return file;}}
 class SessionStatus {static final int IDLE=0,RUNNING=1,UNKNOWN=-1;}
 public class StartupMaintenanceProbe {
  static int checks;static final int MODE_PRIVATE=0;static final String PREFS="test";
@@ -47,7 +52,8 @@ public class StartupMaintenanceProbe {
  final AtomicBoolean runtimeDiagnosticsQueued=new AtomicBoolean();
  final AtomicLong runtimeInspectionGeneration=new AtomicLong();
  volatile boolean runtimeDiagnosticsPending=true,splashHidden=true,inForeground=true,activityDisposing;
- volatile Thread runtimeInspectionWorker;File appRoot,workspace;int state=SessionStatus.IDLE;
+ boolean quiet=true;boolean startupQuiet(){return quiet;}
+ volatile Thread runtimeInspectionWorker,startupMaintenanceWorker;File appRoot,workspace;int state=SessionStatus.IDLE;
  final android.content.SharedPreferences prefs=new android.content.SharedPreferences();
  final AtomicReference<Throwable> workerFailure=new AtomicReference<>();
  final List<Runnable> queued=new ArrayList<>();final AtomicInteger probes=new AtomicInteger();String key="environment-1";
@@ -58,6 +64,14 @@ public class StartupMaintenanceProbe {
  String lastPreflightKey(){return prefs.getString("preflightKey","");}
  void rememberPreflightKey(String key){prefs.edit().putString("preflightKey",key).apply();}
  RuntimeChecks.Log runtimeLog(){return s->{if(s.equals("运行环境自检 …"))probes.incrementAndGet();};}
+ boolean replaceApk,pauseDuringApkRead;String cacheVersion="1.1.3";
+ String appVersion(){return "1.1.4";}boolean isNewer(String next,String current){return Version.isNewer(next,current);}
+ String apkVersionOf(File apk){
+  if(!maintenanceGate.isActive("APK cache cleanup"))throw new AssertionError("cache parse must exclude interactive update");
+  if(pauseDuringApkRead)inForeground=false;
+  if(replaceApk)try{Files.write(apk.toPath(),new byte[]{9,9,9});}catch(IOException e){throw new AssertionError(e);}
+  return cacheVersion;
+ }
  void log(String message){}
  void startWorker(Runnable work,String name){queued.add(work);}
  Thread drain(){check(queued.size()==1,"one coalesced inspection worker");Runnable task=queued.remove(0);Thread t=new Thread(task);t.setUncaughtExceptionHandler((w,e)->workerFailure.set(e));t.start();return t;}
@@ -75,7 +89,18 @@ public class StartupMaintenanceProbe {
   check(StartupDiagnostics.due("x","","x",now-StartupDiagnostics.RETRY_MS,now),"failed inspection retries after backoff");
   check(StartupDiagnostics.due("y","x","x",now-1,now),"changed environment inspected immediately");
   check(StartupDiagnostics.due("x","","x",now+1,now),"wall clock reversal cannot prevent inspection");
+  check(!StartupDiagnostics.quiet(4999,0,0),"foreground needs five quiet seconds");
+  check(!StartupDiagnostics.quiet(10000,0,6000),"recent typing or touch defers optional checks");
+  check(StartupDiagnostics.quiet(11000,0,6000),"quiet interval admits checks");
+  check(!StartupDiagnostics.quiet(1000,2000,0),"monotonic reversal cannot admit checks");
   StartupMaintenanceProbe p=new StartupMaintenanceProbe(root);
+  p.quiet=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"foreground restore and user interaction outrank inspections");p.quiet=true;
+  UpdateProvider.file=new File(root,"cached-update.apk");Files.write(UpdateProvider.file.toPath(),new byte[]{1});
+  p.maintenanceGate.tryStart(OperationGate.APP_UPDATE);p.cleanupStaleUpdateApk();check(UpdateProvider.file.isFile(),"active update excludes deferred cache cleanup");p.maintenanceGate.finish(OperationGate.APP_UPDATE);
+  p.pauseDuringApkRead=true;p.cleanupStaleUpdateApk();check(UpdateProvider.file.isFile()&&p.maintenanceGate.active()==null,"backgrounding during APK parse preserves cache and releases gate");p.inForeground=true;p.pauseDuringApkRead=false;
+  p.replaceApk=true;p.cleanupStaleUpdateApk();check(UpdateProvider.file.length()==3,"changed cache cannot be deleted using an older parsed version");p.replaceApk=false;
+  p.cacheVersion="1.1.5";p.cleanupStaleUpdateApk();check(UpdateProvider.file.isFile(),"newer pending APK stays available");p.cacheVersion="1.1.3";
+  p.cleanupStaleUpdateApk();check(!UpdateProvider.file.exists()&&p.maintenanceGate.active()==null,"only unchanged stale APK is deleted after idle parse");
   p.splashHidden=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"no probe before first-frame handoff");
   p.splashHidden=true;p.inForeground=false;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"no probe while backgrounded");
   p.inForeground=true;p.state=SessionStatus.UNKNOWN;p.scheduleRuntimeChecks();check(p.queued.isEmpty(),"unknown task evidence protects chat");
@@ -122,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix='dsh-startup-maintenance-') as directory
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body)
     compiler = [shutil.which('javac')] if shutil.which('javac') else ['java', '-m', 'jdk.compiler/com.sun.tools.javac.Main']
-    dependencies = ['StartupCoordinator', 'StartupDiagnostics', 'OperationGate', 'RuntimeChecks', 'ProcessRunner', 'ToolEnvironment']
+    dependencies = ['StartupCoordinator', 'StartupDiagnostics', 'OperationGate', 'RuntimeChecks', 'ProcessRunner', 'Version', 'ToolEnvironment']
     subprocess.run([*compiler, '-encoding', 'UTF-8', '-d', str(root/'classes'), *map(str, root.rglob('*.java')),
                     *[str(SOURCE/(name+'.java')) for name in dependencies]], check=True)
     subprocess.run(['java', '-cp', str(root/'classes'), 'dev.dsh.nativeapp.StartupMaintenanceProbe', str(root), shutil.which('node')], check=True, timeout=35)

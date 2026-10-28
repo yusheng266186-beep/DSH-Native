@@ -279,6 +279,10 @@ public class MainActivity extends Activity {
                 // 捕获浏览器控制台，配合下面注入的 fetch 包装即可拿到完整错误。
                 String m = cm == null ? "" : cm.message();
                 if (m != null && m.length() > 0) {
+                    if (StartupDiagnostics.INTERACTION.equals(m)) {
+                        if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())) noteStartupInteraction();
+                        return true;
+                    }
                     if (m.startsWith(StartupState.PAINTED)) {
                         if (WebUrl.isCoreUrl(viewUrl(), savedDshPort())) onStartupPainted(m);
                         return true;
@@ -688,7 +692,6 @@ public class MainActivity extends Activity {
         pendingShareIntent = getIntent();
         resolveLaunchIntent(getIntent());
 
-        cleanupStaleUpdateApk();
         installCrashHandler();
         startUiWatchdog();
         showPreviousCrash();
@@ -999,13 +1002,16 @@ public class MainActivity extends Activity {
 
         startHarnessService();
 
+        File dshDir = new File(root, "dsh");
+        File toolsDir = new File(root, "tools");
+        File node = new File(root, "node");
+        if (PayloadRollback.interruptedMode(root) == null
+                && reuseManagedCore(root, dshDir, toolsDir, node)) return null;
+
         if (PayloadRollback.interruptedMode(root) == null && reuseOrStopPreviousAppCore()) return null;
 
         // Reopening the Activity must not traverse and rewrite the runtime before
         // checking a core which this exact version has already prepared.
-        File dshDir = new File(root, "dsh");
-        File toolsDir = new File(root, "tools");
-        File node = new File(root, "node");
         String interruptedPayload = PayloadRollback.interruptedMode(root);
         if ("update".equals(interruptedPayload) || "restore".equals(interruptedPayload)) {
             setSplashStatus("正在恢复中断前的运行环境…");
@@ -1131,6 +1137,7 @@ public class MainActivity extends Activity {
             // Preparation also completes when a compatible authenticated core already exists.
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString("corePreparedKey", preparedRuntimeKey(root)).apply();
+            HarnessService.rememberPrepared(coreRuntimeIdentity(), preparedRuntimeKey(root));
             chosenPort = live;
             log("复用已在运行的 DSH（端口 " + live + "），跳过启动，立即进入界面");
             setSplashStatus("正在连接已有服务…");
@@ -1194,6 +1201,7 @@ public class MainActivity extends Activity {
         if (url != null) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString("corePreparedKey", preparedRuntimeKey(root)).apply();
+            HarnessService.rememberPrepared(coreRuntimeIdentity(), preparedRuntimeKey(root));
             loadDshUi(url);
             return null;
         }
@@ -1217,7 +1225,7 @@ public class MainActivity extends Activity {
         return String.format(java.util.Locale.ROOT, "%.0f MiB", bytes / 1048576.0d);
     }
 
-    private boolean payloadCheckAfterStartup;
+    private volatile boolean payloadCheckAfterStartup;
     private boolean preparedCoreReused;
     private boolean preparedRuntimeValid;
 
@@ -1242,6 +1250,22 @@ public class MainActivity extends Activity {
 
     private boolean runtimeAssetsPresent(File root) throws IOException {
         return components().ready(root) && RuntimePreparation.toolsPresent(root);
+    }
+
+    /** A live process prepared by this Service already proved its runtime and authenticated URL.
+     * The page still has to establish its actual Connection and paint before handoff. */
+    private boolean reuseManagedCore(File root, File dshDir, File toolsDir, File node) throws Exception {
+        if (!HarnessService.isManagedProcessAlive() || payloadUpdatePending()) return false;
+        String url = HarnessService.preparedUrl(coreRuntimeIdentity(), preparedRuntimeKey(root));
+        if (url == null) return false;
+        chosenPort = new java.net.URL(url).getPort();
+        if (chosenPort <= 0) return false;
+        nodeRef = node; toolsDirRef = toolsDir; dshDirRef = dshDir;
+        preparedCoreReused = true; payloadCheckAfterStartup = true; runtimeDiagnosticsPending = true;
+        registerNetworkWatcher();
+        log("[启动] 复用 Service 已验证的存活内核，磁盘复核延后至首页空闲");
+        loadDshUi(url);
+        return true;
     }
 
     /** Replace an owned idle core only when component contents, payload or workspace changed. */
@@ -1270,17 +1294,18 @@ public class MainActivity extends Activity {
     private boolean reusePreparedCore(File root, File dshDir, File toolsDir, File node) {
         try {
             android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-            String assets = components().ready(root) ? components().identity : "";
+            String assets = runtimeAssetsPresent(root) ? components().identity : "";
             if (!StartupReuse.eligible(preparedRuntimeKey(root), prefs.getString("corePreparedKey", ""),
                     components().identity, assets, payloadLocallyComplete(dshDir, toolsDir),
                     payloadUpdatePending(), payloadRollbackHold()
                             || validatePayloadManifest(new File(root, "manifest.json")) == null)
-                    || !runtimeAssetsPresent(root) || !coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))) return false;
+                    || assets.isEmpty() || !coreRuntimeIdentity().equals(prefs.getString("coreRuntimeIdentity", ""))) return false;
             preparedRuntimeValid = true;
             runtimeDiagnosticsPending = true;
             int live = liveDshPort();
             if (live <= 0) return false;
-            nodeRef = node; toolsDirRef = toolsDir; chosenPort = live;
+            nodeRef = node; toolsDirRef = toolsDir; dshDirRef = dshDir; chosenPort = live;
+            HarnessService.rememberPrepared(coreRuntimeIdentity(), preparedRuntimeKey(root));
             registerNetworkWatcher();
             preparedCoreReused = true; payloadCheckAfterStartup = true;
             recordPatch("运行环境复用", true, "已完成本版准备；后台内核认证探测通过");
@@ -1294,37 +1319,103 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void finishStartupMaintenance() {
-        scheduleRuntimeChecks();
-        if (!payloadCheckAfterStartup || appRoot == null) return;
-        payloadCheckAfterStartup = false;
-        final File root = appRoot;
-        webView.postDelayed(new Runnable() {
+    private volatile long foregroundResumedAt = android.os.SystemClock.uptimeMillis();
+    private volatile long lastInteractionAt = foregroundResumedAt;
+    private boolean startupCleanupPending = true;
+    private boolean startupAppUpdatePending = true;
+    private volatile Thread startupMaintenanceWorker;
+    private final java.util.concurrent.atomic.AtomicBoolean startupMaintenanceQueued = new java.util.concurrent.atomic.AtomicBoolean();
+    private Runnable idleStartupMaintenance;
+
+    private boolean startupQuiet() {
+        return StartupDiagnostics.quiet(android.os.SystemClock.uptimeMillis(), foregroundResumedAt, lastInteractionAt);
+    }
+
+    private void queueIdleStartupMaintenance() {
+        final WebView view = webView;
+        if (view == null || !inForeground || activityDisposing || !splashHidden) return;
+        if (idleStartupMaintenance != null) view.removeCallbacks(idleStartupMaintenance);
+        idleStartupMaintenance = new Runnable() {
             @Override public void run() {
-                if (isFinishing() || isDestroyed()) return;
-                Thread worker = new Thread(new Runnable() {
-                    @Override public void run() {
-                        boolean locked = false;
-                        try {
-                            if (preparedCoreReused) {
-                                runtimeConfigLock.lockInterruptibly(); locked = true;
-                                if (isFinishing() || isDestroyed()) return;
-                                int repaired = RuntimePreparation.prepareTools(root, payloadRevisionKey());
-                                log("后台工具环境复核完成，修复 " + repaired + " 项");
-                            }
-                        } catch (Exception error) {
-                            log("后台工具环境复核未完成: " + error.getClass().getSimpleName());
-                        } finally {
-                            if (locked) runtimeConfigLock.unlock();
-                            activityWorkers.finished(Thread.currentThread());
-                        }
-                        if (!isFinishing() && !isDestroyed()) checkPayloadInBackground(
-                                new File(root, "node"), root, new File(root, "dsh"), new File(root, "tools"));
-                    }
-                }, "startup-maintenance");
-                worker.setDaemon(true); activityWorkers.start(worker);
+                idleStartupMaintenance = null;
+                if (view != webView || !inForeground || activityDisposing || !splashHidden) return;
+                if (!startupQuiet() || startupCoordinator.busy() || maintenanceGate.active() != null
+                        || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE) {
+                    queueIdleStartupMaintenance(); return;
+                }
+                finishStartupMaintenance();
             }
-        }, 1500L);
+        };
+        view.postDelayed(idleStartupMaintenance, StartupDiagnostics.QUIET_MS);
+    }
+
+    private void finishStartupMaintenance() {
+        if (!inForeground || activityDisposing || !startupQuiet() || !splashHidden
+                || startupCoordinator.busy() || maintenanceGate.active() != null
+                || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE) {
+            queueIdleStartupMaintenance(); return;
+        }
+        scheduleRuntimeChecks();
+        if (startupCleanupPending) {
+            startupCleanupPending = false;
+            startWorker(new Runnable() { @Override public void run() {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                cleanupStaleUpdateApk();
+            }}, "startup-apk-cleanup");
+        }
+        if (startupAppUpdatePending) {
+            startupAppUpdatePending = false;
+            startWorker(new Runnable() { @Override public void run() {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                if (inForeground && !activityDisposing && startupQuiet()) autoCheckUpdate();
+                else postUi(new Runnable() { @Override public void run() {
+                    startupAppUpdatePending = true; queueIdleStartupMaintenance();
+                }});
+            }}, "startup-app-update");
+        }
+        if (!payloadCheckAfterStartup || appRoot == null || !startupMaintenanceQueued.compareAndSet(false, true)) return;
+        final File root = appRoot;
+        final long generation = runtimeInspectionGeneration.get();
+        startWorker(new Runnable() {
+            @Override public void run() {
+                boolean locked = false;
+                startupMaintenanceWorker = Thread.currentThread();
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                    if (!inForeground || activityDisposing || !startupQuiet()
+                            || generation != runtimeInspectionGeneration.get()
+                            || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
+                            || !runtimeConfigLock.tryLock()) return;
+                    locked = true;
+                    if (generation != runtimeInspectionGeneration.get() || startupCoordinator.busy()) return;
+                    if (preparedCoreReused) {
+                        if (!components().ready(root) || !RuntimePreparation.toolsPresent(root)) {
+                            HarnessService.forgetPrepared();
+                            getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove("corePreparedKey").apply();
+                            log("Background component verification requires repair at next startup");
+                        }
+                    }
+                    if (Thread.currentThread().isInterrupted() || generation != runtimeInspectionGeneration.get()) return;
+                    payloadCheckAfterStartup = false;
+                } catch (Exception error) {
+                    if (generation == runtimeInspectionGeneration.get() && !Thread.currentThread().isInterrupted()) {
+                        HarnessService.forgetPrepared();
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove("corePreparedKey").apply();
+                        payloadCheckAfterStartup = false;
+                        log("Background startup verification needs repair: " + error.getClass().getSimpleName());
+                    }
+                } finally {
+                    if (locked) runtimeConfigLock.unlock();
+                    if (startupMaintenanceWorker == Thread.currentThread()) startupMaintenanceWorker = null;
+                    startupMaintenanceQueued.set(false);
+                    if (payloadCheckAfterStartup) postUi(new Runnable() {
+                        @Override public void run() { queueIdleStartupMaintenance(); }
+                    });
+                }
+                if (inForeground && !activityDisposing && generation == runtimeInspectionGeneration.get())
+                    checkPayloadInBackground(new File(root, "node"), root, new File(root, "dsh"), new File(root, "tools"));
+            }
+        }, "startup-maintenance");
     }
 
     private volatile boolean runtimeDiagnosticsPending;
@@ -1339,6 +1430,8 @@ public class MainActivity extends Activity {
         runtimeInspectionGeneration.incrementAndGet();
         Thread worker = runtimeInspectionWorker;
         if (worker != null) worker.interrupt();
+        Thread maintenance = startupMaintenanceWorker;
+        if (maintenance != null) maintenance.interrupt();
     }
     private final java.util.concurrent.atomic.AtomicBoolean runtimeDiagnosticsQueued = new java.util.concurrent.atomic.AtomicBoolean();
 
@@ -1351,7 +1444,7 @@ public class MainActivity extends Activity {
     /** A slow or failed optional capability check never blocks the core or the loading overlay. */
     private void scheduleRuntimeChecks() {
         final long generation = runtimeInspectionGeneration.get();
-        if (!runtimeDiagnosticsPending || !splashHidden || !inForeground || activityDisposing || appRoot == null
+        if (!startupQuiet() || !runtimeDiagnosticsPending || !splashHidden || !inForeground || activityDisposing || appRoot == null
                 || startupCoordinator.busy() || maintenanceGate.active() != null
                 || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE
                 || !runtimeDiagnosticsQueued.compareAndSet(false, true)) return;
@@ -1363,7 +1456,7 @@ public class MainActivity extends Activity {
                     android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
                     if (!runtimeConfigLock.tryLock()) return;
                     locked = true;
-                    if (activityDisposing || !inForeground || !splashHidden || !runtimeDiagnosticsPending
+                    if (!startupQuiet() || activityDisposing || !inForeground || !splashHidden || !runtimeDiagnosticsPending
                             || generation != runtimeInspectionGeneration.get() || startupCoordinator.busy()
                             || maintenanceGate.active() != null || Thread.currentThread().isInterrupted()
                             || deriveStatus(System.currentTimeMillis()) != SessionStatus.IDLE) return;
@@ -1386,6 +1479,11 @@ public class MainActivity extends Activity {
                     log("[dsh-perf] startup-inspection elapsed=" + (android.os.SystemClock.elapsedRealtime() - started)
                             + "ms, passed=" + passed + ", after-handoff=true");
                 } catch (Exception unavailable) {
+                    if (Thread.currentThread().isInterrupted() || generation != runtimeInspectionGeneration.get()) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                                .remove("preflightAttemptKey").remove("preflightAttemptAt").apply();
+                        return;
+                    }
                     runtimeDiagnosticsPending = false;
                     log("后台工具能力检查未完成: " + unavailable.getClass().getSimpleName());
                 } finally {
@@ -3656,7 +3754,7 @@ public class MainActivity extends Activity {
     /** 监听页面可见的恢复错误，处理没有走 fetch 或控制台的页面失败。 */
     private void installSessionRecoveryWatcher() {
         try {
-            webView.evaluateJavascript(SessionRecovery.domWatcherScript(), null);
+            webView.evaluateJavascript(SessionRecovery.domWatcherScript() + StartupDiagnostics.interactionScript(), null);
         } catch (Throwable t) {
             log("警告: 注入会话恢复监听失败: " + t);
         }
@@ -4230,10 +4328,15 @@ public class MainActivity extends Activity {
      * 保留「比当前新但还没装」的那一份 —— 用户取消安装后可以再次直接安装。
      */
     private void cleanupStaleUpdateApk() {
+        final String operation = "APK cache cleanup";
+        if (activityDisposing || !inForeground || !startupQuiet() || !maintenanceGate.tryStart(operation)) return;
         try {
             File apk = UpdateProvider.apkFile(this);
             if (!apk.exists()) return;
+            long length = apk.length(), modified = apk.lastModified();
             String v = apkVersionOf(apk);
+            if (activityDisposing || !inForeground || !startupQuiet()
+                    || apk.length() != length || apk.lastModified() != modified) return;
             if (v != null && isNewer(v, appVersion())) {
                 log("本地缓存有未安装的更新包: " + v + "（" + (apk.length() / 1048576) + " MB）");
                 return;
@@ -4241,7 +4344,9 @@ public class MainActivity extends Activity {
             apk.delete();
             log("已清理过期更新包（" + (v == null ? "无法解析" : v)
                     + "，当前 " + appVersion() + "）");
-        } catch (Throwable ignored) { }
+        } catch (Throwable error) {
+            log("Cached APK cleanup deferred: " + error.getClass().getSimpleName());
+        } finally { maintenanceGate.finish(operation); }
     }
 
     /** 启动后的静默检查：只记日志；有新版本时提示一次，不打断使用。 */
@@ -4593,39 +4698,36 @@ public class MainActivity extends Activity {
 
         // 第二遍：先把所有需要的分片下载并校验完，再改动运行目录。
         // 这样任一网络或摘要错误都不会留下半更新环境。
-        long bytes = 0;
-        java.util.LinkedHashMap<String, File> archives =
-                new java.util.LinkedHashMap<String, File>();
+        final long bytes = compressedBytes;
+        java.util.List<PayloadDownloads.Part> plan = new java.util.ArrayList<PayloadDownloads.Part>();
         for (int i = 0; i < parts.length(); i++) {
             org.json.JSONObject part = parts.getJSONObject(i);
-            String name = part.getString("name");
-            if (!missing.contains(name)) continue;
-
-            String expected = part.getString("sha256");
-            File archive = new File(root, name);
-            long expectedSize = part.getLong("size");
-            boolean reusable = archive.isFile() && archive.length() == expectedSize
-                    && expected.equalsIgnoreCase(sha256(archive));
-            if (reusable) {
-                log("  复用已下载并验证的分片 " + name);
-            } else {
-                if (archive.exists() && !archive.delete()) {
-                    throw new IOException("无法清理损坏的下载文件: " + name);
-                }
-                download(name, archive);
-            }
-            String actual = sha256(archive);
-            long actualSize = archive.length();
-            if (actualSize != expectedSize || !expected.equalsIgnoreCase(actual)) {
-                archive.delete();
-                throw new IOException("运行包校验失败: " + name
-                        + "\n  期望大小 " + expectedSize + "，实际 " + actualSize
-                        + "\n  期望 " + expected + "\n  实际 " + actual);
-            }
-            bytes += archive.length();
-            archives.put(name, archive);
-            log("  " + name + " 校验通过");
+            if (missing.contains(part.getString("name"))) plan.add(new PayloadDownloads.Part(
+                    part.getString("name"), part.getLong("size"), part.getString("sha256")));
         }
+        final int[] lastPercent = {-1};
+        final Runnable reportProgress = startupCoordinator.task(new Runnable() {
+            @Override public void run() {
+                setSplashStatus(UiText.t("正在下载并校验运行包 ", "Downloading and verifying runtime ") + lastPercent[0] + "%");
+            }
+        });
+        PayloadDownloads staging = new PayloadDownloads(plan, new PayloadDownloads.Progress() {
+            @Override public void changed(long done, long total) {
+                int percent = total > 0 ? (int) (done * 100 / total) : 100;
+                if (percent == lastPercent[0]) return;
+                lastPercent[0] = percent;
+                reportProgress.run();
+            }
+        });
+        java.util.LinkedHashMap<String, File> archives;
+        payloadDownloads = staging;
+        try {
+            archives = staging.stage(root, new PayloadDownloads.Fetcher() {
+                @Override public void fetch(String name, File out, ReleaseDownloader.Control control) throws IOException {
+                    downloadPath(ASSET_PATH, name, out, control, true);
+                }
+            });
+        } finally { payloadDownloads = null; }
 
         // 第三遍：所有输入都可信之后，先保存上一套可运行环境，再开始修改。
         // 任何解压或删除失败都会自动恢复；首次安装没有旧环境，因此不创建快照。
@@ -6311,6 +6413,7 @@ public class MainActivity extends Activity {
         return DshUi.startup(this, new Runnable() {
             @Override public void run() {
                 splashHidden = true;
+                foregroundResumedAt = android.os.SystemClock.uptimeMillis();
                 startupTiming.mark("handoff", android.os.SystemClock.elapsedRealtime());
                 cancelStartupTimeout();
                 log("[启动] 交接完成 " + (android.os.SystemClock.elapsedRealtime() - launchStartedAt) + "ms");
@@ -6344,17 +6447,7 @@ public class MainActivity extends Activity {
         }
         // 启动后静默检查一次更新：用户不必手动点，
         // 日志里也总能留下一条可核对的结果。
-        Thread worker = new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    Thread.sleep(3000L);
-                    if (!isFinishing() && !isDestroyed()) autoCheckUpdate();
-                } catch (InterruptedException cancelled) {
-                    Thread.currentThread().interrupt();
-                } finally { activityWorkers.finished(Thread.currentThread()); }
-            }
-        }, "startup-app-update");
-        worker.setDaemon(true); activityWorkers.start(worker);
+        queueIdleStartupMaintenance();
     }
 
     /** Wait for both rendered shell and the core's connection handshake. */
@@ -6635,11 +6728,18 @@ public class MainActivity extends Activity {
         downloadPath(basePath, assetName, out, new ReleaseDownloader.Control(), true);
     }
 
+    private volatile PayloadDownloads payloadDownloads;
     private ReleaseDownloader releaseDownloader;
     private synchronized ReleaseDownloader transfers() {
         if (releaseDownloader == null) releaseDownloader = new ReleaseDownloader(SOURCES, new ReleaseDownloader.Host() {
             @Override public void log(String message) { MainActivity.this.log(message); }
-            @Override public void status(String message) { setSplashStatus(message); }
+            @Override public void status(String message) {
+                if (payloadDownloads == null) setSplashStatus(message);
+            }
+            @Override public void progress(String asset, long done, long total) {
+                PayloadDownloads staging = payloadDownloads;
+                if (staging != null) staging.progress(asset, done);
+            }
         });
         return releaseDownloader;
     }
@@ -6850,7 +6950,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.1.3");
+        log("APK 版本: 1.1.4");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
@@ -6956,21 +7056,36 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inForeground = true;
-        scheduleRuntimeChecks();
+        foregroundResumedAt = android.os.SystemClock.uptimeMillis();
+        // Restore the retained page before optional background work is admitted.
+        try {
+            if (browserSession != null) browserSession.resume();
+        } catch (Throwable error) { log("Foreground page resume failed: " + error.getClass().getSimpleName()); }
+        queueIdleStartupMaintenance();
         if (splashView != null) splashView.resume();
         if (!splashHidden && WebUrl.isCoreUrl(viewUrl(), savedDshPort())) armStartupTimeout();
         NativeBridge.attach(this);
         if (nativeVoice != null) nativeVoice.resume();
         publishAppSettingsState();
         if (connectionLostAt > 0L && ConnectionRecovery.isProblem(connectionState)) scheduleReloadIfStuck();
-        try {
-            if (browserSession != null) browserSession.resume();
-        } catch (Throwable error) { log("前台连接复核失败: " + error.getClass().getSimpleName()); }
+    }
+
+    @Override public void onUserInteraction() {
+        super.onUserInteraction();
+        noteStartupInteraction();
+    }
+
+    private void noteStartupInteraction() {
+        lastInteractionAt = android.os.SystemClock.uptimeMillis();
+        interruptRuntimeInspection();
+        queueIdleStartupMaintenance();
     }
 
     @Override
     protected void onPause() {
         inForeground = false;
+        if (webView != null && idleStartupMaintenance != null) webView.removeCallbacks(idleStartupMaintenance);
+        idleStartupMaintenance = null;
         interruptRuntimeInspection();
         cancelStartupTimeout();
         if (splashView != null) {
@@ -7436,6 +7551,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         activityDisposing = true;
+        if (webView != null && idleStartupMaintenance != null) webView.removeCallbacks(idleStartupMaintenance);
+        idleStartupMaintenance = null;
         startupCoordinator.close();
         cancelRuntimeInspection();
         if (releaseDownloader != null) releaseDownloader.close();

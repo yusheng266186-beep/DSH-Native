@@ -44,6 +44,7 @@ fi
 SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/AppLog.java
      $JAVA_DIR/ReleaseDownloader.java
+     $JAVA_DIR/PayloadDownloads.java
      $JAVA_DIR/RuntimeChecks.java
      $JAVA_DIR/AssetInstaller.java
      $JAVA_DIR/StartupDiagnostics.java
@@ -127,7 +128,8 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/CrashReporter.java
      $JAVA_DIR/WorkerRegistry.java
      $JAVA_DIR/ProviderRoute.java"
-TESTS="tests/ReleaseDownloaderTest.java
+TESTS="tests/PayloadDownloadsTest.java
+       tests/ReleaseDownloaderTest.java
        tests/AppArchitectureTest.java
        tests/StartupStateTest.java
        tests/FileListingTest.java
@@ -215,7 +217,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
@@ -238,6 +240,12 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  [FAIL] 找不到 node，无法验证 WebUI 工具入口脚本" >&2
     rc=1
 else
+    INPUT_JS="$OUT/startup-input.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.SessionRecoveryTest --dump-input > "$INPUT_JS"
+    if ! node tests/js/startup-interaction-simulation.js "$INPUT_JS"; then rc=1; fi
+    RECOVERY_JS="$OUT/session-recovery.js"
+    java -Dfile.encoding=UTF-8 -cp "$OUT" dev.dsh.nativeapp.SessionRecoveryTest --dump-script > "$RECOVERY_JS"
+    if ! node tests/js/session-recovery-simulation.js "$RECOVERY_JS"; then rc=1; fi
     WEB_TOOLS_JS="$OUT/web-tools-entry.js"
     java -Dfile.encoding=UTF-8 -cp "$OUT" \
         dev.dsh.nativeapp.WebToolsEntryTest --dump-script > "$WEB_TOOLS_JS"

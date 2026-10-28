@@ -141,6 +141,16 @@ public class HarnessService extends Service {
         return PROCESS.isAlive() ? managedUrl : null;
     }
 
+    static synchronized void rememberPrepared(String identity, String key) {
+        if (managedUrl != null) PROCESS.prepared(PROCESS.current(), identity, key);
+    }
+
+    static synchronized String preparedUrl(String identity, String key) {
+        return PROCESS.prepared(identity, key) ? managedUrl : null;
+    }
+
+    static void forgetPrepared() { PROCESS.forgetPrepared(); }
+
     private static synchronized void publishManagedUrl(Process source, String url) {
         if (PROCESS.current() == source) managedUrl = url;
     }
