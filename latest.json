@@ -1,11 +1,11 @@
 {
-  "version": "1.1.4",
-  "tag": "v1.1.4-bootstrap",
+  "version": "1.1.5",
+  "tag": "v1.1.5-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v14",
-  "notes": "DSH Native 1.1.4",
-  "apk_bytes": 43459965,
+  "notes": "DSH Native 1.1.5",
+  "apk_bytes": 43459441,
   "payload_bytes": 150659818,
-  "sha256": "b89bcfe13c45cc77eee44ba987713457e7a56f0f98068a316c65f8176f4d895c",
+  "sha256": "81de3a148166afb0c002770602b12413ada0e292453ee7b3f0b0b98b709a9d9d",
   "channel": "stable"
 }
