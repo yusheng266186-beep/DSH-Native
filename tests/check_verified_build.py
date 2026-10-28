@@ -7,6 +7,8 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+if not (ROOT/'scripts/verified_build.py').is_file():
+    ROOT = ROOT/'bootstrap'
 spec = importlib.util.spec_from_file_location('verified_build', ROOT/'scripts/verified_build.py')
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
