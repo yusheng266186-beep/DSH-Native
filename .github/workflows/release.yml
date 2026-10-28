@@ -1,10 +1,5 @@
-# 发版：升版本号 → 构建 → 上传 Release → 验证两条下载路径 → 更新清单 → 提交。
-#
-# 为什么要在 CI 里发版：
-#   APK 只能在 CI 上构建（本机没有 JDK/aapt2/d8/apksigner），
-#   而 release.sh 需要那个 APK 文件。若在工作机发版，就必须把 34MB
-#   产物下载回手机 —— 而 CI 自己就有 gh、有 token、有构建产物，
-#   这一步纯属多余。现在整条链路都在 CI 上闭环，工作机只需看 SHA。
+# 发版优先复用同源码树已通过完整 CI 的签名 APK，无匹配产物才完整重建。
+# 原签名、安装器、资产和两条下载路径校验通过后，才更新清单并提交。
 #
 # 注意：GitHub 用 GITHUB_TOKEN 推送的提交**不会**再触发其它工作流，
 #       所以这次提交里的版本号变更不会引起重复构建（另加了 [skip ci] 兜底）。
@@ -37,9 +32,18 @@ on:
         description: '签名比对参考 tag（可选；默认取最新发布版）'
         required: false
         default: ''
+      build_run_id:
+        description: '已通过完整构建的 Actions run ID；精确复用该 APK（留空自动查找，无匹配则完整构建）'
+        required: false
+        default: ''
 
 permissions:
   contents: write
+  actions: read
+
+concurrency:
+  group: dsh-release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -58,10 +62,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: 取得同一份源码的完整 CI 安装包
+        id: verified
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          ARGS=()
+          if [ -n "$BUILD_RUN_ID" ]; then ARGS+=(--run-id "$BUILD_RUN_ID"); fi
+          python3 scripts/verified_build.py reuse "$RUNNER_TEMP/dsh-build/bootstrap" \
+            --version "$RELEASE_VERSION" "${ARGS[@]}"
+
       - name: 安装 Node 24
+        if: steps.verified.outputs.reused != 'true'
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            runtime/codebuddy/package-lock.json
+            tests/js/package-lock.json
 
       - name: 核对签名密钥与已发布版本一致
         if: ${{ !inputs.dry_run }}
@@ -82,6 +102,7 @@ jobs:
           echo "[OK] 与 $REF 的签名一致 —— 用它签出的包可以覆盖安装"
 
       - name: 升版本号
+        if: steps.verified.outputs.reused != 'true'
         run: |
           set -euo pipefail
           bash scripts/bump_version.sh "${{ inputs.version }}"
@@ -89,14 +110,30 @@ jobs:
 
       - name: 同步并检查文档（保持已发布清单）
         run: |
-          python3 scripts/sync_project_metadata.py --docs-only
+          if [ "${{ steps.verified.outputs.reused }}" != true ]; then
+            python3 scripts/sync_project_metadata.py --docs-only
+          fi
           python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 
       - name: 构建
+        if: steps.verified.outputs.reused != 'true'
         run: bash scripts/ci_build.sh "$RUNNER_TEMP/dsh-build"
 
       - name: 使用真实运行包验证模型目录、视觉能力和触屏布局
+        if: steps.verified.outputs.reused != 'true'
         run: bash scripts/check_model_consumer.sh
+
+      - name: 复核待发布 APK 的原签名与组成
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "${ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)"
+          APK="$RUNNER_TEMP/dsh-build/bootstrap/DSHNative-bootstrap.apk"
+          APKSIGNER_JAR="$BT/lib/apksigner.jar" bash scripts/check_signer.sh "$APK"
+          BADGING="$("$BT/aapt2" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | grep -F "package: name='dev.dsh.native'" | grep -F "versionName='$RELEASE_VERSION'"
+          python3 tests/check_apk_components.py "$APK"
 
       - name: 准备发布说明
         run: |

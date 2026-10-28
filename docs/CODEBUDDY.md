@@ -1,7 +1,7 @@
 # CodeBuddy CLI 接入
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.5**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.40.0 在 APK 内置官方 `@tencent-ai/agent-sdk` 0.3.291 和它随附的 CodeBuddy CLI 2.176.0。手机直接运行，无需电脑或另外安装 Termux。现有 `CODEBUDDY_API_KEY` 继续从 DSH 凭据解析，不需要重新导入。
@@ -60,6 +60,10 @@ CommandCode 面板、默认配置和旧凭据引用已移除。启动迁移仅�
 `codebuddy-conversation-consumer.mjs` 使用未修改的固定官方 SDK、本机合成服务、真实 DSH ToolRuntime 与 LocalFileSystem，完成写文件、读回、后续回复、60 条历史、取消后重发、压缩附加指令和 PNG 输入传输。它证明传输及工具消费，不证明服务商全模型授权、视觉回答或摘要质量。SDK 自身的重试规则未改写；生命周期恢复和取消不会由适配层重发用户聊天。
 
 ## 性能记录与缓存
+
+1.1.6 修正 DeepSeek V4.1 Flash 的上下文选择。固定 CLI 2.176.0 的公开模型资料声明支持 300,000 与 1,000,000，默认是 300,000；App 为该模型通过公共 `--settings` 传入 `contextWindow: 1000000`，普通对话、工具后续、辅助调用及新预热会话均使用该选择。DSH 目录、原生与网页离线资料同步为 1M。启动迁移仅将官方 CodeBuddy 路由中该模型缺省/300K 的活动配置提升至 1M，不改其他模型、自定义服务地址、历史或显式自定义容量。其他模型继续使用自己的上限。见 [官方配置参数](https://www.codebuddy.cn/docs/cli/cli-reference) 和 [上下文档位语义](https://www.codebuddy.cn/docs/cli/acp)。
+
+自动验收读取 APK 固定的原样 CLI 资料，并通过生产适配器向本机合成服务完整发送 350,000 个重复单词的输入，确认没有先发压缩请求；该用例证明传输，不是付费服务端实际 1M 满窗能力、摘要质量或手机内存测速。
 
 普通对话结束写入 `[dsh-perf] codebuddy`，仅包含 setup/submitted/first/total 毫秒、是否领取预热与固定结果类型。first 是首段实际文本/思考或完整工具请求，不是单纯 socket 打开；所有时间从本次适配调用开始累计。连接检查/标题/压缩等辅助任务不输出该行，避免破坏检查协议。数据不含提示词、密钥、模型名或工具参数。
 

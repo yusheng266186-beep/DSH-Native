@@ -51,6 +51,10 @@ try{
  const sent=JSON.stringify(requests.at(-1).messages);
  check(context.messages.slice(0,60).every((_,index)=>sent.includes('VISIBLE-HISTORY-'+index)),'long conversation retains all visible turns');
  check(sent.includes('synthetic-write')&&sent.includes('synthetic-read')&&sent.includes('Synthetic round trip'),'both actual DSH tool results return through the official SDK');
+ const beforeLong=requests.length,longText=' context'.repeat(350000)+' END-OF-LARGE-CONTEXT';
+ out=await consume({}, {messages:[{role:'user',content:[{type:'text',text:longText}]}],tools:[]});
+ check(out.at(-1)?.reason.kind==='stop','the actual unmodified CLI accepts the large context through the production 1M route');
+ check(requests.length===beforeLong+1&&JSON.stringify(requests.at(-1).messages).includes(longText),'large input reaches the synthetic provider in full, without a preliminary compaction request');
  mode='cancel';const abort=new AbortController(),before=requests.length,pending=consume({signal:abort.signal});
  for(let n=0;n<1000&&requests.length===before;n++)await new Promise(resolve=>setTimeout(resolve,10));
  check(requests.length===before+1,'cancel test reaches the local provider exactly once');

@@ -61,6 +61,9 @@ if (reasoningSnapshot) {
     provider: 'codebuddy', model: 'gpt-6-astra', reasoningEffort: 'high',
   });
   assert.deepEqual(catalog.failures, []);
+  const deepseek = catalog.groups.find(group => group.id === 'codebuddy').models.find(model => model.id === 'deepseek-v4.1-flash');
+  assert(deepseek, 'the actual Host still offers the upgraded DeepSeek model');
+  assert.equal((await registry.resolveModelInfo('codebuddy','deepseek-v4.1-flash')).context.contextWindow, 1000000, 'the actual LLM resolves the same 1M budget');
   for (const group of catalog.groups) for (const model of group.models) {
     assert(model.reasoning.efforts.some(e => e.id === 'max'), `${group.id}/${model.id}: Host must offer max`);
     assert.equal((await registry.resolveCallConfig({ provider: group.id, model: model.id,

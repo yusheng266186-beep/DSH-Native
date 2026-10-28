@@ -52,6 +52,12 @@ function waitFor(promise,signal){
   Promise.resolve(promise).then(value=>finish(resolve,value),error=>finish(reject,error));
  });
 }
+function contextSettings(model){
+ // The pinned official CLI declares both 300K (default) and 1M for this model.
+ // Seed the session through the public --settings option before its first turn;
+ // changing only DSH's catalog leaves the CLI's own compaction budget at 300K.
+ return model==='deepseek-v4.1-flash'?{settings:JSON.stringify({contextWindow:1000000})}:undefined;
+}
 async function* sessionQuery(sdk,args){
  const {abortController,...settings}=args.options;
  const signature=crypto.createHash('sha256').update(JSON.stringify({...settings,mcpServers:undefined,hostTools:args.hostTools})).digest('hex');
@@ -183,7 +189,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
    // CodeBuddy CLI owns the agent persona. DSH's assembled model persona is
    // not used as a replacement CLI system prompt. Auxiliary tasks retain their instructions.
    systemPrompt:options.purpose&&context.systemPrompt?{append:context.systemPrompt}:undefined,
-   tools:[],mcpServers:server?{dsh:{type:'sdk',name:'dsh',instance:server}}:{},maxTurns:1,persistSession:false,settingSources:[],strictMcpConfig:true,includePartialMessages:true,abortController:controller,
+   tools:[],mcpServers:server?{dsh:{type:'sdk',name:'dsh',instance:server}}:{},maxTurns:1,persistSession:false,settingSources:[],extraArgs:contextSettings(options.model),strictMcpConfig:true,includePartialMessages:true,abortController:controller,
    executable:process.execPath,cwd:process.cwd(),environment:'internal',env:{HOME:home,NODE_COMPILE_CACHE:path.join(home,'compile-cache'),CODEBUDDY_API_KEY:apiKey,CODEBUDDY_AUTH_TOKEN:undefined,CODEBUDDY_BASE_URL:undefined,CODEBUDDY_CUSTOM_HEADERS:undefined,CODEBUDDY_INTERNET_ENVIRONMENT:'internal'},stderr:()=>{}}});
   for await(const message of query){
    reset();
@@ -238,7 +244,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   if(!cacheMaintenance){cacheMaintenance=pruneCompileCache(root).catch(()=>{});}
  }
 }
-module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm,pruneCompileCache};
+module.exports={prepare,requestPrompt,failure,stream,sessionQuery,clearWarm,pruneCompileCache,contextSettings};
 if(require.main===module){
  if(process.argv[2]==='--prepare')prepare().then(()=>console.log('CodeBuddy CLI verified and prepared.')).catch(()=>{console.error('CodeBuddy CLI preparation failed.');process.exitCode=1;});
  else if(process.argv[2]==='--check'){

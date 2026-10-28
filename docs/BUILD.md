@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.5**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -113,8 +113,11 @@ bash scripts/check_signer.sh /path/to/known-good.apk
 | `notes_file` | 本版说明，默认从 release-notes 读取 |
 | `dry_run` | 可选构建与权限演练，不上传、不改正式清单 |
 | `signer_ref` | 可选已确认可覆盖安装的 bootstrap 标签；默认自动筛选 |
+| `build_run_id` | 完整 CI 的 Actions run ID；建议显式传入。目标版本须已提交并通过该 CI |
 
-发布步骤：既有签名比对 → 版本同步 → 完整构建 → 真实 payload 消费验证 → 资产上传 → 资产与两条下载路径核验 → 更新相应清单 → 同步文档 → 回提交 main。
+先在 PR 中递增版本、同步文档并跑完整 CI。完整 CI 在签名和真实 payload 回归全部通过后，随 APK 保存 `verified-build.json`。合并主分支与发版通过 `verified_build.py` 核对同仓库成功运行、完整源码 Git tree、目标版本、checkout commit、运行次数、APK 大小与 SHA-256，复用原签名 APK。squash 后 commit ID 可以不同，但整个 tree 必须完全相同。主分支直接改动、产物过期或没有匹配产物时回退完整构建；显式指定无效 run ID 则报错，避免发错包。
+
+发布仍核对既有签名、生产安装器消费 APK、Release 资产和两条下载路径；全部成功后才更新清单、同步文档并回提交 main。发版串行，避免两个版本争抢清单；npm 下载按锁文件缓存。这省去同一源码在 PR、main 和 release 三轮重复构建，不减少第一轮完整回归。
 
 | 通道 | 标签 | 清单 |
 |---|---|---|

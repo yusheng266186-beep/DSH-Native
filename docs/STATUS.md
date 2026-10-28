@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.5**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,13 +16,19 @@
 | 稳定运行包 | `payload-v14` · 压缩总量 143.7 MiB |
 | APK SHA-256 | `81de3a148166afb0c002770602b12413ada0e292453ee7b3f0b0b98b709a9d9d` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `1.1.5` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `1.1.6` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v14` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
 <!-- dsh-release-facts:end -->
 
 源码高于 stable 时表示下一版正在准备。README 顶部下载始终指向已发布正式版；每轮用户修改完成后按约定递增版本，通过完整 Android CI，再走正式发布流程。
+
+## 1.1.6 上下文与发布流程
+
+CodeBuddy DeepSeek V4.1 Flash 从 300K 默认档位切换为已声明的 1M，目录预算、官方 CLI 启动配置、活动用户配置迁移及预热隔离同步。固定 SDK 对本机合成服务的大输入传输、真实 DSH 工具链、取消与辅助压缩调用完成验证；不据此承诺手机或付费服务端满窗表现。
+
+完整 CI 在产物中记录源码树、版本和 APK 摘要，main 与 release 复用完全相同的已验证签名包；不匹配时完整构建，显式指定错误运行则拒绝发布。完整 Android CI、真实安装器及下载验证仍是交付要求，事实以上方生成表及 Actions 为准。
 
 ## 1.1.5 一体化鲸鱼与提前首屏检测
 

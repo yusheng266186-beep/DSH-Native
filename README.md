@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.5**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.5**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -243,6 +243,8 @@ python3 scripts/sync_project_metadata.py --docs-only --check
 ```
 
 `release.yml` / `release.sh` 在确认资产和下载路径后生成清单，再同步中英文下载信息、全部文档状态与当前状态表。阶段记录保留历史内容；生成区禁止手工修改。源码可以领先已发布版本，但文档必须如实显示两者。
+
+1.1.6 起，CodeBuddy 的 DeepSeek V4.1 Flash 默认选择 1M 上下文，同时更新 DSH 与官方 CLI 的预算。发版复用相同源码已通过完整 CI 的签名安装包，详见 [构建与发布](docs/BUILD.md)。
 
 ## 仓库导航
 
