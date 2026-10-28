@@ -1,7 +1,7 @@
 # CodeBuddy CLI 接入
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.3**；源码：**1.1.4**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.4**；源码：**1.1.4**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.40.0 在 APK 内置官方 `@tencent-ai/agent-sdk` 0.3.291 和它随附的 CodeBuddy CLI 2.176.0。手机直接运行，无需电脑或另外安装 Termux。现有 `CODEBUDDY_API_KEY` 继续从 DSH 凭据解析，不需要重新导入。
