@@ -1,11 +1,11 @@
 {
-  "version": "1.2.1",
-  "tag": "v1.2.1-bootstrap",
+  "version": "1.3.0",
+  "tag": "v1.3.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
   "payload": "payload-v15",
-  "notes": "1.2.1：修复运行包清单超时与原地升级",
-  "apk_bytes": 43492385,
+  "notes": "1.3.0 手机操控",
+  "apk_bytes": 43509088,
   "payload_bytes": 148657513,
-  "sha256": "c7760a972f3809619b689114106b59757363c27dfc0168c46f83a23531dcbbea",
+  "sha256": "4f2875464aa9244886ff584f73b3cff4aabd3246253fd4794b9c3e85ac5eb9fd",
   "channel": "stable"
 }
