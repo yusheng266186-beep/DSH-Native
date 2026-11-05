@@ -51,9 +51,30 @@ public class NativeBridgeTest {
             if ("url.open".equals(method)) command.put("url", "https://example.com/a?q=one%20two");
             if ("app.open".equals(method)) command.put("package", "com.example.app");
             if ("notification.post".equals(method)) { command.put("title", "title"); command.put("text", "body"); }
+            if ("phone.launch".equals(method)) command.put("package", "com.example.app");
+            if (Arrays.asList("phone.tap", "phone.long_press", "phone.input", "phone.scroll", "phone.swipe").contains(method)) {
+                command.put("snapshot", "0011223344556677");
+                if ("phone.swipe".equals(method)) {
+                    command.put("x", 100); command.put("y", 200);
+                    command.put("endX", 100); command.put("endY", 300);
+                } else command.put("node", "n2");
+                if ("phone.input".equals(method)) command.put("text", "测试");
+                if ("phone.scroll".equals(method)) command.put("direction", "forward");
+            }
             check(method.equals(NativeBridgePolicy.request(NativeBridgePolicy.json(command)).get("method")), method);
         }
         StringBuilder longText = new StringBuilder(); for (int i=0;i<16001;i++) longText.append('x');
+        invalid("{\"method\":\"phone.start\"}");
+        invalid("{\"method\":\"phone.tap\",\"x\":2,\"y\":3}");
+        invalid("{\"method\":\"phone.tap\",\"snapshot\":\"0011223344556677\",\"node\":\"n2\",\"x\":2,\"y\":3}");
+        invalid("{\"method\":\"phone.tap\",\"snapshot\":\"0011223344556677\",\"x\":2.5,\"y\":3}");
+        invalid("{\"method\":\"phone.swipe\",\"snapshot\":\"0011223344556677\",\"x\":0,\"y\":0,\"endX\":0,\"endY\":2,\"durationMs\":8000}");
+        invalid("{\"method\":\"phone.input\",\"snapshot\":\"0011223344556677\",\"x\":2,\"y\":3,\"text\":\"abc\"}");
+        invalid("{\"method\":\"phone.scroll\",\"snapshot\":\"0011223344556677\",\"node\":\"n2\",\"direction\":\"left\"}");
+        check(PhoneControlPolicy.systemPackage("com.android.settings"), "system settings excluded");
+        check(PhoneControlPolicy.protectedTarget(true, ""), "password node blocked");
+        check(PhoneControlPolicy.protectedTarget(false, "确认支付"), "known payment action blocked");
+        check(!PhoneControlPolicy.protectedTarget(false, "Search"), "ordinary controls remain available");
         invalid(NativeBridgePolicy.json(NativeBridgePolicy.object("method", "clipboard.set", "text", longText.toString())));
         String escaped = "\"\\\n\r\t\0中文";
         check(escaped.equals(JsonValue.parse(NativeBridgePolicy.json(escaped))), "JSON escaping");

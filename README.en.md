@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.2.1**; source: **1.2.1**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.2.1**; source: **1.3.0**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -11,6 +11,8 @@
 DSH Native packages Android-native Node.js, DeepSeek Harness (DSH), and development tools into an Android application. Chat, run agents, edit files, and manage tasks in local projects without installing Termux or proot or setting up a remote execution server.
 
 Model inference uses your selected provider's API. Project storage and tool execution are local; messages, attachments, and tool results are transmitted according to DSH and the provider's request behavior. This is an independent Android adaptation project.
+
+1.3.0 adds opt-in Accessibility phone control. Ask DSH to read the screen, tap, type or swipe. Floating controls pause or stop the session. See the [phone control guide](docs/ANDROID_BRIDGE.md#手机操控) (Chinese).
 
 1.2.1 fixes the runtime update failure reported on 1.2.0. The APK includes its pinned manifest, obsolete files are removed before extraction, and the old prepared runtime keeps its own compatibility contract. Install over the existing app and restart; DSH 0.2.2-rc.1 and the official mobile layout are retained. See [release notes](release-notes/v1.2.1.md) (Chinese).
 

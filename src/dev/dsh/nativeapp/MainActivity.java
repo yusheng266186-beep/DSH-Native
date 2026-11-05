@@ -5737,6 +5737,13 @@ public class MainActivity extends Activity {
         body.addView(DshUi.title(this,
                 UiText.t("数据与扩展", "Data & extensions")));
 
+        android.widget.Button phone = DshUi.button(this, UiText.t("手机操控", "Phone control"), false);
+        phone.setOnClickListener(v -> {
+            if (parentPanel[0] != null) parentPanel[0].dismiss();
+            PhoneControlPanel.show(MainActivity.this, () -> showDataSettings());
+        });
+        body.addView(phone, DshUi.fullWidth(this, 12));
+
         body.addView(DshUi.sectionLabel(this,
                 UiText.t("项目与工作区", "Projects & workspace")), DshUi.fullWidth(this, 12));
         body.addView(DshUi.hint(this, UiText.t(
@@ -6971,7 +6978,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.2.1");
+        log("APK 版本: 1.3.0");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */

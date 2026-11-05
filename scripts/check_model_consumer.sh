@@ -72,7 +72,7 @@ if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
 else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
 "${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
     "$ROOT"/src/dev/dsh/nativeapp/{CodeBuddyCatalog,ModelConfig,ModelReasoning,ModelEffortUi,ModelCatalogSync,LiveModelCatalog,ProviderCheck,JsonValue,CoreRpcClient,CoreReadiness,ModelSettingsSnapshot,YamlBlocks,WebToolsEntry,MobileLayout,SessionProbe,SessionStatus,ConnectionRecovery,DraftRecovery,LayoutProbe,SessionPersistencePatch,AccountUi,AppSettingsUi,FileActionsUi}.java \
-    "$ROOT"/src/dev/dsh/nativeapp/{StartupState,StartupReuse,CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
+    "$ROOT"/src/dev/dsh/nativeapp/{StartupState,StartupReuse,CoreUpgrade,CoreTaskState,VoiceUi,FsWritePatch,NativeBridgePolicy,PhoneControlPolicy,NativeBridgeServer,FileOps,ShareTargets}.java \
     "$ROOT"/tests/{ModelCatalogSyncTest,ModelReasoningTest,ModelEffortUiTest,MobileLayoutTest,LayoutProbeTest,WebToolsEntryTest,CoreRpcConsumer,SessionPersistencePatchTest,AccountUiTest,AppSettingsUiTest,FileActionsUiTest,SessionStatusTest,ConnectionRecoveryTest,StartupStateTest,CoreUpgradeTest,VoiceUiTest,FsWritePatchTest,NativeBridgeTest}.java
 "${JAVAC[@]}" -encoding UTF-8 --release 8 -cp "$PROBE/classes" -d "$PROBE/classes" "$ROOT"/tools/java/dev/dsh/nativeapp/*.java
 java -Dfile.encoding=UTF-8 -cp "$PROBE/classes" dev.dsh.nativeapp.AndroidRuntimePort "$PROBE/runtime" "$ROOT/payload" --verify

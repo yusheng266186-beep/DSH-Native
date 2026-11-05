@@ -1,10 +1,30 @@
 # Agent 调用手机原生功能
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.2.1**；源码：**1.2.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.2.1**；源码：**1.3.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.37.0 将手机原生能力接入 DSH：agent 可直接使用注册的 `android` 工具，也可在命令中使用 `dsh-android`。覆盖安装后，从更新与维护重启内核，让实际 DSH 进程加载新适配器；不需要另外配置 MCP 或安装 Termux。
+
+## 手机操控
+
+1.3.0 在「设置 → 数据与扩展 → 手机操控」提供入口。进入系统无障碍设置开启 DSH 手机操控，返回并确认「开始本次操控」，然后在聊天里描述任务。应用外的浮动按钮可暂停或停止。熄屏、服务断开、内核重启或三分钟无操作会结束本次授权。部分 Android 13+ 设备的侧载应用需要从应用信息中允许受限制的设置，具体入口参见 [Android 帮助](https://support.google.com/android/answer/12623953?hl=zh-Hans)。
+
+| method | 参数和用途 |
+|---|---|
+| `phone.status` / `phone.stop` | 查看授权和连接状态，或结束本次操控 |
+| `phone.apps` / `phone.launch` | 列出可启动应用，或按 `package` 打开。用 `dev.dsh.native` 回到 DSH |
+| `phone.observe` | 读取当前可见界面节点和屏幕尺寸，返回 `snapshot`。无节点的界面可尝试截图 |
+| `phone.tap` / `phone.long_press` | `snapshot` 与节点 `node`，或屏幕像素 `x` / `y` |
+| `phone.input` | `snapshot`、可编辑 `node` 与 `text`，替换输入框文字 |
+| `phone.scroll` | `snapshot`、`node`、`direction`（forward / backward） |
+| `phone.swipe` | `snapshot`、`x`、`y`、`endX`、`endY`，可选 `durationMs` |
+| `phone.back` / `phone.home` / `phone.recents` | 返回、主页、最近任务 |
+| `phone.screenshot` | Android 11+。返回一张私有 PNG 的路径、图片与屏幕尺寸和 `snapshot`。有视觉能力的模型可用 `read_image` 读取 |
+
+按节点和坐标操作前需要新观察。窗口、方向或节点变化时重新观察。已知系统权限页面、密码框与敏感按钮由用户处理。部分 App 无障碍树为空，文字输入依赖目标 App 是否提供设置文本动作。普通 `screenshot` 仍使用下文的系统投影授权。
+
+设计参考 [DSH Go 手机操控指南](https://github.com/ccch1mneyyy/dsh-Go/blob/main/docs/guide/zh/04-phone-control.md)。服务与工具桥基于 [Android 公开无障碍 API](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService) 独立实现。首版覆盖当前亮屏的可见应用。
 
 ## 能力和调用结果
 

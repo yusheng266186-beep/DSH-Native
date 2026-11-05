@@ -85,6 +85,10 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
     }
     @Override public Object execute(final Map<?, ?> command) throws Exception {
         final String method = (String) command.get("method");
+        if (PhoneControlPolicy.METHODS.contains(method)) {
+            if (closed) throw new NativeBridgeServer.Failure("BRIDGE_STOPPED", "Native bridge stopped");
+            return PhoneAccessibilityService.execute(command, root);
+        }
         if ("screenshot".equals(method)) {
             final AtomicBoolean abandoned = new AtomicBoolean();
             final AtomicReference<NativeScreenCapture.Request> started = new AtomicReference<NativeScreenCapture.Request>();
@@ -171,7 +175,7 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
             return NativeBridgePolicy.object("version", 1, "methods", NativeBridgePolicy.METHODS,
                     "foregroundReady", visible, "clipboardRequiresForeground", true,
                     "screenshotConsent", "per-request-system-prompt", "maxTextChars", NativeBridgePolicy.MAX_TEXT,
-                    "maxFileBytes", NativeBridgePolicy.MAX_FILE);
+                    "maxFileBytes", NativeBridgePolicy.MAX_FILE, "phoneControl", PhoneAccessibilityService.status());
         }
         if ("keepalive.status".equals(method)) return service.nativeKeepaliveStatus();
         if ("notification.post".equals(method)) return notifyAgent((String) args.get("title"), (String) args.get("text"));
@@ -245,6 +249,6 @@ final class NativeBridge implements AutoCloseable, NativeBridgeServer.Host {
             for (FutureTask<?> task : pendingActions) { task.cancel(false); main.removeCallbacks(task); }
             pendingActions.clear();
         }
-        server.close(); NativeScreenCapture.close();
+        server.close(); NativeScreenCapture.close(); PhoneAccessibilityService.stopByUser();
     }
 }

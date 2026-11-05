@@ -13,9 +13,13 @@ import java.util.Map;
 final class NativeBridgePolicy {
     static final int MAX_BODY = 128 * 1024, MAX_TEXT = 16000;
     static final long MAX_FILE = 32L * 1024 * 1024;
-    static final List<String> METHODS = Arrays.asList("capabilities", "clipboard.get", "clipboard.set",
+    static final List<String> METHODS = methods();
+    private static List<String> methods() {
+        List<String> result = new java.util.ArrayList<>(Arrays.asList("capabilities", "clipboard.get", "clipboard.set",
             "notification.post", "share.text", "share.file", "url.open", "file.open", "app.open",
-            "keepalive.status", "screenshot");
+            "keepalive.status", "screenshot"));
+        result.addAll(PhoneControlPolicy.METHODS); return java.util.Collections.unmodifiableList(result);
+    }
 
     static Map<String, Object> object(Object... pairs) {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
@@ -29,6 +33,7 @@ final class NativeBridgePolicy {
         Map<?, ?> value = (Map<?, ?>) parsed;
         String method = text(value, "method", 64, true);
         if (!METHODS.contains(method)) throw new IllegalArgumentException("Unknown native method");
+        if (PhoneControlPolicy.METHODS.contains(method)) { PhoneControlPolicy.validate(value); return value; }
         List<String> fields = Arrays.asList("method");
         if (Arrays.asList("clipboard.set", "share.text").contains(method)) {
             text(value, "text", MAX_TEXT, false); fields = Arrays.asList("method", "text");

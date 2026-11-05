@@ -34,7 +34,7 @@ def compile_at(root):
  for name,text in STUBS.items():
   p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
  compiler=[shutil.which('javac')] if shutil.which('javac') else ['java','-m','jdk.compiler/com.sun.tools.javac.Main']
- sources=[SOURCE/(name+'.java') for name in ['JsonValue','FileOps','ShareTargets','NativeBridgePolicy','WebSettingsProtocol','WebSettingsHost']]
+ sources=[SOURCE/(name+'.java') for name in ['JsonValue','FileOps','ShareTargets','NativeBridgePolicy','PhoneControlPolicy','NativeBridgeServer','WebSettingsProtocol','WebSettingsHost']]
  subprocess.run([*compiler,'-encoding','UTF-8','-d',str(root/'classes'),*map(str,[*root.rglob('*.java'),*sources,ROOT/'tests/WebSettingsHostTest.java'])],check=True)
  return root/'classes'
 if __name__=='__main__':

@@ -3,7 +3,10 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const http = require('node:http');
 const METHODS = ['capabilities','clipboard.get','clipboard.set','notification.post','share.text','share.file',
-    'url.open','file.open','app.open','keepalive.status','screenshot'];
+    'url.open','file.open','app.open','keepalive.status','screenshot',
+    'phone.status','phone.apps','phone.observe','phone.tap','phone.long_press','phone.input',
+    'phone.swipe','phone.scroll','phone.back','phone.home','phone.recents','phone.launch',
+    'phone.screenshot','phone.stop'];
 async function invoke(command, options = {}) {
     if (!command || !METHODS.includes(command.method)) throw new Error('INVALID_REQUEST: unknown native method');
     let config;
