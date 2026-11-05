@@ -19,8 +19,24 @@ try{
  const recorded=[],log=console.log;console.log=line=>recorded.push(line);
  try{await consume();}finally{console.log=log;}
  const timing=JSON.parse(recorded.find(line=>line.startsWith('[dsh-perf] codebuddy ')).slice('[dsh-perf] codebuddy '.length));
- check(Object.keys(timing).every(key=>['setup','submitted','first','total','warm','outcome'].includes(key))&&timing.total>=timing.first&&timing.first>=timing.setup,'timing is bounded to fixed numeric phases');
+ check(Object.keys(timing).every(key=>['setup','submitted','first','last','result','deltas','chars','outputMs','tailMs','total','warm','outcome'].includes(key))&&timing.total>=timing.last&&timing.last>=timing.first&&timing.first>=timing.setup,'timing is bounded to fixed numeric phases');
+ check(timing.deltas===1&&timing.chars==='Synthetic reply'.length&&timing.outputMs===timing.last-timing.first&&timing.tailMs===timing.total-timing.last,'output delivery and settlement tail use the same monotonic clock');
  check(!recorded.join('').includes('synthetic-key')&&!recorded.join('').includes('Synthetic request'),'timing contains no credential or prompt');
+ const normalQuery=queryModule.query,tailLogs=[];
+ queryModule.query=args=>(async function*(){
+  latest=args;
+  yield {type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'text',text:''}}};
+  yield {type:'stream_event',event:{type:'content_block_delta',index:0,delta:{text:'A'}}};
+  await new Promise(resolve=>setTimeout(resolve,30));
+  yield {type:'stream_event',event:{type:'content_block_delta',index:0,delta:{text:'B'}}};
+  await new Promise(resolve=>setTimeout(resolve,80));
+  yield {type:'result',subtype:'success',usage:{output_tokens:2}};
+ })();
+ console.log=line=>tailLogs.push(line);
+ try{out=await consume();}finally{console.log=log;queryModule.query=normalQuery;}
+ const tailTiming=JSON.parse(tailLogs.find(line=>line.startsWith('[dsh-perf] codebuddy ')).slice('[dsh-perf] codebuddy '.length));
+ check(tailTiming.deltas===2&&tailTiming.chars===2&&tailTiming.outputMs>=20&&tailTiming.tailMs>=70&&tailTiming.result>=tailTiming.last,'delayed CLI settlement remains separate from delivered output');
+ check(out.filter(c=>c.type==='text-delta').map(c=>c.text).join('')==='AB'&&out.at(-1).reason.kind==='stop','diagnostics preserve reply delivery and successful settlement');
  check(latest.options.effort==='max'&&latest.options.tools.length===0&&!latest.options.systemPrompt,'explicit CLI agent mode uses official persona, requested effort and no built-in tools');check(latest.options.settingSources.length===0&&latest.options.strictMcpConfig&&!latest.options.persistSession,'no inherited plugins, hooks or extra transcript');
  check(latest.options.env.CODEBUDDY_API_KEY==='synthetic-key-do-not-log'&&!latest.options.env.CODEBUDDY_CUSTOM_HEADERS,'key is private SDK environment, without client spoofing');
  check(latest.options.env.NODE_COMPILE_CACHE===path.join(root,'.codebuddy-home','compile-cache'),'compiled code cache stays in the private non-shareable CLI home');

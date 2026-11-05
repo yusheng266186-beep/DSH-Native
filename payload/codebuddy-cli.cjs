@@ -168,7 +168,13 @@ function usage(value={},modelUsage){
 }
 async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=180000}={}){
  const started=performance.now(),timing={};let outcome='incomplete';
- const trace=(stage,value)=>{if(stage==='warm')timing.warm=value;else if(['setup','submitted','first'].includes(stage)&&timing[stage]===undefined)timing[stage]=Math.round(performance.now()-started);};
+ const trace=(stage,value)=>{
+  if(stage==='warm')timing.warm=value;
+  else if(stage==='delta'&&value>0){
+   const now=Math.round(performance.now()-started);timing.first??=now;timing.last=now;
+   timing.deltas=(timing.deltas||0)+1;timing.chars=(timing.chars||0)+value;
+  }else if(['setup','submitted','first','result'].includes(stage)&&timing[stage]===undefined)timing[stage]=Math.round(performance.now()-started);
+ };
  const controller=new AbortController(),cancel=()=>controller.abort();
  options.signal?.addEventListener('abort',cancel,{once:true});if(options.signal?.aborted)cancel();
  let query,server,terminal=false,stats={},nextIndex=0,partial=false;const active=new Map();let timer,timedOut=false;
@@ -200,13 +206,13 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(event.type==='message_delta')stats={...stats,...event.usage};
     if(event.type==='content_block_start'&&['text','thinking'].includes(event.content_block.type)){
      const block={index:nextIndex++,type:event.content_block.type==='text'?'text':'reasoning',text:event.content_block.text||event.content_block.thinking||''};active.set(event.index,block);
-     if(block.text)trace('first');
+     if(block.text)trace('delta',block.text.length);
      yield {type:'block-start',index:block.index,blockType:block.type};
      if(block.text)yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text:block.text};
     }
     if(event.type==='content_block_delta'&&active.has(event.index)){
      const block=active.get(event.index),text=event.delta.text||event.delta.thinking||'';block.text+=text;
-     if(text){trace('first');yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};}
+     if(text){trace('delta',text.length);yield {type:block.type==='text'?'text-delta':'reasoning-delta',index:block.index,text};}
     }
     if(event.type==='content_block_stop'&&active.has(event.index)){
      const block=active.get(event.index);active.delete(event.index);yield {type:'block-end',index:block.index,block:{type:block.type,text:block.text}};
@@ -216,8 +222,8 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     if(message.error)throw new Error(message.message?.content?.map(block=>block.text||'').join(' ')||message.error);
     const blocks=message.message?.content||[];stats={...stats,...message.message?.usage};
     if(!partial)for(const block of blocks)if(block.type==='text'||block.type==='thinking'){
-     trace('first');
      const index=nextIndex++,type=block.type==='text'?'text':'reasoning',text=block.text||block.thinking||'';
+     if(text)trace('delta',text.length);
      yield {type:'block-start',index,blockType:type};yield {type:type==='text'?'text-delta':'reasoning-delta',index,text};yield {type:'block-end',index,block:{type,text}};
     }
     const calls=blocks.filter(block=>block.type==='tool_use');
@@ -233,6 +239,7 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
     }
    }
    if(message.type==='result'){
+    trace('result');
     if(message.is_error||message.subtype!=='success')throw new Error(message.result||(Array.isArray(message.errors)?message.errors.filter(value=>typeof value==='string').slice(0,8).join('\n'):'')||message.subtype||'CLI request failed');
     yield {type:'usage',usage:usage(message.usage||stats,message.modelUsage)};outcome='stop';yield {type:'finish',reason:{kind:'stop'}};terminal=true;return;
    }
@@ -240,7 +247,11 @@ async function* stream(options,context,{apiKey,root=__dirname,idleTimeoutMs=1800
   throw new Error('CLI stream ended without a result');
  }catch(error){outcome=timedOut?'timeout':controller.signal.aborted?'aborted':'error';if(!terminal){yield {type:'usage',usage:usage(stats)};yield {type:'finish',reason:timedOut?{kind:'error',failure:{code:'LLM_STREAM_IDLE_TIMEOUT',message:'CodeBuddy CLI stopped responding. Check the network before retrying.'}}:failure(error,controller.signal.aborted)};}}
  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',cancel);await query?.return().catch(()=>{});controller.abort();await server?.close().catch(()=>{});
-  if(!options.purpose)console.log('[dsh-perf] codebuddy '+JSON.stringify({...timing,total:Math.round(performance.now()-started),outcome}));
+  if(!options.purpose){
+   const total=Math.round(performance.now()-started);
+   console.log('[dsh-perf] codebuddy '+JSON.stringify({...timing,
+    ...(timing.last===undefined?{}:{outputMs:timing.last-timing.first,tailMs:total-timing.last}),total,outcome}));
+  }
   if(!cacheMaintenance){cacheMaintenance=pruneCompileCache(root).catch(()=>{});}
  }
 }

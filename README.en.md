@@ -1,10 +1,12 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.3.0**; source: **1.3.0**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.3.0**; source: **1.3.1**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
+
+1.3.1 fixes first configuration when the legacy import record does not exist and adds numeric output/tail timings for CodeBuddy. Direct emulator tests of the signed 1.3.0 APK displayed 150 and 121 tok/s; these do not establish the cause of a slower physical phone. See the [test report and limits](docs/PERFORMANCE_2026_11_05.md).
 
 **Keep your project on your phone and bring the DSH workflow to Android.**
 
