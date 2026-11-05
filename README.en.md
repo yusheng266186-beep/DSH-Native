@@ -1,7 +1,7 @@
 # DSH Native · DeepSeek Harness on Android
 
 <!-- dsh-doc-status:start -->
-> Maintained documentation for the current source. Published stable: **1.3.0**; source: **1.3.1**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
+> Maintained documentation for the current source. Published stable: **1.3.1**; source: **1.3.1**; source payload: `payload-v15`; pinned DSH: `0.2.2-rc.1` (upstream release candidate). [Current status and verification boundaries](docs/STATUS.md).
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [Documentation](docs/README.md) · [Project status](docs/STATUS.md)
@@ -72,13 +72,13 @@ For installation, use the download and setup sections below. Source, release and
 
 ## Download and requirements
 
-**Current stable release: 1.3.0**
+**Current stable release: 1.3.1**
 
-**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v1.3.0-bootstrap/DSHNative-bootstrap.apk)** (41.5 MiB)
+**[Download DSHNative-bootstrap.apk](https://github.com/yusheng266186-beep/DSH-Native/releases/download/v1.3.1-bootstrap/DSHNative-bootstrap.apk)** (41.5 MiB)
 
-[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v1.3.0-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
+[Release notes](https://github.com/yusheng266186-beep/DSH-Native/releases/tag/v1.3.1-bootstrap) · [All releases](https://github.com/yusheng266186-beep/DSH-Native/releases)
 
-SHA-256: `4f2875464aa9244886ff584f73b3cff4aabd3246253fd4794b9c3e85ac5eb9fd`
+SHA-256: `0226773e6d417bbf7cb059fa601e6bfc1b6255efc86b0ec231ce741ffd2f1dc5`
 
 | Item | Requirement or behavior |
 |---|---|
