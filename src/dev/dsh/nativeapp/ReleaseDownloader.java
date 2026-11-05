@@ -71,7 +71,7 @@ private void transfer(String basePath, String assetName, File out,
                         if (total < 0 && result.total != null) {
                             total = result.total.longValue();
                         }
-                        if (source > 0) log("  已切换到镜像源 #" + source);
+                        if (source > 0) log("  已切换到下载源 #" + source);
                     } catch (Exception e) {
                         lastError = shorten(e);
                         retries++;

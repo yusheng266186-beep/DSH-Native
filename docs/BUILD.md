@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.2.0**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.2.0**；源码：**1.2.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -73,7 +73,7 @@ bash scripts/local_build.sh /tmp/dsh-local-build /path/to/DSHNative-bootstrap.ap
 
 `.github/workflows/build.yml` 在 PR、main 与手动触发中复用 `ci_build.sh`，先检查元数据和文档，再构建，并消费源码实际引用的运行包。验证 APK 作为 Actions artifact 上传，不等于公开正式 Release。
 
-`check_model_consumer.sh` 下载对应 DSH 片并校验摘要，生成真实原生配置供 Host 消费；执行模型目录、视觉、思考声明、LLM 调用配置、离线 SDK 请求体，以及聊天框真实 React 组件和会话 RPC 回归。`tests/js` 固定测试依赖不进入 APK。
+`check_model_consumer.sh` 下载对应 DSH 片并校验摘要，先经生产 PayloadPartInstaller 验证旧文件清理、空依赖目录和新包解压顺序，生成真实原生配置供 Host 消费；执行模型目录、视觉、思考声明、LLM 调用配置、离线 SDK 请求体，以及聊天框真实 React 组件和会话 RPC 回归。`tests/js` 固定测试依赖不进入 APK。
 
 图片消费验证使用临时 Python venv 内固定的 Pillow 11.3.0，并检查 WebP 支持；
 通过 `DSH_PYTHON` 传给生产图片适配器，测试结束一并清理。可显式指定已有的
@@ -279,3 +279,6 @@ python3 scripts/sync_project_metadata.py --check
 `runtime/compatibility.json` 固定源码内核/SDK/Android 配置、两个依赖锁文件及 11 个实际引导二进制的大小和摘要。`ci_stage.sh` 在准备前和解出参考 APK 后分别核对；来源 APK 可以更新，但不能借此静默更换二进制。依赖或 SDK 版本变更需要一并审查冻结记录。
 
 构建生成 `assets/payload/dependency-notices.json`，原许可位于 `assets/payload/licenses/`；这些是应用资源，测试与开发文档不会被打入 APK。`release.sh` 在上传后核对 GitHub 资产摘要，分段响应须与 APK 前 1024 字节相同，全量响应须匹配完整摘要，payload 清单须符合源码内置信任根，全部通过后才写本地更新清单。失败不应手工推进版本清单。
+
+
+1.2.1 起 `payload/pinned-manifest.json` 是已发布运行包的原始清单字节，随 APK 组件索引安装。兼容检查和成品 APK 检查均要求其 SHA-256 等于源码 pin。后续更新运行包时，先发布并验证资产，再同步此文件和 pin，不能只改 URL/摘要。旧 rc.3 适配表另存为 legacy 文件，不随新表覆盖。

@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.2.0**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.2.0**；源码：**1.2.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -30,6 +30,8 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 | 发布 | 两个工作流共用 `ci_build.sh`；正式版只经 `release.yml` / `release.sh` |
 
 源码、已发布 stable / test 与摘要的精确值只在 [STATUS](STATUS.md) 生成表维护。
+
+1.2.1 将已发布的 `payload/pinned-manifest.json` 随 APK 安装，必须与源码内置摘要完全一致；修改运行包时同步固定文件，禁止依赖联网才能取得不可变清单。`PayloadPartInstaller` 在快照事务内先删除旧文件、清理空依赖，再解压，新包内容优先；不能恢复为解压后删除。旧 rc.3 兼容表独立保留，不能用新核表验证旧核。
 
 1.2.0 按用户要求以官方新增布局和功能为优先，采用 device-width、官方窄屏侧栏、设置导航和多语言模型菜单。不要将旧 480px 和整套 CSS/导航覆盖重新应用到新核；Android 文件操作通过紧凑菜单追加。迁移与历史兼容证据见 [内核升级](CORE_UPGRADE.md)。`StartupState` 必须接受默认收起抽屉时的官方顶部入口，不能只等侧栏中的设置按钮。
 

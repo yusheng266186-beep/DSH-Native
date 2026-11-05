@@ -71,6 +71,8 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/ShareTargets.java
      $JAVA_DIR/PluginSpecs.java
      $JAVA_DIR/PayloadUpdate.java
+     $JAVA_DIR/PayloadPartInstaller.java
+     $JAVA_DIR/PayloadManifestCache.java
      $JAVA_DIR/SessionStatus.java
      $JAVA_DIR/SessionProbe.java
      $JAVA_DIR/SessionRecovery.java
@@ -129,7 +131,9 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/CrashReporter.java
      $JAVA_DIR/WorkerRegistry.java
      $JAVA_DIR/ProviderRoute.java"
-TESTS="tests/WhaleShapeTest.java
+TESTS="tests/PayloadPartInstallerTest.java
+       tests/PayloadManifestCacheTest.java
+       tests/WhaleShapeTest.java
        tests/PayloadDownloadsTest.java
        tests/ReleaseDownloaderTest.java
        tests/AppArchitectureTest.java
@@ -219,7 +223,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in WhaleShapeTest PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in PayloadPartInstallerTest PayloadManifestCacheTest WhaleShapeTest PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "

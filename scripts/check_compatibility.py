@@ -19,6 +19,7 @@ def check(root=ROOT, payload=None):
     assert core['version'] == frozen['core']['version'], 'core version drifted'
     assert 'releases/download/' + frozen['core']['payload'] + '/' in main, 'payload tag drifted'
     assert frozen['core']['manifest_sha256'] in main, 'trusted manifest digest drifted'
+    assert hashlib.sha256((root / 'payload/pinned-manifest.json').read_bytes()).hexdigest() == frozen['core']['manifest_sha256'], 'bundled payload manifest drifted'
     assert lock['packages']['node_modules/@tencent-ai/agent-sdk']['version'] == frozen['codebuddy']['sdk'], 'SDK lock drifted'
     for key in ['sdk', 'cli']:
         assert f"manifest.{key}!=='{frozen['codebuddy'][key]}'" in adapter, f'{key} verifier drifted'

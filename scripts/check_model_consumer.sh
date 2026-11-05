@@ -40,6 +40,11 @@ fi
 fi
 bash "$ROOT/scripts/check_payload_manifest.sh" "$PROBE/manifest.json"
 mkdir "$PROBE/runtime" "$PROBE/tools" "$PROBE/classes"
+if command -v javac >/dev/null 2>&1; then JAVAC=(javac);
+else JAVAC=(java -m jdk.compiler/com.sun.tools.javac.Main); fi
+"${JAVAC[@]}" -encoding UTF-8 -d "$PROBE/classes" \
+    "$ROOT"/src/dev/dsh/nativeapp/{FileOps,CoreUpgrade,PayloadUpdate,PayloadPartInstaller,JsonValue}.java \
+    "$ROOT/tests/PayloadPartInstallerTest.java"
 python3 - "$ROOT" "$PROBE" <<'PY_ARCHIVES'
 import hashlib, json, pathlib, subprocess, sys
 root, probe = map(pathlib.Path, sys.argv[1:])
@@ -53,7 +58,12 @@ for part in json.loads((probe / 'manifest.json').read_text())['parts']:
     archive = probe / part['name']
     assert archive.stat().st_size == part['size'] and digest(archive) == part['sha256'], 'Archive differs from APK-trusted manifest: ' + part['name']
     target = probe / ('runtime' if part['target'] == 'dsh' else 'tools')
-    subprocess.run(['node', str(root / 'payload/unpack.js'), str(archive), str(target)], check=True)
+    if part['target'] == 'dsh':
+        subprocess.run(['java', '-cp', str(probe / 'classes'), 'dev.dsh.nativeapp.PayloadPartInstallerTest',
+                        '--install', __import__('shutil').which('node'), str(root / 'payload/unpack.js'),
+                        str(archive), str(target), str(probe / 'manifest.json')], check=True)
+    else:
+        subprocess.run(['node', str(root / 'payload/unpack.js'), str(archive), str(target)], check=True)
     sentinel = target / part['sentinel']['path']
     assert sentinel.stat().st_size == part['sentinel']['size'] and digest(sentinel) == part['sentinel']['sha256'], 'App unpacked sentinel differs: ' + part['name']
 print('Actual APK installer: all five trusted archives and extracted sentinels verified.')

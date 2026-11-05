@@ -28,6 +28,19 @@ final class RuntimePreparation {
     /** Offline upgrade/rollback can retain the already adapted 1.0 runtime, without rewriting it. */
     private static void verifyPreparedLegacy(File root, File runtime) throws IOException {
         File contract = new File(root, "android-port-files.tsv");
+        File previous = new File(root, "android-port-legacy-0.2.1-rc.3.tsv");
+        File metadata = new File(runtime, "package.json");
+        if (previous.isFile() && metadata.isFile() && metadata.length() < 1024 * 1024) {
+            Object parsed = JsonValue.parse(new String(Files.readAllBytes(metadata.toPath()), StandardCharsets.UTF_8));
+            if (parsed instanceof Map && "0.2.1-rc.3".equals(((Map<?, ?>) parsed).get("version"))) contract = previous;
+        }
+        verifyContract(contract, runtime);
+    }
+    static void requireCurrentPort(File root, File runtime) throws IOException {
+        requirePort(root, runtime);
+        verifyContract(new File(root, "android-port-files.tsv"), runtime);
+    }
+    private static void verifyContract(File contract, File runtime) throws IOException {
         if (!contract.isFile() || contract.length() > 16384) throw new IOException("缺少 Android 运行包兼容记录，请更新运行包");
         String source = new String(Files.readAllBytes(contract.toPath()), StandardCharsets.UTF_8);
         int checked = 0;
