@@ -378,7 +378,7 @@ function androidInstallAppSettings(ctx) {
 
     function FileWebActions({absolutePath,directory=false}) {
         const locale=react.useSyncExternalStore(cb=>ctx.locale.subscribe(cb),()=>ctx.locale.getSnapshot()),en=/^en/.test(locale.active);
-        const [busy,setBusy]=react.useState(false),[error,setError]=react.useState(''),[state,setState]=react.useState(window.__dshNativeAppState||{});
+        const [busy,setBusy]=react.useState(false),[error,setError]=react.useState(''),[opened,setOpened]=react.useState(false),[state,setState]=react.useState(window.__dshNativeAppState||{});
         react.useEffect(()=>{const update=()=>setState(window.__dshNativeAppState||{});window.addEventListener('dsh-native-app-state',update);return()=>window.removeEventListener('dsh-native-app-state',update);},[]);
         if(!state.integratedSettings||typeof absolutePath!=='string'||!absolutePath)return null;
         const act=async action=>{if(busy)return;setBusy(true);setError('');try{
@@ -388,7 +388,8 @@ function androidInstallAppSettings(ctx) {
                 window.dispatchEvent(new Event('dsh-device-file'));
             }else await nativeRequest('file',{action,path:absolutePath,locale:en?'en':'zh'});
         }catch(failure){setError(failure.message);}finally{setBusy(false);}};
-        return hs('span',{className:'dsh-file-actions',children:[h('style',{children:'.dsh-file-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;max-width:100%}.dsh-file-actions button{height:auto;min-height:32px;max-width:100%;white-space:normal;overflow-wrap:anywhere}.dsh-file-actions [role=alert]{font-size:12px;overflow-wrap:anywhere;color:var(--dsw-alias-label-error)}'}),...(directory?[['browse','管理文件','Manage files']]:[['edit','编辑','Edit'],['open','其他应用打开','Open in app'],['share','分享','Share']]).map(([action,zh,label])=>h(P.Button,{key:action,size:'sm',variant:'outline',disabled:busy,onClick:()=>act(action),children:en?label:zh})),error&&h('span',{role:'alert',children:error})]});
+        const items=(directory?[['browse','管理文件','Manage files']]:[['edit','编辑','Edit'],['open','其他应用打开','Open in app'],['share','分享','Share']]).map(([id,zh,label])=>({id,label:en?label:zh}));
+        return hs('span',{className:'dsh-file-actions',children:[h('style',{children:'.dsh-file-actions{display:inline-flex;align-items:center;flex:0 0 auto;position:relative}.dsh-file-actions [role=alert]{position:absolute;right:0;top:100%;max-width:min(280px,90vw);font-size:12px;overflow-wrap:anywhere;color:var(--dsw-alias-label-error);background:var(--dsw-alias-bg-layer-1)}'}),h(P.Menu,{open:opened,onClose:()=>setOpened(false),portal:true,align:'end',items,onSelect:action=>{setOpened(false);void act(action);},anchor:h(P.Button,{size:'sm',variant:'ghost',disabled:busy,title:en?'File actions':'文件操作','aria-label':en?'File actions':'文件操作','aria-haspopup':'menu','aria-expanded':opened,onClick:()=>setOpened(value=>!value),children:h(P.IconChevronDownOutlineRegular,{size:16})})}),error&&h('span',{role:'alert',children:error})]});
     }
     for(const slot of ['sidebar.right.tab.document.actions','deliverables.file.actions','deliverables.review.file.actions','sidebar.right.tab.files.actions'])ctx.slots.inject(slot,()=>ctx.slots.register({name:slot,id:'android-file-actions',order:20},props=>h(FileWebActions,{...props,directory:slot==='sidebar.right.tab.files.actions'})));
 

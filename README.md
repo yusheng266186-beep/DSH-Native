@@ -246,6 +246,8 @@ python3 scripts/sync_project_metadata.py --docs-only --check
 
 1.1.6 起，CodeBuddy 的 DeepSeek V4.1 Flash 默认选择 1M 上下文，同时更新 DSH 与官方 CLI 的预算。发版复用相同源码已通过完整 CI 的签名安装包，详见 [构建与发布](docs/BUILD.md)。
 
+1.2.0 将内核升至 DSH 0.2.2-rc.1，优先采用官方手机/平板布局、设置导航和新增功能，Android 文件、语音与设备功能作为补充。[升级与兼容说明](docs/CORE_UPGRADE.md)。
+
 ## 仓库导航
 
 | 路径 | 职责 |

@@ -237,6 +237,8 @@ After release assets and download routes are verified, `release.yml` / `release.
 
 Starting with 1.1.6, CodeBuddy DeepSeek V4.1 Flash selects the 1M context tier in both DSH and the official CLI. Releases reuse the signed APK from successful full CI of the identical source tree; see [Build and release](docs/BUILD.md).
 
+1.2.0 upgrades to DSH 0.2.2-rc.1 and prioritizes upstream mobile/tablet layouts, settings navigation and new features. Android file, voice and device capabilities remain extensions. See [kernel upgrade and compatibility](docs/CORE_UPGRADE.md).
+
 ## Repository map
 
 | Path | Responsibility |

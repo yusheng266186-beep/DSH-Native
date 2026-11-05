@@ -55,6 +55,7 @@ def build(archive, manifest_path, output, runtime):
             subprocess.run(['zstd', '-dc', str(archive)], stdout=stream, check=True)
         with tarfile.open(raw) as tar:
             tar.extractall(runtime, filter='data')
+        assert json.loads((runtime / 'package.json').read_text())['version'] == pin['core'], 'Archive rebuild cannot upgrade the core; use prepare_core_payload.py'
         apply_port(runtime)
         target = output / 'dsh.tar.zst'
         with target.open('wb') as stream:

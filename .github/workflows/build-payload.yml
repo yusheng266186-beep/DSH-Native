@@ -105,6 +105,11 @@ jobs:
             --previous-manifest "$RUNNER_TEMP/base-release/manifest.json" \
             --out "$RUNNER_TEMP/${{ inputs.out_name }}"
 
+      - name: 验证旧内核历史读取与继续写入
+        run: |
+          node --expose-internals tests/js/core-history-upgrade.mjs "$RUNNER_TEMP/base-runtime" "$RUNNER_TEMP/${{ inputs.out_name }}/runtime"
+          node --expose-internals tests/js/core-runtime-consumer.mjs "$RUNNER_TEMP/${{ inputs.out_name }}/runtime"
+
       - name: 核对产物
         run: |
           set -euo pipefail

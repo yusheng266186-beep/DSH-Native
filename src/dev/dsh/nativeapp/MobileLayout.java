@@ -114,7 +114,10 @@ final class MobileLayout {
 
         // Upstream 0.2.2 owns mobile geometry, settings navigation, menus and
         // reduced motion. Do not apply the legacy layout override to this core.
-        if (upstreamMobile) style = STYLE_OPEN + "html{-webkit-text-size-adjust:100%;}" + STYLE_CLOSE;
+        if (upstreamMobile) style = STYLE_OPEN + "html{-webkit-text-size-adjust:100%;}"
+                + "[data-settings-document-action]{min-width:0;max-width:100%;flex-wrap:wrap;}"
+                + "[data-settings-open-document]{max-width:100%;height:auto;white-space:normal;overflow-wrap:anywhere;}"
+                + "[data-agent-preset-id] button[data-tip]::after{left:auto;right:0;transform:none;}" + STYLE_CLOSE;
         int oldStart = out.indexOf(STYLE_OPEN);
         if (oldStart >= 0) {
             int oldEnd = out.indexOf(STYLE_CLOSE, oldStart);

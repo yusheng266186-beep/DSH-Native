@@ -36,8 +36,14 @@ public final class AndroidRuntimePort {
         adapt("node_modules/@deepseek-ai/" + name + "/lib/" + file, adapter);
     }
     private void build() throws IOException {
-        if (CoreUpgrade.legacyRuntime(read(runtime.resolve("package.json"))))
+        String packageJson = read(runtime.resolve("package.json"));
+        if (CoreUpgrade.legacyRuntime(packageJson))
             throw new IOException("Build requires the pinned current core, not a legacy runtime");
+        Object metadata = JsonValue.parse(packageJson);
+        if (!(metadata instanceof java.util.Map)) throw new IOException("Invalid core package metadata");
+        String core = String.valueOf(((java.util.Map<?, ?>) metadata).get("version"));
+        final boolean upstreamMobile = "0.2.2-rc.1".equals(core);
+        if (!upstreamMobile && !"0.2.1-rc.3".equals(core)) throw new IOException("Unsupported core version: " + core);
         String publish = helper("session-publish.js"), voice = helper("android-voice-ui.js");
         String connection = helper("connection-ui.js"), settings = helper("app-settings-ui.js");
         String sessions = helper("session-tools-core.js");
@@ -62,7 +68,7 @@ public final class AndroidRuntimePort {
         module("dsh-attachment-local", "index.js", AttachmentPort::apply);
         adapt("node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html", source -> {
             String marker = "<meta name=\"dsh-mobile-layout\" content=\"upstream\" />";
-            if (!source.contains(marker)) source = source.replace("</head>", marker + "\n</head>");
+            if (upstreamMobile && !source.contains(marker)) source = source.replace("</head>", marker + "\n</head>");
             return MobileLayout.patchHtml(source, 480);
         });
         Path sharp = runtime.resolve("node_modules/sharp");
@@ -87,7 +93,7 @@ public final class AndroidRuntimePort {
             contract.append(relative).append('\t').append(hash).append('\n');
         }
         publish(runtime.resolve("android-runtime-files.tsv"), contract.toString());
-        publish(runtime.resolve("android-runtime.json"), "{\"schema\":1,\"port\":1,\"core\":\"0.2.2-rc.1\",\"adapters\":" + checked + "}\n");
+        publish(runtime.resolve("android-runtime.json"), "{\"schema\":1,\"port\":1,\"core\":\"" + core + "\",\"adapters\":" + checked + "}\n");
         System.out.println("Android runtime: " + checked + " build-time adapters verified twice; sharp/Pillow installed");
     }
     private void publish(Path path, String content) throws IOException {

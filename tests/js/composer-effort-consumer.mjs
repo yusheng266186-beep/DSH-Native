@@ -89,7 +89,7 @@ const maxLabel = () => {
 const maxButton = () => button(maxLabel());
 let checked = 0;
 try {
-  for (const locale of ['zh', 'en']) {
+  for (const locale of Object.keys(dictionaries)) {
     const t = (key, vars = {}) => Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, value), dictionaries[locale][key] ?? key);
     await act(async () => root.render(React.createElement(Component, {
       locked: false, available: true, directory: directory.store,

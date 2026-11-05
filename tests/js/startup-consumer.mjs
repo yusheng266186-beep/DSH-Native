@@ -54,6 +54,7 @@ try {
  }
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);
  check(messages.length===1&&messages[0]==='[dsh-startup] painted 17','real mounted WebUI emits exactly one paint signal');
+ check(await page.locator('[data-sidebar-drawer][data-sidebar-collapsed]').count()===1,'real phone layout starts with the official drawer collapsed');
  await page.evaluate(script);await sleep(100);check(messages.length===1,'repeated onPageFinished injection does not duplicate completion');
  // A non-critical image can hold full document load after the real shell is visible.
  let releaseImage, imageRequested=false;
@@ -77,6 +78,11 @@ try {
  for(let n=0;n<100&&!messages.length;n++)await sleep(20);check(messages.length===1,'late visible shell finishes without another document load');
  await page.evaluate(script.replace('generation=17','generation=18'));await page.evaluate(script.replace('generation=17','generation=19'));
  await sleep(100);check(!messages.includes('[dsh-startup] painted 18')&&messages.includes('[dsh-startup] painted 19'),'old animation-frame callback cannot complete the next generation');
+ await page.goto('about:blank');messages.length=0;
+ await page.evaluate(()=>{document.body.innerHTML='<div data-slot="settings.launcher" style="position:absolute;left:-1000px"><button>Settings</button></div><textarea data-composer-input></textarea>';});
+ await page.evaluate(script.replace('generation=17','generation=37'));await sleep(100);check(!messages.includes('[dsh-startup] painted 37'),'offscreen drawer controls cannot prove a painted shell: '+JSON.stringify(messages));
+ await page.evaluate(()=>{const leading=document.createElement('div');leading.dataset.slot='shell.leading';leading.innerHTML='<button>Open sidebar</button>';document.body.append(leading);});
+ for(let n=0;n<100&&!messages.includes('[dsh-startup] painted 37');n++)await sleep(20);check(messages.filter(value=>value==='[dsh-startup] painted 37').length===1,'official visible leading control proves readiness with a collapsed drawer');
  await page.goto('about:blank');messages.length=0;
  await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>'hidden'}));
  await page.evaluate(script);await page.evaluate(()=>{document.body.innerHTML='<button data-slot="settings.launcher">Settings</button><textarea data-composer-input></textarea>';window.dispatchEvent(new Event('dsh-native-resume'));});

@@ -7,7 +7,7 @@ node_modules/@deepseek-ai/dsh-client-ui-deliverables/lib/client.js	c6177155a9ca4
 node_modules/@deepseek-ai/dsh-client-ui-layout/lib/client.js	338bcbdea1180e56b0a8e86788d1e75b09296cbe7ba042a06cdc91028001cf93
 node_modules/@deepseek-ai/dsh-client-ui-model-selection/lib/client.js	124c4f0fe80bb7d0c5b2da9bbc071534bfc9a3e96825980c447525eb40f87855
 node_modules/@deepseek-ai/dsh-client-ui-settings-account/lib/client.js	7fbf7593deb947cbf44001b584298cf3ad5bbe7dbae7b588f10d7257dc483e3f
-node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js	80bc75092de746c24d040f09aea9979b3feb5f1650fcf74e01f41a7804ec6c61
+node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js	9485e65f852e7ca82515454bb32f22a7479e3307e85066a075523d4db05094fa
 node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/lib/client.js	0b1aa75631d4f4b82513d9add6ceef7570c8399ecb5193e876781f8b92b37b85
 node_modules/@deepseek-ai/dsh-experimental-client-ui-voice-input/lib/client.js	6c2a4bf432f71730068eb374b246c7e00ede457c4b15752caed89a86a40ea086
 node_modules/@deepseek-ai/dsh-experimental-inspector/lib/index.js	a49504b4f131d839ca60668e01f57c1bb83218a22e4505af71a4a225411d0d43
@@ -15,7 +15,7 @@ node_modules/@deepseek-ai/dsh-fs-local/lib/index.js	dc9fd3f1cf6383bf7f2575fd0db5
 node_modules/@deepseek-ai/dsh-llm-deepseek-account/lib/index.js	97f699b4264d8683e419fb575489cdc835b53e0af6f20ca1ab38cf29954167b3
 node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js	e9592318fa4e600b9e3697f220855e83dc2f9a75f3c46938ca448018f769ea7f
 node_modules/@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js	f0b5f0d4380f4267606320ef4b7fb763e4b11b453e08fcb12fa0812c3dd1acdc
-node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html	f0b3690181d483313471f66fd14b02dc13332c19c404f29d3b2a594b54c32004
+node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html	64d010a8945f673878725356655c2270fca1eb03b8c8f14876ecfda9a581e2d3
 node_modules/sharp/index.js	110bed8996c55a32071132d36f4a776fe3f86432d0288850cbf3462e09605b67
 node_modules/sharp/package.json	33f336a33ba2fc5385882daa99ad73b30cfd5debee5d6bb40b286d0d4f4469b0
 node_modules/sharp/pillow_shim.py	8ae303a542c7e3db07cb6ebf182647f47967c80e52a5cb6cbfcd9564a260e208

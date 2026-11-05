@@ -69,7 +69,7 @@ final class StartupState {
                 + "var stopped=false,observer,queued=false;function stop(){stopped=true;"
                 + "if(observer)observer.disconnect();document.removeEventListener('visibilitychange',schedule);window.removeEventListener('dsh-native-resume',schedule);}"
                 + "window.__dshStartupPaint={generation:generation,stop:stop};"
-                + "function visible(el){if(!el||!el.getClientRects().length)return false;var s=getComputedStyle(el);return s.visibility!=='hidden'&&s.opacity!=='0';}"
+                + "function visible(el){if(!el||!el.getClientRects().length)return false;var r=el.getBoundingClientRect(),s=getComputedStyle(el);return r.width>0&&r.height>0&&r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight&&s.visibility!=='hidden'&&s.opacity!=='0';}"
                 + "function schedule(){if(stopped||queued||document.visibilityState==='hidden')return;queued=true;requestAnimationFrame(function(){queued=false;check();});}"
                 + "function check(){if(stopped||document.visibilityState==='hidden')return;var el=document.querySelector('[data-slot=\"settings.launcher\"]');"
                 // Slot wrappers use display:contents and have no rectangle of their own.
