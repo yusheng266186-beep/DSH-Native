@@ -84,6 +84,11 @@ final class ModelEffortUi {
 
     static String patch(String source) {
         if (source == null) return null;
+        // The current upstream owns its multilingual selector and menu behavior.
+        // Keep every native label; requested max remains part of model metadata.
+        if (!source.contains(TAG) && source.contains("\"menu.effort\": \"Esforço\",")
+                && source.contains("label: effort.name")
+                && source.contains("\"aria-checked\": effectiveEffort === level.effort,")) return source;
         // 幂等：先还原，再重新应用。这样文案改动才能真正到达运行包里的文件。
         String pristine = unpatch(source);
         // unpatch 还原不出来（结构已变、或带着本补丁认不出的旧改动）时，

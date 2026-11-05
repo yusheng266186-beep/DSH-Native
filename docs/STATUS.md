@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,13 +16,19 @@
 | 稳定运行包 | `payload-v14` · 压缩总量 143.7 MiB |
 | APK SHA-256 | `06e8b5cb21cac7474e9cba06fef820af5799f2af6aab747891ad04918cc7e30d` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `1.1.6` · `scripts/mkmanifest.py` / `MainActivity.java` |
-| 源码运行包 | `payload-v14` · `MainActivity.java` |
-| 固定内核 | DSH `0.2.1-rc.3`（上游候选版）· `runtime/core-source.json` |
+| 当前源码版本 | `1.2.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 源码运行包 | `payload-v15` · `MainActivity.java` |
+| 固定内核 | DSH `0.2.2-rc.1`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
 <!-- dsh-release-facts:end -->
 
 源码高于 stable 时表示下一版正在准备。README 顶部下载始终指向已发布正式版；每轮用户修改完成后按约定递增版本，通过完整 Android CI，再走正式发布流程。
+
+## 1.2.0 官方新内核与移动端布局
+
+固定 DSH 0.2.2-rc.1，优先沿用官方手机/平板布局和新增功能，旧视口、设置导航和模型标签覆盖为新核让步。Android 文件功能通过紧凑菜单追加，启动就绪支持默认收起的官方抽屉。干净 npm 依赖与 Android 预适配以 payload-v15 分发，四个工具片保持字节不变。
+
+旧核普通/压缩历史读取、原字节保留与继续写入，实际工具批次与 CodeBuddy SDK，设置、账号、模型菜单、首屏及触屏浏览器按真实消费路径验证。完整 Android CI、公开产物和具体核验边界以本版发布及 Actions 为准，未进行手机或模拟器测试。
 
 ## 1.1.6 上下文与发布流程
 
@@ -71,7 +77,7 @@ CodeBuddy DeepSeek V4.1 Flash 从 300K 默认档位切换为已声明的 1M，�
 | DeepSeek 账号 | 上游账号与余额界面、浏览器登录及账号模型；App 工具/模型中心打开同一上游页 | [账号说明](DEEPSEEK_ACCOUNT.md) |
 | 目录应用 | 空闲后通过内核 settings 服务应用，保留进程和界面；运行/未知时延后 | [1.0 新增反馈修复](RELEASE_1_0.md) |
 | 思考选择器 | 原生与聊天框均可选择；所有模型追加字面量 max 请求 | [模型说明](MODEL_REASONING.md) |
-| 内核 | App 0.34.0 使用 payload-v13 / DSH 0.2.1-rc.3，保留 Android 兼容层 | [内核升级](CORE_UPGRADE.md) |
+| 内核 | App 1.2.0 使用 payload-v15 / DSH 0.2.2-rc.1，沿用官方移动端布局并保留 Android 兼容层 | [内核升级](CORE_UPGRADE.md) |
 | App 设置与会话 | 原 DSH 设置框架、真实归档/恢复/继续、重命名及可恢复回收站 | [App 设置](APP_SETTINGS.md) |
 | 更新与诊断 | 快照、失败恢复、恢复后更新暂缓、脱敏 ZIP、加密配置备份已实现 | [交接](HANDOVER.md) |
 | 发布与文档 | 同签名 CI 发布；本轮补全中英文 README、全部文档状态、模型表和链接校验 | [构建](BUILD.md)、[脚本](../scripts/README.md) |

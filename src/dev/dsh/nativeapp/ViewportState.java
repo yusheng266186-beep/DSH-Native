@@ -4,7 +4,7 @@ package dev.dsh.nativeapp;
 final class ViewportState {
     private ViewportState() { }
     static String script(int screenWidthDp) {
-        return "(()=>{const m=document.querySelector('meta[name=viewport]');if(m){const c='width="
+        return "(()=>{const m=document.querySelector('meta[name=viewport]');if(m){const c=document.querySelector('meta[name=dsh-mobile-layout]')?'width=device-width, initial-scale=1':'width="
                 + MobileLayout.viewportWidth(screenWidthDp) + "';if(m.content!==c)m.content=c;}})();";
     }
 }

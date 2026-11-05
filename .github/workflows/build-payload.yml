@@ -9,8 +9,8 @@ name: 构建运行包
 # 这个工作流把构建固定在 GitHub 的 x86_64 runner 上：产物可复现，
 # 不再依赖任何人的本地环境，也就不会再踩同一个坑。
 #
-# 只上传产物，**不发布、不写任何清单**。发布仍由 scripts/release_payload.py
-# 单独执行（先验后发），App 的 latest 清单仍只由 release.yml 维护。
+# 默认只上传产物。显式开启发布时由 scripts/release_payload.py 先验后发，
+# 也可复用同一提交已成功构建的产物；App latest 仍只由 release.yml 维护。
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ on:
       base_tag:
         description: '基底 payload 标签（提供已验证的 Android 二进制与上一份清单）'
         required: true
-        default: 'payload-v12'
+        default: 'payload-v14'
       out_name:
         description: '输出目录名（仅用于产物组织）'
         required: false
@@ -32,12 +32,21 @@ on:
         description: '发布用的标签（仅当 publish=true）。例：payload-v11'
         required: false
         default: ''
+      reuse_run_id:
+        description: '直接发布已成功构建的运行包（可选 Actions run ID；需同时指定 source_ref）'
+        required: false
+        default: ''
+      source_ref:
+        description: '复用产物的完整源提交 SHA；必须与成功构建完全一致'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: inputs.reuse_run_id == ''
     outputs:
       dir: ${{ steps.built.outputs.dir }}
       manifest_sha: ${{ steps.built.outputs.manifest_sha }}
@@ -65,6 +74,8 @@ jobs:
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: runtime/core-package-lock.json
 
       - name: 安装 zstd
         run: |
@@ -102,6 +113,11 @@ jobs:
             --base "$RUNNER_TEMP/base-runtime" \
             --previous-manifest "$RUNNER_TEMP/base-release/manifest.json" \
             --out "$RUNNER_TEMP/${{ inputs.out_name }}"
+
+      - name: 验证旧内核历史读取与继续写入
+        run: |
+          node --expose-internals tests/js/core-history-upgrade.mjs "$RUNNER_TEMP/base-runtime" "$RUNNER_TEMP/${{ inputs.out_name }}/runtime"
+          node --expose-internals tests/js/core-runtime-consumer.mjs "$RUNNER_TEMP/${{ inputs.out_name }}/runtime"
 
       - name: 核对产物
         run: |
@@ -157,13 +173,40 @@ jobs:
   publish:
     # 默认不跑。只有显式 publish=true 且给了 new_tag 才会执行。
     needs: build
-    if: ${{ inputs.publish == true }}
+    if: ${{ always() && inputs.publish == true && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.reuse_run_id != '')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     steps:
       - name: 检出仓库
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.reuse_run_id != '' && inputs.source_ref || github.sha }}
+
+      - name: 核对复用构建的成功状态和源提交
+        if: inputs.reuse_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          repo=os.environ['GITHUB_REPOSITORY']; run_id=os.environ['REUSE_RUN_ID']; source=os.environ['SOURCE_REF']
+          assert run_id.isdecimal() and re.fullmatch(r'[0-9a-f]{40}',source), 'run ID and full source SHA are required'
+          run=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}']))
+          assert run['status']=='completed' and run['conclusion']=='success', 'build has not passed'
+          assert run['path']=='.github/workflows/build-payload.yml', 'unexpected source workflow'
+          assert run['repository']['full_name']==repo and run['head_repository']['full_name']==repo, 'unexpected source repository'
+          assert run['head_sha']==source==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(), 'source commit mismatch'
+          jobs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/actions/runs/{run_id}/jobs']))['jobs']
+          build=next(job for job in jobs if job['name']=='build')
+          assert build['conclusion']=='success', 'full build job did not pass'
+          for name in ['构建运行包分片','验证旧内核历史读取与继续写入','核对产物']:
+              assert any(step['name']==name and step['conclusion']=='success' for step in build['steps']), f'missing successful check: {name}'
+          print(f'Verified payload run {run_id}, source {source}')
+          PY
 
       - name: 校验发布参数
         run: |
@@ -185,6 +228,8 @@ jobs:
         with:
           name: payload-${{ inputs.base_tag }}-build
           path: ${{ runner.temp }}/built
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.reuse_run_id || github.run_id }}
 
       - name: 下载基底工具片
         env:
@@ -245,11 +290,12 @@ jobs:
           printf '# %s\n\n由 build-payload.yml 在 x86_64 runner 上构建并发布。\n构建产物见 BUILD-INFO.txt。\n' \
             '${{ inputs.new_tag }}' > "$WORK/NOTES.md"
           python3 scripts/release_payload.py \
-            --commit "$GITHUB_SHA" --notes "$WORK/NOTES.md" \
+            --commit "$(git rev-parse HEAD)" --notes "$WORK/NOTES.md" \
             '${{ inputs.new_tag }}' "$WORK"
 
       - name: 公开后复核
         run: |
           set -euo pipefail
-          echo "manifest SHA256（本地产物）: ${{ needs.build.outputs.manifest_sha }}"
-          echo "分片大小（本地产物）:     ${{ needs.build.outputs.shard_size }}"
+          sha256sum "$RUNNER_TEMP/publish/manifest.json"
+          stat -c 'dsh.tar.zst: %s bytes' "$RUNNER_TEMP/publish/dsh.tar.zst"
+          echo "运行包源提交: $(git rev-parse HEAD)"

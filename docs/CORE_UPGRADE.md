@@ -1,8 +1,20 @@
-# DSH 0.2.0-rc.2 / payload-v10
+# DSH 内核升级与 Android 适配
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
+
+## 1.2.0 / payload-v15
+
+2026-11-05 核对并固定官方最新发布的 `0.2.2-rc.1`（11 月 4 日发布，npm 的 `next` 通道；`latest` 当时仍为 `0.2.1-rc.5`）。固定 tarball、SHA-512 与完整依赖锁位于 `runtime/`。用户要求最新内核，因此选择已发布的最新候选版；不追踪未发布 master。[上游发布说明](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.1)。
+
+按用户要求优先保留官方布局和功能：新版使用 device-width、官方手机抽屉、设置导航和多语言模型选择器，旧 480px/CSS/导航覆盖仅留给旧核兼容路径。Android 扩展仍从公开 slots 追加；文件操作折叠为紧凑菜单。实际测量后仅补设置文档按钮大字体换行和预设卡片提示溢出。修复首屏判断误依赖收起侧栏里的设置入口，必须有屏内官方入口、输入区/对话框绘制并完成真实连接。
+
+新工具执行插件与批次接口由真实消费者验证，CodeBuddy 继续使用原样 SDK/CLI 和 1M 配置。活动 Web profile 中按官方要求退役独立 `dsh-experimental-tool-worktree` 条目，不启用替代实验性插件。旧核实际写出的普通/压缩历史由新核只读打开（原字节保留）、追加并重开验证。手机运行环境中的 Node 26.4.0 高于新版要求的 24.9；Node、签名和四个工具片不变。
+
+运行包通过官方 x86_64 CI 从 npm 干净安装和预适配；相同源码 APK 完整 CI 通过后复用发布。新 manifest 及运行文件清单从真实产物更新，不改写旧 payload 或旧 App 清单。验证范围见 [1.2.0 说明](../release-notes/v1.2.0.md)，手机与真实服务商全功能仍由用户后续验证。
+
+## 0.32.0 / payload-v10（历史）
 
 App 0.32.0 起使用 payload-v10，将 DSH CLI 及全部 277 个 `dsh-*` 模块从 0.1.7-rc.2 升到固定的 0.2.0-rc.2。这是 2026-09-30 核对并锁定的上游候选版，不是对未来 npm latest 的动态声明。当前来源与完整性以 `runtime/core-source.json` / 锁文件为准；App stable 与上游候选级别分别记录。
 

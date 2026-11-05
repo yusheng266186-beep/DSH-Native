@@ -11,13 +11,16 @@ const check=(value,label)=>{assert(value,label);checks++;},hex=value=>Buffer.fro
 try{
  await fs.mkdir(path.join(home,'profiles/web'),{recursive:true});
  await fs.copyFile(new URL('../../payload/settings-preset.yaml',import.meta.url),path.join(root,'settings-preset.yaml'));
+ await fs.writeFile(path.join(home,'profiles/web/package.json'),JSON.stringify({name:'kept-profile',dependencies:{'custom-plugin':'1.0.0'},dsh:{profile:{bundles:['@deepseek-ai/dsh-base','@deepseek-ai/dsh-web-app','@deepseek-ai/dsh-experimental-tool-worktree','custom-plugin']}}}));
  const settings={"agent-default-model":{provider:'commandcode',model:'old/model',reasoningEffort:'high'},'llm-pi-ai':{providers:{commandcode:{baseURL:'https://api.commandcode.ai/provider/v1',apiKeyEnv:'COMMANDCODE_API_KEY'},custom:{baseURL:'https://example.test/v1',models:[{id:'custom'}]}}},'ui-theme':{preference:'dark'}};
  await fs.writeFile(path.join(home,'settings.yaml'),yaml.stringify(settings));
  await fs.writeFile(path.join(home,'settings.yaml.imported'),yaml.stringify(settings));
  await fs.writeFile(path.join(home,'.credentials.yaml'),yaml.stringify({version:1,refs:{COMMANDCODE_API_KEY:'retired-synthetic-key',DEEPSEEK_API_KEY:'kept-synthetic-key'},records:{commandcode:{secret:'retired-synthetic-record'},'deepseek-account':{token:'kept-synthetic-grant'}}}));
  await fs.writeFile(path.join(home,'profiles/web/cordis.patch.yml'),yaml.stringify(Object.entries(settings).map(([id,config])=>({id,config}))));
  await fs.writeFile(path.join(home,'.native-project-models'),'DSHPM1\nG\t'+['commandcode','old/model','high'].map(hex).join('\t')+'\nP\t'+['Project A','deepseek-official','deepseek-flash','high'].map(hex).join('\t')+'\n');
- const first=await migrate(root,runtime);check(first.updated===5,'all five active targets migrated');
+ const first=await migrate(root,runtime);check(first.updated===6,'active configuration and retired official bundle migrated');
+ const bundles=JSON.parse(await fs.readFile(path.join(home,'profiles/web/package.json'),'utf8'));
+ check(!bundles.dsh.profile.bundles.includes('@deepseek-ai/dsh-experimental-tool-worktree')&&bundles.dsh.profile.bundles.includes('custom-plugin')&&bundles.dependencies['custom-plugin']==='1.0.0','retire only the upstream-removed worktree entry and retain other profile data');
  const migrated=yaml.parse(await fs.readFile(path.join(home,'settings.yaml'),'utf8'));
  check(!migrated['llm-pi-ai'].providers.commandcode&&migrated['llm-pi-ai'].providers.custom.models[0].id==='custom','removed route only; custom provider kept');
  check(migrated['agent-default-model'].provider==='codebuddy'&&migrated['agent-default-model'].model==='deepseek-v4.1-flash'&&migrated['ui-theme'].preference==='dark','default migrated and unrelated settings kept');

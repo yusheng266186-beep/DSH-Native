@@ -35,11 +35,13 @@ try{
  const invalid=await cli('clipboard.get',{text:'unexpected'});check(invalid.code===1&&JSON.parse(invalid.output).error==='INVALID_REQUEST','HTTP request validation keeps native error through CLI');
  const {Context}=await load('cordis'),{SystemPrompt}=await load('dsh-system-prompt'),{ToolRuntime}=await load('dsh-tools');
  const ctx=new Context(),prompt=new SystemPrompt(ctx,{}),tools=new ToolRuntime(ctx);
+ const {NativeToolExecutor}=await load('dsh-tool-executor-native');tools.setExecutor(new NativeToolExecutor(ctx));
+ const execute=async input=>(await tools.execute({calls:[{type:'tool-call',id:input.callId,name:input.name,arguments:JSON.stringify(input.arguments)}],signal:input.signal})).results[0].result;
  await require(path.join(scratch,'android-tools.cjs')).apply(ctx);
  const tool=tools.get('android');check(!!tool&&tool.parameters.properties.method.enum.includes('screenshot'),'actual tool registry advertises native capabilities');
- const result=await tools.execute({name:'android',arguments:{method:'clipboard.get'},callId:'native-fixture',signal:new AbortController().signal});
+ const result=await execute({name:'android',arguments:{method:'clipboard.get'},callId:'native-fixture',signal:new AbortController().signal});
  check(!result.isError&&result.value.text==='synthetic clipboard','actual ToolRuntime consumes real Java bridge response');
- const refused=await tools.execute({name:'android',arguments:{method:'notification.post',title:'test',text:'synthetic'},callId:'native-denied',signal:new AbortController().signal});
+ const refused=await execute({name:'android',arguments:{method:'notification.post',title:'test',text:'synthetic'},callId:'native-denied',signal:new AbortController().signal});
  check(refused.isError&&JSON.stringify(refused).includes('NOTIFICATIONS_DISABLED'),'native failure is an actual model tool error');
  // The real launcher must accept the exact insert patch used by MainActivity.
  const plugin=path.join(scratch,'android-tools.cjs');
@@ -58,7 +60,7 @@ try{
  const forbidden=await bridge.invoke({method:'clipboard.get'});
  check(!forbidden.ok&&forbidden.error==='FORBIDDEN'&&!JSON.stringify(forbidden).includes(token),'stale credentials keep authentication error without exposing or retrying action');
  await fs.writeFile(descriptor,original);
- const malformed=await tools.execute({name:'android',arguments:{method:'clipboard.get',text:'unexpected'},callId:'native-invalid',signal:new AbortController().signal});
+ const malformed=await execute({name:'android',arguments:{method:'clipboard.get',text:'unexpected'},callId:'native-invalid',signal:new AbortController().signal});
  check(malformed.isError&&JSON.stringify(malformed).includes('INVALID_REQUEST'),'actual ToolRuntime retains request validation error');
  const abort=new AbortController();abort.abort();await assert.rejects(bridge.invoke({method:'screenshot'},{signal:abort.signal}),/CANCELLED/);checks++;
  // A real peer that never replies exercises the shipped 12-second deadline, without mocking timers.

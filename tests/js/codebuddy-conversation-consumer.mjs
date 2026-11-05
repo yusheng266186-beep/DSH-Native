@@ -13,6 +13,7 @@ const {LocalFileSystem}=await load('dsh-fs-local'),suite=await load('dsh-tool-fs
 const require=createRequire(import.meta.url),cli=require('../../payload/codebuddy-cli.cjs'),sdk=await cli.prepare(assets),original=sdk.query;
 const directory=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-codebuddy-conversation-'));
 const ctx=new Context();new SystemPrompt(ctx,{});const tools=new ToolRuntime(ctx);
+const {NativeToolExecutor}=await load('dsh-tool-executor-native');tools.setExecutor(new NativeToolExecutor(ctx));
 new LocalFileSystem(ctx,{cwd:directory,diffBasisMaxBytes:65536});
 suite.apply(ctx,suite.Config({readImage:false}));
 const target=path.join(directory,'conversation.txt'),requests=[];
@@ -41,7 +42,7 @@ try{
   mode=name;const out=await consume(),call=out.find(chunk=>chunk.block?.type==='tool-call')?.block;
   check(out.at(-1)?.reason.kind==='tool-calls'&&call?.name===name,'actual CLI requests DSH '+name);
   if(name==='write')check(!await fs.stat(target).then(()=>true,()=>false),'CLI has not written the file itself');
-  const result=await tools.execute({name:call.name,arguments:JSON.parse(call.arguments),callId:call.id,signal:deadline.signal});
+  const result=(await tools.execute({calls:[call],signal:deadline.signal})).results[0].result;
   check(!result.isError,'actual DSH '+name+' executes successfully');
   context.messages.push({role:'assistant',content:[call]},{role:'tool',toolCallId:call.id,content:result.content});
   check(await fs.readFile(target,'utf8')==='Synthetic round trip','DSH filesystem contains complete bytes');

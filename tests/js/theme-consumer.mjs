@@ -18,7 +18,7 @@ try{
  const script=execFileSync('java',['-cp',classes,'dev.dsh.nativeapp.ThemeProbe','--script'],{encoding:'utf8'});
  browser=await chromium.launch({headless:true});const context=await browser.newContext({viewport:{width:436,height:880},isMobile:true,hasTouch:true,colorScheme:'light'});await context.grantPermissions(['local-network-access'],{origin});
  await context.addCookies([{name:cookie.slice(0,cookie.indexOf('=')),value:cookie.slice(cookie.indexOf('=')+1),url:origin,httpOnly:true,sameSite:'Lax'}]);const page=await context.newPage();let navigations=0,prompts=0;const errors=[];page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations++;});page.on('pageerror',error=>errors.push(error.message));page.on('request',request=>{if(new URL(request.url()).pathname==='/api/session/prompt')prompts++;});page.on('console',message=>{if(/^\[dsh-theme\] dark=[01]$/.test(message.text()))native.stdin.write(message.text()+'\n');});
- await page.goto(launch);await page.locator('[data-slot="settings.launcher"] button').waitFor();await page.evaluate(script);for(let n=0;n<100&&!reply;n++)await sleep(20);assert(reply,'native theme bridge');
+ await page.goto(launch);await page.locator('[data-slot="settings.launcher"] button:visible,[data-slot="shell.leading"] button:visible').first().waitFor();await page.evaluate(script);for(let n=0;n<100&&!reply;n++)await sleep(20);assert(reply,'native theme bridge');
  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page:'sessions'}})));
  await page.locator('article[data-session-id="'+session.sessionId+'"]').getByRole('button',{name:'Continue',exact:true}).click();const draft=page.locator('[contenteditable="true"][role="textbox"]').first();await draft.fill('UNSENT THEME DRAFT');
  await page.keyboard.press('Escape');await page.evaluate(()=>window.dispatchEvent(new CustomEvent('dsh-native-app-settings',{cancelable:true,detail:{page:'sessions'}}))); await page.locator('[data-shortcut-modal="settings"]').waitFor();const initial=navigations,views=reply.views;
@@ -31,7 +31,7 @@ try{
  for(const width of [880,1200,436,320]){
   const viewportScript=execFileSync('java',['-cp',classes,'dev.dsh.nativeapp.ThemeProbe','--viewport-script',String(width)],{encoding:'utf8'});
   await page.setViewportSize({width,height:width>800?700:880});await page.evaluate(viewportScript);
-  const expected=Math.max(480,Math.min(width,1440));await page.waitForFunction(w=>Math.abs(document.documentElement.clientWidth-w)<=2,expected);
+  const expected=await page.locator('meta[name=dsh-mobile-layout]').count()?width:Math.max(480,Math.min(width,1440));await page.waitForFunction(w=>Math.abs(document.documentElement.clientWidth-w)<=2,expected);
   check(navigations===initial,'orientation, tablet and split view reflow without navigation');
   check(await page.locator('[data-shortcut-modal="settings"]').isVisible(),'viewport updates retain open settings');
  }

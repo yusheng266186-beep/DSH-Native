@@ -23,6 +23,8 @@ public class MobileLayoutTest {
         check("layout module idempotent", panel != null && panel.equals(MobileLayout.patchLayoutModule(panel)), "changed");
         check("changed layout refused", MobileLayout.patchLayoutModule("changed") == null, "accepted");
         check("ambiguous layout refused", MobileLayout.patchLayoutModule("d.panelInfo.activePanelId = panelId;d.panelInfo.activePanelId = panelId;") == null, "accepted");
+        String official = "d.panelInfo.activePanelId = panelId;\nif (d.layoutInfo.viewportWidth < 768) d.layoutInfo.narrowExpanded = false;";
+        check("official mobile navigation is unchanged", official.equals(MobileLayout.patchLayoutModule(official)), "legacy override applied");
         if (args.length == 3 && "--dump-html".equals(args[0])) {
             try {
                 String html = new String(java.nio.file.Files.readAllBytes(
@@ -46,6 +48,10 @@ public class MobileLayoutTest {
         check("invalid width falls back to 480", MobileLayout.viewportWidth(0) == 480, "wrong");
         String html = "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body></body></html>";
         String once = MobileLayout.patchHtml(html, 480);
+        String modern = MobileLayout.patchHtml(html.replace("</head>","<meta name=\"dsh-mobile-layout\" content=\"upstream\"></head>"),480);
+        check("official mobile viewport retained",modern.contains("width=device-width, initial-scale=1"),"viewport overridden");
+        check("official geometry and motion retained",!modern.contains("!important")&&!modern.contains("flex-direction:column"),"legacy layout CSS leaked");
+        check("official layout retains Android state probe",modern.contains("dsh-native-session-probe")&&modern.equals(MobileLayout.patchHtml(modern,320)),"probe missing or viewport changed");
         check("viewport patched", once != null && once.contains("width=480"), String.valueOf(once));
         check("viewport no longer forces 1:1 scale", once != null
                 && !once.contains("width=480, initial-scale=1"), String.valueOf(once));

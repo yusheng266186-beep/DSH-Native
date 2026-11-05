@@ -133,7 +133,7 @@ try {
       };
       const noPageOverflow = async () => check(await page.evaluate(() =>
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'page has horizontal overflow');
-      check(await page.evaluate(() => document.documentElement.clientWidth) === Math.max(480, scenario.w), 'viewport floor changed');
+      check(await page.evaluate(() => document.documentElement.clientWidth) === (patched.includes('dsh-mobile-layout') ? scenario.w : Math.max(480, scenario.w)), 'upstream viewport changed');
       check(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), 'must exercise the coarse pointer CSS path');
       await square(send, 34, 'empty composer send');
       const microphone=page.getByRole('button',{name:/^(Start Android voice input|开始语音输入)$/});
@@ -183,12 +183,12 @@ try {
 
       const expandedSidebar = page.getByRole('button', {name: /^(Collapse sidebar|收起侧边栏)$/});
       if (await expandedSidebar.isVisible()) await expandedSidebar.click();
-      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), scenario.w >= 1000 ? 28 : 36, 'sidebar toggle');
+      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), (patched.includes('dsh-mobile-layout')&&scenario.w<768)||scenario.w>=1024 ? 28 : 36, 'sidebar toggle');
       await noPageOverflow();
       await page.locator('[data-composer-input]').fill('PRIVATE-DRAFT-CONTENT');
       await page.locator('input[type=file]').setInputFiles([
         {name: uploadName, mimeType: 'text/plain', buffer: Buffer.from('PRIVATE-ATTACHMENT-CONTENT')},
-        {name: 'PRIVATE-IMAGE-NAME.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6WJkAAAAASUVORK5CYII=', 'base64')},
+        {name: 'PRIVATE-IMAGE-NAME.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQVR4nGMMqDjxn4GBgYEJRIAwACawApOpXK/OAAAAAElFTkSuQmCC', 'base64')},
         {name: 'second-upload.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic second attachment')},
       ]);
       const removeImage = page.getByRole('button', {name: /^(Remove image |移除图片 )/});
@@ -239,7 +239,7 @@ try {
         // and file/directory references. Restage disposable upload fixtures.
         await page.locator('input[type=file]').setInputFiles([
           {name: 'second-upload.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic second attachment')},
-          {name: 'PRIVATE-IMAGE-NAME.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6WJkAAAAASUVORK5CYII=', 'base64')},
+          {name: 'PRIVATE-IMAGE-NAME.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQVR4nGMMqDjxn4GBgYEJRIAwACawApOpXK/OAAAAAElFTkSuQmCC', 'base64')},
         ]);
         await removeImage.waitFor({state: 'visible'});
       }
@@ -277,6 +277,7 @@ try {
       check(await page.locator('[data-dsh-native-tools]').count() === 0, 'removed App entry returned');
       check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
       check(nativeActions.length === 0, 'settings cleanup emitted a native action');
+      if(await page.locator('[data-sidebar-drawer][data-sidebar-collapsed]').count())await page.locator('[data-slot="shell.leading"] button').first().click();
       const accountMenu=page.getByRole('button',{name:/^(Account menu|账号菜单)$/});
       for(let n=0;n<100&&(await size(accountMenu)).width<=64;n++)await page.waitForTimeout(25);
       check((await size(accountMenu)).width > 64, 'original account menu was squeezed');
@@ -291,7 +292,7 @@ try {
       await selectCategory(/^(General|General settings|常规|通用|通用设置)$/);
       const settingsBox = await size(settings);
       const vw = await page.evaluate(() => document.documentElement.clientWidth);
-      check(settingsBox.width <= vw - 16 + 1, 'settings exceed the viewport');
+      check(settingsBox.width <= vw + 1, 'settings exceed the viewport: '+JSON.stringify(settingsBox));
       check(settingsBox.x >= -.5 && settingsBox.x + settingsBox.width <= vw + .5, 'settings are offset off screen');
       for (const control of await settings.getByRole('switch').all()) {
         const r = await size(control); check(r.width >= 35.5 && Math.abs(r.height - 20) < .5, 'settings switch was squeezed or enlarged');
@@ -318,14 +319,16 @@ try {
       await selectCategory(/^(Built-in plugins|内置插件)$/);
       await square(settingsClose, 28, 'plugins settings close');
       // Visit every existing settings category, including optional plugin pages.
-      const categories = await settings.locator('[data-settings-category]').allTextContents();
+      const categories = await settings.locator('nav button').allTextContents();
       for (const category of categories) {
         await selectCategory(category.trim());
         await page.waitForTimeout(80);
-        check(await settings.evaluate(e => {
+        const fits=await settings.evaluate(e => {
           const content = e.lastElementChild;
           return content.scrollWidth <= content.clientWidth + 1;
-        }), 'settings category has horizontal overflow: ' + category);
+        });
+        if(!fits)console.log('Settings overflow geometry',category,await settings.evaluate(e=>[...e.querySelectorAll('*')].filter(el=>el.clientWidth>0&&el.scrollWidth>el.clientWidth+1).slice(0,12).map(el=>({tag:el.tagName,slot:el.getAttribute('data-slot'),test:el.getAttribute('data-testid'),role:el.getAttribute('role'),width:el.clientWidth,scroll:el.scrollWidth,display:getComputedStyle(el).display,grid:getComputedStyle(el).gridTemplateColumns}))));
+        check(fits, 'settings category has horizontal overflow: ' + category);
         const closeBox = await size(settingsClose);
         const viewportHeight = await page.evaluate(() => document.documentElement.clientHeight);
         check(closeBox.y >= -.5 && closeBox.y + closeBox.height <= viewportHeight + .5,
@@ -341,13 +344,13 @@ try {
         {label: /^(Automation tasks|自动化任务)$/, selector: '[data-testid="task-manager-page"]'},
       ]) {
         const openSidebar = page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/});
-        if (await openSidebar.isVisible()) await openSidebar.tap();
+        if (await page.locator('[data-sidebar-collapsed]').count() && await openSidebar.isVisible()) await openSidebar.tap();
         await page.getByRole('button', {name: panel.label, exact: true}).tap();
         const surface = page.locator(panel.selector);
         await surface.waitFor({state: 'visible'});
         if (panel.selector.includes('plugin')) await page.locator('[data-plugin-panel][aria-busy=false]').waitFor({state: 'visible'});
         await page.waitForTimeout(350);
-        if (scenario.w < 1024) {
+        if (scenario.w < (patched.includes('dsh-mobile-layout') ? 768 : 1024)) {
           await page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}).waitFor({state: 'visible'});
           const available = await page.evaluate(() => document.documentElement.clientWidth);
           check((await size(surface)).width >= available - 58, 'sidebar still squeezes the selected panel');

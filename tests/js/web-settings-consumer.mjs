@@ -44,7 +44,7 @@ try{
   await page.route(origin+'/',async route=>{const response=await route.fetch();const html=preparedFrontend(await response.text(),mobile,scenario.w);await route.fulfill({response,body:html});});
   await page.addInitScript(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.__fixtureSockets=[];const Native=window.WebSocket;window.WebSocket=class extends Native{constructor(...args){super(...args);window.__fixtureSockets.push(this);}};window.__DSH_CONNECTION_RECOVERY__={backoffBaseMs:5000,backoffMaxMs:5000};});
   page.on('console',m=>{if(process.env.DSH_SETTINGS_LAYOUT_PROBE&&m.text().startsWith('[dsh-native] layout-probe '))console.log(m.text());});
-  await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
+  await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"] button:visible,[data-slot="shell.leading"] button:visible').first().waitFor();
   // Stress layout with enlarged text in the real settings tree. This is a CSS
   // boundary approximation, not an Android WebView textZoom/device measurement.
   if(scenario.largeText)await page.addStyleTag({content:'[data-shortcut-modal="settings"][role="dialog"] :is(button,input,textarea,label,p,h2,h3,h4,span){font-size:21px;line-height:1.5}'});
@@ -145,13 +145,13 @@ try{
   const expand=page.locator('[data-sidebar-right-expand]');if(await expand.isVisible())await expand.click();
   await page.locator('[data-sidebar-right-guide-entry="files"]').click();await page.getByText('editable-notes.txt',{exact:true}).dblclick();
   const preview=page.locator('[data-textpreview-state="text"]');await preview.waitFor();
-  const fileTools=preview.locator('.dsh-file-actions');await fileTools.getByRole('button',{name:scenario.lang==='en'?'Share':'分享',exact:true}).waitFor();
+  const fileTools=preview.locator('.dsh-file-actions');const fileMenu=fileTools.getByRole('button',{name:scenario.lang==='en'?'File actions':'文件操作',exact:true});await fileMenu.waitFor();
   for(const action of [scenario.lang==='en'?'Share':'分享',scenario.lang==='en'?'Open in app':'其他应用打开']){
-   await fileTools.getByRole('button',{name:action,exact:true}).click();await fileTools.getByRole('button',{name:action,exact:true}).waitFor({state:'visible'});await sleep(100);
+   await fileMenu.click();await page.getByRole('menuitem',{name:action,exact:true}).click();await fileMenu.waitFor({state:'visible'});await sleep(100);
   }
   check(fileCommands.some(item=>item.action==='share'&&item.path.endsWith('/editable-notes.txt'))&&fileCommands.some(item=>item.action==='open'),'real file preview dispatches share/open');
   check(await fileTools.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'preview actions fit mobile toolbar');
-  await fileTools.getByRole('button',{name:scenario.lang==='en'?'Edit':'编辑',exact:true}).click();
+  await fileMenu.click();await page.getByRole('menuitem',{name:scenario.lang==='en'?'Edit':'编辑',exact:true}).click();
   await page.locator('[data-device-page="files"]').getByRole('button',{name:/^Save(d \d+)?$/}).waitFor();
   const editor=page.locator('[data-device-page="files"]');await editor.getByRole('alert').filter({hasText:scenario.lang==='en'?'Text could not be read completely':'正文未能完整读取'}).waitFor();
   check(await editor.locator('textarea').isDisabled(),'failed chunk read cannot edit truncated text');

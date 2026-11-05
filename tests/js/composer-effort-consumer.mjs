@@ -82,9 +82,14 @@ const directory = new plugin.ModelDirectory({
 }, projected, () => false);
 const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text || b.firstElementChild?.textContent === text);
 const trigger = () => document.querySelector('[aria-haspopup="menu"]');
+const maxLabel = () => {
+  const selection=directory.store.getSnapshot().current;
+  return catalog.groups.find(group=>group.id===selection.provider).models.find(model=>model.id===selection.model).reasoning.efforts.find(effort=>effort.id==='max').name;
+};
+const maxButton = () => button(maxLabel());
 let checked = 0;
 try {
-  for (const locale of ['zh', 'en']) {
+  for (const locale of Object.keys(dictionaries)) {
     const t = (key, vars = {}) => Object.entries(vars).reduce((text, [name, value]) => text.replace(`{${name}}`, value), dictionaries[locale][key] ?? key);
     await act(async () => root.render(React.createElement(Component, {
       locked: false, available: true, directory: directory.store,
@@ -97,19 +102,19 @@ try {
       await act(async () => trigger().click());
       assert(button(t('menu.effort')), `${group.id}/${model.id}: effort menu must be available`);
       await act(async () => button(t('menu.effort')).click());
-      const max = button(t('effort.maxRequest'));
+      const max = maxButton();
       assert(max && !max.disabled, `${group.id}/${model.id}: requested max must be selectable`);
-      assert.equal(max.title, t('effort.maxNotice'));
+      assert.equal(max.getAttribute('role'),'menuitemradio');
       await act(async () => max.click());
       assert.equal(requests.length, before + 1);
       assert.deepEqual(requests.at(-1), { sessionId: 'existing-session', provider: group.id, model: model.id, reasoningEffort: 'max' });
       assert.equal(directory.store.getSnapshot().current.reasoningEffort, 'max');
-      assert(trigger().textContent.includes(t('effort.maxRequest')));
+      assert(trigger().textContent.includes(maxLabel()));
       await act(async () => trigger().click());
       await act(async () => button(t('menu.effort')).click());
-      assert.equal(button(t('effort.maxRequest')).getAttribute('aria-checked'), 'true');
+      assert.equal(maxButton().getAttribute('aria-checked'), 'true');
       // Re-selecting the current max closes without another write.
-      await act(async () => button(t('effort.maxRequest')).click());
+      await act(async () => maxButton().click());
       assert.equal(requests.length, before + 1);
       checked++;
     }
@@ -117,7 +122,7 @@ try {
     rejectMax = true;
     await act(async () => trigger().click());
     await act(async () => button(t('menu.effort')).click());
-    await act(async () => button(t('effort.maxRequest')).click());
+    await act(async () => maxButton().click());
     assert.equal(directory.store.getSnapshot().current.reasoningEffort, 'high');
     assert.equal(directory.store.getSnapshot().pending, null);
     assert(document.querySelector('[role="alert"]').textContent.includes('provider rejected max'));

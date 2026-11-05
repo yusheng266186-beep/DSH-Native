@@ -12,5 +12,7 @@ export function preparedFrontend(html, reference, width=480) {
   }
   const viewport=/<meta\b[^>]*name=["']viewport["'][^>]*>/ig;
   assert.equal((html.match(viewport)||[]).length,1,'published document has one viewport');
-  return html.replace(viewport,'<meta name="viewport" content="width='+Math.max(480,Math.min(width,1440))+'" />');
+  // New cores own device-width breakpoints; legacy fixtures retain their scale.
+  return html.includes('name="dsh-mobile-layout" content="upstream"') ? html
+    : html.replace(viewport,'<meta name="viewport" content="width='+Math.max(480,Math.min(width,1440))+'" />');
 }

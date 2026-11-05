@@ -1,7 +1,7 @@
 # 交接说明
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 接手顺序
@@ -22,14 +22,16 @@ python3 scripts/sync_project_metadata.py --check --allow-unpublished-source
 |---|---|
 | App | 包名 `dev.dsh.native`，minSdk 24 / targetSdk 28 / ARM64 |
 | 执行 | `<root>` 为 `getFilesDir()/dsh`；Node、DSH 与工具不依赖用户的 Termux/proot |
-| 内核 | 固定来源和锁文件位于 `runtime/`；当前使用 DSH 0.2.1-rc.3，上游候选版 |
-| 运行包 | payload-v13：DSH 0.2.1-rc.3，Android 二进制和工具片继承 v12；精确大小见发布清单 |
+| 内核 | 固定来源和锁文件位于 `runtime/`；当前使用 DSH 0.2.2-rc.1，上游候选版 |
+| 运行包 | payload-v15：DSH 0.2.2-rc.1，Android 二进制和四个工具片继承 v14；精确大小见发布清单 |
 | 空间 | DSH 片实际展开分配约 491 MiB；还要计算工具、内置负载、下载和快照，不能沿用旧 316MB / 550MiB 总预算 |
 | 配置 | `.dsh` 含凭据、profile、历史与附件；全局/项目模型覆盖单独保存 |
 | 工作区 | 默认 `/sdcard/DSHNative/workspace`，命名项目在其 `projects/` 下 |
 | 发布 | 两个工作流共用 `ci_build.sh`；正式版只经 `release.yml` / `release.sh` |
 
 源码、已发布 stable / test 与摘要的精确值只在 [STATUS](STATUS.md) 生成表维护。
+
+1.2.0 按用户要求以官方新增布局和功能为优先，采用 device-width、官方窄屏侧栏、设置导航和多语言模型菜单。不要将旧 480px 和整套 CSS/导航覆盖重新应用到新核；Android 文件操作通过紧凑菜单追加。迁移与历史兼容证据见 [内核升级](CORE_UPGRADE.md)。`StartupState` 必须接受默认收起抽屉时的官方顶部入口，不能只等侧栏中的设置按钮。
 
 0.39.0 内置 CodeBuddy SDK/CLI，构建入口通过 `prepare_codebuddy_sdk.py` 按 `runtime/codebuddy/package-lock.json` 安装并打包，产物只进 APK、不提交 Git。`CoreUpgrade.codeBuddy` 幂等移除旧认证头并将 App 自有 CodeBuddy 路由交给 `codebuddy-cli.cjs`。主进程设置 `DSH_NATIVE_APP_ROOT`，未设置时保留标准 HTTP，离线模型 SDK 消费测试仍可使用原有 seam。
 

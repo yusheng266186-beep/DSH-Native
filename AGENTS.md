@@ -1,7 +1,7 @@
 # 给接手开发者与 Agent 的工作约定
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本项目是 DeepSeek Harness（DSH）的 Android 原生适配客户端：Android/bionic Node 与工具链运行在 App 私有目录，不依赖用户安装 Termux 或 proot。
@@ -44,6 +44,8 @@
 | 外部能力 | 不把未知视觉能力标为支持；不把强制 max 请求说成服务商已保证支持 |
 | 静默捕获 | `catch (Throwable ignored)` 总数**不得超过 `check_java.py` 的 `SILENT_CATCH_BASELINE`**；新增前先判断这里该不该 `log()`。清理类（关流、取消动画、销毁 WebView）可静默但要就近写清理由 |
 | 前端布局 | **禁止全局元素选择器 + `!important`**（如 `button{...}`）——会压倒上游组件自身规则，曾把设置界面顶乱。修窄屏挤压只准用 `aria-label` 等稳定锚点定点修，改前先用 `LayoutProbe` 取真实数据；禁止写依赖 CSS Module 哈希类名的选择器（编译后形如 `_action_1pq26_43`，匹配不到）。窄屏视口维持 480，改小会让全局元素放大约 20% |
+
+2026-11-05 用户明确要求：内核升级以官方新增布局和功能为优先，自定义覆盖为上游让步。0.2.2 起采用官方 device-width 视口、窄屏侧栏、设置导航与多语言模型菜单；上表 480 基线仅用于旧内核兼容。Android 扩展通过公开 slot 追加，不替换已有官方操作；适配必须验证真实运行包。
 
 ## 3. 常用检查
 

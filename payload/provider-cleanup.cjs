@@ -8,6 +8,7 @@ async function migrate(root,runtime){
  if(canonical!==home)throw new Error('linked configuration home');
  const preset=yaml.parse(await fs.readFile(path.join(root,'settings-preset.yaml'),'utf8'));
  const buddy=preset['llm-pi-ai'].providers.codebuddy;
+ const currentCore=JSON.parse(await fs.readFile(path.join(runtime,'package.json'),'utf8')).version;
  const updates=[];
  const clean=map=>{
   if(!yaml.isMap(map))return;
@@ -28,12 +29,19 @@ async function migrate(root,runtime){
   const records=map.get('records',true);if(yaml.isMap(records))records.delete('commandcode');
   for(const pair of map.items){if(yaml.isMap(pair.value))clean(pair.value);else if(yaml.isSeq(pair.value))for(const item of pair.value.items)clean(item);}
  };
- for(const name of ['settings.yaml','settings.yaml.imported','.credentials.yaml','profiles/web/cordis.patch.yml','.native-project-models']){
+ for(const name of ['settings.yaml','settings.yaml.imported','.credentials.yaml','profiles/web/cordis.patch.yml','.native-project-models','profiles/web/package.json']){
   const file=path.join(home,name);let stat;
   try{stat=await fs.lstat(file);}catch(error){if(error.code==='ENOENT')continue;throw error;}
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size>2097152||await fs.realpath(file)!==file)throw new Error('unsafe configuration target');
   const source=await fs.readFile(file,'utf8');let next;
-  if(name==='.native-project-models'){
+  if(name==='profiles/web/package.json'){
+   const profile=JSON.parse(source),bundles=profile?.dsh?.profile?.bundles;
+   // The official 0.2.2 release retires this standalone tool. Its replacement
+   // is an opt-in bundle; do not enable new features or rewrite other packages.
+   if(currentCore==='0.2.2-rc.1'&&Array.isArray(bundles)&&bundles.includes('@deepseek-ai/dsh-experimental-tool-worktree')){
+    profile.dsh.profile.bundles=bundles.filter(id=>id!=='@deepseek-ai/dsh-experimental-tool-worktree');next=JSON.stringify(profile,null,2)+'\n';
+   }else next=source;
+  }else if(name==='.native-project-models'){
    if(source&&!source.startsWith('DSHPM1\n'))throw new Error('invalid project model configuration');
    next=source.split('\n').map(line=>{const parts=line.split('\t');const start=parts[0]==='G'?1:parts[0]==='P'?2:-1;if(start>0&&parts[start]===Buffer.from('commandcode').toString('hex')){parts[start]=Buffer.from('codebuddy').toString('hex');parts[start+1]=Buffer.from('deepseek-v4.1-flash').toString('hex');parts[start+2]=Buffer.from('max').toString('hex');}return parts.join('\t');}).join('\n');
   }else{
