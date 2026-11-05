@@ -1,7 +1,7 @@
 # 构建、验证与正式发布
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.1.6**；源码运行包：`payload-v14`；固定 DSH：`0.2.1-rc.3`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.1.6**；源码：**1.2.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 ## 1. 选择正确入口
@@ -193,7 +193,7 @@ Cannot find module '@deepseek-ai/node-addon-system-linux-x64/package.json'
 x86_64 runner 上：
 
 ```bash
-gh workflow run build-payload.yml -f base_tag=payload-v10
+gh workflow run build-payload.yml -f base_tag=payload-v14
 ```
 
 它会下载基底 payload、校验 SHA、解包出已验证的 Android 二进制作为 `--base`、
@@ -202,8 +202,8 @@ gh workflow run build-payload.yml -f base_tag=payload-v10
 * 分片里有 `node-pty/prebuilds/android-arm64/pty.node`（App 需要）
 * 分片里有 `node-addon-system-linux-x64/package.json`（CI 消费验证需要）
 
-任一缺失即失败。产物作为 artifact 上传，**不发布、不写清单** —— 发布仍由
-`scripts/release_payload.py` 单独执行。
+任一缺失即失败。默认仅上传 artifact；显式开启发布后，由
+`scripts/release_payload.py` 核验并发布，不修改 App latest 清单。
 
 工作流第一件事就是断言 `uname -m` 等于 `x86_64`：runner 类型将来若变化，
 会立刻失败而不是静默产出废分片。
@@ -219,6 +219,15 @@ gh workflow run build-payload.yml -f base_tag=payload-v10
 
 发布前从基底 Release 取回四个工具片，逐个核对与基底清单 SHA 一致，
 不一致直接拒绝 —— 工具片必须字节复用。
+
+已成功构建时可给出 `reuse_run_id` 和完整 `source_ref`，直接在 GitHub 下载该次
+artifact 并发布，省去重建与本机中转。工作流必须核对来源仓库、工作流、源提交和
+构建、旧历史升级、产物检查均成功；检出该源提交后才执行发布脚本。普通构建和
+发布使用同一运行时可留空这两个参数。
+
+如果 GitHub 自动令牌无权为旧提交创建新标签，使用已有 CLI 登录创建绑定
+`source_ref` 的同名 Release 草稿后重跑失败 job；发布脚本只接管目标提交完全
+一致的草稿，仍逐资产核对摘要。不要替换已经公开的 payload。
 
 写这个工作流时踩到两个**会在运行时才炸**的坑，都已修：
 

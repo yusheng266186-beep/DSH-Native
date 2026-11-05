@@ -9,9 +9,9 @@
     ]
   },
   "core": {
-    "version": "0.2.1-rc.3",
-    "payload": "payload-v14",
-    "manifest_sha256": "b1b45149a370ad9b54cc6d8634c2471d833eb8fd0a13708515ac211b3d0d7dc1"
+    "version": "0.2.2-rc.1",
+    "payload": "payload-v15",
+    "manifest_sha256": "3dbd000021f4a7ed3de7d8691e1d08a0f7b4c0c2b3c3d9009dae135b3d1c5e58"
   },
   "codebuddy": {
     "sdk": "0.3.291",
@@ -66,7 +66,7 @@
     }
   },
   "dependency_locks": {
-    "runtime/core-package-lock.json": "d34452955c6c426efa02581d49e13ec37ede24156da3b0969957d2061b2e13ed",
+    "runtime/core-package-lock.json": "458e2fec8202676e211f97d6d7b3bf34a14b54e2f03c912e02b08758caa0b42f",
     "runtime/codebuddy/package-lock.json": "61ecc6b63125d60ff1f5bb856d842f0ee2149dfb17d3d516ba0455ef7f38d295"
   }
 }

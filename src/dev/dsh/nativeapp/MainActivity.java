@@ -56,15 +56,15 @@ public class MainActivity extends Activity {
      * </pre>
      */
     private static final String ASSET_PATH =
-            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v14/";
+            "https://github.com/yusheng266186-beep/DSH-Native/releases/download/payload-v15/";
     /**
-     * payload-v14 的 manifest.json 固定摘要。
+     * payload-v15 的 manifest.json 固定摘要。
      *
      * <p>摘要内置在 APK，而不是从同一个镜像下载，代理即使同时替换清单和归档
      * 也无法通过验证。更换 payload tag 或清单内容时必须同步更新这个值。
      */
     private static final String PAYLOAD_MANIFEST_SHA256 =
-            "b1b45149a370ad9b54cc6d8634c2471d833eb8fd0a13708515ac211b3d0d7dc1";
+            "3dbd000021f4a7ed3de7d8691e1d08a0f7b4c0c2b3c3d9009dae135b3d1c5e58";
     /** 用于检查 App 自身更新的仓库。 */
     private static final String REPO = "yusheng266186-beep/DSH-Native";
 

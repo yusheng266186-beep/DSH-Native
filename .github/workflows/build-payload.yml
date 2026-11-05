@@ -9,8 +9,8 @@ name: 构建运行包
 # 这个工作流把构建固定在 GitHub 的 x86_64 runner 上：产物可复现，
 # 不再依赖任何人的本地环境，也就不会再踩同一个坑。
 #
-# 只上传产物，**不发布、不写任何清单**。发布仍由 scripts/release_payload.py
-# 单独执行（先验后发），App 的 latest 清单仍只由 release.yml 维护。
+# 默认只上传产物。显式开启发布时由 scripts/release_payload.py 先验后发，
+# 也可复用同一提交已成功构建的产物；App latest 仍只由 release.yml 维护。
 
 on:
   workflow_dispatch:
@@ -296,5 +296,6 @@ jobs:
       - name: 公开后复核
         run: |
           set -euo pipefail
-          echo "manifest SHA256（本地产物）: ${{ needs.build.outputs.manifest_sha }}"
-          echo "分片大小（本地产物）:     ${{ needs.build.outputs.shard_size }}"
+          sha256sum "$RUNNER_TEMP/publish/manifest.json"
+          stat -c 'dsh.tar.zst: %s bytes' "$RUNNER_TEMP/publish/dsh.tar.zst"
+          echo "运行包源提交: $(git rev-parse HEAD)"
