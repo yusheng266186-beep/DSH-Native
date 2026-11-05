@@ -144,6 +144,20 @@ class AndroidLoadableTest(unittest.TestCase):
 
 @requires_builder
 class PayloadBuilderTest(unittest.TestCase):
+    @requires_builder
+    def test_cumulative_removals_exclude_reintroduced_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base, runtime = pathlib.Path(directory) / 'base', pathlib.Path(directory) / 'runtime'
+            base.mkdir(); runtime.mkdir()
+            (base / 'obsolete').write_text('old')
+            (runtime / 'reintroduced').write_text('new')
+            (runtime / 'link').symlink_to('missing-target')
+            removed = prepare.obsolete_paths(base, runtime, ['reintroduced', 'historic', 'link'])
+            self.assertIn('obsolete', removed)
+            self.assertIn('historic', removed)
+            self.assertNotIn('reintroduced', removed)
+            self.assertNotIn('link', removed)
+
     """The builder must take the Android fork, never the Termux prebuild."""
 
     def source(self):

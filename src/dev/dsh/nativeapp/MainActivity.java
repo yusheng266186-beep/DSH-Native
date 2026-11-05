@@ -85,9 +85,9 @@ public class MainActivity extends Activity {
      * 空串表示直连 GitHub 兜底。
      */
     private static final String[] SOURCES = {
-            "",                               // 直连优先（实测这台设备上最快）
             "https://gh-proxy.com/",
             "https://ghfast.top/",
+            "",
             "https://ghproxy.net/",
     };
 
@@ -2647,17 +2647,6 @@ public class MainActivity extends Activity {
         return total;
     }
 
-    /** 删除清单中的单项；复用 FileOps 的规范路径与符号链接边界。 */
-    private static void deletePayloadEntry(File target, File runtimeRoot) throws IOException {
-        if (target == null || !target.exists()) return;
-        java.util.List<File> roots = java.util.Collections.singletonList(runtimeRoot);
-        String error = FileOps.delete(target, roots);
-        if (error != null || target.exists()) {
-            throw new IOException("无法安全移除运行包文件: " + target.getName()
-                    + (error == null ? "" : "（" + error + "）"));
-        }
-    }
-
     /** 只删除 appRoot 的明确维护子目录，绝不接受任意路径或 .dsh 用户数据。 */
     private static void deleteRuntimeChild(File target, File root) throws IOException {
         RuntimeDir.delete(target, root);
@@ -4504,6 +4493,15 @@ public class MainActivity extends Activity {
      * 超时会主动断开连接，缓存只在完整验证通过后替换。
      */
     private synchronized File refreshPayloadManifest(final File root) throws Exception {
+        // Release tags are immutable and the expected digest is compiled into
+        // this APK. Reuse matching metadata without putting network on startup.
+        File local = PayloadManifestCache.local(root, PAYLOAD_MANIFEST_SHA256);
+        if (local != null) {
+            String invalid = validatePayloadManifest(local);
+            if (invalid != null) throw new IOException("本地运行包清单不可信：" + invalid);
+            log("运行包清单已通过 APK 固定摘要验证，使用本地清单");
+            return local;
+        }
         final File cached = new File(root, "manifest.json");
         final File staged = new File(root, "manifest-"
                 + System.nanoTime() + ".next");
@@ -4771,25 +4769,22 @@ public class MainActivity extends Activity {
                 File dir = "dsh".equals(part.getString("target")) ? dshDir : toolsDir;
                 File archive = archives.get(name);
 
+                // A cumulative removal can name a file reintroduced upstream.
+                // Delete old contents before extraction; the saved snapshot and
+                // durable change marker cover both deletion and unpack failures.
                 setSplashStatus("正在解压运行包…");
                 log("解压 " + name + " …");
-                run(node, root, new String[]{
+                final String[] unpackArgs = new String[]{
                         new File(root, "unpack.js").getAbsolutePath(),
                         archive.getAbsolutePath(),
-                        dir.getAbsolutePath()}, null);
-
-                // 删除清单放在成功解压之后执行。快照已落盘，删除失败也能完整恢复。
-                java.util.List<String> del = removals.get(name);
-                if (del != null && !del.isEmpty()) {
-                    for (String rel : del) {
-                        File victim = new File(dir, rel);
-                        if (victim.exists()) {
-                            deletePayloadEntry(victim, dir);
-                            log("  已移除 " + rel);
-                        }
-                    }
-                }
+                        dir.getAbsolutePath()};
+                int removed = PayloadPartInstaller.install(dir, removals.get(name),
+                        "dsh".equals(part.getString("target")), new PayloadPartInstaller.Extractor() {
+                    @Override public void unpack() throws Exception { run(node, root, unpackArgs, null); }
+                });
+                log("  安装完成，清理旧文件 " + removed + " 项");
             }
+            if (changedTargets.contains("dsh")) RuntimePreparation.requireCurrentPort(root, dshDir);
         } catch (Throwable updateFailure) {
             if (rollbackCreated) {
                 try {
@@ -6976,7 +6971,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.2.0");
+        log("APK 版本: 1.2.1");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */

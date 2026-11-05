@@ -326,8 +326,8 @@ def prune_unusable_natives(modules):
     return sorted(set(removed))
 
 
-def obsolete_paths(base, runtime):
-    paths = []
+def obsolete_paths(base, runtime, previous=()):
+    paths = list(previous)
     # Delete only previously shipped files. User profiles/workspaces are outside
     # this directory; files newly installed by the user are not enumerated here.
     for path in sorted(base.rglob('*')):
@@ -335,7 +335,8 @@ def obsolete_paths(base, runtime):
         if (path.is_file() or path.is_symlink()) and not (runtime / rel).exists():
             paths.append(rel.as_posix())
     paths.append('node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js.dshorig')
-    return sorted(set(paths))
+    return sorted(p for p in set(paths)
+                  if not (runtime / p).exists() and not (runtime / p).is_symlink())
 
 
 def expanded_size(runtime):
@@ -380,7 +381,8 @@ def main():
     # pinned-archive builder. Phones no longer carry a source-rewriting fallback.
     from build_android_runtime import apply_port
     apply_port(runtime)
-    removals = obsolete_paths(args.base, runtime)
+    old = next(p for p in manifest['parts'] if p['name'] == 'dsh.tar.zst')
+    removals = obsolete_paths(args.base, runtime, old.get('remove', []))
     shard = args.out / 'dsh.tar.zst'
     # Fixed owner/timestamp and sorted paths make archives independent of npm's
     # extraction times. GNU tar long paths are handled by App's unpack.js.
@@ -390,10 +392,9 @@ def main():
     zstd = subprocess.run(['zstd', '-10', '-T2', '-q', '-f', '-o', str(shard)], stdin=tar.stdout)
     tar.stdout.close()
     assert tar.wait() == 0 and zstd.returncode == 0
-    old = next(p for p in manifest['parts'] if p['name'] == 'dsh.tar.zst')
     sentinel = runtime / 'lib/bin.js'
     new = dict(old, size=shard.stat().st_size, sha256=digest(shard),
-               revision=old.get('revision', 0) + 1, remove=sorted(set(old.get('remove', []) + removals)),
+               revision=old.get('revision', 0) + 1, remove=removals,
                unpacked_size=expanded_size(runtime),
                sentinel=dict(path='lib/bin.js', size=sentinel.stat().st_size, sha256=digest(sentinel)))
     manifest['parts'] = [new if p['name'] == 'dsh.tar.zst' else p for p in manifest['parts']]

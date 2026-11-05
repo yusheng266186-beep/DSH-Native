@@ -28,7 +28,7 @@ class CompatibilityTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='dsh-compat-') as directory:
             root = Path(directory)
             for path in ['runtime/compatibility.json', 'runtime/core-source.json', 'runtime/core-package-lock.json', 'runtime/codebuddy/package-lock.json',
-                         'src/dev/dsh/nativeapp/MainActivity.java', 'scripts/mkmanifest.py', 'payload/codebuddy-cli.cjs']:
+                         'src/dev/dsh/nativeapp/MainActivity.java', 'scripts/mkmanifest.py', 'payload/codebuddy-cli.cjs', 'payload/pinned-manifest.json']:
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / path, target)
