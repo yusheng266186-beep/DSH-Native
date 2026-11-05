@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROBE="$(mktemp -d)"
 trap 'rm -rf "$PROBE"' EXIT
+# The Android image adapter calls Pillow through a real Python process. The
+# shipped Android Python cannot run on a Linux/macOS test host. Keep its host
+# counterpart isolated, including for upstream's immediate image normalization.
+if [ -z "${DSH_PYTHON:-}" ]; then
+    python3 -m venv "$PROBE/image-python"
+    "$PROBE/image-python/bin/python3" -m pip install --disable-pip-version-check \
+        --only-binary=:all: 'Pillow==11.3.0'
+    export DSH_PYTHON="$PROBE/image-python/bin/python3"
+fi
+"$DSH_PYTHON" -c 'from PIL import Image, features; assert features.check("webp"), "Pillow WebP support is required"; print("Host image adapter: Pillow and WebP available")'
 TAG="$(python3 - "$ROOT/src/dev/dsh/nativeapp/MainActivity.java" <<'PY'
 import re, sys
 s = open(sys.argv[1], encoding='utf-8').read()

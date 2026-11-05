@@ -14,7 +14,7 @@
 | 本地 macOS / Linux 构建 | `local_build.sh <隔离目录> <已发布APK>` | JDK 17、官方 SDK 28/34、build-tools 34.0.0；无 GitHub 依赖 |
 | 完整 Linux / CI 构建 | `ci_build.sh <隔离目录>` | JDK 17、Node.js 24/npm、Android SDK、网络；GitHub CLI 推荐并用于消费者回归 |
 | 底层打包 | `build_bootstrap.sh` | 已由 ci_stage 或历史设备路径准备的工作区 |
-| 实际 payload 消费验证 | `check_model_consumer.sh` | JDK、Node/npm、gh、zstd/tar、网络 |
+| 实际 payload 消费验证 | `check_model_consumer.sh` | JDK、Node/npm、Python venv/pip、gh、zstd/tar、网络 |
 | 正式 App 发布 | `.github/workflows/release.yml` | GitHub Actions 与现有签名 |
 | 独立 payload 发布 | `release_payload.py` | 已构建并验证的分片、GitHub 发布凭据 |
 
@@ -74,6 +74,11 @@ bash scripts/local_build.sh /tmp/dsh-local-build /path/to/DSHNative-bootstrap.ap
 `.github/workflows/build.yml` 在 PR、main 与手动触发中复用 `ci_build.sh`，先检查元数据和文档，再构建，并消费源码实际引用的运行包。验证 APK 作为 Actions artifact 上传，不等于公开正式 Release。
 
 `check_model_consumer.sh` 下载对应 DSH 片并校验摘要，生成真实原生配置供 Host 消费；执行模型目录、视觉、思考声明、LLM 调用配置、离线 SDK 请求体，以及聊天框真实 React 组件和会话 RPC 回归。`tests/js` 固定测试依赖不进入 APK。
+
+图片消费验证使用临时 Python venv 内固定的 Pillow 11.3.0，并检查 WebP 支持；
+通过 `DSH_PYTHON` 传给生产图片适配器，测试结束一并清理。可显式指定已有的
+`DSH_PYTHON`，脚本仍检查依赖。此环境只用于主机验证，不进入 APK，也不替换
+运行包已附带的 Android Python/Pillow。
 
 同一路径还运行真实内核持久化、锁、FUSE 降级、磁盘错误、Web profile 与 token/Cookie 探测。所有模型请求只离线捕获，没有调用付费服务。
 
