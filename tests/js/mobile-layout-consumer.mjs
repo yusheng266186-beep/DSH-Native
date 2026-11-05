@@ -133,7 +133,7 @@ try {
       };
       const noPageOverflow = async () => check(await page.evaluate(() =>
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'page has horizontal overflow');
-      check(await page.evaluate(() => document.documentElement.clientWidth) === Math.max(480, scenario.w), 'viewport floor changed');
+      check(await page.evaluate(() => document.documentElement.clientWidth) === (patched.includes('dsh-mobile-layout') ? scenario.w : Math.max(480, scenario.w)), 'upstream viewport changed');
       check(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), 'must exercise the coarse pointer CSS path');
       await square(send, 34, 'empty composer send');
       const microphone=page.getByRole('button',{name:/^(Start Android voice input|开始语音输入)$/});
@@ -183,7 +183,7 @@ try {
 
       const expandedSidebar = page.getByRole('button', {name: /^(Collapse sidebar|收起侧边栏)$/});
       if (await expandedSidebar.isVisible()) await expandedSidebar.click();
-      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), scenario.w >= 1000 ? 28 : 36, 'sidebar toggle');
+      await square(page.getByRole('button', {name: /^(Open sidebar|打开侧边栏)$/}), patched.includes('dsh-mobile-layout')||scenario.w >= 1000 ? 28 : 36, 'sidebar toggle');
       await noPageOverflow();
       await page.locator('[data-composer-input]').fill('PRIVATE-DRAFT-CONTENT');
       await page.locator('input[type=file]').setInputFiles([
@@ -277,6 +277,7 @@ try {
       check(await page.locator('[data-dsh-native-tools]').count() === 0, 'removed App entry returned');
       check(await page.locator('[data-dsh-native-models]').count() === 0, 'model refresh still occupies the sidebar');
       check(nativeActions.length === 0, 'settings cleanup emitted a native action');
+      if(await page.locator('[data-sidebar-drawer][data-sidebar-collapsed]').count())await page.locator('[data-slot="shell.leading"] button').first().click();
       const accountMenu=page.getByRole('button',{name:/^(Account menu|账号菜单)$/});
       for(let n=0;n<100&&(await size(accountMenu)).width<=64;n++)await page.waitForTimeout(25);
       check((await size(accountMenu)).width > 64, 'original account menu was squeezed');
@@ -318,7 +319,7 @@ try {
       await selectCategory(/^(Built-in plugins|内置插件)$/);
       await square(settingsClose, 28, 'plugins settings close');
       // Visit every existing settings category, including optional plugin pages.
-      const categories = await settings.locator('[data-settings-category]').allTextContents();
+      const categories = await settings.locator('nav button').allTextContents();
       for (const category of categories) {
         await selectCategory(category.trim());
         await page.waitForTimeout(80);

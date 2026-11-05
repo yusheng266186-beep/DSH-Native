@@ -18,21 +18,21 @@ try {
  const refused=code=>async()=>{throw Object.assign(new Error('synthetic refusal'),{code});};
  for(const code of ['EACCES','EPERM','EXDEV','ENOSYS','EOPNOTSUPP','ENOTSUP','EMLINK']) {
   const internals={platform:'android',linkFile:refused(code)};
-  await writeFileAtomic(target,'new complete content',0o600,undefined,internals,{displayPath:target});
+  await writeFileAtomic(target,'new complete content',0o600,undefined,internals,{displayPath:target,createIfAbsent:true});
   check(await fs.readFile(target,'utf8')==='new complete content',code+' cannot create');
-  await assert.rejects(writeFileAtomic(target,'must not replace',0o600,undefined,internals,{displayPath:target}),/without reading/);checks++;
+  await assert.rejects(writeFileAtomic(target,'must not replace',0o600,undefined,internals,{displayPath:target,createIfAbsent:true}),/without reading/);checks++;
   check(await fs.readFile(target,'utf8')==='new complete content',code+' overwrote existing file');
   await fs.rm(target);
  }
  // A creator arriving after staging must also win over this guarded write.
  await assert.rejects(writeFileAtomic(target,'loser',0o600,undefined,{platform:'android',linkFile:refused('EACCES'),
-  inspectTemp:()=>fs.writeFile(target,'concurrent winner')},{displayPath:target}),/without reading/);checks++;
+  inspectTemp:()=>fs.writeFile(target,'concurrent winner')},{displayPath:target,createIfAbsent:true}),/without reading/);checks++;
  check(await fs.readFile(target,'utf8')==='concurrent winner','concurrent creator overwritten');await fs.rm(target);
  for(const code of ['ENOSPC','EIO']) {
-  await assert.rejects(writeFileAtomic(target,'data',0o600,undefined,{platform:'android',linkFile:refused(code)},{displayPath:target}),/synthetic refusal/);checks++;
+  await assert.rejects(writeFileAtomic(target,'data',0o600,undefined,{platform:'android',linkFile:refused(code)},{displayPath:target,createIfAbsent:true}),/synthetic refusal/);checks++;
   check(await fs.stat(target).catch(()=>null)===null,'real failure published a file');
  }
- await assert.rejects(writeFileAtomic(target,'data',0o600,undefined,{platform:'android',linkFile:refused('EACCES'),copyFile:refused('ENOSPC')},{displayPath:target}),/synthetic refusal/);checks++;
+ await assert.rejects(writeFileAtomic(target,'data',0o600,undefined,{platform:'android',linkFile:refused('EACCES'),copyFile:refused('ENOSPC')},{displayPath:target,createIfAbsent:true}),/synthetic refusal/);checks++;
  check(await fs.stat(target).catch(()=>null)===null,'copy failure published a file');
  await fs.writeFile(target,'old');await writeFileAtomic(target,'edited',0o600,undefined,{platform:'android'});
  check(await fs.readFile(target,'utf8')==='edited','ordinary replacement regressed');

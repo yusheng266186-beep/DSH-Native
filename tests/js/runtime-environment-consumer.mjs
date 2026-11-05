@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {createRequire} from 'node:module';
-import {pathToFileURL} from 'node:url';
+import {pathToFileURL,fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import vm from 'node:vm';
 import {EventEmitter} from 'node:events';
@@ -48,8 +48,8 @@ try {
     await assert.rejects(checkFileTool(path.join(scratch,'missing-runtime'),scratch),/file-tool import \(ERR_MODULE_NOT_FOUND\)/);checks++;
     await assert.rejects(checkFileTool(runtime,path.join(scratch,'missing-workspace')),/file-tool temporary-directory \(ENOENT\)/);checks++;
     await retained();
-    const result=spawnSync(process.execPath,[new URL('../../payload/runtime-checks.js',import.meta.url).pathname,runtime,scratch],{encoding:'utf8',timeout:15000});
-    check(result.status===0&&result.stdout.startsWith('FILE_TOOL|PASS|'),'shipped diagnostic CLI uses actual backend');await retained();
+    const result=spawnSync(process.execPath,[fileURLToPath(new URL('../../payload/runtime-checks.js',import.meta.url)),runtime,scratch],{encoding:'utf8',timeout:15000});
+    check(result.status===0&&result.stdout.startsWith('FILE_TOOL|PASS|'),'shipped diagnostic CLI uses actual backend: '+result.status+' '+result.stdout+' '+result.stderr); await retained();
     check(await fs.readFile(path.join(scratch,'user-file.txt'),'utf8')==='USER-DATA','user content unchanged');
     const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'dsh-preflight-test-'));
     try {

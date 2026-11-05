@@ -25,6 +25,7 @@ const ctx = {
       resolve: async () => ({ value: 'offline-test-key' }), readRecord: async () => undefined,
     } : undefined;
   },
+  waterfall(_event, _request, headers) { return headers; },
   logger: { warn() {}, error(message) { throw new Error(String(message)); } },
   llm: {
     registerConfigurableProviders() { return { replace() {} }; },
@@ -53,13 +54,12 @@ if (reasoningSnapshot) {
   // Exercise the actual Host registry and RPC catalog builder, not just adapters.
   const { Context } = requirePayload('@deepseek-ai/cordis');
   const { LlmRuntime } = await import(pathToFileURL(requirePayload.resolve('@deepseek-ai/dsh-llm')));
-  const { buildModelCatalog } = await import(pathToFileURL(requirePayload.resolve('@deepseek-ai/dsh-api-session-controller')));
+  const { SessionController } = await import(pathToFileURL(requirePayload.resolve('@deepseek-ai/dsh-api-session-controller')));
   const host = new Context();
   const registry = new LlmRuntime(host);
   for (const { routes, adapter } of adapters) registry.registerAdapter(routes, adapter);
-  const catalog = await buildModelCatalog({ llm: registry }, {
-    provider: 'codebuddy', model: 'gpt-6-astra', reasoningEffort: 'high',
-  });
+  const catalog = await SessionController.prototype.modelCatalog.call({ctx:{llm:registry,
+    agentDefaultModel:{currentSelection:()=>({provider:'codebuddy',model:'gpt-6-astra',reasoningEffort:'high'})}}});
   assert.deepEqual(catalog.failures, []);
   const deepseek = catalog.groups.find(group => group.id === 'codebuddy').models.find(model => model.id === 'deepseek-v4.1-flash');
   assert(deepseek, 'the actual Host still offers the upgraded DeepSeek model');

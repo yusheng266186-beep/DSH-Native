@@ -1,7 +1,7 @@
 {
-  "version": "0.2.1-rc.3",
-  "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.1-rc.3.tgz",
-  "integrity": "sha512-H+E9HLnHf7fJqzen84Z9Bq8ggb5xbrcbyhZjXTJLE9NabHr3zteGvTRvdvGkxPl4ov80is4WLglFmSo+/olJjg==",
-  "upstream": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.1-rc.3",
-  "base_payload": "payload-v12"
+  "version": "0.2.2-rc.1",
+  "tarball": "https://registry.npmjs.org/@deepseek-ai/dsh/-/dsh-0.2.2-rc.1.tgz",
+  "integrity": "sha512-ijR9UEVYkG15Q/Q79JzvzLBzQOQfc63VLr9n6flpwHPhr5IKn2UxthnSoto/P9l7qGd7pPvI1Ra6TW7LH3oKpg==",
+  "upstream": "https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.1",
+  "base_payload": "payload-v14"
 }

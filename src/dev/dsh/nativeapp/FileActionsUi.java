@@ -18,7 +18,8 @@ final class FileActionsUi {
         if(source.contains("data-native-file-toolbar"))return source;
         String anchor="className: TextPreview_module_css_default.header,";
         int count=source.split(java.util.regex.Pattern.quote(anchor),-1).length-1;
-        if(count!=2)return null;
+        // Current upstream uses one shared PreviewFrame for all preview states.
+        if(count!=1&&count!=2)return null;
         return source.replace(anchor,anchor+" \"data-native-file-toolbar\": true,");
     }
     private static String once(String source,String before,String after) {

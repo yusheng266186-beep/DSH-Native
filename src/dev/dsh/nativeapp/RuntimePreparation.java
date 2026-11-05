@@ -22,7 +22,7 @@ final class RuntimePreparation {
             if (!(parsed instanceof Map)) throw new IllegalArgumentException("port contract");
             Map<?, ?> value = (Map<?, ?>) parsed;
             if (!Double.valueOf(1).equals(value.get("schema")) || !Double.valueOf(1).equals(value.get("port"))
-                    || !"0.2.1-rc.3".equals(value.get("core"))) throw new IllegalArgumentException("port revision");
+                    || !("0.2.1-rc.3".equals(value.get("core")) || "0.2.2-rc.1".equals(value.get("core")))) throw new IllegalArgumentException("port revision");
         } catch (IllegalArgumentException error) { throw new IOException("运行包 Android 适配版本不匹配，请重新更新运行包", error); }
     }
     /** Offline upgrade/rollback can retain the already adapted 1.0 runtime, without rewriting it. */

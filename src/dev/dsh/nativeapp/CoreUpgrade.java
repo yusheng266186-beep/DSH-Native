@@ -3,7 +3,7 @@ package dev.dsh.nativeapp;
 import java.io.File;
 import java.io.IOException;
 
-/** Compatibility for an existing installation upgraded to the rc.3 runtime. */
+/** Android compatibility for the pinned upstream runtime. */
 final class CoreUpgrade {
     private CoreUpgrade() { }
 
@@ -36,8 +36,12 @@ final class CoreUpgrade {
         String out = source;
         if (out.contains("/* dsh-native-codebuddy-auth-v1 */"))
             out = once(out, previous, "headers: requestHeaders(profile.headers) " + marker);
-        else if (!out.contains(marker)) out = once(out, "headers: requestHeaders(profile.headers)",
-                "headers: requestHeaders(profile.headers) " + marker);
+        else if (!out.contains(marker)) {
+            String headers = out.contains("headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders)")
+                    ? "headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders)"
+                    : "headers: requestHeaders(profile.headers)";
+            out = once(out, headers, headers + " " + marker);
+        }
         if (out == null || out.contains("/* dsh-native-codebuddy-cli-v1 */")) return out;
         String anchor = "const iterator = toStreamChunks(snapshot.models.streamSimple(model, context, {";
         return once(out,anchor,"/* dsh-native-codebuddy-cli-v1 */\n"

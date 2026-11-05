@@ -60,7 +60,11 @@ public final class AndroidRuntimePort {
         module("dsh-client-ui-layout", "client.js", MobileLayout::patchLayoutModule);
         module("dsh-client-ui-model-selection", "client.js", ModelEffortUi::patch);
         module("dsh-attachment-local", "index.js", AttachmentPort::apply);
-        adapt("node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html", source -> MobileLayout.patchHtml(source, 480));
+        adapt("node_modules/@deepseek-ai/dsh-web-frontend/dist/index.html", source -> {
+            String marker = "<meta name=\"dsh-mobile-layout\" content=\"upstream\" />";
+            if (!source.contains(marker)) source = source.replace("</head>", marker + "\n</head>");
+            return MobileLayout.patchHtml(source, 480);
+        });
         Path sharp = runtime.resolve("node_modules/sharp");
         if (!Files.isDirectory(sharp)) throw new IOException("Missing sharp module");
         publish(sharp.resolve("index.js"), helper("sharp-android.js"));
@@ -83,7 +87,7 @@ public final class AndroidRuntimePort {
             contract.append(relative).append('\t').append(hash).append('\n');
         }
         publish(runtime.resolve("android-runtime-files.tsv"), contract.toString());
-        publish(runtime.resolve("android-runtime.json"), "{\"schema\":1,\"port\":1,\"core\":\"0.2.1-rc.3\",\"adapters\":" + checked + "}\n");
+        publish(runtime.resolve("android-runtime.json"), "{\"schema\":1,\"port\":1,\"core\":\"0.2.2-rc.1\",\"adapters\":" + checked + "}\n");
         System.out.println("Android runtime: " + checked + " build-time adapters verified twice; sharp/Pillow installed");
     }
     private void publish(Path path, String content) throws IOException {

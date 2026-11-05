@@ -81,7 +81,7 @@ def build(archive, manifest_path, output, runtime):
     obsolete = 'node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js.dshorig'
     part['remove'] = sorted(set(part.get('remove', [])) | {obsolete})
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    (output / 'BUILD-INFO.txt').write_text('Android runtime port revision 1\nDSH 0.2.1-rc.3\n'
+    (output / 'BUILD-INFO.txt').write_text(f'Android runtime port revision 1\nDSH {pin["core"]}\n'
                                         f'Base: {pin["base_payload"]}\nBase archive SHA-256: {pin["base_archive_sha256"]}\n'
                                         '19 adapters verified for idempotence; Pillow image adapter included.\n'
                                         'Node, SDK and all four tool shards unchanged.\n')

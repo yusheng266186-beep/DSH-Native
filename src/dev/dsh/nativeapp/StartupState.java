@@ -61,7 +61,7 @@ final class StartupState {
         return t * t * (3f - 2f * t);
     }
 
-    /** The launcher is mounted only after the core UI shell is available. No text is inspected. */
+    /** Verify a usable upstream shell, including its collapsed mobile drawer. */
     static String script(long generation) {
         return "(function(){var generation=" + generation + ";"
                 + "if(window.__dshStartupPaint&&window.__dshStartupPaint.generation===generation)return;"
@@ -73,8 +73,10 @@ final class StartupState {
                 + "function schedule(){if(stopped||queued||document.visibilityState==='hidden')return;queued=true;requestAnimationFrame(function(){queued=false;check();});}"
                 + "function check(){if(stopped||document.visibilityState==='hidden')return;var el=document.querySelector('[data-slot=\"settings.launcher\"]');"
                 // Slot wrappers use display:contents and have no rectangle of their own.
-                + "if(!el)return;if(!visible(el)){var controls=el.querySelectorAll('button,[role=\"button\"]');"
-                + "el=null;for(var i=0;i<controls.length;i++)if(visible(controls[i])){el=controls[i];break;}}if(!el)return;"
+                + "if(el&&!visible(el)){var controls=el.querySelectorAll('button,[role=\"button\"]');"
+                + "el=null;for(var i=0;i<controls.length;i++)if(visible(controls[i])){el=controls[i];break;}}"
+                + "if(!el){var leading=document.querySelector('[data-slot=\"shell.leading\"]');if(leading){var buttons=leading.querySelectorAll('button,[role=\"button\"]');"
+                + "for(var k=0;k<buttons.length;k++)if(visible(buttons[k])){el=buttons[k];break;}}}if(!el)return;"
                 + "var surface=document.querySelector('[data-composer-input]');if(!visible(surface)){"
                 + "var dialogs=document.querySelectorAll('[role=dialog]');surface=null;"
                 + "for(var j=0;j<dialogs.length&&j<8;j++)if(visible(dialogs[j])){surface=dialogs[j];break;}if(!surface)return;}"

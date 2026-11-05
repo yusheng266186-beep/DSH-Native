@@ -22,6 +22,7 @@ final class MobileLayout {
     /** Keep narrow panel navigation from leaving a 280px sidebar beside the page. */
     static String patchLayoutModule(String source) {
         if (source == null) return null;
+        if (source.contains("if (d.layoutInfo.viewportWidth < 768) d.layoutInfo.narrowExpanded = false;")) return source;
         String anchor = "d.panelInfo.activePanelId = panelId;";
         String applied = anchor + "\n\t\t\t\t\t\tif (d.layoutInfo.viewportWidth < 1024) d.layoutInfo.narrowExpanded = false;";
         if (source.contains(applied)) return source;
@@ -53,12 +54,14 @@ final class MobileLayout {
     /** 给 DSH 的 index.html 写入可重复应用的 viewport 与移动端 CSS。 */
     static String patchHtml(String html, int viewportWidth) {
         if (html == null) return null;
+        boolean upstreamMobile = html.contains("name=\"dsh-mobile-layout\" content=\"upstream\"");
         Matcher matcher = VIEWPORT.matcher(html);
         if (!matcher.find()) return null;
         // 不锁死 initial-scale=1。窄屏使用 480 CSS px 时，强制 1:1 会让页面
         // 超出物理屏幕，用户每次进入都得手动缩小；交给 WebView 的 overview
         // 模式计算 fit-to-width 初始比例，同时仍保留双指缩放。
-        String viewport = "content=\"width=" + viewportWidth + "\"";
+        String viewport = upstreamMobile ? "content=\"width=device-width, initial-scale=1\""
+                : "content=\"width=" + viewportWidth + "\"";
         String out = matcher.replaceFirst(Matcher.quoteReplacement(viewport));
 
         String style = STYLE_OPEN
@@ -109,6 +112,9 @@ final class MobileLayout {
                 + "}"
                 + STYLE_CLOSE;
 
+        // Upstream 0.2.2 owns mobile geometry, settings navigation, menus and
+        // reduced motion. Do not apply the legacy layout override to this core.
+        if (upstreamMobile) style = STYLE_OPEN + "html{-webkit-text-size-adjust:100%;}" + STYLE_CLOSE;
         int oldStart = out.indexOf(STYLE_OPEN);
         if (oldStart >= 0) {
             int oldEnd = out.indexOf(STYLE_CLOSE, oldStart);

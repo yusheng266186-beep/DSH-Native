@@ -44,7 +44,7 @@ try{
   await page.route(origin+'/',async route=>{const response=await route.fetch();const html=preparedFrontend(await response.text(),mobile,scenario.w);await route.fulfill({response,body:html});});
   await page.addInitScript(()=>{Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});window.__fixtureSockets=[];const Native=window.WebSocket;window.WebSocket=class extends Native{constructor(...args){super(...args);window.__fixtureSockets.push(this);}};window.__DSH_CONNECTION_RECOVERY__={backoffBaseMs:5000,backoffMaxMs:5000};});
   page.on('console',m=>{if(process.env.DSH_SETTINGS_LAYOUT_PROBE&&m.text().startsWith('[dsh-native] layout-probe '))console.log(m.text());});
-  await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"]').waitFor();
+  await page.goto(origin+'/');await page.locator('[data-slot="settings.launcher"] button:visible,[data-slot="shell.leading"] button:visible').first().waitFor();
   // Stress layout with enlarged text in the real settings tree. This is a CSS
   // boundary approximation, not an Android WebView textZoom/device measurement.
   if(scenario.largeText)await page.addStyleTag({content:'[data-shortcut-modal="settings"][role="dialog"] :is(button,input,textarea,label,p,h2,h3,h4,span){font-size:21px;line-height:1.5}'});

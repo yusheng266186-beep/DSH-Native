@@ -47,7 +47,7 @@ try {
  await context.grantPermissions(['local-network-access'],{origin:new URL(warm.url).origin});
  const page=await context.newPage(),messages=[];page.on('console',message=>{if(message.text().startsWith('[dsh-startup]'))messages.push(message.text());});
  await page.goto(warm.url);await page.evaluate(script);await page.waitForFunction(()=>window.__dshLocalConnectionState==='connected');
- try { await page.waitForFunction(()=>document.querySelector('[data-slot="settings.launcher"] button')?.getClientRects().length,{},{timeout:10000}); }
+ try { await page.waitForFunction(()=>[...document.querySelectorAll('[data-slot="settings.launcher"] button,[data-slot="shell.leading"] button')].some(button=>button.getClientRects().length),{},{timeout:10000}); }
  catch(error) {
   console.log('Startup shell anchors',await page.locator('body').evaluate(el=>[...el.querySelectorAll('[data-slot],[role],h1,h2')].map(node=>({tag:node.tagName,slot:node.getAttribute('data-slot'),role:node.getAttribute('role'),visible:!!node.getClientRects().length}))));
   if(process.env.DSH_STARTUP_EVIDENCE)await page.screenshot({path:process.env.DSH_STARTUP_EVIDENCE});throw error;

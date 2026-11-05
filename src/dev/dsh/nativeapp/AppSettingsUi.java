@@ -25,7 +25,11 @@ final class AppSettingsUi {
             }
         }
         out = out.replace("\n            androidInstallAppSettings(ctx);", "");
-        if (!out.contains("children: androidSettingsNavigation(rows, active, onSelect)")) {
+        // The new native settings shell supplies its own narrow navigation and
+        // plugin icons. Older cores need the legacy dropdown only.
+        boolean upstreamNavigation = out.contains("renderSlot(\"settings.section.icon\"")
+                && out.contains("SettingsRoot_module_css_default.navTitle");
+        if (!upstreamNavigation && !out.contains("children: androidSettingsNavigation(rows, active, onSelect)")) {
             String start = "children: rows.map((row) =>";
             int begin = out.indexOf(start), end = begin < 0 ? -1 : out.indexOf("}, row.id))",begin);
             if (begin < 0 || end < 0 || out.indexOf(start,begin+start.length()) >= 0) return null;
