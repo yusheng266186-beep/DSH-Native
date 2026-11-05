@@ -563,6 +563,7 @@ if ! python3 tests/check_native_theme.py; then rc=1; fi
 if ! python3 tests/check_startup.py; then rc=1; fi
 if ! python3 tests/check_whale_shape.py; then rc=1; fi
 if ! python3 tests/check_startup_runtime.py; then rc=1; fi
+if ! python3 tests/check_first_config.py; then rc=1; fi
 if ! python3 tests/check_startup_maintenance.py; then rc=1; fi
 if ! python3 tests/check_native_voice.py; then rc=1; fi
 if ! python3 tests/check_native_bridge.py; then rc=1; fi

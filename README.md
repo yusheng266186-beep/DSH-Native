@@ -1,7 +1,7 @@
 # DSH Native · Android 上的 DeepSeek Harness
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.3.0**；源码：**1.3.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.3.0**；源码：**1.3.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](docs/STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 [中文](README.md) · [English](README.en.md) · [文档中心](docs/README.md) · [项目状态](docs/STATUS.md)
@@ -265,7 +265,7 @@ python3 scripts/sync_project_metadata.py --docs-only --check
 | `docs/` | 当前指南、统一进度、交接、历史阶段和研究记录 |
 | `release-notes/` | 不同 App / payload 版本的独立变更说明 |
 
-从 [文档中心](docs/README.md) 开始；开发前阅读 [AGENTS.md](AGENTS.md)、[交接说明](docs/HANDOVER.md) 与 [踩坑记录](docs/GOTCHAS.md)。
+从 [文档中心](docs/README.md) 开始；开发前阅读 [AGENTS.md](AGENTS.md)、[交接说明](docs/HANDOVER.md) 与 [踩坑记录](docs/GOTCHAS.md)。[CodeBuddy 直连测速与首次配置修复](docs/PERFORMANCE_2026_11_05.md) 记录了模拟器成绩与真机验证边界。
 
 ## 已知限制与来源
 

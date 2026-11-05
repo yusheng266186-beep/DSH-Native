@@ -1,7 +1,7 @@
 # CodeBuddy CLI 接入
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.3.0**；源码：**1.3.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.3.0**；源码：**1.3.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 0.40.0 在 APK 内置官方 `@tencent-ai/agent-sdk` 0.3.291 和它随附的 CodeBuddy CLI 2.176.0。手机直接运行，无需电脑或另外安装 Termux。现有 `CODEBUDDY_API_KEY` 继续从 DSH 凭据解析，不需要重新导入。
@@ -25,6 +25,8 @@ SDK 的内置工具全部禁用，个人/项目设置源、额外 MCP 配置和 
 SDK 私有状态位于 App 私有 `.codebuddy-home`，不能通过文件分享或外部编辑导出，也不进入诊断 ZIP。验证中未发现 Key 写入该目录；Key 通过私有 stdin 或 SDK 子进程环境传入，不进入命令行、普通日志、Git 或 Release。
 
 ## 缓存统计口径（0.40.2）
+
+测速排查读取运行日志的 `[dsh-perf] codebuddy`。1.3.1 增加末次文本/思考增量时间 `last`、CLI 结果时间 `result`、增量/字符计数及 `outputMs` / `tailMs`，区分适配层收到输出的跨度与结束处理。它们不含正文或凭据，也不修改聊天页的累计速度。实际直连测试及限制见 [测速记录](PERFORMANCE_2026_11_05.md)。
 
 固定 CLI 2.176.0 默认通道的 stream-json message/result 中，`input_tokens` 是包含缓存的输入总量；虽然字段形状接近 Anthropic Usage，不能直接作为 DSH 的未缓存输入。SDK 的 `modelUsage` 则已把 `inputTokens` 归一化为未缓存值。普通成功结果优先累加其完整四桶记录；工具请求在收到 result 前交回 DSH，因此用总输入减缓存读写，保留所有已报告 token。新增 `totalTokens` 是不重叠的输入、输出、缓存读写之和。未报告的缓存字段在适配层保持缺省，不补造缓存零值。
 

@@ -2261,7 +2261,7 @@ public class MainActivity extends Activity {
         // 表现为「每次打开应用都要重新更新模型列表」。已导入过就不再重建。
         File importedSettings = new File(dshHome, "settings.yaml.imported");
         if (ModelCatalogPersistence.shouldSkipPresetInjection(
-                settings.isFile(), readText(importedSettings))) {
+                settings.isFile(), importedSettings.isFile() ? readText(importedSettings) : null)) {
             log("  模型目录已导入过（settings.yaml.imported），跳过预置覆盖");
         } else if (preset.exists()) {
             java.util.List<String> added = mergeTopLevelBlocks(readText(preset), settings);
@@ -6978,7 +6978,7 @@ public class MainActivity extends Activity {
         log("=== DSH Native 启动日志 ===");
         log("时间: " + new java.util.Date());
         log("设备: " + android.os.Build.MODEL + " / Android " + android.os.Build.VERSION.RELEASE);
-        log("APK 版本: 1.3.0");
+        log("APK 版本: 1.3.1");
     }
 
     /** 清理旧版遗留在共享存储里的常驻日志，避免历史密钥继续明文暴露。 */
