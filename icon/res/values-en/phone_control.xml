@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phone_control_description">After you manually start a session, your selected model can read the current screen, tap, type, swipe and request screenshots. Use the floating controls to pause or stop. Locking stops control. Handle passwords and system permissions manually.</string>
+</resources>

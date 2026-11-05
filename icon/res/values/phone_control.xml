@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phone_control_description">在你手动开始后，允许所选模型读取当前屏幕、点击、输入、滑动和请求截图。浮动按钮可暂停或停止；锁屏后停止。密码与系统授权需手动处理。</string>
+</resources>

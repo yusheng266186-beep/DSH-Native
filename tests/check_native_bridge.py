@@ -121,13 +121,25 @@ STUBS['android/app/Activity.java']=STUBS['android/app/Activity.java'].replace('p
 STUBS['android/app/Activity.java']=STUBS['android/app/Activity.java'].replace('public void startActivityForResult(Intent intent,int request){', 'public Runnable captureHook;public void startActivityForResult(Intent intent,int request){if(captureHook!=null)captureHook.run();')
 STUBS['android/content/ClipboardManager.java']=STUBS['android/content/ClipboardManager.java'].replace('public ClipData value;', 'public ClipData value;public RuntimeException failure;').replace('this.value=value;writes++;','if(failure!=null)throw failure;this.value=value;writes++;').replace('reads++;return value;', 'if(failure!=null)throw failure;reads++;return value;')
 STUBS['android/app/NotificationManager.java']=STUBS['android/app/NotificationManager.java'].replace('public int count,lastId;', 'public int count,lastId;public RuntimeException failure;').replace('lastId=id;count++;', 'if(failure!=null)throw failure;lastId=id;count++;')
+STUBS['dev/dsh/nativeapp/PhoneAccessibilityService.java'] = '''package dev.dsh.nativeapp;
+import java.io.File;
+import java.util.Map;
+final class PhoneAccessibilityService {
+    static Map<String, Object> status() { return NativeBridgePolicy.object("enabled", false); }
+    static void stopByUser() {}
+    static Object execute(Map<?, ?> command, File root) throws NativeBridgeServer.Failure {
+        if ("phone.status".equals(command.get("method"))) return status();
+        throw new NativeBridgeServer.Failure("ACCESSIBILITY_REQUIRED", "Synthetic Android service boundary");
+    }
+}'''
+
 def run():
     with tempfile.TemporaryDirectory(prefix='dsh-native-actions-') as directory:
         root=pathlib.Path(directory)
         for name,text in STUBS.items():
             p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
         compiler=[shutil.which('javac')] if shutil.which('javac') else ['java','-m','jdk.compiler/com.sun.tools.javac.Main']
-        sources=[SOURCE/(name+'.java') for name in ['NativeCaptureService','JsonValue','FileOps','ShareTargets','NativeBridgePolicy','NativeBridgeServer','NativeBridge','NativeScreenCapture']]
+        sources=[SOURCE/(name+'.java') for name in ['NativeCaptureService','JsonValue','FileOps','ShareTargets','NativeBridgePolicy','PhoneControlPolicy','NativeBridgeServer','NativeBridge','NativeScreenCapture']]
         subprocess.run([*compiler,'-encoding','UTF-8','-d',str(root/'classes'),*map(str,[*root.rglob('*.java'),*sources,ROOT/'tests/NativeBridgeAndroidTest.java',ROOT/'tests/NativeCaptureServiceTest.java',ROOT/'tests/NativeActionReliabilityTest.java'])],check=True)
         subprocess.run(['java','-cp',str(root/'classes'),'dev.dsh.nativeapp.NativeBridgeAndroidTest'],check=True)
         subprocess.run(['java','-cp',str(root/'classes'),'dev.dsh.nativeapp.NativeCaptureServiceTest'],check=True)

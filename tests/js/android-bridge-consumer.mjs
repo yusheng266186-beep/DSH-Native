@@ -39,6 +39,11 @@ try{
  const execute=async input=>(await tools.execute({calls:[{type:'tool-call',id:input.callId,name:input.name,arguments:JSON.stringify(input.arguments)}],signal:input.signal})).results[0].result;
  await require(path.join(scratch,'android-tools.cjs')).apply(ctx);
  const tool=tools.get('android');check(!!tool&&tool.parameters.properties.method.enum.includes('screenshot'),'actual tool registry advertises native capabilities');
+ check(tool.parameters.properties.method.enum.includes('phone.tap')&&tool.parameters.properties.x.type==='number','actual tool registry exposes phone actions and numeric coordinates');
+ const tap=await execute({name:'android',arguments:{method:'phone.tap',snapshot:'0011223344556677',x:12,y:30},callId:'phone-tap',signal:new AbortController().signal});
+ check(!tap.isError&&tap.value.method==='phone.tap','actual ToolRuntime routes phone action through Java validation');
+ const stale=await execute({name:'android',arguments:{method:'phone.tap',x:12,y:30},callId:'phone-no-snapshot',signal:new AbortController().signal});
+ check(stale.isError&&JSON.stringify(stale).includes('INVALID_REQUEST'),'actual tool refuses action without snapshot');
  const result=await execute({name:'android',arguments:{method:'clipboard.get'},callId:'native-fixture',signal:new AbortController().signal});
  check(!result.isError&&result.value.text==='synthetic clipboard','actual ToolRuntime consumes real Java bridge response');
  const refused=await execute({name:'android',arguments:{method:'notification.post',title:'test',text:'synthetic'},callId:'native-denied',signal:new AbortController().signal});

@@ -75,6 +75,7 @@ THEME_RES_ID = int(os.environ.get("DSH_THEME_RES_ID", "0x7F040000"), 16)
 SHORTCUTS_RES_ID = int(os.environ.get("DSH_SHORTCUTS_RES_ID", "0x7F050000"), 16)
 NETWORK_SECURITY_CONFIG_RES_ID = int(
     os.environ.get("DSH_NETWORK_SECURITY_CONFIG_RES_ID", "0x7F050001"), 16)
+PHONE_ACCESSIBILITY_RES_ID = int(os.environ.get("DSH_PHONE_ACCESSIBILITY_RES_ID", "0x7F050002"), 16)
 
 # Res_value::dataType
 TYPE_REFERENCE = 0x01
@@ -109,6 +110,7 @@ ATTR_IDS = {
     "label": 0x01010001,
     "icon": 0x01010002,
     "name": 0x01010003,
+    "permission": 0x01010006,
     "foregroundServiceType": 16844185,
     "hasCode": 0x0101000c,
     "exported": 0x01010010,
@@ -176,7 +178,7 @@ def manifest_tree():
               # versionCode 由版本名推导（major*10000+minor*100+patch），
               # 恒为 1 会让系统无法正确判断新旧，影响应用内自更新。
               (A, "versionCode", dec(VERSION_CODE)),
-              (A, "versionName", s("1.2.1"))],
+              (A, "versionName", s("1.3.0"))],
              [
                  E("uses-sdk",
                    [(A, "minSdkVersion", dec(24)),
@@ -266,6 +268,13 @@ def manifest_tree():
                      [(A, "name", s("dev.dsh.nativeapp.NativeCaptureService")),
                       (A, "foregroundServiceType", hx(32)),
                       (A, "exported", boolean(False))], []),
+                   E("service",
+                     [(A, "name", s("dev.dsh.nativeapp.PhoneAccessibilityService")),
+                      (A, "label", s("DSH 手机操控 / Phone control")),
+                      (A, "permission", s("android.permission.BIND_ACCESSIBILITY_SERVICE")),
+                      (A, "exported", boolean(True))],
+                     [E("intent-filter", [], [E("action", [(A, "name", s("android.accessibilityservice.AccessibilityService"))])]),
+                      E("meta-data", [(A, "name", s("android.accessibilityservice")), (A, "resource", ref(PHONE_ACCESSIBILITY_RES_ID))])]),
                    # 更新包以 content:// 交给系统安装器（API 24+ 禁止 file:// 跨应用传递）
                    E("provider",
                      [(A, "name", s("dev.dsh.nativeapp.UpdateProvider")),

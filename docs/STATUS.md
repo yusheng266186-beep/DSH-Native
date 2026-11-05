@@ -1,7 +1,7 @@
 # 项目状态与验证边界
 
 <!-- dsh-doc-status:start -->
-> 现行文档：按当前源码维护。 已发布 stable：**1.2.1**；源码：**1.2.1**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
+> 现行文档：按当前源码维护。 已发布 stable：**1.2.1**；源码：**1.3.0**；源码运行包：`payload-v15`；固定 DSH：`0.2.2-rc.1`（上游候选版）。[统一进度与验证边界](STATUS.md)。
 <!-- dsh-doc-status:end -->
 
 本页是当前进度的统一入口。生成表来自实际发布清单、源码和固定内核信息；它不会把尚未发布的源码冒充正式版本，也不会把旧测试版改写成新稳定版。
@@ -16,13 +16,17 @@
 | 稳定运行包 | `payload-v15` · 压缩总量 141.8 MiB |
 | APK SHA-256 | `c7760a972f3809619b689114106b59757363c27dfc0168c46f83a23531dcbbea` |
 | 已发布测试版 | `0.26.0` · `v0.26.0-test` · `payload-v9`；独立保留，不冒充新版 |
-| 当前源码版本 | `1.2.1` · `scripts/mkmanifest.py` / `MainActivity.java` |
+| 当前源码版本 | `1.3.0` · `scripts/mkmanifest.py` / `MainActivity.java` |
 | 源码运行包 | `payload-v15` · `MainActivity.java` |
 | 固定内核 | DSH `0.2.2-rc.1`（上游候选版）· `runtime/core-source.json` |
 | Android 架构 | minSdk 24 · targetSdk 28 · ARM64 · 包名 `dev.dsh.native` |
 <!-- dsh-release-facts:end -->
 
 源码高于 stable 时表示下一版正在准备。README 顶部下载始终指向已发布正式版；每轮用户修改完成后按约定递增版本，通过完整 Android CI，再走正式发布流程。
+
+## 1.3.0 无障碍手机操控
+
+在「数据与扩展」添加手机操控。用户通过系统启用无障碍服务，在 App 确认本次授权后可从 DSH 聊天请求读屏、打开应用、点按、输入、滑动与截图。浮动控件提供暂停和停止。窗口切换、滚动或旋转后重新观察。自动回归覆盖授权状态、工具参数及本机桥接，真机手势和 ROM 行为待实测。详见 [原生能力](ANDROID_BRIDGE.md)。
 
 ## 1.2.1 运行包更新失败修复
 

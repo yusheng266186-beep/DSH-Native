@@ -106,6 +106,8 @@ cat > "$OUT/res_manifest.xml" <<'XEOF'
         </activity>
         <meta-data android:name="dsh.network_security_config"
             android:resource="@xml/network_security_config"/>
+        <meta-data android:name="dsh.phone_accessibility"
+            android:resource="@xml/phone_accessibility"/>
     </application>
 </manifest>
 XEOF
@@ -124,6 +126,8 @@ SHORTCUTS_RES_ID=$(awk '$2=="xml" && $3=="shortcuts"{print $4}' "$OUT/symbols.tx
 [ -n "$SHORTCUTS_RES_ID" ] || die "未能取得 shortcuts 资源 id"
 NETWORK_SECURITY_CONFIG_RES_ID=$(awk '$2=="xml" && $3=="network_security_config"{print $4}' "$OUT/symbols.txt")
 [ -n "$NETWORK_SECURITY_CONFIG_RES_ID" ] || die "未能取得 network_security_config 资源 id"
+PHONE_ACCESSIBILITY_RES_ID=$(awk '$2=="xml" && $3=="phone_accessibility"{print $4}' "$OUT/symbols.txt")
+[ -n "$PHONE_ACCESSIBILITY_RES_ID" ] || die "未能取得 phone_accessibility 资源 id"
 echo "  ic_launcher = $ICON_RES_ID    AppTheme = $THEME_RES_ID"
 echo "  shortcuts = $SHORTCUTS_RES_ID    network_security_config = $NETWORK_SECURITY_CONFIG_RES_ID"
 
@@ -149,6 +153,7 @@ say "3. 生成二进制 AndroidManifest.xml"
 DSH_ICON_RES_ID="$ICON_RES_ID" DSH_THEME_RES_ID="$THEME_RES_ID" \
   DSH_SHORTCUTS_RES_ID="$SHORTCUTS_RES_ID" \
   DSH_NETWORK_SECURITY_CONFIG_RES_ID="$NETWORK_SECURITY_CONFIG_RES_ID" \
+  DSH_PHONE_ACCESSIBILITY_RES_ID="$PHONE_ACCESSIBILITY_RES_ID" \
   python3 "$BUILD/mkmanifest.py" "$OUT/AndroidManifest.xml" || die "清单生成失败"
 echo "  $(bytes "$OUT/AndroidManifest.xml") 字节（图标/主题 id 已注入）"
 
@@ -185,7 +190,7 @@ PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/LayoutProbe.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/FileActionsUi.java bootstrap/src/dev/dsh/nativeapp/ModelConfig.java bootstrap/src/dev/dsh/nativeapp/CodeBuddyCatalog.java bootstrap/src/dev/dsh/nativeapp/ModelReasoning.java bootstrap/src/dev/dsh/nativeapp/ModelCatalogSync.java bootstrap/src/dev/dsh/nativeapp/LocalServerProbe.java bootstrap/src/dev/dsh/nativeapp/ProviderCheck.java bootstrap/src/dev/dsh/nativeapp/LiveModelCatalog.java bootstrap/src/dev/dsh/nativeapp/ProjectModelSettings.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/SessionPersistencePatch.java bootstrap/src/dev/dsh/nativeapp/AccountUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsUi.java bootstrap/src/dev/dsh/nativeapp/AppSettingsCommands.java bootstrap/src/dev/dsh/nativeapp/WebSettingsProtocol.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/StartupState.java bootstrap/src/dev/dsh/nativeapp/StartupReuse.java"
-PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/NativeBridgePolicy.java bootstrap/src/dev/dsh/nativeapp/NativeBridgeServer.java bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
+PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/PhoneControlPolicy.java bootstrap/src/dev/dsh/nativeapp/PhoneControlSession.java bootstrap/src/dev/dsh/nativeapp/NativeBridgePolicy.java bootstrap/src/dev/dsh/nativeapp/NativeBridgeServer.java bootstrap/src/dev/dsh/nativeapp/CoreTaskState.java bootstrap/src/dev/dsh/nativeapp/VoiceUi.java bootstrap/src/dev/dsh/nativeapp/VoiceStartGate.java bootstrap/src/dev/dsh/nativeapp/FsWritePatch.java bootstrap/src/dev/dsh/nativeapp/ToolEnvironment.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/ReleaseDownloader.java bootstrap/src/dev/dsh/nativeapp/PayloadDownloads.java"
 PURE_FILES="$PURE_FILES bootstrap/src/dev/dsh/nativeapp/WhaleShape.java"
 for f in $PURE_FILES; do

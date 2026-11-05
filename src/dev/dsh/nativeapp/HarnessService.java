@@ -95,6 +95,7 @@ public class HarnessService extends Service {
     /** 接管并持续读取一个新启动的 Node 进程。 */
     public static synchronized void adoptProcess(final Process process) {
         if (PROCESS.current() == process) return;
+        PhoneAccessibilityService.stop("core-restarted");
         PROCESS.adopt(process);
         managedUrl = null;
         Thread output = new Thread(new Runnable() {
@@ -157,11 +158,13 @@ public class HarnessService extends Service {
 
     /** 供设置页重启使用：只停进程，不关闭 Activity。 */
     public static boolean stopManagedProcess() {
+        PhoneAccessibilityService.stop("core-stopped");
         managedUrl = null;
         return PROCESS.stop();
     }
 
     public static boolean stopManagedProcessAndWait(long timeoutMs) {
+        PhoneAccessibilityService.stop("core-stopped");
         boolean stopped = PROCESS.stopAndWait(timeoutMs);
         if (stopped) synchronized (HarnessService.class) {
             if (PROCESS.current() == null) managedUrl = null;

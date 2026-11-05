@@ -20,6 +20,8 @@ public class NativeBridgeAndroidTest {
    service.clipboard.value=ClipData.newRawUri("synthetic",android.net.Uri.parse("content://private"));
    check(Boolean.FALSE.equals(call(bridge,"clipboard.get").get("hasText")),"URI clipboard never coerces unrelated private data");
    ui.ready=false;int before=service.clipboard.reads;
+   check(Boolean.FALSE.equals(call(bridge,"phone.status").get("enabled")),"phone status works without foreground and starts off");
+   denied(bridge,"phone.observe","ACCESSIBILITY_REQUIRED");
    denied(bridge,"clipboard.get","FOREGROUND_REQUIRED");denied(bridge,"clipboard.set","FOREGROUND_REQUIRED","text","blocked");
    check(service.clipboard.reads==before,"background clipboard never accessed");
    check(Boolean.TRUE.equals(call(bridge,"keepalive.status").get("foregroundService")),"background keepalive reports service");

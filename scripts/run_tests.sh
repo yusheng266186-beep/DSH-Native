@@ -90,6 +90,8 @@ SRC="$JAVA_DIR/SettingsNavigation.java
      $JAVA_DIR/CoreTaskState.java
      $JAVA_DIR/VoiceUi.java
      $JAVA_DIR/VoiceStartGate.java
+     $JAVA_DIR/PhoneControlPolicy.java
+     $JAVA_DIR/PhoneControlSession.java
      $JAVA_DIR/NativeBridgePolicy.java
      $JAVA_DIR/NativeBridgeServer.java
      $JAVA_DIR/FsWritePatch.java
@@ -169,6 +171,7 @@ TESTS="tests/PayloadPartInstallerTest.java
        tests/VoiceUiTest.java
        tests/VoiceStartGateTest.java
        tests/NativeBridgeTest.java
+       tests/PhoneControlSessionTest.java
        tests/FsWritePatchTest.java
        tests/ToolEnvironmentTest.java
        tests/SessionPersistencePatchTest.java
@@ -223,7 +226,7 @@ fi
 "${JAVAC[@]}" -encoding UTF-8 -nowarn -d "$OUT" $SRC $TESTS
 
 rc=0
-for extra in PayloadPartInstallerTest PayloadManifestCacheTest WhaleShapeTest PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest FsWritePatchTest ToolEnvironmentTest; do
+for extra in PayloadPartInstallerTest PayloadManifestCacheTest WhaleShapeTest PayloadDownloadsTest ReleaseDownloaderTest AppArchitectureTest StartupStateTest CoreUpgradeTest CoreTaskStateTest VoiceUiTest VoiceStartGateTest NativeBridgeTest PhoneControlSessionTest FsWritePatchTest ToolEnvironmentTest; do
     java -Dfile.encoding=UTF-8 -cp "$OUT" "dev.dsh.nativeapp.$extra"
 done
 seen_tests=" "
