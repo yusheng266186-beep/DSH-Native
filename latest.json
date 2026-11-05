@@ -1,11 +1,11 @@
 {
-  "version": "1.1.6",
-  "tag": "v1.1.6-bootstrap",
+  "version": "1.2.0",
+  "tag": "v1.2.0-bootstrap",
   "apk": "DSHNative-bootstrap.apk",
-  "payload": "payload-v14",
-  "notes": "1.1.6：1M 上下文与更快发布",
-  "apk_bytes": 43459441,
-  "payload_bytes": 150659818,
-  "sha256": "06e8b5cb21cac7474e9cba06fef820af5799f2af6aab747891ad04918cc7e30d",
+  "payload": "payload-v15",
+  "notes": "1.2.0：升级 DSH 0.2.2-rc.1，沿用官方移动端布局",
+  "apk_bytes": 43463537,
+  "payload_bytes": 148657513,
+  "sha256": "c55c40139360c25cc68d759005496625dbbccb502c2de1975d4502110d486da2",
   "channel": "stable"
 }
